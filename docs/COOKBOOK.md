@@ -226,6 +226,9 @@ Use raw JSON helpers for small examples and typed decoding when a host has a
 stable JSON contract. `WorkflowContext::input_as<T>()` decodes workflow input,
 `StepInvocation::input_as<T>()` decodes step input, and
 `WorkflowContext::step_output_as<T>()` decodes durable step output during replay.
+Host inspection code can also decode persisted hook metadata through
+`WorkflowRunSnapshot::hook_metadata_as<T>()`, `HookSnapshot::metadata_as<T>()`,
+and `ActiveHookSnapshot::metadata_as<T>()`.
 
 ```rust
 use serde::{Deserialize, Serialize};
@@ -445,17 +448,23 @@ token, so late callbacks after disposal return `HookTokenNotFound`.
 Webhook routers and approval dashboards can inspect outstanding hooks directly:
 
 ```rust
+use a3s_flow::HookMetadata;
+
 let active_hooks = engine.list_active_hooks().await?;
 for active in active_hooks {
+    let metadata = active.metadata_as::<HookMetadata>()?;
     println!(
-        "{} {} {}",
-        active.run_id, active.hook.hook_id, active.hook.token
+        "{} {} {} {}",
+        active.run_id, active.hook.hook_id, active.hook.token, metadata.kind
     );
 }
 ```
 
 `list_active_hooks()` skips terminal runs even if the terminal snapshot still
-contains an active hook from before cancellation.
+contains an active hook from before cancellation. Use
+`HookSnapshot::metadata_as<T>()`, `ActiveHookSnapshot::metadata_as<T>()`, or
+`WorkflowRunSnapshot::hook_metadata_as<T>()` when routers and dashboards need a
+typed metadata contract instead of raw JSON indexing.
 
 ## Compensation
 

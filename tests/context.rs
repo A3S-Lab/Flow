@@ -121,6 +121,19 @@ async fn workflow_context_drives_step_wait_and_hook_flow() {
     );
     assert_eq!(metadata["labels"]["source"], "context-test");
     assert_eq!(metadata["data"]["user"], "Ada");
+    let typed_metadata = hooked
+        .hook_metadata_as::<HookMetadata>("approval")
+        .unwrap()
+        .expect("approval metadata");
+    assert_eq!(typed_metadata.kind.as_str(), "human_approval");
+    assert_eq!(typed_metadata.subject.as_deref(), Some("user:u1"));
+    assert_eq!(
+        typed_metadata
+            .callback
+            .as_ref()
+            .map(|route| route.path.as_str()),
+        Some("/callbacks/flow/hooks/{token}")
+    );
 
     engine
         .resume_hook(&run_id, "approval", json!({ "approved": true }))

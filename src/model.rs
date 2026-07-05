@@ -514,6 +514,14 @@ pub struct HookSnapshot {
 }
 
 impl HookSnapshot {
+    /// Decode the persisted hook metadata into a host-defined serde type.
+    pub fn metadata_as<T>(&self) -> Result<T>
+    where
+        T: DeserializeOwned,
+    {
+        serde_json::from_value(self.metadata.clone()).map_err(FlowError::from)
+    }
+
     /// Decode the received hook payload into a host-defined serde type.
     pub fn payload_as<T>(&self) -> Result<Option<T>>
     where
@@ -532,6 +540,16 @@ impl HookSnapshot {
 pub struct ActiveHookSnapshot {
     pub run_id: String,
     pub hook: HookSnapshot,
+}
+
+impl ActiveHookSnapshot {
+    /// Decode the active hook metadata into a host-defined serde type.
+    pub fn metadata_as<T>(&self) -> Result<T>
+    where
+        T: DeserializeOwned,
+    {
+        self.hook.metadata_as()
+    }
 }
 
 /// Aggregated run counts for host dashboards and health probes.
@@ -714,6 +732,17 @@ impl WorkflowRunSnapshot {
         self.hooks
             .get(hook_id)
             .and_then(|hook| hook.payload.as_ref())
+    }
+
+    /// Decode persisted hook metadata into a host-defined serde type.
+    pub fn hook_metadata_as<T>(&self, hook_id: &str) -> Result<Option<T>>
+    where
+        T: DeserializeOwned,
+    {
+        match self.hooks.get(hook_id) {
+            Some(hook) => hook.metadata_as().map(Some),
+            None => Ok(None),
+        }
     }
 
     /// Decode a received hook payload into a host-defined serde type.

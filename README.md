@@ -475,7 +475,10 @@ Use `ctx.input()` when a workflow needs the raw JSON value. Use
 `StepInvocation::input_as::<T>()` when the host has a typed input contract and
 wants serde validation at the runtime boundary. Use
 `ctx.step_output_as::<T>()` and `ctx.hook_payload_as::<T>()` when replay should
-fan in typed durable outputs instead of raw JSON.
+fan in typed durable outputs instead of raw JSON. Use snapshot helpers such as
+`snapshot.hook_metadata_as::<T>()`, `hook.metadata_as::<T>()`, and
+`active_hook.metadata_as::<T>()` when host dashboards or callback routers need a
+typed view of persisted hook metadata.
 
 ### Step retries
 
@@ -595,10 +598,13 @@ Callback routers and dashboards can list outstanding hooks without scanning
 snapshots themselves:
 
 ```rust
+use a3s_flow::HookMetadata;
+
 for active in engine.list_active_hooks().await? {
+    let metadata = active.metadata_as::<HookMetadata>()?;
     println!(
-        "run={} hook={} token={}",
-        active.run_id, active.hook.hook_id, active.hook.token
+        "run={} hook={} token={} kind={}",
+        active.run_id, active.hook.hook_id, active.hook.token, metadata.kind
     );
 }
 ```
@@ -881,12 +887,12 @@ complete local audit flow.
 | `WorkflowSpec` | Durable workflow identity and runtime metadata |
 | `FlowEvent` | Event-sourced run, step, wait, and hook mutation |
 | `FlowEventEnvelope` | Persisted event with run ID, sequence, event ID, and timestamp |
-| `ActiveHookSnapshot` | Host-facing active hook record with owning run ID and hook metadata |
+| `ActiveHookSnapshot` | Host-facing active hook record with owning run ID and typed metadata decoding |
 | `WorkflowRunSnapshot` | Projected run state with typed input, output, step output, and hook payload decoding helpers |
 | `WorkflowRunSummary` | Aggregated status and actionable suspension counts for dashboards and health probes |
 | `WorkflowRunSuspension` | Projected open wait, hook, or delayed retry record with stable run/subject, due, and scheduled-at helpers |
 | `StepSnapshot` | Projected step state with typed output decoding |
-| `HookSnapshot` | Projected hook state with typed payload decoding |
+| `HookSnapshot` | Projected hook state with typed metadata and payload decoding |
 | `HookMetadata` | Typed helper for common hook audit, label, data, and callback-route metadata |
 | `HookCallbackRoute` | Typed HTTP method/path metadata for external hook callback routes |
 | `FlowEventStore` | Append-only event persistence trait with expected-sequence writes |

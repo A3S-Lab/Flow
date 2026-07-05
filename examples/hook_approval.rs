@@ -58,7 +58,22 @@ async fn main() -> a3s_flow::Result<()> {
         .await?;
     let waiting = engine.snapshot(&run_id).await?;
     assert_eq!(waiting.hooks["approval"].status, HookStatus::Active);
+    let approval_metadata = waiting
+        .hook_metadata_as::<HookMetadata>("approval")?
+        .expect("approval metadata");
+    assert_eq!(
+        approval_metadata.subject.as_deref(),
+        Some("invoice:inv-0001")
+    );
     println!("waiting_for_token={}", waiting.hooks["approval"].token);
+    println!(
+        "callback_route={}",
+        approval_metadata
+            .callback
+            .as_ref()
+            .map(|route| route.path.as_str())
+            .unwrap_or("none")
+    );
 
     let (resumed_run_id, hook_id) = engine
         .resume_hook_by_token(

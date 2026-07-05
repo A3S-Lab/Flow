@@ -4,10 +4,11 @@ use a3s_flow::PostgresEventStore;
 use a3s_flow::SqliteEventStore;
 use a3s_flow::{
     A3sFlowEventBridge, FanoutFlowEventObserver, FlowEngine, FlowError, FlowEvent,
-    FlowEventEnvelope, FlowEventStore, FlowRuntime, HookStatus, InMemoryA3sFlowEventSink,
-    InMemoryEventStore, InMemoryFlowEventObserver, LocalFileA3sFlowEventSink, LocalFileEventStore,
-    RetryPolicy, RuntimeCommand, StepFailureAction, StepInvocation, StepStatus, WaitStatus,
-    WorkflowInvocation, WorkflowRunStatus, WorkflowRunSummary, WorkflowRunSuspension, WorkflowSpec,
+    FlowEventEnvelope, FlowEventStore, FlowRuntime, HookMetadata, HookStatus,
+    InMemoryA3sFlowEventSink, InMemoryEventStore, InMemoryFlowEventObserver,
+    LocalFileA3sFlowEventSink, LocalFileEventStore, RetryPolicy, RuntimeCommand, StepFailureAction,
+    StepInvocation, StepStatus, WaitStatus, WorkflowInvocation, WorkflowRunStatus,
+    WorkflowRunSummary, WorkflowRunSuspension, WorkflowSpec,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
@@ -1466,6 +1467,9 @@ async fn list_active_hooks_reports_only_open_non_terminal_hooks() {
     );
     assert_eq!(active[0].hook.token, "token-a");
     assert_eq!(active[0].hook.metadata["kind"], "human_review");
+    let active_metadata = active[0].metadata_as::<HookMetadata>().unwrap();
+    assert_eq!(active_metadata.kind.as_str(), "human_review");
+    assert_eq!(active_metadata.subject, None);
 
     engine
         .cancel(&cancelled_run_id, Some("callback route closed".to_string()))
