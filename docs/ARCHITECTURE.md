@@ -33,7 +33,7 @@ Event store layer
           |
           v
 Dispatch layer
-  FlowTask, FlowWorker, FlowScheduler, local durable task queue
+  FlowTask, FlowWorker, FlowScheduler, local and Postgres durable task queues
 ```
 
 ## Durable Execution Model
@@ -97,6 +97,23 @@ takes a transaction-scoped advisory lock per run before expected-sequence
 appends, so multiple workers can preserve per-run event order while sharing one
 database.
 
+## Dispatch And Leasing
+
+`FlowTaskQueue` separates dispatch durability from workflow event durability.
+Workers lease a task, handle it against `FlowEngine`, and acknowledge the lease
+only after successful handling. If handling fails, the task remains inflight so
+the host can requeue or dead-letter it according to its lease policy.
+
+`LocalFileFlowTaskQueue` stores one JSON task file per pending or inflight task.
+It serializes access inside one process and is intended for local
+crash/restart recovery.
+
+`PostgresFlowTaskQueue` stores pending, inflight, and dead-letter records in
+Postgres tables scoped by `queue_name`. Leasing uses `FOR UPDATE SKIP LOCKED`,
+so multiple workers can lease concurrently without taking the same task.
+Requeue and dead-letter operations use `leased_at_nanos` cutoffs to implement
+host-defined visibility timeout policies.
+
 ## Native Runtime Boundary
 
 `NativeTsRuntime` intentionally depends on a process boundary first:
@@ -136,8 +153,9 @@ crates directly.
 
 ## Next Components
 
-- Database-backed `FlowTaskQueue` with lease timeouts.
 - Additional production sinks for `A3sFlowEventBridge`, such as A3S Observer,
   OpenTelemetry, or hosted audit streams.
+- Additional task queue adapters when concrete deployments need a backend other
+  than Postgres.
 - Native runtime compile diagnostics and build-time validation for unsupported
   workflow APIs.

@@ -1,3 +1,5 @@
+#[cfg(feature = "postgres")]
+use a3s_flow::PostgresFlowTaskQueue;
 use a3s_flow::{
     FlowEngine, FlowError, FlowRuntime, FlowTask, FlowTaskQueue, FlowWorker, HookStatus,
     InMemoryFlowTaskQueue, LocalFileFlowTaskQueue, RetryPolicy, RuntimeCommand, StepInvocation,
@@ -9,9 +11,18 @@ use serde_json::json;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+#[cfg(feature = "postgres")]
+use uuid::Uuid;
 
 fn spec() -> WorkflowSpec {
     WorkflowSpec::rust_embedded("worker.workflow", "0.1.0", "tests::worker", "main")
+}
+
+#[cfg(feature = "postgres")]
+fn postgres_url_from_env() -> Option<String> {
+    std::env::var("A3S_FLOW_POSTGRES_URL")
+        .ok()
+        .filter(|url| !url.trim().is_empty())
 }
 
 fn completed_wait(invocation: &WorkflowInvocation, wait_id: &str) -> bool {
@@ -479,6 +490,118 @@ async fn local_file_task_queue_drives_worker_after_restart() {
         vec![(run_id.clone(), "sleep".to_string())]
     );
     assert!(queue.is_empty().await.unwrap());
+
+    let snapshot = engine.snapshot(&run_id).await.unwrap();
+    assert_eq!(snapshot.status, WorkflowRunStatus::Completed);
+}
+
+#[cfg(feature = "postgres")]
+#[tokio::test]
+async fn postgres_task_queue_leases_requeues_and_dead_letters_when_url_is_configured() {
+    let Some(url) = postgres_url_from_env() else {
+        eprintln!("skipping postgres queue integration test; set A3S_FLOW_POSTGRES_URL");
+        return;
+    };
+    let queue_name = format!("test-queue-{}", Uuid::new_v4());
+    let queue = PostgresFlowTaskQueue::connect_with_queue(&url, &queue_name)
+        .await
+        .unwrap();
+    let task = FlowTask::DriveRun {
+        run_id: "postgres-poison-run".to_string(),
+    };
+
+    queue.enqueue(task.clone()).await.unwrap();
+    assert_eq!(queue.queue_name(), queue_name);
+    assert_eq!(queue.len().await.unwrap(), 1);
+    assert_eq!(queue.inflight_len().await.unwrap(), 0);
+
+    let first_lease = queue.lease().await.unwrap().unwrap();
+    assert_eq!(first_lease.task, task);
+    assert_eq!(queue.len().await.unwrap(), 0);
+    assert_eq!(queue.inflight_len().await.unwrap(), 1);
+
+    assert_eq!(
+        queue
+            .requeue_inflight_older_than(Utc::now() - ChronoDuration::seconds(1))
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(queue.inflight_len().await.unwrap(), 1);
+
+    assert_eq!(
+        queue
+            .requeue_inflight_older_than(Utc::now() + ChronoDuration::seconds(1))
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(queue.len().await.unwrap(), 1);
+    assert_eq!(queue.inflight_len().await.unwrap(), 0);
+
+    let second_lease = queue.lease().await.unwrap().unwrap();
+    assert_eq!(second_lease.task, task);
+    assert_eq!(
+        queue
+            .dead_letter_inflight_older_than(
+                Utc::now() + ChronoDuration::seconds(1),
+                "lease expired after worker failure",
+            )
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(queue.len().await.unwrap(), 0);
+    assert_eq!(queue.inflight_len().await.unwrap(), 0);
+    assert_eq!(queue.dead_letter_len().await.unwrap(), 1);
+
+    let dead = queue.dead_lettered_tasks().await.unwrap();
+    assert_eq!(dead.len(), 1);
+    assert_eq!(dead[0].lease_id, second_lease.lease_id);
+    assert_eq!(dead[0].task, task);
+    assert_eq!(dead[0].reason, "lease expired after worker failure");
+
+    queue.ack(&first_lease.lease_id).await.unwrap();
+    queue.ack(&second_lease.lease_id).await.unwrap();
+}
+
+#[cfg(feature = "postgres")]
+#[tokio::test]
+async fn postgres_task_queue_drives_worker_when_url_is_configured() {
+    let Some(url) = postgres_url_from_env() else {
+        eprintln!("skipping postgres queue worker integration test; set A3S_FLOW_POSTGRES_URL");
+        return;
+    };
+    let now = Utc::now();
+    let queue_name = format!("test-worker-{}", Uuid::new_v4());
+    let queue = Arc::new(
+        PostgresFlowTaskQueue::connect_with_queue(&url, &queue_name)
+            .await
+            .unwrap(),
+    );
+    let engine = FlowEngine::in_memory(Arc::new(SleepRuntime));
+    let run_id = engine
+        .start(
+            spec(),
+            json!({ "resume_at": (now - ChronoDuration::seconds(1)).to_rfc3339() }),
+        )
+        .await
+        .unwrap();
+
+    queue
+        .enqueue(FlowTask::ResumeDueWaits { now })
+        .await
+        .unwrap();
+    let worker = FlowWorker::new(engine.clone(), queue.clone());
+    let outcomes = worker.run_until_idle().await.unwrap();
+
+    assert_eq!(outcomes.len(), 1);
+    assert_eq!(
+        outcomes[0].resumed_waits,
+        vec![(run_id.clone(), "sleep".to_string())]
+    );
+    assert_eq!(queue.len().await.unwrap(), 0);
+    assert_eq!(queue.inflight_len().await.unwrap(), 0);
 
     let snapshot = engine.snapshot(&run_id).await.unwrap();
     assert_eq!(snapshot.status, WorkflowRunStatus::Completed);

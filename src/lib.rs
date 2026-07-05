@@ -46,3 +46,5 @@ pub use worker::{
     FlowTask, FlowTaskLease, FlowTaskOutcome, FlowTaskQueue, FlowWorker, InMemoryFlowTaskQueue,
     LocalFileDeadLetteredTask, LocalFileFlowTaskQueue,
 };
+#[cfg(feature = "postgres")]
+pub use worker::{PostgresDeadLetteredTask, PostgresFlowTaskQueue};

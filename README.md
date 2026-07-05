@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <em>Rust SDK for event-sourced workflow runs, replay-safe steps, timers, hooks, retries, workers, and durable local storage.</em>
+  <em>Rust SDK for event-sourced workflow runs, replay-safe steps, timers, hooks, retries, workers, and durable storage.</em>
 </p>
 
 <p align="center">
@@ -292,6 +292,7 @@ cargo run --example local_file_durability
 cargo run --example sqlite_durability --features sqlite
 cargo run --example postgres_durability --features postgres
 cargo run --example task_queue_durability
+cargo run --example postgres_task_queue_durability --features postgres
 cargo run --example observer_bridge
 cargo run --example native_ts_greeting
 cargo run --example local_retention
@@ -310,6 +311,7 @@ cargo run --example local_retention
 | `sqlite_durability` | `SqliteEventStore` durability across engine reconstruction; prints a feature hint unless run with `--features sqlite` |
 | `postgres_durability` | `PostgresEventStore` durability across engine reconstruction; prints a feature or environment hint unless run with `--features postgres` and `A3S_FLOW_POSTGRES_URL` |
 | `task_queue_durability` | `LocalFileFlowTaskQueue` pending/inflight files, crash recovery, lease timeout handling, dead-letter records, and worker draining |
+| `postgres_task_queue_durability` | `PostgresEventStore` plus `PostgresFlowTaskQueue` shared database durability, lease recovery, worker draining, and dead-letter handling |
 | `observer_bridge` | `A3sFlowEventBridge` mapping committed events into A3S-style records with safe metric labels |
 | `native_ts_greeting` | Rust `NativeTsRuntime` wiring for a TypeScript workflow source; exits successfully with a prerequisite message unless `A3S_FLOW_NATIVE_TS_COMPILER` points at a compiler |
 | `local_retention` | `LocalFileEventStore::prune_terminal_runs_older_than()` cleanup for terminal local histories while suspended runs are retained |
@@ -342,6 +344,7 @@ Use these docs when moving from API exploration to a host integration:
 | **Schedulers** | Due waits and delayed retries can be scanned and enqueued |
 | **Observers** | Committed events can be mirrored into logs, metrics, or audit sinks |
 | **Pluggable stores** | Use in-memory storage for tests, JSONL storage for local file durability, SQLite for single-node durable hosts, or Postgres for shared database history |
+| **Pluggable queues** | Use in-memory queues for tests, JSON files for local durability, or Postgres for shared workers with leases and dead letters |
 
 ## Runtime Model
 
@@ -622,6 +625,32 @@ let moved = queue
 let dead = queue.dead_lettered_tasks().await?;
 ```
 
+For shared workers, use `PostgresFlowTaskQueue` with the `postgres` feature:
+
+```rust
+use a3s_flow::{FlowTaskQueue, FlowWorker, PostgresFlowTaskQueue};
+use std::sync::Arc;
+
+let queue = Arc::new(
+    PostgresFlowTaskQueue::connect_with_queue(
+        "postgres://user:pass@localhost:5432/a3s_flow",
+        "production",
+    )
+    .await?,
+);
+queue.requeue_inflight().await?;
+queue
+    .requeue_inflight_older_than(chrono::Utc::now() - chrono::Duration::minutes(10))
+    .await?;
+
+let worker = FlowWorker::new(engine.clone(), queue.clone());
+```
+
+Postgres leasing uses `FOR UPDATE SKIP LOCKED`, so several workers can lease
+from the same queue without taking the same task. Queue names isolate hosts or
+tenants that share one database. Use `dead_letter_inflight_older_than(...)` and
+`dead_lettered_tasks()` for stale poison-task inspection.
+
 Use `FlowScheduler` to turn due waits and due retries into queue tasks:
 
 ```rust
@@ -688,6 +717,8 @@ high-cardinality fields such as `run_id` in logs or traces.
 | `InMemoryFlowTaskQueue` | In-process FIFO task queue |
 | `LocalFileFlowTaskQueue` | JSON-backed local durable task queue |
 | `LocalFileDeadLetteredTask` | Dead-letter record for stale local inflight queue tasks |
+| `PostgresFlowTaskQueue` | Postgres-backed shared durable task queue, available with the `postgres` feature |
+| `PostgresDeadLetteredTask` | Dead-letter record for stale Postgres inflight queue tasks |
 | `FlowWorker` | Handles queued tasks against a `FlowEngine` |
 | `FlowScheduler` | Scans due waits and retries, then enqueues worker tasks |
 
@@ -724,7 +755,10 @@ just flow-test
 - Stabilize the Rust runtime, store, worker, and scheduler APIs.
 - Keep the SQLite and Postgres event stores aligned with engine replay and host
   examples.
-- Add production queue adapters with durable leases and dead-letter handling.
+- Keep the Postgres task queue aligned with worker leasing, dead-letter
+  handling, and host examples.
+- Add additional production queue adapters as concrete deployment targets need
+  them.
 - Add first-class event and metrics adapters for A3S observability.
 
 ## License

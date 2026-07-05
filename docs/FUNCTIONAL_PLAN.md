@@ -17,9 +17,9 @@ Workflow as a Service product surfaces.
 | Retry policies | `RetryPolicy`, `schedule_step_with_retry`, `step_with_retry` | `examples/batch_steps.rs`, `examples/retry_backoff.rs`, `tests/engine.rs`, `tests/scheduler.rs` | Immediate retries stay in the drive loop; delayed retries suspend until due. |
 | Timers | `RuntimeCommand::WaitUntil`, `WorkflowContext::wait_until` | `examples/scheduler_worker.rs`, `examples/polling_loop.rs`, `tests/scheduler.rs` | Waits do not hold compute; hosts resume them directly or through scheduler work. |
 | External callbacks | `RuntimeCommand::CreateHook`, `WorkflowContext::create_hook_with_metadata`, `HookMetadata`, `HookCallbackRoute`, `resume_hook`, `resume_hook_by_token` | `examples/hook_approval.rs`, `tests/context.rs`, `tests/worker.rs` | Active hook tokens are unique across active runs; typed metadata helpers standardize audit and callback routing fields without changing event storage. |
-| Workers | `FlowTask`, `FlowTaskQueue`, `FlowWorker` | `examples/scheduler_worker.rs`, `examples/task_queue_durability.rs`, `tests/worker.rs` | Queue leases are acknowledged after successful task handling. |
+| Workers | `FlowTask`, `FlowTaskQueue`, `FlowWorker` | `examples/scheduler_worker.rs`, `examples/task_queue_durability.rs`, `examples/postgres_task_queue_durability.rs`, `tests/worker.rs` | Queue leases are acknowledged after successful task handling. |
 | Scheduling | `FlowScheduler::enqueue_due_work` | `examples/scheduler_worker.rs`, `tests/scheduler.rs` | Scheduler converts due waits and due retries into queue tasks. |
-| Local and shared durability | `LocalFileEventStore`, `SqliteEventStore`, `PostgresEventStore`, `LocalFileFlowTaskQueue`, `LocalFileDeadLetteredTask` | `examples/local_file_durability.rs`, `examples/sqlite_durability.rs`, `examples/postgres_durability.rs`, `examples/task_queue_durability.rs`, `examples/local_retention.rs`, `tests/worker.rs`, `tests/engine.rs` | JSONL event histories, SQLite event rows, Postgres event rows, and JSON task files cover local and shared event durability. Old terminal histories can be pruned by cutoff, stale inflight tasks can be requeued by lease age, and poison tasks can be dead-lettered. Production queue adapters remain separate work. |
+| Local and shared durability | `LocalFileEventStore`, `SqliteEventStore`, `PostgresEventStore`, `LocalFileFlowTaskQueue`, `PostgresFlowTaskQueue`, `LocalFileDeadLetteredTask`, `PostgresDeadLetteredTask` | `examples/local_file_durability.rs`, `examples/sqlite_durability.rs`, `examples/postgres_durability.rs`, `examples/task_queue_durability.rs`, `examples/postgres_task_queue_durability.rs`, `examples/local_retention.rs`, `tests/worker.rs`, `tests/engine.rs` | JSONL event histories, SQLite event rows, Postgres event rows, JSON task files, and Postgres task rows cover local and shared durability. Old terminal histories can be pruned by cutoff, stale inflight tasks can be requeued by lease age, and poison tasks can be dead-lettered. |
 | Observability | `FlowEventObserver`, `A3sFlowEventBridge`, `A3sFlowEvent`, `InMemoryFlowEventObserver` | `examples/observer_bridge.rs`, `tests/engine.rs` | Observers mirror committed events after store append; bridge records expose A3S event keys and safe metric labels while stores remain authoritative. |
 | Native TypeScript runtime | `NativeTsRuntime`, `NativeRuntimeRequest`, `NativeRuntimeResponse` | `README.md`, `docs/NATIVE_TYPESCRIPT.md`, `examples/native_ts_greeting.rs`, `examples/native-ts/greeting.ts`, `tests/native_ts_runtime.rs` | Rust owns the engine; TypeScript is compiled/invoked as a native runtime artifact. |
 
@@ -42,6 +42,7 @@ test helpers.
 | `sqlite_durability` | Present, `sqlite` feature-gated | Restart an engine over the same `SqliteEventStore` and inspect preserved history. |
 | `postgres_durability` | Present, `postgres` feature and `A3S_FLOW_POSTGRES_URL` gated | Restart an engine over the same `PostgresEventStore` and inspect preserved history in a shared database. |
 | `task_queue_durability` | Present | Persist queued work, recover an unacked inflight lease, dead-letter a stale lease, and drain work with a worker. |
+| `postgres_task_queue_durability` | Present, `postgres` feature and `A3S_FLOW_POSTGRES_URL` gated | Pair `PostgresEventStore` and `PostgresFlowTaskQueue`, recover an inflight lease, drain work with a worker, and dead-letter a stale task. |
 | `observer_bridge` | Present | Map committed events into A3S-style records and safe metric labels for host sinks. |
 | `native_ts_greeting` | Present, compiler-gated | Rust `NativeTsRuntime` wiring for TypeScript source; runs fully when `A3S_FLOW_NATIVE_TS_COMPILER` points at a compatible compiler and otherwise exits with a prerequisite message. |
 | `local_retention` | Present | Prune old terminal JSONL run histories while retaining suspended local runs. |
@@ -70,8 +71,10 @@ test helpers.
      restart examples.
    - Keep the Postgres event store covered by compile checks, guarded
      integration tests, and restart examples for shared event history.
-   - Carry the local queue lease timeout/dead-letter contract into production
-     queue adapters.
+   - Keep `PostgresFlowTaskQueue` covered by compile checks, guarded
+     integration tests, and restart examples for shared dispatch state.
+   - Add additional queue adapters only when a concrete deployment target needs
+     a different backend.
 
 4. **Observability adapters**
    - Keep `A3sFlowEventBridge` aligned with Flow event keys and host sink needs.
@@ -93,4 +96,5 @@ test helpers.
 - QuickJS/PTC local workflow orchestration belongs to A3S Code's
   `DynamicWorkflowRuntime`, which uses A3S Flow as its durable replay engine.
 - Production multi-tenant workflow hosting is outside this crate until concrete
-  store, queue, auth, and observability adapters exist.
+  auth, tenant isolation, and observability adapters exist around the durable
+  store and queue primitives.
