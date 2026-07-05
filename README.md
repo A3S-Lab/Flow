@@ -4,10 +4,10 @@ Durable workflow engine core for A3S.
 
 `a3s-flow` is planned as the A3S workflow project inspired by Workflow SDK's
 durable JavaScript model and Perry's native TypeScript compilation model. The
-core crate is Rust-first: it owns workflow state, event sourcing, retries,
-waits, hooks, and runtime dispatch. TypeScript execution is a pluggable runtime
-boundary so a Perry-style compiler can turn workflow code into native binaries
-without making the engine depend on a Node.js process.
+crate is the Rust SDK and engine core: it owns workflow state, event sourcing,
+retries, waits, hooks, and runtime dispatch. TypeScript execution is a pluggable
+runtime boundary so a Perry-style compiler can turn workflow code into native
+binaries without making the engine depend on a Node.js process.
 
 ## Goals
 
@@ -37,8 +37,9 @@ This repository contains the first engine core:
   persisted runtime metadata.
 
 This is not a complete Workflow SDK clone yet. The Rust core is intentionally
-the first stable layer; TypeScript authoring, code transforms, N-API bindings,
-Python bindings, durable storage, queues, and observability adapters are next.
+the first stable layer. This iteration only provides the Rust SDK; durable
+storage, queues, observability adapters, and deeper Perry runtime integration
+come next.
 
 ## Quick Start
 
@@ -105,16 +106,16 @@ For `kind = "workflow"`, stdout must be a serialized `RuntimeCommand`. For
 
 ## Roadmap
 
-1. Add a TypeScript package that recognizes `"use workflow"` and `"use step"`
-   functions and emits Perry-compatible runtime protocol handlers.
-2. Add persistent stores: SQLite first, then Postgres/Kysely-compatible schemas
+1. Stabilize the Rust SDK surface for defining runtime adapters, stores, and
+   workflow run management.
+2. Add persistent stores: SQLite first, then Postgres-compatible schemas
    for the broader A3S stack.
 3. Add queue-backed dispatch for workflow replays, step execution, waits, and
    retries.
 4. Add stream and event adapters for observability dashboards.
-5. Rebuild `@a3s-lab/flow` N-API bindings on top of this event-sourced core,
-   preserving the existing package name while moving beyond the older DAG-only
-   API.
+5. Deepen the Perry-style runtime adapter so Rust hosts can compile, cache, and
+   invoke native TypeScript workflow executables through the stable engine
+   protocol.
 
 ## License
 

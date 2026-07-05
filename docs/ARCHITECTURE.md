@@ -9,15 +9,15 @@ The design is based on two current reference points:
 - Perry: TypeScript is parsed with SWC, lowered through a Rust compiler, emitted
   through LLVM, and linked into native binaries without Node.js at runtime.
 
-`a3s-flow` combines these ideas without copying either implementation: the
-workflow durability core is Rust, while TypeScript workflow code is treated as a
-runtime plugin that can be compiled to native executables.
+`a3s-flow` combines these ideas without copying either implementation. The SDK
+surface is Rust-only for now; TypeScript workflow code is treated as an optional
+runtime plugin that a Rust host can compile to native executables.
 
 ## Layers
 
 ```text
-TypeScript authoring layer
-  "use workflow" / "use step" transform, typing, package bindings
+Rust SDK layer
+  FlowEngine, FlowRuntime, FlowEventStore, typed snapshots
           |
           v
 Runtime adapter layer
@@ -80,10 +80,9 @@ source hash, and add build-time validation for unsupported workflow APIs.
 
 ## Next Components
 
-- `a3s-flow-ts`: TypeScript authoring package and transform.
-- `a3s-flow-node`: N-API bindings compatible with `@a3s-lab/flow`.
-- `a3s-flow-python`: Python SDK around the same Rust core.
 - `SqliteEventStore`: durable local store.
 - `QueueDriver`: replay/step/wait scheduling backed by A3S Lane or an external
   queue.
 - `FlowObserver`: event stream bridge to A3S Observer/Sentry.
+- `NativeTsRuntime` improvements: source hashing, artifact cache management,
+  compile diagnostics, and a stricter Rust-side protocol verifier.
