@@ -157,12 +157,14 @@ let run_id = engine
 
 Inspection APIs project the append-only history into snapshots. `list_run_ids()`
 returns sorted run IDs from the active store, `list_snapshots()` projects every
-known run, and `history()` returns the raw event envelopes for audit, replay
+known run, `list_active_hooks()` returns callback hooks that can still be
+resumed, and `history()` returns the raw event envelopes for audit, replay
 debugging, or custom diagnostics.
 
 ```rust
 let run_ids = engine.list_run_ids().await?;
 let snapshots = engine.list_snapshots().await?;
+let active_hooks = engine.list_active_hooks().await?;
 let history = engine.history(&run_id).await?;
 ```
 
@@ -351,7 +353,7 @@ cargo run --example local_retention
 | `scheduler_worker` | `wait_until()`, due-work scanning through `FlowScheduler`, and queue draining through `FlowWorker` |
 | `polling_loop` | A long-running external job poll loop using stable wait IDs, scheduler ticks, and worker resumes |
 | `cancellation` | `FlowEngine::cancel()` terminal run state, cancellation reason projection, and scheduler skip behavior for formerly due waits |
-| `run_inspection` | `list_run_ids()`, `list_snapshots()`, and `history()` over completed, suspended, cancelled, and failed runs |
+| `run_inspection` | `list_run_ids()`, `list_snapshots()`, `list_active_hooks()`, and `history()` over completed, suspended, cancelled, and failed runs |
 | `local_file_durability` | `LocalFileEventStore` JSONL durability across engine reconstruction |
 | `sqlite_durability` | `SqliteEventStore` durability across engine reconstruction; prints a feature hint unless run with `--features sqlite` |
 | `sqlite_worker` | `SqliteEventStore` plus `LocalFileFlowTaskQueue` for a single-node durable worker/scheduler host |
@@ -572,6 +574,18 @@ Hook tokens must be unique among active, non-terminal runs. Reusing a token afte
 the previous hook has been received, disposed, or its run has terminated is
 allowed. Late token callbacks after disposal return `HookTokenNotFound` because
 only active hooks are resumable.
+
+Callback routers and dashboards can list outstanding hooks without scanning
+snapshots themselves:
+
+```rust
+for active in engine.list_active_hooks().await? {
+    println!(
+        "run={} hook={} token={}",
+        active.run_id, active.hook.hook_id, active.hook.token
+    );
+}
+```
 
 ## Storage
 
@@ -849,6 +863,7 @@ complete local audit flow.
 | `WorkflowSpec` | Durable workflow identity and runtime metadata |
 | `FlowEvent` | Event-sourced run, step, wait, and hook mutation |
 | `FlowEventEnvelope` | Persisted event with run ID, sequence, event ID, and timestamp |
+| `ActiveHookSnapshot` | Host-facing active hook record with owning run ID and hook metadata |
 | `HookMetadata` | Typed helper for common hook audit, label, data, and callback-route metadata |
 | `HookCallbackRoute` | Typed HTTP method/path metadata for external hook callback routes |
 | `FlowEventStore` | Append-only event persistence trait with expected-sequence writes |

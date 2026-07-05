@@ -108,8 +108,9 @@ appends, so multiple workers can preserve per-run event order while sharing one
 database.
 
 Inspection APIs stay on this boundary: `history()` returns committed envelopes,
-while `snapshot()` and `list_snapshots()` project those envelopes for dashboards
-and debugging without becoming the durable state.
+while `snapshot()`, `list_snapshots()`, and `list_active_hooks()` project those
+envelopes for dashboards, callback routers, and debugging without becoming the
+durable state.
 
 ## Dispatch And Leasing
 

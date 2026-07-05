@@ -413,6 +413,21 @@ metadata for audit and UI rendering, but keep secrets out of hook metadata
 because it is persisted in workflow history. Only active hooks can be resumed by
 token, so late callbacks after disposal return `HookTokenNotFound`.
 
+Webhook routers and approval dashboards can inspect outstanding hooks directly:
+
+```rust
+let active_hooks = engine.list_active_hooks().await?;
+for active in active_hooks {
+    println!(
+        "{} {} {}",
+        active.run_id, active.hook.hook_id, active.hook.token
+    );
+}
+```
+
+`list_active_hooks()` skips terminal runs even if the terminal snapshot still
+contains an active hook from before cancellation.
+
 ## Compensation
 
 A3S Flow does not have a special compensation command. Model compensation as
@@ -445,15 +460,17 @@ down, or debugging view:
 ```rust
 let run_ids = engine.list_run_ids().await?;
 let snapshots = engine.list_snapshots().await?;
+let active_hooks = engine.list_active_hooks().await?;
 let history = engine.history(&run_ids[0]).await?;
 ```
 
 `list_run_ids()` returns sorted run IDs from the active store.
 `list_snapshots()` projects every known history into `WorkflowRunSnapshot`, so
 dashboards can group by `WorkflowRunStatus`, step counts, waits, hooks, and
-terminal errors. `history()` returns the raw committed `FlowEventEnvelope`
-sequence for audit exports and replay debugging. See `examples/run_inspection.rs`
-for a runnable mixed-status inspection flow.
+terminal errors. `list_active_hooks()` returns stable `ActiveHookSnapshot`
+records for callback routers and dashboards. `history()` returns the raw
+committed `FlowEventEnvelope` sequence for audit exports and replay debugging.
+See `examples/run_inspection.rs` for a runnable mixed-status inspection flow.
 
 ## Observability
 

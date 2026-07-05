@@ -1436,6 +1436,68 @@ async fn dispose_hook_by_token_closes_token_and_rejects_late_callback() {
     assert!(matches!(err, FlowError::HookTokenNotFound(token) if token == "approval-token"));
 }
 
+#[tokio::test]
+async fn list_active_hooks_reports_only_open_non_terminal_hooks() {
+    let engine = FlowEngine::in_memory(Arc::new(DisposableHookRuntime));
+    let first_run_id = engine
+        .start_with_id("active-hook-a", spec(), json!({ "token": "token-a" }))
+        .await
+        .unwrap();
+    let second_run_id = engine
+        .start_with_id("active-hook-b", spec(), json!({ "token": "token-b" }))
+        .await
+        .unwrap();
+    let cancelled_run_id = engine
+        .start_with_id("cancelled-hook-c", spec(), json!({ "token": "token-c" }))
+        .await
+        .unwrap();
+
+    let active = engine.list_active_hooks().await.unwrap();
+    assert_eq!(
+        active
+            .iter()
+            .map(|hook| (hook.run_id.as_str(), hook.hook.hook_id.as_str()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("active-hook-a", "approval"),
+            ("active-hook-b", "approval"),
+            ("cancelled-hook-c", "approval"),
+        ]
+    );
+    assert_eq!(active[0].hook.token, "token-a");
+    assert_eq!(active[0].hook.metadata["kind"], "human_review");
+
+    engine
+        .cancel(&cancelled_run_id, Some("callback route closed".to_string()))
+        .await
+        .unwrap();
+    let cancelled = engine.snapshot(&cancelled_run_id).await.unwrap();
+    assert_eq!(cancelled.status, WorkflowRunStatus::Cancelled);
+    assert_eq!(cancelled.hooks["approval"].status, HookStatus::Active);
+
+    let active = engine.list_active_hooks().await.unwrap();
+    assert_eq!(
+        active
+            .iter()
+            .map(|hook| (hook.run_id.as_str(), hook.hook.token.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("active-hook-a", "token-a"), ("active-hook-b", "token-b")]
+    );
+
+    let disposed = engine.dispose_hook_by_token("token-a").await.unwrap();
+    assert_eq!(disposed, (first_run_id, "approval".to_string()));
+    let active = engine.list_active_hooks().await.unwrap();
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].run_id, second_run_id);
+    assert_eq!(active[0].hook.token, "token-b");
+
+    engine
+        .resume_hook_by_token("token-b", json!({ "approved": true }))
+        .await
+        .unwrap();
+    assert!(engine.list_active_hooks().await.unwrap().is_empty());
+}
+
 struct WaitHookRuntime;
 
 #[async_trait]

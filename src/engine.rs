@@ -6,9 +6,9 @@ use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    project_run, FlowEvent, FlowEventEnvelope, HookSnapshot, HookStatus, RetryPolicy,
-    RuntimeCommand, StepCommand, StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot,
-    WaitStatus, WorkflowRunSnapshot, WorkflowSpec,
+    project_run, ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookSnapshot, HookStatus,
+    RetryPolicy, RuntimeCommand, StepCommand, StepFailureAction, StepSnapshot, StepStatus,
+    WaitSnapshot, WaitStatus, WorkflowRunSnapshot, WorkflowSpec,
 };
 use crate::observe::{FlowEventObserver, NoopFlowEventObserver};
 use crate::runtime::{FlowRuntime, StepInvocation, WorkflowInvocation};
@@ -496,6 +496,34 @@ impl FlowEngine {
             snapshots.push(self.snapshot(&run_id).await?);
         }
         Ok(snapshots)
+    }
+
+    /// List active external callback hooks across non-terminal runs.
+    ///
+    /// Callback routers and dashboards can use this to discover public hook
+    /// tokens and their audit metadata without projecting every run manually.
+    /// The result is sorted by run ID and hook ID for stable polling output.
+    pub async fn list_active_hooks(&self) -> Result<Vec<ActiveHookSnapshot>> {
+        let mut hooks = Vec::new();
+        for run_id in self.store.list_run_ids().await? {
+            let snapshot = self.snapshot(&run_id).await?;
+            if snapshot.status.is_terminal() {
+                continue;
+            }
+            for hook in snapshot.hooks.values() {
+                if hook.status == HookStatus::Active {
+                    hooks.push(ActiveHookSnapshot {
+                        run_id: run_id.clone(),
+                        hook: hook.clone(),
+                    });
+                }
+            }
+        }
+        hooks.sort_by(|left, right| {
+            (left.run_id.as_str(), left.hook.hook_id.as_str())
+                .cmp(&(right.run_id.as_str(), right.hook.hook_id.as_str()))
+        });
+        Ok(hooks)
     }
 
     /// Replay and dispatch until the run reaches a terminal state or an open

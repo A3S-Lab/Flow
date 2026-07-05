@@ -498,6 +498,13 @@ pub struct HookSnapshot {
     pub payload: Option<JsonValue>,
 }
 
+/// Active external callback hook with the run that owns it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ActiveHookSnapshot {
+    pub run_id: String,
+    pub hook: HookSnapshot,
+}
+
 /// Materialized state of a workflow run.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WorkflowRunSnapshot {

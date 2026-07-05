@@ -35,6 +35,16 @@ impl FlowRuntime for InspectionRuntime {
                     .map_err(|err| FlowError::Runtime(format!("invalid resumeAt: {err}")))?;
                 Ok(ctx.wait_until("inspection-wait", resume_at))
             }
+            Some("hook") => {
+                if let Some(payload) = ctx.hook_payload("approval") {
+                    return Ok(ctx.complete(json!({ "approval": payload })));
+                }
+                Ok(ctx.create_hook(
+                    "approval",
+                    ctx.input()["token"].as_str().unwrap_or("inspection-token"),
+                    json!({ "kind": "approval" }),
+                ))
+            }
             Some("fail") => Ok(ctx.fail("inspection example failure")),
             other => Err(FlowError::Runtime(format!("unknown mode: {other:?}"))),
         }
@@ -76,6 +86,13 @@ async fn main() -> a3s_flow::Result<()> {
         .await?;
     engine
         .start_with_id(
+            "inspect-hook",
+            spec.clone(),
+            json!({ "mode": "hook", "token": "inspection-token" }),
+        )
+        .await?;
+    engine
+        .start_with_id(
             "inspect-cancelled",
             spec.clone(),
             json!({
@@ -93,18 +110,27 @@ async fn main() -> a3s_flow::Result<()> {
 
     let run_ids = engine.list_run_ids().await?;
     let snapshots = engine.list_snapshots().await?;
+    let active_hooks = engine.list_active_hooks().await?;
     let failed_history = engine.history("inspect-failed").await?;
 
     println!("run_ids={run_ids:?}");
     println!("snapshots:");
     for snapshot in &snapshots {
         println!(
-            "  {} status={:?} steps={} waits={} error={:?}",
+            "  {} status={:?} steps={} waits={} hooks={} error={:?}",
             snapshot.run_id,
             snapshot.status,
             snapshot.steps.len(),
             snapshot.waits.len(),
+            snapshot.hooks.len(),
             snapshot.error
+        );
+    }
+    println!("active_hooks:");
+    for active in &active_hooks {
+        println!(
+            "  {} {} token={}",
+            active.run_id, active.hook.hook_id, active.hook.token
         );
     }
     println!(
@@ -121,6 +147,7 @@ async fn main() -> a3s_flow::Result<()> {
             "inspect-cancelled".to_string(),
             "inspect-completed".to_string(),
             "inspect-failed".to_string(),
+            "inspect-hook".to_string(),
             "inspect-suspended".to_string(),
         ]
     );
@@ -136,5 +163,9 @@ async fn main() -> a3s_flow::Result<()> {
     assert!(snapshots
         .iter()
         .any(|snapshot| snapshot.status == WorkflowRunStatus::Failed));
+    assert_eq!(active_hooks.len(), 1);
+    assert_eq!(active_hooks[0].run_id, "inspect-hook");
+    assert_eq!(active_hooks[0].hook.hook_id, "approval");
+    assert_eq!(active_hooks[0].hook.token, "inspection-token");
     Ok(())
 }
