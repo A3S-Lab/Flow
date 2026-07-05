@@ -18,6 +18,8 @@
   <a href="#overview">Overview</a> •
   <a href="#quick-start">Quick Start</a> •
   <a href="#typescript-workflows">TypeScript Workflows</a> •
+  <a href="#examples">Examples</a> •
+  <a href="#cookbook-and-planning">Cookbook and Planning</a> •
   <a href="#features">Features</a> •
   <a href="#runtime-model">Runtime Model</a> •
   <a href="#storage">Storage</a> •
@@ -286,6 +288,42 @@ async fn main() -> a3s_flow::Result<()> {
 `NativeTsRuntime` hashes the source file, compiles it into the artifact cache
 when needed, then invokes the cached artifact for workflow replay and step
 execution. Changing the source creates a new artifact cache key.
+
+## Examples
+
+The crate includes runnable examples that cover the main Rust SDK paths:
+
+```sh
+cargo run --example sequential_steps
+cargo run --example batch_steps
+cargo run --example retry_backoff
+cargo run --example hook_approval
+cargo run --example scheduler_worker
+cargo run --example local_file_durability
+cargo run --example task_queue_durability
+cargo run --example observer_bridge
+```
+
+| Example | Demonstrates |
+|---------|--------------|
+| `sequential_steps` | A deterministic workflow that schedules one durable step, observes its persisted output, schedules the next step, then completes |
+| `batch_steps` | `schedule_steps()` fan-out with stable step IDs and per-step retry policy |
+| `retry_backoff` | Delayed step retry, `retry_after` suspension, due retry scheduling, and worker-driven resume |
+| `hook_approval` | `create_hook()` suspension and `resume_hook_by_token()` callback completion |
+| `scheduler_worker` | `wait_until()`, due-work scanning through `FlowScheduler`, and queue draining through `FlowWorker` |
+| `local_file_durability` | `LocalFileEventStore` JSONL durability across engine reconstruction |
+| `task_queue_durability` | `LocalFileFlowTaskQueue` pending/inflight files, crash recovery, and worker draining |
+| `observer_bridge` | `FlowEventObserver` mirroring committed events into a host audit/log sink |
+
+## Cookbook and Planning
+
+Use these docs when moving from API exploration to a host integration:
+
+| Document | Purpose |
+|----------|---------|
+| [`docs/COOKBOOK.md`](docs/COOKBOOK.md) | Practical host recipes for local durable operation, stable run IDs, fan-out/fan-in, retries, timers, hooks, compensation, observability, and Native TypeScript boundaries |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Engine architecture, replay model, event sourcing, and native runtime boundary |
+| [`docs/FUNCTIONAL_PLAN.md`](docs/FUNCTIONAL_PLAN.md) | Capability coverage map, example status, near-term work, and non-goals |
 
 ## Features
 
