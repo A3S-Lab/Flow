@@ -14,7 +14,7 @@ pub type JsonValue = Value;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeKind {
-    /// TypeScript compiled to a native executable through a Perry-style toolchain.
+    /// TypeScript compiled to a native executable through a native toolchain.
     NativeTs,
     /// Host-provided Rust runtime. Useful for tests and embedded deployments.
     RustEmbedded,
@@ -155,6 +155,9 @@ pub enum RuntimeCommand {
         #[serde(default)]
         retry: RetryPolicy,
     },
+    ScheduleSteps {
+        steps: Vec<StepCommand>,
+    },
     WaitUntil {
         wait_id: String,
         resume_at: DateTime<Utc>,
@@ -165,6 +168,32 @@ pub enum RuntimeCommand {
         #[serde(default)]
         metadata: JsonValue,
     },
+}
+
+/// Step definition returned by workflow replay.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StepCommand {
+    pub step_id: String,
+    pub step_name: String,
+    pub input: JsonValue,
+    #[serde(default)]
+    pub retry: RetryPolicy,
+}
+
+impl StepCommand {
+    pub fn new(step_id: impl Into<String>, step_name: impl Into<String>, input: JsonValue) -> Self {
+        Self {
+            step_id: step_id.into(),
+            step_name: step_name.into(),
+            input,
+            retry: RetryPolicy::default(),
+        }
+    }
+
+    pub fn with_retry(mut self, retry: RetryPolicy) -> Self {
+        self.retry = retry;
+        self
+    }
 }
 
 impl RuntimeCommand {
@@ -179,6 +208,10 @@ impl RuntimeCommand {
             input,
             retry: RetryPolicy::default(),
         }
+    }
+
+    pub fn schedule_steps(steps: Vec<StepCommand>) -> Self {
+        Self::ScheduleSteps { steps }
     }
 }
 
@@ -204,6 +237,8 @@ pub enum FlowEvent {
         step_id: String,
         step_name: String,
         input: JsonValue,
+        #[serde(default)]
+        retry: RetryPolicy,
     },
     StepStarted {
         step_id: String,
@@ -310,9 +345,11 @@ pub struct StepSnapshot {
     pub step_name: String,
     pub status: StepStatus,
     pub input: JsonValue,
+    pub retry: RetryPolicy,
     pub output: Option<JsonValue>,
     pub error: Option<String>,
     pub attempt: u32,
+    pub retry_after: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -382,6 +419,29 @@ impl WorkflowRunSnapshot {
                 .hooks
                 .values()
                 .any(|hook| hook.status == HookStatus::Active)
+            || self.steps.values().any(|step| step.retry_after.is_some())
+    }
+
+    pub fn due_retries(&self, now: DateTime<Utc>) -> Vec<(String, DateTime<Utc>)> {
+        self.steps
+            .values()
+            .filter_map(|step| match step.retry_after {
+                Some(retry_after) if step.status == StepStatus::Pending && retry_after <= now => {
+                    Some((step.step_id.clone(), retry_after))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub fn has_future_retry(&self, now: DateTime<Utc>) -> bool {
+        self.steps.values().any(|step| {
+            step.status == StepStatus::Pending
+                && step
+                    .retry_after
+                    .map(|retry_after| retry_after > now)
+                    .unwrap_or(false)
+        })
     }
 }
 
@@ -415,20 +475,42 @@ pub(crate) fn project_run(
         last_sequence: first.sequence,
     };
 
-    for envelope in events {
+    for (index, envelope) in events.iter().enumerate() {
+        let expected_sequence = index as u64 + 1;
+        if envelope.sequence != expected_sequence {
+            return Err(FlowError::InvalidTransition(format!(
+                "event sequence must be contiguous for run {run_id}: expected {expected_sequence}, got {}",
+                envelope.sequence
+            )));
+        }
         if envelope.run_id != run_id {
             return Err(FlowError::InvalidTransition(format!(
                 "event {} belongs to run {} not {}",
                 envelope.event_id, envelope.run_id, run_id
             )));
         }
+        if index > 0 && snapshot.status.is_terminal() {
+            return Err(FlowError::InvalidTransition(format!(
+                "event {} appears after terminal run state",
+                envelope.event.event_key()
+            )));
+        }
         snapshot.last_sequence = envelope.sequence;
         match &envelope.event {
-            FlowEvent::RunCreated { .. } => {}
-            FlowEvent::RunStarted => {
-                if !snapshot.status.is_terminal() {
-                    snapshot.status = WorkflowRunStatus::Running;
+            FlowEvent::RunCreated { .. } => {
+                if index > 0 {
+                    return Err(FlowError::InvalidTransition(
+                        "run_created must only appear as the first event".to_string(),
+                    ));
                 }
+            }
+            FlowEvent::RunStarted => {
+                if snapshot.status != WorkflowRunStatus::Pending {
+                    return Err(FlowError::InvalidTransition(
+                        "run_started can only follow a pending run".to_string(),
+                    ));
+                }
+                snapshot.status = WorkflowRunStatus::Running;
             }
             FlowEvent::RunCompleted { output } => {
                 snapshot.status = WorkflowRunStatus::Completed;
@@ -447,7 +529,13 @@ pub(crate) fn project_run(
                 step_id,
                 step_name,
                 input,
+                retry,
             } => {
+                if snapshot.steps.contains_key(step_id) {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "step_created duplicates step {step_id}"
+                    )));
+                }
                 snapshot.steps.insert(
                     step_id.clone(),
                     StepSnapshot {
@@ -455,9 +543,11 @@ pub(crate) fn project_run(
                         step_name: step_name.clone(),
                         status: StepStatus::Pending,
                         input: input.clone(),
+                        retry: *retry,
                         output: None,
                         error: None,
                         attempt: 0,
+                        retry_after: None,
                     },
                 );
             }
@@ -467,8 +557,15 @@ pub(crate) fn project_run(
                         "step_started references unknown step {step_id}"
                     ))
                 })?;
+                if step.status != StepStatus::Pending {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "step_started cannot follow {:?} for step {step_id}",
+                        step.status
+                    )));
+                }
                 step.status = StepStatus::Running;
                 step.attempt = *attempt;
+                step.retry_after = None;
             }
             FlowEvent::StepCompleted { step_id, output } => {
                 let step = snapshot.steps.get_mut(step_id).ok_or_else(|| {
@@ -476,24 +573,38 @@ pub(crate) fn project_run(
                         "step_completed references unknown step {step_id}"
                     ))
                 })?;
+                if step.status != StepStatus::Running {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "step_completed cannot follow {:?} for step {step_id}",
+                        step.status
+                    )));
+                }
                 step.status = StepStatus::Completed;
                 step.output = Some(output.clone());
                 step.error = None;
+                step.retry_after = None;
             }
             FlowEvent::StepRetrying {
                 step_id,
                 attempt,
                 error,
-                ..
+                retry_after,
             } => {
                 let step = snapshot.steps.get_mut(step_id).ok_or_else(|| {
                     FlowError::InvalidTransition(format!(
                         "step_retrying references unknown step {step_id}"
                     ))
                 })?;
+                if step.status != StepStatus::Running {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "step_retrying cannot follow {:?} for step {step_id}",
+                        step.status
+                    )));
+                }
                 step.status = StepStatus::Pending;
                 step.attempt = *attempt;
                 step.error = Some(error.clone());
+                step.retry_after = *retry_after;
             }
             FlowEvent::StepFailed {
                 step_id,
@@ -505,11 +616,23 @@ pub(crate) fn project_run(
                         "step_failed references unknown step {step_id}"
                     ))
                 })?;
+                if step.status != StepStatus::Running {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "step_failed cannot follow {:?} for step {step_id}",
+                        step.status
+                    )));
+                }
                 step.status = StepStatus::Failed;
                 step.attempt = *attempt;
                 step.error = Some(error.clone());
+                step.retry_after = None;
             }
             FlowEvent::WaitCreated { wait_id, resume_at } => {
+                if snapshot.waits.contains_key(wait_id) {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "wait_created duplicates wait {wait_id}"
+                    )));
+                }
                 snapshot.waits.insert(
                     wait_id.clone(),
                     WaitSnapshot {
@@ -525,6 +648,12 @@ pub(crate) fn project_run(
                         "wait_completed references unknown wait {wait_id}"
                     ))
                 })?;
+                if wait.status != WaitStatus::Waiting {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "wait_completed cannot follow {:?} for wait {wait_id}",
+                        wait.status
+                    )));
+                }
                 wait.status = WaitStatus::Completed;
             }
             FlowEvent::HookCreated {
@@ -532,6 +661,11 @@ pub(crate) fn project_run(
                 token,
                 metadata,
             } => {
+                if snapshot.hooks.contains_key(hook_id) {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "hook_created duplicates hook {hook_id}"
+                    )));
+                }
                 snapshot.hooks.insert(
                     hook_id.clone(),
                     HookSnapshot {
@@ -549,6 +683,12 @@ pub(crate) fn project_run(
                         "hook_received references unknown hook {hook_id}"
                     ))
                 })?;
+                if hook.status != HookStatus::Active {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "hook_received cannot follow {:?} for hook {hook_id}",
+                        hook.status
+                    )));
+                }
                 hook.status = HookStatus::Received;
                 hook.payload = Some(payload.clone());
             }
@@ -558,6 +698,12 @@ pub(crate) fn project_run(
                         "hook_disposed references unknown hook {hook_id}"
                     ))
                 })?;
+                if hook.status != HookStatus::Active {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "hook_disposed cannot follow {:?} for hook {hook_id}",
+                        hook.status
+                    )));
+                }
                 hook.status = HookStatus::Disposed;
             }
         }

@@ -1,18 +1,28 @@
 # A3S Flow
 
 <p align="center">
-  <strong>Rust SDK for Durable Workflows</strong>
+  <strong>Durable Workflow Engine for A3S</strong>
 </p>
 
 <p align="center">
-  <em>Event-sourced workflow runs, resumable steps, waits, hooks, and pluggable runtime backends for A3S</em>
+  <em>Rust SDK for event-sourced workflow runs, replay-safe steps, timers, hooks, retries, workers, and local durable storage.</em>
 </p>
 
 <p align="center">
+  <a href="https://crates.io/crates/a3s-flow"><img src="https://img.shields.io/crates/v/a3s-flow.svg" alt="crates.io"></a>
+  <a href="https://docs.rs/a3s-flow"><img src="https://docs.rs/a3s-flow/badge.svg" alt="docs.rs"></a>
+  <a href="#license"><img src="https://img.shields.io/crates/l/a3s-flow.svg" alt="MIT"></a>
+</p>
+
+<p align="center">
+  <a href="#overview">Overview</a> •
   <a href="#quick-start">Quick Start</a> •
-  <a href="#core-model">Core Model</a> •
-  <a href="#event-stores">Event Stores</a> •
-  <a href="#runtime-adapters">Runtime Adapters</a> •
+  <a href="#typescript-workflows">TypeScript Workflows</a> •
+  <a href="#features">Features</a> •
+  <a href="#runtime-model">Runtime Model</a> •
+  <a href="#storage">Storage</a> •
+  <a href="#workers-and-scheduling">Workers and Scheduling</a> •
+  <a href="#api-reference">API Reference</a> •
   <a href="#development">Development</a>
 </p>
 
@@ -20,78 +30,101 @@
 
 ## Overview
 
-**A3S Flow** is the Rust SDK and engine core for durable workflows in the A3S
-ecosystem. It keeps workflow progress in an append-only event log, replays runs
-from history, persists step outputs before continuing, and supports suspension
-through timers and external hooks.
+**A3S Flow** is the Rust SDK and durable workflow engine for A3S. It records
+workflow progress as an append-only event history, replays that history to make
+deterministic decisions, and persists step outputs before workflow code observes
+them.
 
-The crate owns the durable execution layer only:
+The crate owns the workflow durability layer:
 
-- `FlowEngine` starts, drives, resumes, and cancels workflow runs.
-- `FlowEventStore` persists the append-only event history.
-- `FlowRuntime` executes deterministic workflow replay and side-effecting steps.
-- `WorkflowRunSnapshot` materializes run, step, wait, and hook state from events.
+- `FlowEngine` starts, idempotently starts, drives, resumes, inspects, and
+  cancels workflow runs.
+- `FlowRuntime` is the Rust trait implemented by the host workflow runtime.
+- `WorkflowContext` exposes replay-safe helpers for workflow code.
+- `FlowEventStore` persists append-only workflow history.
+- `FlowWorker` and `FlowScheduler` move suspended work back into execution.
+
+The public SDK surface is Rust.
+
+```rust
+use a3s_flow::{FlowEngine, WorkflowSpec};
+use serde_json::json;
+use std::sync::Arc;
+
+let engine = FlowEngine::in_memory(Arc::new(my_runtime));
+let spec = WorkflowSpec::rust_embedded("invoice.approve", "0.1.0", "invoice", "main");
+
+let run_id = engine
+    .start_with_id("invoice-2026-0001", spec, json!({ "invoiceId": "2026-0001" }))
+    .await?;
+
+let snapshot = engine.snapshot(&run_id).await?;
+```
 
 ## Quick Start
 
-### Installation
-
 ```toml
 [dependencies]
-a3s-flow = { version = "0.1", path = "../flow" }
+a3s-flow = "0.1"
 async-trait = "0.1"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-### Start a workflow
+For monorepo development, use the local crate path:
+
+```toml
+a3s-flow = { path = "../flow" }
+```
+
+### Run a workflow
 
 ```rust
 use a3s_flow::{
-    FlowEngine, FlowRuntime, RuntimeCommand, StepInvocation, WorkflowInvocation,
+    FlowEngine, FlowError, FlowRuntime, RuntimeCommand, StepInvocation, WorkflowInvocation,
     WorkflowSpec,
 };
 use async_trait::async_trait;
 use serde_json::json;
 use std::sync::Arc;
 
-struct DemoRuntime;
+struct GreetingRuntime;
 
 #[async_trait]
-impl FlowRuntime for DemoRuntime {
+impl FlowRuntime for GreetingRuntime {
     async fn run_workflow(
         &self,
         invocation: WorkflowInvocation,
     ) -> a3s_flow::Result<RuntimeCommand> {
-        let completed = invocation.history.iter().any(|event| {
-            matches!(
-                &event.event,
-                a3s_flow::FlowEvent::StepCompleted { step_id, .. } if step_id == "greet"
-            )
-        });
+        let ctx = invocation.context();
 
-        if completed {
-            Ok(RuntimeCommand::Complete {
-                output: json!({ "status": "done" }),
-            })
-        } else {
-            Ok(RuntimeCommand::schedule_step(
-                "greet",
-                "greetUser",
-                json!({ "name": invocation.input["name"] }),
-            ))
+        if let Some(step_output) = ctx.step_output("greet") {
+            return Ok(ctx.complete(json!({
+                "message": step_output["message"],
+            })));
         }
+
+        Ok(ctx.schedule_step(
+            "greet",
+            "greet_user",
+            json!({ "name": ctx.input()["name"] }),
+        ))
     }
 
     async fn run_step(&self, invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
-        let name = invocation.input["name"].as_str().unwrap_or("unknown");
-        Ok(json!({ "message": format!("hello {name}") }))
+        match invocation.step_name.as_str() {
+            "greet_user" => {
+                let name = invocation.input["name"].as_str().unwrap_or("unknown");
+                Ok(json!({ "message": format!("hello {name}") }))
+            }
+            step => Err(FlowError::Runtime(format!("unknown step: {step}"))),
+        }
     }
 }
 
 #[tokio::main]
 async fn main() -> a3s_flow::Result<()> {
-    let engine = FlowEngine::in_memory(Arc::new(DemoRuntime));
+    let engine = FlowEngine::in_memory(Arc::new(GreetingRuntime));
     let spec = WorkflowSpec::rust_embedded("demo.greeting", "0.1.0", "demo", "main");
 
     let run_id = engine.start(spec, json!({ "name": "Ada" })).await?;
@@ -102,24 +135,265 @@ async fn main() -> a3s_flow::Result<()> {
 }
 ```
 
-## Core Model
+### Idempotent starts
+
+Use `start_with_id()` when the caller already has a durable business identifier.
+Retrying the same run ID with the same spec and input returns the existing run;
+retrying it with different spec or input returns a conflict.
+
+```rust
+let run_id = engine
+    .start_with_id(
+        "invoice-2026-0001",
+        spec,
+        json!({ "invoiceId": "2026-0001" }),
+    )
+    .await?;
+```
+
+### Run inspection
+
+```rust
+let run_ids = engine.list_run_ids().await?;
+let snapshots = engine.list_snapshots().await?;
+let history = engine.history(&run_id).await?;
+```
+
+## TypeScript Workflows
+
+A3S Flow can drive workflow source files through `NativeTsRuntime` while the SDK
+entrypoint remains Rust. The TypeScript file is compiled into a native runtime
+artifact; the Rust engine still owns run creation, event history, replay,
+storage, workers, and scheduling.
+
+The native artifact receives a workflow or step invocation and returns the same
+command JSON that a Rust `FlowRuntime` would return.
+
+### Workflow and step source
+
+```ts
+// workflows/greeting.ts
+type Json = unknown;
+
+type FlowEventEnvelope = {
+  event: {
+    type: string;
+    step_id?: string;
+    output?: Json;
+  };
+};
+
+type WorkflowInvocation<Input> = {
+  run_id: string;
+  input: Input;
+  history: FlowEventEnvelope[];
+};
+
+type StepInvocation<Input> = {
+  run_id: string;
+  step_id: string;
+  step_name: string;
+  input: Input;
+  history: FlowEventEnvelope[];
+};
+
+type RuntimeCommand =
+  | { type: "complete"; output: Json }
+  | { type: "fail"; error: string }
+  | {
+      type: "schedule_step";
+      step_id: string;
+      step_name: string;
+      input: Json;
+      retry?: { max_attempts: number; delay_ms: number };
+    };
+
+type GreetingInput = { name: string };
+type GreetingOutput = { message: string };
+
+function stepOutput<T>(history: FlowEventEnvelope[], stepId: string): T | undefined {
+  const event = history.find(
+    (item) => item.event.type === "step_completed" && item.event.step_id === stepId,
+  );
+  return event?.event.output as T | undefined;
+}
+
+export async function main(
+  invocation: WorkflowInvocation<GreetingInput>,
+): Promise<RuntimeCommand> {
+  const greeting = stepOutput<GreetingOutput>(invocation.history, "greet");
+  if (greeting) {
+    return { type: "complete", output: greeting };
+  }
+
+  return {
+    type: "schedule_step",
+    step_id: "greet",
+    step_name: "greet_user",
+    input: { name: invocation.input.name },
+    retry: { max_attempts: 3, delay_ms: 0 },
+  };
+}
+
+export const steps = {
+  async greet_user(invocation: StepInvocation<GreetingInput>): Promise<GreetingOutput> {
+    return { message: `hello ${invocation.input.name}` };
+  },
+};
+```
+
+The compiled artifact dispatches workflow requests to the exported workflow
+function named by `WorkflowSpec::native_ts(..., export_name)`. Step requests are
+dispatched by `step_name`, so the value returned by `schedule_step` must match a
+step definition in the same source artifact.
+
+### Execute from Rust
+
+```rust
+use a3s_flow::{
+    FlowEngine, LocalFileEventStore, NativeTsRuntime, NativeTsRuntimeConfig, WorkflowSpec,
+};
+use serde_json::json;
+use std::sync::Arc;
+
+#[tokio::main]
+async fn main() -> a3s_flow::Result<()> {
+    let runtime = Arc::new(NativeTsRuntime::new(NativeTsRuntimeConfig::new(
+        "a3s-flow-native-compiler",
+        ".a3s-flow/artifacts",
+        ".",
+    )));
+    let store = Arc::new(LocalFileEventStore::new(".a3s-flow/events"));
+    let engine = FlowEngine::new(store, runtime);
+
+    let spec = WorkflowSpec::native_ts(
+        "demo.greeting",
+        "0.1.0",
+        "workflows/greeting.ts",
+        "main",
+    );
+
+    let run_id = engine
+        .start_with_id("greeting-ada", spec, json!({ "name": "Ada" }))
+        .await?;
+    let snapshot = engine.snapshot(&run_id).await?;
+
+    println!("{:?}", snapshot.output);
+    Ok(())
+}
+```
+
+`NativeTsRuntime` hashes the source file, compiles it into the artifact cache
+when needed, then invokes the cached artifact for workflow replay and step
+execution. Changing the source creates a new artifact cache key.
+
+## Features
+
+| Feature | How it works |
+|---------|--------------|
+| **Event-sourced runs** | Every workflow mutation is stored as a typed event envelope |
+| **Replay-first execution** | Workflow decisions are derived from persisted history |
+| **Replay validation** | Reused step, wait, and hook IDs must match the definition already recorded in history |
+| **Durable steps** | Side-effecting step outputs are persisted before replay continues |
+| **Batch step scheduling** | A runtime can fan out multiple durable steps from one replay command |
+| **Idempotent creation** | Stable run IDs make workflow start safe to retry |
+| **Timers** | Waits suspend runs without holding compute |
+| **Hooks** | External callbacks resume active runs by hook ID or public token |
+| **Retries** | Failed steps can retry immediately or after a durable delay |
+| **Workers** | Queued tasks let a host drive runs outside the request path |
+| **Schedulers** | Due waits and delayed retries can be scanned and enqueued |
+| **Observers** | Committed events can be mirrored into logs, metrics, or audit sinks |
+| **Pluggable stores** | Use in-memory storage for tests and JSONL storage for local durability |
+
+## Runtime Model
 
 The engine drives a run by replaying workflow history and applying one runtime
-command at a time.
+command at a time. When a command refers to a step, wait, or hook ID already
+present in history, the engine validates that the replayed definition still
+matches the persisted one. Definition drift is reported as non-deterministic
+replay instead of being silently accepted.
 
 | Runtime command | Engine behavior |
 |-----------------|-----------------|
-| `complete` | Persist `flow.run.completed` and finish the run |
-| `fail` | Persist `flow.run.failed` and finish the run |
-| `schedule_step` | Persist step lifecycle events, execute the step, then replay |
-| `wait_until` | Persist `flow.wait.created` and suspend until `resume_wait()` |
-| `create_hook` | Persist `flow.hook.created` and suspend until `resume_hook()` |
+| `Complete` | Persist `flow.run.completed` and finish the run |
+| `Fail` | Persist `flow.run.failed` and finish the run |
+| `ScheduleStep` | Persist step lifecycle events, run the step, then replay |
+| `ScheduleSteps` | Persist and run a stable batch of step definitions, then replay |
+| `WaitUntil` | Persist `flow.wait.created` and suspend |
+| `CreateHook` | Persist `flow.hook.created` and suspend |
 
 Events use A3S dot-separated keys such as `flow.run.created`,
 `flow.step.completed`, and `flow.hook.received`.
 
-External callback handlers can resume hooks either by internal IDs or by the
-public hook token:
+### Workflow context
+
+`WorkflowInvocation::context()` gives runtimes deterministic helpers over
+persisted history:
+
+```rust
+let ctx = invocation.context();
+
+if let Some(user) = ctx.step_output("load-user") {
+    return Ok(ctx.complete(json!({ "user": user })));
+}
+
+Ok(ctx.schedule_step(
+    "load-user",
+    "load_user",
+    json!({ "userId": ctx.input()["userId"] }),
+))
+```
+
+### Step retries
+
+Retry policy is part of the persisted command stream:
+
+```rust
+use a3s_flow::RetryPolicy;
+use std::time::Duration;
+
+Ok(ctx.schedule_step_with_retry(
+    "charge-card",
+    "charge_card",
+    json!({ "invoiceId": ctx.input()["invoiceId"] }),
+    RetryPolicy::fixed(3, Duration::from_secs(30)),
+))
+```
+
+When a retry has a delay, the run suspends and is resumed by due retry scanning.
+
+### Batch steps
+
+Use `schedule_steps()` when a replay wants to fan out multiple durable steps
+before continuing:
+
+```rust
+let ctx = invocation.context();
+
+Ok(ctx.schedule_steps(vec![
+    ctx.step("load-user", "load_user", json!({ "userId": ctx.input()["userId"] })),
+    ctx.step("load-orders", "load_orders", json!({ "userId": ctx.input()["userId"] })),
+]))
+```
+
+Step IDs in a batch must be unique. Each step definition is still replay
+validated against history before it is executed or skipped.
+
+### Waits and hooks
+
+Timers can be resumed directly:
+
+```rust
+engine.resume_wait(&run_id, "approval-timeout").await?;
+```
+
+Or scanned in batches:
+
+```rust
+let resumed = engine.resume_due_waits(chrono::Utc::now()).await?;
+```
+
+External callback handlers can resume a hook by its public token:
 
 ```rust
 engine
@@ -127,37 +401,17 @@ engine
     .await?;
 ```
 
-Scheduler loops can resume expired timers without knowing individual run IDs:
+Hook tokens must be unique among active, non-terminal runs. Reusing a token after
+the previous hook has been received or its run has terminated is allowed.
 
-```rust
-let resumed = engine.resume_due_waits(chrono::Utc::now()).await?;
-```
+## Storage
 
-### Run Lifecycle
-
-```text
-run_created -> run_started -> running
-running     -> run_completed | run_failed | run_cancelled
-running     -> wait_created  -> suspended -> wait_completed -> running
-running     -> hook_created  -> suspended -> hook_received  -> running
-```
-
-### Step Lifecycle
-
-```text
-step_created -> step_started -> step_completed
-step_started -> step_retrying -> step_started
-step_started -> step_failed
-```
-
-## Event Stores
-
-| Store | Use Case | Durability |
+| Store | Use case | Durability |
 |-------|----------|------------|
-| `InMemoryEventStore` | Tests, examples, single-process ephemeral runs | In memory |
+| `InMemoryEventStore` | Tests, examples, embedded ephemeral runs | In process |
 | `LocalFileEventStore` | Local development and embedded hosts | JSONL files |
 
-### Local file storage
+### Local file event store
 
 ```rust
 use a3s_flow::{FlowEngine, LocalFileEventStore};
@@ -174,46 +428,117 @@ Directory layout:
   <run-id>.jsonl
 ```
 
-Each line is one serialized `FlowEventEnvelope`. The file store serializes
-appends inside the current process and is intended for local durability. Use a
-database-backed store for multi-process or distributed writers.
+Each line is one serialized `FlowEventEnvelope`. The local file store serializes
+appends inside the current process and is intended for local durability.
+`FlowEventStore::append_if_sequence()` supports optimistic expected-sequence
+writes so engine appends fail cleanly when another writer has already advanced a
+run. Existing JSONL histories are projected before append, so corrupt histories
+are rejected instead of being extended. Use a database-backed store for
+multi-process or distributed writers.
 
-## Runtime Adapters
+## Workers and Scheduling
 
-Implement `FlowRuntime` to connect the engine to any execution environment:
+`FlowTask` is the serializable representation of engine work. `FlowWorker`
+leases a task, handles it against a `FlowEngine`, and acknowledges it only after
+successful handling.
 
 ```rust
-#[async_trait::async_trait]
-pub trait FlowRuntime: Send + Sync {
-    async fn run_workflow(&self, invocation: WorkflowInvocation) -> Result<RuntimeCommand>;
-    async fn run_step(&self, invocation: StepInvocation) -> Result<serde_json::Value>;
-}
+use a3s_flow::{FlowTask, FlowWorker};
+
+let worker = FlowWorker::in_memory(engine.clone());
+
+worker
+    .enqueue(FlowTask::ResumeDueWaits {
+        now: chrono::Utc::now(),
+    })
+    .await?;
+
+let outcomes = worker.run_until_idle().await?;
 ```
 
-The default SDK surface is Rust. `RustEmbedded` runtime specs are useful when the
-host process owns the runtime implementation directly. `NativeTsRuntime` is a
-Rust-side adapter for invoking precompiled native TypeScript workflow programs
-through the same engine protocol.
+For local crash/restart durability of pending tasks, use
+`LocalFileFlowTaskQueue`:
+
+```rust
+use a3s_flow::{FlowTaskQueue, FlowWorker, LocalFileFlowTaskQueue};
+use std::sync::Arc;
+
+let queue = Arc::new(LocalFileFlowTaskQueue::new(".a3s-flow/tasks"));
+queue.requeue_inflight().await?;
+
+let worker = FlowWorker::new(engine.clone(), queue.clone());
+```
+
+Use `FlowScheduler` to turn due waits and due retries into queue tasks:
+
+```rust
+use a3s_flow::FlowScheduler;
+
+let scheduler = FlowScheduler::new(engine.clone(), queue.clone());
+let tick = scheduler.enqueue_due_work(chrono::Utc::now()).await?;
+```
+
+## Observability
+
+Attach a `FlowEventObserver` when committed workflow events should be mirrored
+into logs, metrics, audit sinks, or A3S event bridges:
+
+```rust
+use a3s_flow::{FlowEngine, InMemoryFlowEventObserver};
+use std::sync::Arc;
+
+let observer = Arc::new(InMemoryFlowEventObserver::new());
+let engine = FlowEngine::builder(runtime)
+    .with_observer(observer.clone())
+    .build();
+```
+
+Observers run after an event has been appended to the durable store. The event
+store remains the source of truth for workflow state.
 
 ## API Reference
 
 | Type | Description |
 |------|-------------|
-| `FlowEngine` | Starts, drives, resumes, snapshots, and cancels runs |
-| `FlowRuntime` | Host-provided workflow and step executor trait |
-| `FlowEventStore` | Append-only event persistence trait |
-| `LocalFileEventStore` | JSONL-backed local durable event store |
-| `WorkflowSpec` | Durable workflow identity and runtime metadata |
+| `FlowEngine` | Starts, idempotently starts, drives, resumes, inspects, snapshots, and cancels runs |
+| `FlowRuntime` | Host-provided Rust workflow and step executor trait |
+| `WorkflowInvocation` | Workflow replay input passed to a runtime |
+| `StepInvocation` | Step execution input passed to a runtime |
+| `WorkflowContext` | Replay helper for history inspection and command creation |
 | `RuntimeCommand` | Command returned by workflow replay |
-| `FlowEvent` | Event-sourced run, step, wait, and hook mutations |
+| `StepCommand` | Durable step definition used by batched step scheduling |
+| `WorkflowSpec` | Durable workflow identity and runtime metadata |
+| `FlowEvent` | Event-sourced run, step, wait, and hook mutation |
+| `FlowEventEnvelope` | Persisted event with run ID, sequence, event ID, and timestamp |
+| `FlowEventStore` | Append-only event persistence trait with expected-sequence writes |
+| `InMemoryEventStore` | Ephemeral event store for tests and examples |
+| `LocalFileEventStore` | JSONL-backed local durable event store |
+| `FlowEventObserver` | Receives committed event envelopes after store append |
 | `WorkflowRunSnapshot` | Materialized state projected from event history |
 | `RetryPolicy` | Step retry attempts and delay |
+| `FlowTask` | Serializable unit of queued workflow work |
+| `FlowTaskQueue` | Queue abstraction for workflow dispatch |
+| `FlowTaskLease` | Queue lease acknowledged after successful handling |
+| `InMemoryFlowTaskQueue` | In-process FIFO task queue |
+| `LocalFileFlowTaskQueue` | JSON-backed local durable task queue |
+| `FlowWorker` | Handles queued tasks against a `FlowEngine` |
+| `FlowScheduler` | Scans due waits and retries, then enqueues worker tasks |
 
 ## Development
 
+From this crate:
+
 ```sh
 cargo fmt --all
+cargo check --all-targets
 cargo test --all-targets
+```
+
+The crate also defines local `just` recipes:
+
+```sh
+just check
+just test
 ```
 
 From the monorepo root:
@@ -225,12 +550,10 @@ just flow-test
 
 ## Roadmap
 
-- Stabilize the Rust SDK surface for runtimes, stores, and run management.
+- Stabilize the Rust runtime, store, worker, and scheduler APIs.
 - Add SQLite and Postgres event stores.
-- Add queue-backed replay, step, wait, and retry dispatch.
-- Add observability adapters for run and step event streams.
-- Harden the native executable runtime protocol with source hashing, artifact
-  cache management, and stricter response validation.
+- Add production queue adapters with durable leases.
+- Add first-class event and metrics adapters for A3S observability.
 
 ## License
 

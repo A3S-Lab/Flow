@@ -1,7 +1,7 @@
 use async_trait::async_trait;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 #[cfg(feature = "native-ts")]
@@ -9,8 +9,12 @@ use tokio::io::AsyncWriteExt;
 #[cfg(feature = "native-ts")]
 use tokio::process::Command;
 
+use crate::context::WorkflowContext;
 use crate::error::{FlowError, Result};
 use crate::model::{FlowEventEnvelope, JsonValue, RuntimeCommand, WorkflowSpec};
+use crate::protocol::{
+    NativeRuntimeKind, NativeRuntimeRequest, NativeRuntimeResponse, NATIVE_RUNTIME_PROTOCOL,
+};
 
 /// Workflow replay request passed to a runtime implementation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,6 +23,12 @@ pub struct WorkflowInvocation {
     pub spec: WorkflowSpec,
     pub input: JsonValue,
     pub history: Vec<FlowEventEnvelope>,
+}
+
+impl WorkflowInvocation {
+    pub fn context(&self) -> WorkflowContext<'_> {
+        WorkflowContext::new(self)
+    }
 }
 
 /// Step execution request passed to a runtime implementation.
@@ -41,22 +51,22 @@ pub trait FlowRuntime: Send + Sync {
     async fn run_step(&self, invocation: StepInvocation) -> Result<JsonValue>;
 }
 
-/// Configuration for the Perry-style native TypeScript runtime adapter.
+/// Configuration for the native TypeScript runtime adapter.
 #[derive(Debug, Clone)]
 pub struct NativeTsRuntimeConfig {
-    pub perry_binary: PathBuf,
+    pub compiler_binary: PathBuf,
     pub cache_dir: PathBuf,
     pub working_dir: PathBuf,
 }
 
 impl NativeTsRuntimeConfig {
     pub fn new(
-        perry_binary: impl Into<PathBuf>,
+        compiler_binary: impl Into<PathBuf>,
         cache_dir: impl Into<PathBuf>,
         working_dir: impl Into<PathBuf>,
     ) -> Self {
         Self {
-            perry_binary: perry_binary.into(),
+            compiler_binary: compiler_binary.into(),
             cache_dir: cache_dir.into(),
             working_dir: working_dir.into(),
         }
@@ -66,7 +76,7 @@ impl NativeTsRuntimeConfig {
 impl Default for NativeTsRuntimeConfig {
     fn default() -> Self {
         Self {
-            perry_binary: PathBuf::from("perry"),
+            compiler_binary: PathBuf::from("a3s-flow-native-compiler"),
             cache_dir: PathBuf::from(".a3s-flow/native-ts"),
             working_dir: PathBuf::from("."),
         }
@@ -80,6 +90,12 @@ pub struct NativeTsRuntime {
     config: NativeTsRuntimeConfig,
 }
 
+#[derive(Debug, Clone)]
+struct NativeArtifact {
+    binary: PathBuf,
+    source_hash: String,
+}
+
 impl NativeTsRuntime {
     pub fn new(config: NativeTsRuntimeConfig) -> Self {
         Self { config }
@@ -89,60 +105,80 @@ impl NativeTsRuntime {
         &self.config
     }
 
-    fn binary_path(&self, spec: &WorkflowSpec) -> PathBuf {
-        let mut hasher = DefaultHasher::new();
-        spec.name.hash(&mut hasher);
-        spec.version.hash(&mut hasher);
-        spec.runtime.entrypoint.hash(&mut hasher);
-        spec.runtime.export_name.hash(&mut hasher);
-        let hash = hasher.finish();
-        let name = format!("{}-{hash:x}", sanitize_filename(&spec.name));
-        self.config.cache_dir.join(name)
+    #[cfg(feature = "native-ts")]
+    async fn artifact_for(&self, spec: &WorkflowSpec) -> Result<NativeArtifact> {
+        let entrypoint = resolve_against(&self.config.working_dir, &spec.runtime.entrypoint);
+        let source = tokio::fs::read(&entrypoint).await?;
+        let source_hash = stable_hash([
+            b"source".as_slice(),
+            spec.name.as_bytes(),
+            spec.version.as_bytes(),
+            spec.runtime.entrypoint.as_bytes(),
+            spec.runtime.export_name.as_bytes(),
+            &source,
+        ]);
+        let name = format!("{}-{source_hash}", sanitize_filename(&spec.name));
+        Ok(NativeArtifact {
+            binary: self.config.cache_dir.join(name),
+            source_hash,
+        })
     }
 
     #[cfg(feature = "native-ts")]
-    async fn compile_if_needed(&self, spec: &WorkflowSpec) -> Result<PathBuf> {
-        let binary = self.binary_path(spec);
-        if binary.exists() {
-            return Ok(binary);
+    async fn compile_if_needed(&self, spec: &WorkflowSpec) -> Result<NativeArtifact> {
+        let artifact = self.artifact_for(spec).await?;
+        if tokio::fs::metadata(&artifact.binary).await.is_ok() {
+            return Ok(artifact);
         }
 
         tokio::fs::create_dir_all(&self.config.cache_dir).await?;
         let entrypoint = resolve_against(&self.config.working_dir, &spec.runtime.entrypoint);
-        let output = Command::new(&self.config.perry_binary)
+        let output = Command::new(&self.config.compiler_binary)
             .arg("compile")
             .arg(&entrypoint)
             .arg("-o")
-            .arg(&binary)
+            .arg(&artifact.binary)
             .current_dir(&self.config.working_dir)
             .output()
             .await?;
 
         if !output.status.success() {
             return Err(FlowError::Runtime(format!(
-                "perry compile failed: {}",
+                "native TypeScript compile failed: {}",
                 String::from_utf8_lossy(&output.stderr)
             )));
         }
 
-        Ok(binary)
+        tokio::fs::metadata(&artifact.binary).await.map_err(|err| {
+            FlowError::Runtime(format!(
+                "native TypeScript compiler did not produce artifact {}: {err}",
+                artifact.binary.display()
+            ))
+        })?;
+
+        Ok(artifact)
     }
 
     #[cfg(feature = "native-ts")]
-    async fn invoke<I, O>(&self, spec: &WorkflowSpec, kind: &str, payload: I) -> Result<O>
+    async fn invoke<I, O>(
+        &self,
+        spec: &WorkflowSpec,
+        kind: NativeRuntimeKind,
+        payload: I,
+    ) -> Result<O>
     where
         I: Serialize + Send,
-        O: for<'de> Deserialize<'de>,
+        O: DeserializeOwned,
     {
-        let binary = self.compile_if_needed(spec).await?;
-        let request = serde_json::json!({
-            "protocol": "a3s.flow.native_ts.v1",
-            "kind": kind,
-            "exportName": spec.runtime.export_name,
-            "payload": payload,
-        });
+        let artifact = self.compile_if_needed(spec).await?;
+        let request = NativeRuntimeRequest::new(
+            kind,
+            spec.runtime.export_name.clone(),
+            artifact.source_hash,
+            payload,
+        );
 
-        let mut child = Command::new(binary)
+        let mut child = Command::new(&artifact.binary)
             .arg("--a3s-flow-runtime")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -158,6 +194,7 @@ impl NativeTsRuntime {
             .write_all(serde_json::to_string(&request)?.as_bytes())
             .await?;
         stdin.shutdown().await?;
+        drop(stdin);
 
         let output = child.wait_with_output().await?;
         if !output.status.success() {
@@ -167,7 +204,7 @@ impl NativeTsRuntime {
             )));
         }
 
-        serde_json::from_slice(&output.stdout).map_err(FlowError::from)
+        decode_native_response(kind, &output.stdout)
     }
 }
 
@@ -176,7 +213,8 @@ impl FlowRuntime for NativeTsRuntime {
     #[cfg(feature = "native-ts")]
     async fn run_workflow(&self, invocation: WorkflowInvocation) -> Result<RuntimeCommand> {
         let spec = invocation.spec.clone();
-        self.invoke(&spec, "workflow", invocation).await
+        self.invoke(&spec, NativeRuntimeKind::Workflow, invocation)
+            .await
     }
 
     #[cfg(not(feature = "native-ts"))]
@@ -189,7 +227,8 @@ impl FlowRuntime for NativeTsRuntime {
     #[cfg(feature = "native-ts")]
     async fn run_step(&self, invocation: StepInvocation) -> Result<JsonValue> {
         let spec = workflow_spec_from_history(&invocation.history)?;
-        self.invoke(&spec, "step", invocation).await
+        self.invoke(&spec, NativeRuntimeKind::Step, invocation)
+            .await
     }
 
     #[cfg(not(feature = "native-ts"))]
@@ -232,4 +271,54 @@ fn resolve_against(root: &Path, value: &str) -> PathBuf {
     } else {
         root.join(path)
     }
+}
+
+fn stable_hash(parts: impl IntoIterator<Item = impl AsRef<[u8]>>) -> String {
+    let mut hasher = Sha256::new();
+    for part in parts {
+        let bytes = part.as_ref();
+        hasher.update(bytes.len().to_le_bytes());
+        hasher.update(bytes);
+    }
+    hex_lower(&hasher.finalize())
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
+}
+
+fn decode_native_response<O>(kind: NativeRuntimeKind, bytes: &[u8]) -> Result<O>
+where
+    O: DeserializeOwned,
+{
+    let response: NativeRuntimeResponse = serde_json::from_slice(bytes)?;
+    if response.protocol != NATIVE_RUNTIME_PROTOCOL {
+        return Err(FlowError::Runtime(format!(
+            "native TypeScript runtime protocol mismatch: expected {NATIVE_RUNTIME_PROTOCOL}, got {}",
+            response.protocol
+        )));
+    }
+    if response.kind != kind {
+        return Err(FlowError::Runtime(format!(
+            "native TypeScript runtime response kind mismatch: expected {}, got {}",
+            kind.as_str(),
+            response.kind.as_str()
+        )));
+    }
+    if !response.ok {
+        let error = response
+            .error
+            .unwrap_or_else(|| "runtime returned ok=false without an error".to_string());
+        return Err(FlowError::Runtime(error));
+    }
+    let output = response.output.ok_or_else(|| {
+        FlowError::Runtime("native TypeScript runtime returned ok=true without output".to_string())
+    })?;
+    serde_json::from_value(output).map_err(FlowError::from)
 }

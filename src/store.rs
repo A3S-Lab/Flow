@@ -9,12 +9,19 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
-use crate::model::{FlowEvent, FlowEventEnvelope};
+use crate::model::{project_run, FlowEvent, FlowEventEnvelope};
 
 /// Append-only event store for durable workflow runs.
 #[async_trait]
 pub trait FlowEventStore: Send + Sync {
     async fn append(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope>;
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> Result<FlowEventEnvelope>;
 
     async fn list(&self, run_id: &str) -> Result<Vec<FlowEventEnvelope>>;
 
@@ -37,16 +44,28 @@ impl InMemoryEventStore {
 impl FlowEventStore for InMemoryEventStore {
     async fn append(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope> {
         let mut runs = self.runs.lock().await;
-        let events = runs.entry(run_id.to_string()).or_default();
-        let envelope = FlowEventEnvelope {
-            run_id: run_id.to_string(),
-            sequence: events.len() as u64 + 1,
-            event_id: Uuid::new_v4(),
-            timestamp: Utc::now(),
-            event,
-        };
-        events.push(envelope.clone());
-        Ok(envelope)
+        append_in_memory(&mut runs, run_id, event)
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> Result<FlowEventEnvelope> {
+        let mut runs = self.runs.lock().await;
+        let actual_sequence = runs
+            .get(run_id)
+            .and_then(|events| events.last())
+            .map_or(0, |event| event.sequence);
+        if actual_sequence != expected_sequence {
+            return Err(FlowError::EventConflict {
+                run_id: run_id.to_string(),
+                expected_sequence,
+                actual_sequence,
+            });
+        }
+        append_in_memory(&mut runs, run_id, event)
     }
 
     async fn list(&self, run_id: &str) -> Result<Vec<FlowEventEnvelope>> {
@@ -63,6 +82,23 @@ impl FlowEventStore for InMemoryEventStore {
         ids.sort();
         Ok(ids)
     }
+}
+
+fn append_in_memory(
+    runs: &mut HashMap<String, Vec<FlowEventEnvelope>>,
+    run_id: &str,
+    event: FlowEvent,
+) -> Result<FlowEventEnvelope> {
+    let events = runs.entry(run_id.to_string()).or_default();
+    let envelope = FlowEventEnvelope {
+        run_id: run_id.to_string(),
+        sequence: events.last().map_or(1, |event| event.sequence + 1),
+        event_id: Uuid::new_v4(),
+        timestamp: Utc::now(),
+        event,
+    };
+    events.push(envelope.clone());
+    Ok(envelope)
 }
 
 /// JSONL-backed event store for local durable runs.
@@ -140,18 +176,22 @@ impl LocalFileEventStore {
             events.push(envelope);
         }
 
-        events.sort_by_key(|event| event.sequence);
         Ok(events)
     }
-}
 
-#[async_trait]
-impl FlowEventStore for LocalFileEventStore {
-    async fn append(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope> {
-        let _guard = self.lock.lock().await;
+    fn validate_existing_log(&self, run_id: &str, events: &[FlowEventEnvelope]) -> Result<()> {
+        if events.is_empty() {
+            return Ok(());
+        }
+        project_run(run_id, events)?;
+        Ok(())
+    }
+
+    async fn append_inner(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope> {
         tokio::fs::create_dir_all(&self.root).await?;
 
         let events = self.list_inner(run_id, true).await?;
+        self.validate_existing_log(run_id, &events)?;
         let envelope = FlowEventEnvelope {
             run_id: run_id.to_string(),
             sequence: events.last().map_or(1, |event| event.sequence + 1),
@@ -160,18 +200,73 @@ impl FlowEventStore for LocalFileEventStore {
             event,
         };
 
-        let path = self.run_path(run_id)?;
+        self.write_envelope(&envelope).await?;
+        Ok(envelope)
+    }
+
+    async fn append_if_sequence_inner(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> Result<FlowEventEnvelope> {
+        tokio::fs::create_dir_all(&self.root).await?;
+
+        let events = self.list_inner(run_id, true).await?;
+        self.validate_existing_log(run_id, &events)?;
+        let actual_sequence = events.last().map_or(0, |event| event.sequence);
+        if actual_sequence != expected_sequence {
+            return Err(FlowError::EventConflict {
+                run_id: run_id.to_string(),
+                expected_sequence,
+                actual_sequence,
+            });
+        }
+
+        let envelope = FlowEventEnvelope {
+            run_id: run_id.to_string(),
+            sequence: actual_sequence + 1,
+            event_id: Uuid::new_v4(),
+            timestamp: Utc::now(),
+            event,
+        };
+
+        self.write_envelope(&envelope).await?;
+        Ok(envelope)
+    }
+
+    async fn write_envelope(&self, envelope: &FlowEventEnvelope) -> Result<()> {
+        let path = self.run_path(&envelope.run_id)?;
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
             .open(path)
             .await?;
-        file.write_all(serde_json::to_string(&envelope)?.as_bytes())
+        file.write_all(serde_json::to_string(envelope)?.as_bytes())
             .await?;
         file.write_all(b"\n").await?;
         file.flush().await?;
         file.sync_data().await?;
-        Ok(envelope)
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl FlowEventStore for LocalFileEventStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope> {
+        let _guard = self.lock.lock().await;
+        self.append_inner(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> Result<FlowEventEnvelope> {
+        let _guard = self.lock.lock().await;
+        self.append_if_sequence_inner(run_id, expected_sequence, event)
+            .await
     }
 
     async fn list(&self, run_id: &str) -> Result<Vec<FlowEventEnvelope>> {

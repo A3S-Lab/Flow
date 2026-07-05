@@ -1,13 +1,15 @@
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use std::collections::BTreeSet;
 use std::sync::Arc;
-use std::time::Duration;
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    project_run, FlowEvent, HookStatus, RuntimeCommand, StepStatus, WaitStatus,
-    WorkflowRunSnapshot, WorkflowRunStatus, WorkflowSpec,
+    project_run, FlowEvent, FlowEventEnvelope, HookSnapshot, HookStatus, RetryPolicy,
+    RuntimeCommand, StepCommand, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus,
+    WorkflowRunSnapshot, WorkflowSpec,
 };
+use crate::observe::{FlowEventObserver, NoopFlowEventObserver};
 use crate::runtime::{FlowRuntime, StepInvocation, WorkflowInvocation};
 use crate::store::{FlowEventStore, InMemoryEventStore};
 
@@ -15,6 +17,7 @@ use crate::store::{FlowEventStore, InMemoryEventStore};
 pub struct FlowEngineBuilder {
     store: Arc<dyn FlowEventStore>,
     runtime: Arc<dyn FlowRuntime>,
+    observer: Arc<dyn FlowEventObserver>,
     max_replay_iterations: usize,
 }
 
@@ -23,12 +26,18 @@ impl FlowEngineBuilder {
         Self {
             store: Arc::new(InMemoryEventStore::new()),
             runtime,
+            observer: Arc::new(NoopFlowEventObserver),
             max_replay_iterations: 1024,
         }
     }
 
     pub fn with_store(mut self, store: Arc<dyn FlowEventStore>) -> Self {
         self.store = store;
+        self
+    }
+
+    pub fn with_observer(mut self, observer: Arc<dyn FlowEventObserver>) -> Self {
+        self.observer = observer;
         self
     }
 
@@ -41,6 +50,7 @@ impl FlowEngineBuilder {
         FlowEngine {
             store: self.store,
             runtime: self.runtime,
+            observer: self.observer,
             max_replay_iterations: self.max_replay_iterations,
         }
     }
@@ -51,6 +61,7 @@ impl FlowEngineBuilder {
 pub struct FlowEngine {
     store: Arc<dyn FlowEventStore>,
     runtime: Arc<dyn FlowRuntime>,
+    observer: Arc<dyn FlowEventObserver>,
     max_replay_iterations: usize,
 }
 
@@ -63,6 +74,7 @@ impl FlowEngine {
         Self {
             store,
             runtime,
+            observer: Arc::new(NoopFlowEventObserver),
             max_replay_iterations: 1024,
         }
     }
@@ -75,41 +87,134 @@ impl FlowEngine {
         Arc::clone(&self.store)
     }
 
+    pub fn observer(&self) -> Arc<dyn FlowEventObserver> {
+        Arc::clone(&self.observer)
+    }
+
     /// Start a workflow run and drive it until completion or suspension.
     pub async fn start(&self, spec: WorkflowSpec, input: serde_json::Value) -> Result<String> {
-        spec.validate()?;
         let run_id = Uuid::new_v4().to_string();
-        self.store
-            .append(&run_id, FlowEvent::RunCreated { spec, input })
-            .await?;
-        self.store.append(&run_id, FlowEvent::RunStarted).await?;
-        self.drive(&run_id).await?;
-        Ok(run_id)
+        self.start_with_id(run_id, spec, input).await
+    }
+
+    /// Start a workflow run using a caller-provided durable run id.
+    ///
+    /// Reusing the same `run_id` with the same workflow spec and input is
+    /// idempotent. Reusing it with different spec or input returns a conflict.
+    pub async fn start_with_id(
+        &self,
+        run_id: impl Into<String>,
+        spec: WorkflowSpec,
+        input: serde_json::Value,
+    ) -> Result<String> {
+        spec.validate()?;
+        let run_id = run_id.into();
+        validate_run_id(&run_id)?;
+
+        for _ in 0..self.max_replay_iterations {
+            match self.store.list(&run_id).await {
+                Ok(history) => {
+                    let snapshot = project_run(&run_id, &history)?;
+                    ensure_same_start(&run_id, &snapshot, &spec, &input)?;
+                    if !history
+                        .iter()
+                        .any(|event| matches!(event.event, FlowEvent::RunStarted))
+                    {
+                        match self
+                            .record_event_at(&run_id, snapshot.last_sequence, FlowEvent::RunStarted)
+                            .await
+                        {
+                            Ok(_) => {}
+                            Err(err) if is_event_conflict(&err) => continue,
+                            Err(err) => return Err(err),
+                        }
+                    }
+                    match self.drive(&run_id).await {
+                        Ok(_) => return Ok(run_id),
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
+                Err(FlowError::RunNotFound(_)) => {
+                    let created = match self
+                        .record_event_at(
+                            &run_id,
+                            0,
+                            FlowEvent::RunCreated {
+                                spec: spec.clone(),
+                                input: input.clone(),
+                            },
+                        )
+                        .await
+                    {
+                        Ok(created) => created,
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    };
+                    match self
+                        .record_event_at(&run_id, created.sequence, FlowEvent::RunStarted)
+                        .await
+                    {
+                        Ok(_) => {}
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                    match self.drive(&run_id).await {
+                        Ok(_) => return Ok(run_id),
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
+                Err(err) => return Err(err),
+            }
+        }
+
+        Err(FlowError::ReplayLimitExceeded(self.max_replay_iterations))
     }
 
     /// Resume a wait once its timer has fired.
     pub async fn resume_wait(&self, run_id: &str, wait_id: &str) -> Result<()> {
-        let snapshot = self.snapshot(run_id).await?;
-        if snapshot.status.is_terminal() {
-            return Err(FlowError::RunTerminal(run_id.to_string()));
-        }
-        match snapshot.waits.get(wait_id) {
-            Some(wait) if wait.status == WaitStatus::Waiting => {
-                self.store
-                    .append(
-                        run_id,
-                        FlowEvent::WaitCompleted {
-                            wait_id: wait_id.to_string(),
-                        },
-                    )
-                    .await?;
-                self.drive(run_id).await.map(|_| ())
+        for _ in 0..self.max_replay_iterations {
+            let snapshot = self.snapshot(run_id).await?;
+            if snapshot.status.is_terminal() {
+                return Err(FlowError::RunTerminal(run_id.to_string()));
             }
-            Some(_) => Ok(()),
-            None => Err(FlowError::InvalidTransition(format!(
-                "wait {wait_id} does not exist for run {run_id}"
-            ))),
+            match snapshot.waits.get(wait_id) {
+                Some(wait) if wait.status == WaitStatus::Waiting => {
+                    match self
+                        .record_event_at(
+                            run_id,
+                            snapshot.last_sequence,
+                            FlowEvent::WaitCompleted {
+                                wait_id: wait_id.to_string(),
+                            },
+                        )
+                        .await
+                    {
+                        Ok(_) => {}
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                    match self.drive(run_id).await {
+                        Ok(_) => return Ok(()),
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
+                Some(_) => match self.drive(run_id).await {
+                    Ok(_) => return Ok(()),
+                    Err(err) if is_event_conflict(&err) => continue,
+                    Err(err) => return Err(err),
+                },
+                None => {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "wait {wait_id} does not exist for run {run_id}"
+                    )))
+                }
+            }
         }
+
+        Err(FlowError::ReplayLimitExceeded(self.max_replay_iterations))
     }
 
     /// Resume an active hook with external payload.
@@ -119,28 +224,48 @@ impl FlowEngine {
         hook_id: &str,
         payload: serde_json::Value,
     ) -> Result<()> {
-        let snapshot = self.snapshot(run_id).await?;
-        if snapshot.status.is_terminal() {
-            return Err(FlowError::RunTerminal(run_id.to_string()));
-        }
-        match snapshot.hooks.get(hook_id) {
-            Some(hook) if hook.status == HookStatus::Active => {
-                self.store
-                    .append(
-                        run_id,
-                        FlowEvent::HookReceived {
-                            hook_id: hook_id.to_string(),
-                            payload,
-                        },
-                    )
-                    .await?;
-                self.drive(run_id).await.map(|_| ())
+        for _ in 0..self.max_replay_iterations {
+            let snapshot = self.snapshot(run_id).await?;
+            if snapshot.status.is_terminal() {
+                return Err(FlowError::RunTerminal(run_id.to_string()));
             }
-            Some(_) => Ok(()),
-            None => Err(FlowError::InvalidTransition(format!(
-                "hook {hook_id} does not exist for run {run_id}"
-            ))),
+            match snapshot.hooks.get(hook_id) {
+                Some(hook) if hook.status == HookStatus::Active => {
+                    match self
+                        .record_event_at(
+                            run_id,
+                            snapshot.last_sequence,
+                            FlowEvent::HookReceived {
+                                hook_id: hook_id.to_string(),
+                                payload: payload.clone(),
+                            },
+                        )
+                        .await
+                    {
+                        Ok(_) => {}
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                    match self.drive(run_id).await {
+                        Ok(_) => return Ok(()),
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
+                Some(_) => match self.drive(run_id).await {
+                    Ok(_) => return Ok(()),
+                    Err(err) if is_event_conflict(&err) => continue,
+                    Err(err) => return Err(err),
+                },
+                None => {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "hook {hook_id} does not exist for run {run_id}"
+                    )))
+                }
+            }
         }
+
+        Err(FlowError::ReplayLimitExceeded(self.max_replay_iterations))
     }
 
     /// Resume an active hook by its external token.
@@ -213,15 +338,60 @@ impl FlowEngine {
         Ok(resumed)
     }
 
-    pub async fn cancel(&self, run_id: &str, reason: Option<String>) -> Result<()> {
-        let snapshot = self.snapshot(run_id).await?;
-        if snapshot.status.is_terminal() {
-            return Ok(());
+    /// List pending step retries whose `retry_after` is at or before `now`.
+    pub async fn list_due_retries(&self, now: DateTime<Utc>) -> Result<Vec<(String, String)>> {
+        let mut due = Vec::new();
+        for run_id in self.store.list_run_ids().await? {
+            let snapshot = self.snapshot(&run_id).await?;
+            if snapshot.status.is_terminal() {
+                continue;
+            }
+            for (step_id, _) in snapshot.due_retries(now) {
+                due.push((run_id.clone(), step_id));
+            }
         }
-        self.store
-            .append(run_id, FlowEvent::RunCancelled { reason })
-            .await?;
-        Ok(())
+        due.sort();
+        Ok(due)
+    }
+
+    /// Drive every run with a due step retry.
+    pub async fn resume_due_retries(&self, now: DateTime<Utc>) -> Result<Vec<(String, String)>> {
+        let due = self.list_due_retries(now).await?;
+        let mut run_ids = Vec::new();
+        for (run_id, _) in &due {
+            if !run_ids.contains(run_id) {
+                run_ids.push(run_id.clone());
+            }
+        }
+        for run_id in run_ids {
+            self.drive_at(&run_id, now).await?;
+        }
+        Ok(due)
+    }
+
+    pub async fn cancel(&self, run_id: &str, reason: Option<String>) -> Result<()> {
+        for _ in 0..self.max_replay_iterations {
+            let snapshot = self.snapshot(run_id).await?;
+            if snapshot.status.is_terminal() {
+                return Ok(());
+            }
+            match self
+                .record_event_at(
+                    run_id,
+                    snapshot.last_sequence,
+                    FlowEvent::RunCancelled {
+                        reason: reason.clone(),
+                    },
+                )
+                .await
+            {
+                Ok(_) => return Ok(()),
+                Err(err) if is_event_conflict(&err) => continue,
+                Err(err) => return Err(err),
+            }
+        }
+
+        Err(FlowError::ReplayLimitExceeded(self.max_replay_iterations))
     }
 
     pub async fn snapshot(&self, run_id: &str) -> Result<WorkflowRunSnapshot> {
@@ -229,13 +399,43 @@ impl FlowEngine {
         project_run(run_id, &history)
     }
 
+    pub async fn history(&self, run_id: &str) -> Result<Vec<FlowEventEnvelope>> {
+        self.store.list(run_id).await
+    }
+
+    pub async fn list_run_ids(&self) -> Result<Vec<String>> {
+        self.store.list_run_ids().await
+    }
+
+    pub async fn list_snapshots(&self) -> Result<Vec<WorkflowRunSnapshot>> {
+        let mut snapshots = Vec::new();
+        for run_id in self.store.list_run_ids().await? {
+            snapshots.push(self.snapshot(&run_id).await?);
+        }
+        Ok(snapshots)
+    }
+
     /// Replay and dispatch until the run reaches a terminal state or an open
     /// wait/hook suspension.
     pub async fn drive(&self, run_id: &str) -> Result<WorkflowRunSnapshot> {
-        for _ in 0..self.max_replay_iterations {
+        self.drive_at(run_id, Utc::now()).await
+    }
+
+    async fn drive_at(&self, run_id: &str, now: DateTime<Utc>) -> Result<WorkflowRunSnapshot> {
+        'replay: for _ in 0..self.max_replay_iterations {
             let history = self.store.list(run_id).await?;
             let snapshot = project_run(run_id, &history)?;
-            if snapshot.status.is_terminal() || snapshot.status == WorkflowRunStatus::Suspended {
+            if snapshot.status.is_terminal()
+                || snapshot
+                    .waits
+                    .values()
+                    .any(|wait| wait.status == WaitStatus::Waiting)
+                || snapshot
+                    .hooks
+                    .values()
+                    .any(|hook| hook.status == HookStatus::Active)
+                || snapshot.has_future_retry(now)
+            {
                 return Ok(snapshot);
             }
 
@@ -251,15 +451,33 @@ impl FlowEngine {
 
             match command {
                 RuntimeCommand::Complete { output } => {
-                    self.store
-                        .append(run_id, FlowEvent::RunCompleted { output })
-                        .await?;
+                    match self
+                        .record_event_at(
+                            run_id,
+                            snapshot.last_sequence,
+                            FlowEvent::RunCompleted { output },
+                        )
+                        .await
+                    {
+                        Ok(_) => {}
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
                     return self.snapshot(run_id).await;
                 }
                 RuntimeCommand::Fail { error } => {
-                    self.store
-                        .append(run_id, FlowEvent::RunFailed { error })
-                        .await?;
+                    match self
+                        .record_event_at(
+                            run_id,
+                            snapshot.last_sequence,
+                            FlowEvent::RunFailed { error },
+                        )
+                        .await
+                    {
+                        Ok(_) => {}
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
                     return self.snapshot(run_id).await;
                 }
                 RuntimeCommand::ScheduleStep {
@@ -268,17 +486,58 @@ impl FlowEngine {
                     input,
                     retry,
                 } => {
-                    self.execute_step(run_id, &snapshot, step_id, step_name, input, retry)
-                        .await?;
+                    match self
+                        .execute_step(run_id, &snapshot, step_id, step_name, input, retry)
+                        .await
+                    {
+                        Ok(()) => {}
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
+                RuntimeCommand::ScheduleSteps { steps } => {
+                    ensure_step_batch_valid(&steps)?;
+                    for step in steps {
+                        let current_snapshot = self.snapshot(run_id).await?;
+                        match self
+                            .execute_step(
+                                run_id,
+                                &current_snapshot,
+                                step.step_id,
+                                step.step_name,
+                                step.input,
+                                step.retry,
+                            )
+                            .await
+                        {
+                            Ok(()) => {}
+                            Err(err) if is_event_conflict(&err) => continue 'replay,
+                            Err(err) => return Err(err),
+                        }
+                    }
                 }
                 RuntimeCommand::WaitUntil { wait_id, resume_at } => {
                     match snapshot.waits.get(&wait_id) {
-                        Some(wait) if wait.status == WaitStatus::Completed => continue,
-                        Some(_) => return self.snapshot(run_id).await,
+                        Some(wait) => {
+                            ensure_wait_command_matches(run_id, wait, resume_at)?;
+                            if wait.status == WaitStatus::Completed {
+                                continue;
+                            }
+                            return self.snapshot(run_id).await;
+                        }
                         None => {
-                            self.store
-                                .append(run_id, FlowEvent::WaitCreated { wait_id, resume_at })
-                                .await?;
+                            match self
+                                .record_event_at(
+                                    run_id,
+                                    snapshot.last_sequence,
+                                    FlowEvent::WaitCreated { wait_id, resume_at },
+                                )
+                                .await
+                            {
+                                Ok(_) => {}
+                                Err(err) if is_event_conflict(&err) => continue,
+                                Err(err) => return Err(err),
+                            }
                             return self.snapshot(run_id).await;
                         }
                     }
@@ -288,19 +547,32 @@ impl FlowEngine {
                     token,
                     metadata,
                 } => match snapshot.hooks.get(&hook_id) {
-                    Some(hook) if hook.status == HookStatus::Received => continue,
-                    Some(_) => return self.snapshot(run_id).await,
+                    Some(hook) => {
+                        ensure_hook_command_matches(run_id, hook, &token, &metadata)?;
+                        if hook.status == HookStatus::Received {
+                            continue;
+                        }
+                        return self.snapshot(run_id).await;
+                    }
                     None => {
-                        self.store
-                            .append(
+                        self.ensure_hook_token_available(run_id, &hook_id, &token)
+                            .await?;
+                        match self
+                            .record_event_at(
                                 run_id,
+                                snapshot.last_sequence,
                                 FlowEvent::HookCreated {
                                     hook_id,
                                     token,
                                     metadata,
                                 },
                             )
-                            .await?;
+                            .await
+                        {
+                            Ok(_) => {}
+                            Err(err) if is_event_conflict(&err) => continue,
+                            Err(err) => return Err(err),
+                        }
                         return self.snapshot(run_id).await;
                     }
                 },
@@ -308,6 +580,48 @@ impl FlowEngine {
         }
 
         Err(FlowError::ReplayLimitExceeded(self.max_replay_iterations))
+    }
+
+    async fn record_event_at(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> Result<FlowEventEnvelope> {
+        let envelope = self
+            .store
+            .append_if_sequence(run_id, expected_sequence, event)
+            .await?;
+        self.observer.observe(envelope.clone()).await;
+        Ok(envelope)
+    }
+
+    async fn ensure_hook_token_available(
+        &self,
+        run_id: &str,
+        hook_id: &str,
+        token: &str,
+    ) -> Result<()> {
+        for existing_run_id in self.store.list_run_ids().await? {
+            let snapshot = self.snapshot(&existing_run_id).await?;
+            if snapshot.status.is_terminal() {
+                continue;
+            }
+            for hook in snapshot.hooks.values() {
+                if hook.status != HookStatus::Active || hook.token != token {
+                    continue;
+                }
+                if existing_run_id == run_id && hook.hook_id == hook_id {
+                    continue;
+                }
+                return Err(FlowError::HookTokenConflict {
+                    token: token.to_string(),
+                    existing_run_id,
+                    existing_hook_id: hook.hook_id.clone(),
+                });
+            }
+        }
+        Ok(())
     }
 
     async fn execute_step(
@@ -319,21 +633,26 @@ impl FlowEngine {
         input: serde_json::Value,
         retry: crate::model::RetryPolicy,
     ) -> Result<()> {
+        let mut expected_sequence = snapshot.last_sequence;
         if let Some(step) = snapshot.steps.get(&step_id) {
+            ensure_step_command_matches(run_id, step, &step_name, &input, retry)?;
             if step.status == StepStatus::Completed {
                 return Ok(());
             }
         } else {
-            self.store
-                .append(
+            let envelope = self
+                .record_event_at(
                     run_id,
+                    expected_sequence,
                     FlowEvent::StepCreated {
                         step_id: step_id.clone(),
                         step_name: step_name.clone(),
                         input: input.clone(),
+                        retry,
                     },
                 )
                 .await?;
+            expected_sequence = envelope.sequence;
         }
 
         let max_attempts = retry.max_attempts.max(1);
@@ -345,15 +664,17 @@ impl FlowEngine {
 
         loop {
             attempt += 1;
-            self.store
-                .append(
+            let started = self
+                .record_event_at(
                     run_id,
+                    expected_sequence,
                     FlowEvent::StepStarted {
                         step_id: step_id.clone(),
                         attempt,
                     },
                 )
                 .await?;
+            expected_sequence = started.sequence;
 
             let history = self.store.list(run_id).await?;
             let invocation = StepInvocation {
@@ -366,9 +687,12 @@ impl FlowEngine {
 
             match self.runtime.run_step(invocation).await {
                 Ok(output) => {
-                    self.store
-                        .append(run_id, FlowEvent::StepCompleted { step_id, output })
-                        .await?;
+                    self.record_event_at(
+                        run_id,
+                        expected_sequence,
+                        FlowEvent::StepCompleted { step_id, output },
+                    )
+                    .await?;
                     return Ok(());
                 }
                 Err(err) if attempt < max_attempts => {
@@ -377,9 +701,10 @@ impl FlowEngine {
                     } else {
                         None
                     };
-                    self.store
-                        .append(
+                    let retrying = self
+                        .record_event_at(
                             run_id,
+                            expected_sequence,
                             FlowEvent::StepRetrying {
                                 step_id: step_id.clone(),
                                 attempt,
@@ -388,15 +713,17 @@ impl FlowEngine {
                             },
                         )
                         .await?;
-                    if retry.delay_ms > 0 {
-                        tokio::time::sleep(Duration::from_millis(retry.delay_ms)).await;
+                    expected_sequence = retrying.sequence;
+                    if retry_after.is_some() {
+                        return Ok(());
                     }
                 }
                 Err(err) => {
                     let error = err.to_string();
-                    self.store
-                        .append(
+                    let failed = self
+                        .record_event_at(
                             run_id,
+                            expected_sequence,
                             FlowEvent::StepFailed {
                                 step_id: step_id.clone(),
                                 attempt,
@@ -404,12 +731,138 @@ impl FlowEngine {
                             },
                         )
                         .await?;
-                    self.store
-                        .append(run_id, FlowEvent::RunFailed { error })
+                    self.record_event_at(run_id, failed.sequence, FlowEvent::RunFailed { error })
                         .await?;
                     return Ok(());
                 }
             }
         }
     }
+}
+
+fn validate_run_id(run_id: &str) -> Result<()> {
+    if run_id.is_empty()
+        || !run_id
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    {
+        return Err(FlowError::InvalidRunId(run_id.to_string()));
+    }
+    Ok(())
+}
+
+fn ensure_same_start(
+    run_id: &str,
+    snapshot: &WorkflowRunSnapshot,
+    spec: &WorkflowSpec,
+    input: &serde_json::Value,
+) -> Result<()> {
+    if snapshot.spec != *spec {
+        return Err(FlowError::RunConflict {
+            run_id: run_id.to_string(),
+            reason: "workflow spec differs".to_string(),
+        });
+    }
+    if snapshot.input != *input {
+        return Err(FlowError::RunConflict {
+            run_id: run_id.to_string(),
+            reason: "workflow input differs".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn ensure_step_batch_valid(steps: &[StepCommand]) -> Result<()> {
+    if steps.is_empty() {
+        return Err(FlowError::InvalidTransition(
+            "schedule_steps requires at least one step".to_string(),
+        ));
+    }
+
+    let mut ids = BTreeSet::new();
+    for step in steps {
+        if step.step_id.trim().is_empty() {
+            return Err(FlowError::InvalidTransition(
+                "scheduled step id must not be empty".to_string(),
+            ));
+        }
+        if !ids.insert(step.step_id.as_str()) {
+            return Err(FlowError::InvalidTransition(format!(
+                "schedule_steps contains duplicate step id {}",
+                step.step_id
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn ensure_step_command_matches(
+    run_id: &str,
+    step: &StepSnapshot,
+    step_name: &str,
+    input: &serde_json::Value,
+    retry: RetryPolicy,
+) -> Result<()> {
+    if step.step_name != step_name {
+        return Err(FlowError::NonDeterministic {
+            run_id: run_id.to_string(),
+            reason: format!(
+                "step {} name differs: history has {:?}, replay returned {:?}",
+                step.step_id, step.step_name, step_name
+            ),
+        });
+    }
+    if step.input != *input {
+        return Err(FlowError::NonDeterministic {
+            run_id: run_id.to_string(),
+            reason: format!("step {} input differs from history", step.step_id),
+        });
+    }
+    if step.retry != retry {
+        return Err(FlowError::NonDeterministic {
+            run_id: run_id.to_string(),
+            reason: format!("step {} retry policy differs from history", step.step_id),
+        });
+    }
+    Ok(())
+}
+
+fn ensure_wait_command_matches(
+    run_id: &str,
+    wait: &WaitSnapshot,
+    resume_at: chrono::DateTime<Utc>,
+) -> Result<()> {
+    if wait.resume_at != resume_at {
+        return Err(FlowError::NonDeterministic {
+            run_id: run_id.to_string(),
+            reason: format!("wait {} resume_at differs from history", wait.wait_id),
+        });
+    }
+    Ok(())
+}
+
+fn ensure_hook_command_matches(
+    run_id: &str,
+    hook: &HookSnapshot,
+    token: &str,
+    metadata: &serde_json::Value,
+) -> Result<()> {
+    if hook.token != token {
+        return Err(FlowError::NonDeterministic {
+            run_id: run_id.to_string(),
+            reason: format!("hook {} token differs from history", hook.hook_id),
+        });
+    }
+    if hook.metadata != *metadata {
+        return Err(FlowError::NonDeterministic {
+            run_id: run_id.to_string(),
+            reason: format!("hook {} metadata differs from history", hook.hook_id),
+        });
+    }
+    Ok(())
+}
+
+fn is_event_conflict(err: &FlowError) -> bool {
+    matches!(err, FlowError::EventConflict { .. })
 }
