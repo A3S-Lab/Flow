@@ -13,7 +13,7 @@ Workflow as a Service product surfaces.
 | Run inspection | `FlowEngine::list_run_ids`, `FlowEngine::list_snapshots`, `FlowEngine::history` | `examples/run_inspection.rs`, `tests/engine.rs` | Hosts can list sorted run IDs, project snapshots for dashboards, and read raw event history for audit or replay debugging. |
 | Idempotent starts | `FlowEngine::start_with_id` | `examples/sequential_steps.rs`, `tests/engine.rs` | Stable business IDs are safe to retry when spec and input match. |
 | Cancellation | `FlowEngine::cancel`, `WorkflowRunStatus::Cancelled` | `examples/cancellation.rs`, `tests/scheduler.rs`, `tests/engine.rs` | Hosts can append a terminal cancellation event with a reason; scheduler scans skip cancelled waits and retries. |
-| Sequential durable steps | `RuntimeCommand::ScheduleStep`, `WorkflowContext::schedule_step` | `examples/sequential_steps.rs` | Side effects are isolated to step execution and observed only after persistence. |
+| Sequential durable steps | `RuntimeCommand::ScheduleStep`, `WorkflowContext::schedule_step`, `WorkflowContext::input_as`, `StepInvocation::input_as` | `examples/sequential_steps.rs` | Side effects are isolated to step execution and observed only after persistence; typed input helpers keep workflow and step contracts explicit. |
 | Batch durable steps | `RuntimeCommand::ScheduleSteps`, `WorkflowContext::schedule_steps` | `examples/batch_steps.rs`, `tests/engine.rs` | Step IDs must be stable and unique in the batch. |
 | Compensation patterns | `WorkflowContext::schedule_step`, domain-result step outputs | `examples/compensation.rs`, `docs/COOKBOOK.md` | Recoverable business failures can schedule durable compensating steps before completion. |
 | Retry policies | `RetryPolicy`, `StepFailureAction`, `schedule_step_with_retry`, `step_with_retry`, `WorkflowContext::step_failed` | `examples/batch_steps.rs`, `examples/retry_backoff.rs`, `examples/recoverable_step_failure.rs`, `tests/engine.rs`, `tests/scheduler.rs` | Immediate retries stay in the drive loop; delayed retries suspend until due; exhausted failures fail the run by default or replay to workflow fallback logic when explicitly configured. |
@@ -101,6 +101,8 @@ test helpers.
      them.
 
 5. **Workflow authoring ergonomics**
+   - Keep typed input decoding helpers aligned with serde examples and
+     `sequential_steps`.
    - Keep recoverable step failure guidance aligned with `RetryPolicy`,
      `StepFailureAction`, and `WorkflowContext::step_failed`.
    - Keep typed hook metadata and callback routing helpers aligned with

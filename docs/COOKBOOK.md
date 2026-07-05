@@ -219,6 +219,46 @@ Replay mismatch errors include compact `history=...; replay=...` command diffs
 for step definitions, wait deadlines, and hook metadata. Hook token mismatches
 are reported without printing token values.
 
+## Typed Inputs
+
+Use raw JSON helpers for small examples and typed decoding when a host has a
+stable input contract. `WorkflowContext::input_as<T>()` decodes workflow input,
+and `StepInvocation::input_as<T>()` decodes step input using serde.
+
+```rust
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkflowInput {
+    user_id: String,
+}
+
+let ctx = invocation.context();
+let input = ctx.input_as::<WorkflowInput>()?;
+
+Ok(ctx.schedule_step(
+    "load-user",
+    "load_user",
+    serde_json::json!({ "userId": input.user_id }),
+))
+```
+
+Step handlers can decode their input the same way:
+
+```rust
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LoadUserInput {
+    user_id: String,
+}
+
+let input = invocation.input_as::<LoadUserInput>()?;
+```
+
+Deserialization failures return a normal `FlowError`, so hosts can surface
+invalid workflow input without panicking.
+
 ## Fan-Out And Fan-In
 
 Use `schedule_steps()` when independent work should happen before synthesis.

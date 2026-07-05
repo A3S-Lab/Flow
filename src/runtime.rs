@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-#[cfg(feature = "native-ts")]
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "native-ts")]
@@ -33,8 +32,17 @@ pub struct WorkflowInvocation {
 }
 
 impl WorkflowInvocation {
+    /// Build a deterministic helper view over this workflow invocation.
     pub fn context(&self) -> WorkflowContext<'_> {
         WorkflowContext::new(self)
+    }
+
+    /// Decode the workflow input into a host-defined serde type.
+    pub fn input_as<T>(&self) -> Result<T>
+    where
+        T: DeserializeOwned,
+    {
+        serde_json::from_value(self.input.clone()).map_err(FlowError::from)
     }
 }
 
@@ -46,6 +54,16 @@ pub struct StepInvocation {
     pub step_name: String,
     pub input: JsonValue,
     pub history: Vec<FlowEventEnvelope>,
+}
+
+impl StepInvocation {
+    /// Decode the step input into a host-defined serde type.
+    pub fn input_as<T>(&self) -> Result<T>
+    where
+        T: DeserializeOwned,
+    {
+        serde_json::from_value(self.input.clone()).map_err(FlowError::from)
+    }
 }
 
 /// Runtime boundary for workflow code and side-effecting steps.

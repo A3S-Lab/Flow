@@ -3,8 +3,26 @@ use a3s_flow::{
     WorkflowSpec,
 };
 use async_trait::async_trait;
+use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InvoiceWorkflowInput {
+    invoice_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LoadInvoiceInput {
+    invoice_id: String,
+}
+
+#[derive(Deserialize)]
+struct ChargeCardInput {
+    amount: u64,
+}
 
 struct InvoiceRuntime;
 
@@ -15,6 +33,7 @@ impl FlowRuntime for InvoiceRuntime {
         invocation: WorkflowInvocation,
     ) -> a3s_flow::Result<RuntimeCommand> {
         let ctx = invocation.context();
+        let input = ctx.input_as::<InvoiceWorkflowInput>()?;
         let invoice = ctx.step_output("load-invoice");
         let charge = ctx.step_output("charge-card");
 
@@ -22,7 +41,7 @@ impl FlowRuntime for InvoiceRuntime {
             (None, _) => Ok(ctx.schedule_step(
                 "load-invoice",
                 "load_invoice",
-                json!({ "invoiceId": ctx.input()["invoiceId"] }),
+                json!({ "invoiceId": input.invoice_id }),
             )),
             (Some(invoice), None) => Ok(ctx.schedule_step(
                 "charge-card",
@@ -41,15 +60,21 @@ impl FlowRuntime for InvoiceRuntime {
 
     async fn run_step(&self, invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
         match invocation.step_name.as_str() {
-            "load_invoice" => Ok(json!({
-                "id": invocation.input["invoiceId"],
-                "amount": 4200,
-                "currency": "USD",
-            })),
-            "charge_card" => Ok(json!({
-                "status": "authorized",
-                "amount": invocation.input["amount"],
-            })),
+            "load_invoice" => {
+                let input = invocation.input_as::<LoadInvoiceInput>()?;
+                Ok(json!({
+                    "id": input.invoice_id,
+                    "amount": 4200,
+                    "currency": "USD",
+                }))
+            }
+            "charge_card" => {
+                let input = invocation.input_as::<ChargeCardInput>()?;
+                Ok(json!({
+                    "status": "authorized",
+                    "amount": input.amount,
+                }))
+            }
             step => Err(FlowError::Runtime(format!("unknown step: {step}"))),
         }
     }

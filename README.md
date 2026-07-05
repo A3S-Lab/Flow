@@ -340,7 +340,7 @@ cargo run --example local_retention
 
 | Example | Demonstrates |
 |---------|--------------|
-| `sequential_steps` | A deterministic workflow that schedules one durable step, observes its persisted output, schedules the next step, then completes |
+| `sequential_steps` | A deterministic workflow that decodes typed workflow/step input, schedules one durable step, observes its persisted output, schedules the next step, then completes |
 | `batch_steps` | `schedule_steps()` fan-out with stable step IDs and per-step retry policy |
 | `compensation` | Recoverable business failure handled by scheduling a durable compensating step before completion |
 | `retry_backoff` | Delayed step retry, `retry_after` suspension, due retry scheduling, and worker-driven resume |
@@ -430,7 +430,16 @@ snapshot error field, and makes scheduler scans ignore the run.
 persisted history:
 
 ```rust
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UserWorkflowInput {
+    user_id: String,
+}
+
 let ctx = invocation.context();
+let input = ctx.input_as::<UserWorkflowInput>()?;
 
 if let Some(user) = ctx.step_output("load-user") {
     return Ok(ctx.complete(json!({ "user": user })));
@@ -439,9 +448,14 @@ if let Some(user) = ctx.step_output("load-user") {
 Ok(ctx.schedule_step(
     "load-user",
     "load_user",
-    json!({ "userId": ctx.input()["userId"] }),
+    json!({ "userId": input.user_id }),
 ))
 ```
+
+Use `ctx.input()` when a workflow needs the raw JSON value. Use
+`ctx.input_as::<T>()`, `WorkflowInvocation::input_as::<T>()`, and
+`StepInvocation::input_as::<T>()` when the host has a typed input contract and
+wants serde validation at the runtime boundary.
 
 ### Step retries
 
@@ -824,9 +838,9 @@ complete local audit flow.
 |------|-------------|
 | `FlowEngine` | Starts, idempotently starts, drives, resumes/disposes hooks, inspects, snapshots, and cancels runs |
 | `FlowRuntime` | Host-provided Rust workflow and step executor trait |
-| `WorkflowInvocation` | Workflow replay input passed to a runtime |
-| `StepInvocation` | Step execution input passed to a runtime |
-| `WorkflowContext` | Replay helper for history inspection and command creation |
+| `WorkflowInvocation` | Workflow replay input passed to a runtime, with typed `input_as<T>()` decoding |
+| `StepInvocation` | Step execution input passed to a runtime, with typed `input_as<T>()` decoding |
+| `WorkflowContext` | Replay helper for history inspection, typed input decoding, and command creation |
 | `RuntimeCommand` | Command returned by workflow replay |
 | `StepCommand` | Durable step definition used by batched step scheduling |
 | `WorkflowSpec` | Durable workflow identity and runtime metadata |

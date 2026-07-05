@@ -29,6 +29,14 @@ impl<'a> WorkflowContext<'a> {
         &self.invocation.input
     }
 
+    /// Decode the workflow input into a host-defined serde type.
+    pub fn input_as<T>(&self) -> Result<T>
+    where
+        T: DeserializeOwned,
+    {
+        self.invocation.input_as()
+    }
+
     pub fn history(&self) -> &[FlowEventEnvelope] {
         &self.invocation.history
     }

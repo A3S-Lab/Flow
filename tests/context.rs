@@ -23,6 +23,18 @@ struct Approval {
     approved: bool,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextInput {
+    user_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LoadUserInput {
+    user_id: String,
+}
+
 struct ContextRuntime;
 
 #[async_trait]
@@ -32,12 +44,13 @@ impl FlowRuntime for ContextRuntime {
         invocation: WorkflowInvocation,
     ) -> a3s_flow::Result<RuntimeCommand> {
         let ctx = invocation.context();
+        let input = ctx.input_as::<ContextInput>()?;
 
         let Some(user) = ctx.step_output_as::<User>("load-user")? else {
             return Ok(ctx.schedule_step(
                 "load-user",
                 "loadUser",
-                json!({ "userId": ctx.input()["userId"] }),
+                json!({ "userId": input.user_id }),
             ));
         };
 
@@ -61,10 +74,13 @@ impl FlowRuntime for ContextRuntime {
 
     async fn run_step(&self, invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
         match invocation.step_name.as_str() {
-            "loadUser" => Ok(json!({
-                "id": invocation.input["userId"],
-                "name": "Ada",
-            })),
+            "loadUser" => {
+                let input = invocation.input_as::<LoadUserInput>()?;
+                Ok(json!({
+                    "id": input.user_id,
+                    "name": "Ada",
+                }))
+            }
             other => Err(FlowError::Runtime(format!("unknown step {other}"))),
         }
     }
@@ -110,4 +126,26 @@ async fn workflow_context_drives_step_wait_and_hook_flow() {
     let output = completed.output.unwrap();
     assert_eq!(output["user"]["id"], "u1");
     assert_eq!(output["approved"], true);
+}
+
+#[test]
+fn typed_input_helpers_surface_serialization_errors() {
+    let invocation = WorkflowInvocation {
+        run_id: "typed-input-error".to_string(),
+        spec: spec(),
+        input: json!({ "userId": 42 }),
+        history: Vec::new(),
+    };
+    let workflow_error = invocation.context().input_as::<ContextInput>().unwrap_err();
+    assert!(matches!(workflow_error, FlowError::Serialization(_)));
+
+    let step = StepInvocation {
+        run_id: "typed-input-error".to_string(),
+        step_id: "load-user".to_string(),
+        step_name: "loadUser".to_string(),
+        input: json!({ "userId": 42 }),
+        history: Vec::new(),
+    };
+    let step_error = step.input_as::<LoadUserInput>().unwrap_err();
+    assert!(matches!(step_error, FlowError::Serialization(_)));
 }
