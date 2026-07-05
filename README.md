@@ -323,6 +323,7 @@ cargo run --example postgres_durability --features postgres
 cargo run --example task_queue_durability
 cargo run --example postgres_task_queue_durability --features postgres
 cargo run --example observer_bridge
+cargo run --example observer_fanout
 cargo run --example local_audit_log
 cargo run --example native_ts_greeting
 cargo run --example native_ts_preflight
@@ -345,6 +346,7 @@ cargo run --example local_retention
 | `task_queue_durability` | `LocalFileFlowTaskQueue` pending/inflight files, crash recovery, lease timeout handling, dead-letter records, and worker draining |
 | `postgres_task_queue_durability` | `PostgresEventStore` plus `PostgresFlowTaskQueue` shared database durability, lease recovery, worker draining, and dead-letter handling |
 | `observer_bridge` | `A3sFlowEventBridge` mapping committed events into A3S-style records with safe metric labels |
+| `observer_fanout` | `FanoutFlowEventObserver` forwarding committed events to raw envelope and A3S-shaped observers at the same time |
 | `local_audit_log` | `LocalFileA3sFlowEventSink` JSONL audit logging through `A3sFlowEventBridge` |
 | `native_ts_greeting` | Rust `NativeTsRuntime` wiring for a TypeScript workflow source; exits successfully with a prerequisite message unless `A3S_FLOW_NATIVE_TS_COMPILER` points at a compiler |
 | `native_ts_preflight` | `NativeTsRuntime::preflight()` validation, artifact cache metadata, source hash reporting, and compiler prerequisite gating |
@@ -722,6 +724,26 @@ event key, run audit identity, workflow identity, status, and subject. Use
 `A3sFlowEvent::safe_metric_labels()` for low-cardinality metrics labels; keep
 high-cardinality fields such as `run_id` in logs or traces.
 
+Use `FanoutFlowEventObserver` when the same committed event stream should feed
+several observers, such as raw envelope debugging plus an A3S-shaped audit sink:
+
+```rust
+use a3s_flow::{
+    A3sFlowEventBridge, FanoutFlowEventObserver, InMemoryA3sFlowEventSink,
+    InMemoryFlowEventObserver,
+};
+use std::sync::Arc;
+
+let raw_observer = Arc::new(InMemoryFlowEventObserver::new());
+let sink = Arc::new(InMemoryA3sFlowEventSink::new());
+let bridge = Arc::new(A3sFlowEventBridge::new(sink.clone()));
+let observer = Arc::new(
+    FanoutFlowEventObserver::new()
+        .with_observer(raw_observer.clone())
+        .with_observer(bridge),
+);
+```
+
 Use `LocalFileA3sFlowEventSink` when a local host wants append-only JSONL audit
 records:
 
@@ -762,6 +784,7 @@ complete local audit flow.
 | `SqliteEventStore` | SQLite-backed single-node durable event store, available with the `sqlite` feature |
 | `PostgresEventStore` | Postgres-backed shared durable event store, available with the `postgres` feature |
 | `FlowEventObserver` | Receives committed event envelopes after store append |
+| `FanoutFlowEventObserver` | Forwards committed event envelopes to multiple observers |
 | `A3sFlowEventBridge` | Maps committed envelopes into A3S-style event records for host sinks |
 | `A3sFlowEvent` | A3S-style event record with safe metric label helpers |
 | `InMemoryA3sFlowEventSink` | In-memory sink for tests, examples, and local debugging |

@@ -369,6 +369,26 @@ workflow identity, status, and step/wait/hook subject when one exists. Use
 `safe_metric_labels()` for metrics and keep high-cardinality identity in logs or
 traces.
 
+When one host needs several observability outputs, compose observers with
+`FanoutFlowEventObserver`:
+
+```rust
+use a3s_flow::{
+    A3sFlowEventBridge, FanoutFlowEventObserver, InMemoryA3sFlowEventSink,
+    InMemoryFlowEventObserver,
+};
+use std::sync::Arc;
+
+let raw_observer = Arc::new(InMemoryFlowEventObserver::new());
+let sink = Arc::new(InMemoryA3sFlowEventSink::new());
+let bridge = Arc::new(A3sFlowEventBridge::new(sink.clone()));
+let observer = Arc::new(
+    FanoutFlowEventObserver::new()
+        .with_observer(raw_observer.clone())
+        .with_observer(bridge),
+);
+```
+
 Safe metric labels:
 
 | Label | Use |

@@ -21,7 +21,7 @@ Workflow as a Service product surfaces.
 | Workers | `FlowTask`, `FlowTaskQueue`, `FlowWorker` | `examples/scheduler_worker.rs`, `examples/task_queue_durability.rs`, `examples/postgres_task_queue_durability.rs`, `tests/worker.rs` | Queue leases are acknowledged after successful task handling. |
 | Scheduling | `FlowScheduler::enqueue_due_work` | `examples/scheduler_worker.rs`, `tests/scheduler.rs` | Scheduler converts due waits and due retries into queue tasks. |
 | Local and shared durability | `LocalFileEventStore`, `SqliteEventStore`, `PostgresEventStore`, `LocalFileFlowTaskQueue`, `PostgresFlowTaskQueue`, `LocalFileDeadLetteredTask`, `PostgresDeadLetteredTask` | `examples/local_file_durability.rs`, `examples/sqlite_durability.rs`, `examples/postgres_durability.rs`, `examples/task_queue_durability.rs`, `examples/postgres_task_queue_durability.rs`, `examples/local_retention.rs`, `tests/worker.rs`, `tests/engine.rs` | JSONL event histories, SQLite event rows, Postgres event rows, JSON task files, and Postgres task rows cover local and shared durability. Old terminal histories can be pruned by cutoff, stale inflight tasks can be requeued by lease age, and poison tasks can be dead-lettered. |
-| Observability | `FlowEventObserver`, `A3sFlowEventBridge`, `A3sFlowEvent`, `InMemoryFlowEventObserver`, `LocalFileA3sFlowEventSink` | `examples/observer_bridge.rs`, `examples/local_audit_log.rs`, `tests/engine.rs` | Observers mirror committed events after store append; bridge records expose A3S event keys, safe metric labels, and local JSONL audit records while stores remain authoritative. |
+| Observability | `FlowEventObserver`, `FanoutFlowEventObserver`, `A3sFlowEventBridge`, `A3sFlowEvent`, `InMemoryFlowEventObserver`, `LocalFileA3sFlowEventSink` | `examples/observer_bridge.rs`, `examples/observer_fanout.rs`, `examples/local_audit_log.rs`, `tests/engine.rs` | Observers mirror committed events after store append; fan-out observers feed multiple sinks; bridge records expose A3S event keys, safe metric labels, and local JSONL audit records while stores remain authoritative. |
 | Native TypeScript runtime | `NativeTsRuntime`, `NativeTsRuntimePreflight`, `NativeRuntimeRequest`, `NativeRuntimeResponse` | `README.md`, `docs/NATIVE_TYPESCRIPT.md`, `examples/native_ts_greeting.rs`, `examples/native_ts_preflight.rs`, `examples/native-ts/greeting.ts`, `tests/native_ts_runtime.rs` | Rust owns the engine; TypeScript is validated, compiled, cached, and invoked as a native runtime artifact. |
 
 ## Example Coverage Goals
@@ -46,6 +46,7 @@ test helpers.
 | `task_queue_durability` | Present | Persist queued work, recover an unacked inflight lease, dead-letter a stale lease, and drain work with a worker. |
 | `postgres_task_queue_durability` | Present, `postgres` feature and `A3S_FLOW_POSTGRES_URL` gated | Pair `PostgresEventStore` and `PostgresFlowTaskQueue`, recover an inflight lease, drain work with a worker, and dead-letter a stale task. |
 | `observer_bridge` | Present | Map committed events into A3S-style records and safe metric labels for host sinks. |
+| `observer_fanout` | Present | Forward one committed event stream into both raw envelope and A3S-shaped observers. |
 | `local_audit_log` | Present | Persist bridged A3S-style events as JSONL audit records and read them back through the file sink. |
 | `native_ts_greeting` | Present, compiler-gated | Rust `NativeTsRuntime` wiring for TypeScript source; runs fully when `A3S_FLOW_NATIVE_TS_COMPILER` points at a compatible compiler and otherwise exits with a prerequisite message. |
 | `native_ts_preflight` | Present, compiler-gated | Validate a native TypeScript spec, compile or reuse the artifact cache, and print entrypoint, artifact, source hash, and cache-hit diagnostics. |
@@ -87,6 +88,7 @@ test helpers.
 
 4. **Observability adapters**
    - Keep `A3sFlowEventBridge` aligned with Flow event keys and host sink needs.
+   - Keep `FanoutFlowEventObserver` aligned with multi-sink host examples.
    - Keep `LocalFileA3sFlowEventSink` aligned with local audit-log examples.
    - Maintain event cardinality and safe-label guidance in README and cookbook.
    - Add hosted event or metrics sinks when concrete deployment targets require

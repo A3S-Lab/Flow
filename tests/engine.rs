@@ -3,11 +3,11 @@ use a3s_flow::PostgresEventStore;
 #[cfg(feature = "sqlite")]
 use a3s_flow::SqliteEventStore;
 use a3s_flow::{
-    A3sFlowEventBridge, FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore,
-    FlowRuntime, HookStatus, InMemoryA3sFlowEventSink, InMemoryEventStore,
-    InMemoryFlowEventObserver, LocalFileA3sFlowEventSink, LocalFileEventStore, RetryPolicy,
-    RuntimeCommand, StepInvocation, StepStatus, WaitStatus, WorkflowInvocation, WorkflowRunStatus,
-    WorkflowSpec,
+    A3sFlowEventBridge, FanoutFlowEventObserver, FlowEngine, FlowError, FlowEvent,
+    FlowEventEnvelope, FlowEventStore, FlowRuntime, HookStatus, InMemoryA3sFlowEventSink,
+    InMemoryEventStore, InMemoryFlowEventObserver, LocalFileA3sFlowEventSink, LocalFileEventStore,
+    RetryPolicy, RuntimeCommand, StepInvocation, StepStatus, WaitStatus, WorkflowInvocation,
+    WorkflowRunStatus, WorkflowSpec,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
@@ -427,6 +427,37 @@ async fn observer_receives_committed_events_in_store_order() {
         stored.len(),
         "idempotent start should not append or observe duplicate events"
     );
+}
+
+#[tokio::test]
+async fn fanout_observer_forwards_committed_events_to_each_observer() {
+    let raw_observer = Arc::new(InMemoryFlowEventObserver::new());
+    let a3s_sink = Arc::new(InMemoryA3sFlowEventSink::new());
+    let bridge = Arc::new(A3sFlowEventBridge::new(a3s_sink.clone()));
+    let fanout = Arc::new(
+        FanoutFlowEventObserver::new()
+            .with_observer(raw_observer.clone())
+            .with_observer(bridge),
+    );
+    assert_eq!(fanout.len(), 2);
+
+    let engine = FlowEngine::builder(Arc::new(SequentialRuntime))
+        .with_observer(fanout)
+        .build();
+    let run_id = engine
+        .start_with_id("fanout-run", spec(), json!({ "userId": "u1" }))
+        .await
+        .unwrap();
+
+    let stored = engine.store().list(&run_id).await.unwrap();
+    let raw_events = raw_observer.events().await;
+    let a3s_events = a3s_sink.events().await;
+
+    assert_eq!(raw_events, stored);
+    assert_eq!(a3s_events.len(), stored.len());
+    assert_eq!(a3s_events.first().unwrap().key, "flow.run.created");
+    assert_eq!(a3s_events.last().unwrap().key, "flow.run.completed");
+    assert!(a3s_events.iter().all(|event| event.run_id == "fanout-run"));
 }
 
 #[tokio::test]

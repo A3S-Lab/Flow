@@ -130,6 +130,9 @@ workflow identity, event key, status, subject, audit identity, and
 low-cardinality metric labels. `InMemoryA3sFlowEventSink` keeps those records in
 process for tests and examples. `LocalFileA3sFlowEventSink` appends them to
 JSONL for local audit trails and records write failures in `last_error()`.
+`FanoutFlowEventObserver` composes several observers over the same committed
+event stream, so hosts can feed debugging, metrics, and audit adapters without
+changing engine persistence semantics.
 
 ## Native Runtime Boundary
 

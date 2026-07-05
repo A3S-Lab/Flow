@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::fs::{File, OpenOptions};
@@ -28,6 +29,61 @@ pub struct NoopFlowEventObserver;
 #[async_trait]
 impl FlowEventObserver for NoopFlowEventObserver {
     async fn observe(&self, _envelope: FlowEventEnvelope) {}
+}
+
+/// Observer that forwards every committed event to multiple observers.
+#[derive(Clone, Default)]
+pub struct FanoutFlowEventObserver {
+    observers: Vec<Arc<dyn FlowEventObserver>>,
+}
+
+impl FanoutFlowEventObserver {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn from_observers(observers: Vec<Arc<dyn FlowEventObserver>>) -> Self {
+        Self { observers }
+    }
+
+    pub fn with_observer<O>(mut self, observer: Arc<O>) -> Self
+    where
+        O: FlowEventObserver + 'static,
+    {
+        self.observers.push(observer);
+        self
+    }
+
+    pub fn with_dyn_observer(mut self, observer: Arc<dyn FlowEventObserver>) -> Self {
+        self.observers.push(observer);
+        self
+    }
+
+    pub fn len(&self) -> usize {
+        self.observers.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.observers.is_empty()
+    }
+}
+
+impl fmt::Debug for FanoutFlowEventObserver {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("FanoutFlowEventObserver")
+            .field("observers", &self.observers.len())
+            .finish()
+    }
+}
+
+#[async_trait]
+impl FlowEventObserver for FanoutFlowEventObserver {
+    async fn observe(&self, envelope: FlowEventEnvelope) {
+        for observer in &self.observers {
+            observer.observe(envelope.clone()).await;
+        }
+    }
 }
 
 /// In-memory observer for tests, local debugging, and embedded hosts.
