@@ -8,7 +8,7 @@ use crate::error::{FlowError, Result};
 use crate::model::{
     project_run, ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookSnapshot, HookStatus,
     RetryPolicy, RuntimeCommand, StepCommand, StepFailureAction, StepSnapshot, StepStatus,
-    WaitSnapshot, WaitStatus, WorkflowRunSnapshot, WorkflowSpec,
+    WaitSnapshot, WaitStatus, WorkflowRunSnapshot, WorkflowRunSummary, WorkflowSpec,
 };
 use crate::observe::{FlowEventObserver, NoopFlowEventObserver};
 use crate::runtime::{FlowRuntime, StepInvocation, WorkflowInvocation};
@@ -496,6 +496,16 @@ impl FlowEngine {
             snapshots.push(self.snapshot(&run_id).await?);
         }
         Ok(snapshots)
+    }
+
+    /// Summarize run state across the active store.
+    ///
+    /// Suspension counters include only non-terminal runs, so a cancelled run
+    /// that still has an old wait or hook in history is not reported as
+    /// actionable work.
+    pub async fn run_summary(&self) -> Result<WorkflowRunSummary> {
+        let snapshots = self.list_snapshots().await?;
+        Ok(WorkflowRunSummary::from_snapshots(&snapshots))
     }
 
     /// List active external callback hooks across non-terminal runs.

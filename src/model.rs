@@ -534,6 +534,67 @@ pub struct ActiveHookSnapshot {
     pub hook: HookSnapshot,
 }
 
+/// Aggregated run counts for host dashboards and health probes.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkflowRunSummary {
+    pub total_runs: usize,
+    pub pending_runs: usize,
+    pub running_runs: usize,
+    pub suspended_runs: usize,
+    pub completed_runs: usize,
+    pub failed_runs: usize,
+    pub cancelled_runs: usize,
+    pub terminal_runs: usize,
+    pub non_terminal_runs: usize,
+    pub open_waits: usize,
+    pub active_hooks: usize,
+    pub pending_retries: usize,
+}
+
+impl WorkflowRunSummary {
+    pub fn from_snapshots(snapshots: &[WorkflowRunSnapshot]) -> Self {
+        let mut summary = Self::default();
+        for snapshot in snapshots {
+            summary.record(snapshot);
+        }
+        summary
+    }
+
+    pub fn record(&mut self, snapshot: &WorkflowRunSnapshot) {
+        self.total_runs += 1;
+        match snapshot.status {
+            WorkflowRunStatus::Pending => self.pending_runs += 1,
+            WorkflowRunStatus::Running => self.running_runs += 1,
+            WorkflowRunStatus::Suspended => self.suspended_runs += 1,
+            WorkflowRunStatus::Completed => self.completed_runs += 1,
+            WorkflowRunStatus::Failed => self.failed_runs += 1,
+            WorkflowRunStatus::Cancelled => self.cancelled_runs += 1,
+        }
+
+        if snapshot.status.is_terminal() {
+            self.terminal_runs += 1;
+            return;
+        }
+
+        self.non_terminal_runs += 1;
+        self.open_waits += snapshot
+            .waits
+            .values()
+            .filter(|wait| wait.status == WaitStatus::Waiting)
+            .count();
+        self.active_hooks += snapshot
+            .hooks
+            .values()
+            .filter(|hook| hook.status == HookStatus::Active)
+            .count();
+        self.pending_retries += snapshot
+            .steps
+            .values()
+            .filter(|step| step.status == StepStatus::Pending && step.retry_after.is_some())
+            .count();
+    }
+}
+
 /// Materialized state of a workflow run.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WorkflowRunSnapshot {

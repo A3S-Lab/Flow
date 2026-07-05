@@ -110,6 +110,7 @@ async fn main() -> a3s_flow::Result<()> {
 
     let run_ids = engine.list_run_ids().await?;
     let snapshots = engine.list_snapshots().await?;
+    let summary = engine.run_summary().await?;
     let active_hooks = engine.list_active_hooks().await?;
     let failed_history = engine.history("inspect-failed").await?;
 
@@ -133,6 +134,16 @@ async fn main() -> a3s_flow::Result<()> {
             active.run_id, active.hook.hook_id, active.hook.token
         );
     }
+    println!(
+        "summary total={} suspended={} completed={} failed={} cancelled={} open_waits={} active_hooks={}",
+        summary.total_runs,
+        summary.suspended_runs,
+        summary.completed_runs,
+        summary.failed_runs,
+        summary.cancelled_runs,
+        summary.open_waits,
+        summary.active_hooks
+    );
     println!(
         "failed_history_keys={:?}",
         failed_history
@@ -167,5 +178,12 @@ async fn main() -> a3s_flow::Result<()> {
     assert_eq!(active_hooks[0].run_id, "inspect-hook");
     assert_eq!(active_hooks[0].hook.hook_id, "approval");
     assert_eq!(active_hooks[0].hook.token, "inspection-token");
+    assert_eq!(summary.total_runs, 5);
+    assert_eq!(summary.suspended_runs, 2);
+    assert_eq!(summary.completed_runs, 1);
+    assert_eq!(summary.failed_runs, 1);
+    assert_eq!(summary.cancelled_runs, 1);
+    assert_eq!(summary.open_waits, 1);
+    assert_eq!(summary.active_hooks, 1);
     Ok(())
 }

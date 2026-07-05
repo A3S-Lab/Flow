@@ -7,7 +7,7 @@ use a3s_flow::{
     FlowEventEnvelope, FlowEventStore, FlowRuntime, HookStatus, InMemoryA3sFlowEventSink,
     InMemoryEventStore, InMemoryFlowEventObserver, LocalFileA3sFlowEventSink, LocalFileEventStore,
     RetryPolicy, RuntimeCommand, StepFailureAction, StepInvocation, StepStatus, WaitStatus,
-    WorkflowInvocation, WorkflowRunStatus, WorkflowSpec,
+    WorkflowInvocation, WorkflowRunStatus, WorkflowRunSummary, WorkflowSpec,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
@@ -2114,6 +2114,74 @@ async fn delayed_step_retry_suspends_until_due() {
     );
     assert_eq!(completed.steps["delayed-flaky"].retry_after, None);
     assert_eq!(completed.output.unwrap()["attempt"], 2);
+}
+
+#[tokio::test]
+async fn run_summary_counts_statuses_and_actionable_work() {
+    let store = Arc::new(InMemoryEventStore::new());
+    let completed_engine = FlowEngine::new(store.clone(), Arc::new(SequentialRuntime));
+    let failed_engine = FlowEngine::new(store.clone(), Arc::new(ExhaustedStepFailureRuntime));
+    let wait_engine = FlowEngine::new(store.clone(), Arc::new(InputSleepRuntime));
+    let hook_engine = FlowEngine::new(store.clone(), Arc::new(DisposableHookRuntime));
+    let retry_engine = FlowEngine::new(store.clone(), Arc::new(DelayedFlakyRuntime::default()));
+    let future = (Utc::now() + ChronoDuration::hours(1)).to_rfc3339();
+
+    completed_engine
+        .start_with_id("summary-completed", spec(), json!({ "userId": "u1" }))
+        .await
+        .unwrap();
+    failed_engine
+        .start_with_id("summary-failed", spec(), json!({}))
+        .await
+        .unwrap();
+    wait_engine
+        .start_with_id("summary-wait", spec(), json!({ "resume_at": future }))
+        .await
+        .unwrap();
+    let cancelled_run_id = wait_engine
+        .start_with_id(
+            "summary-cancelled",
+            spec(),
+            json!({ "resume_at": (Utc::now() + ChronoDuration::hours(2)).to_rfc3339() }),
+        )
+        .await
+        .unwrap();
+    wait_engine
+        .cancel(&cancelled_run_id, Some("not actionable".to_string()))
+        .await
+        .unwrap();
+    hook_engine
+        .start_with_id("summary-hook", spec(), json!({ "token": "summary-token" }))
+        .await
+        .unwrap();
+    retry_engine
+        .start_with_id("summary-retry", spec(), json!({}))
+        .await
+        .unwrap();
+
+    let summary = completed_engine.run_summary().await.unwrap();
+    assert_eq!(summary.total_runs, 6);
+    assert_eq!(summary.completed_runs, 1);
+    assert_eq!(summary.failed_runs, 1);
+    assert_eq!(summary.cancelled_runs, 1);
+    assert_eq!(summary.suspended_runs, 3);
+    assert_eq!(summary.terminal_runs, 3);
+    assert_eq!(summary.non_terminal_runs, 3);
+    assert_eq!(summary.open_waits, 1);
+    assert_eq!(summary.active_hooks, 1);
+    assert_eq!(summary.pending_retries, 1);
+
+    let snapshots = completed_engine.list_snapshots().await.unwrap();
+    assert_eq!(WorkflowRunSummary::from_snapshots(&snapshots), summary);
+    assert_eq!(
+        completed_engine
+            .snapshot("summary-cancelled")
+            .await
+            .unwrap()
+            .waits["nap"]
+            .status,
+        WaitStatus::Waiting
+    );
 }
 
 struct RecordingRuntime {

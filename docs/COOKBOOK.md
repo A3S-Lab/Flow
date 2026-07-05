@@ -482,6 +482,7 @@ down, or debugging view:
 ```rust
 let run_ids = engine.list_run_ids().await?;
 let snapshots = engine.list_snapshots().await?;
+let summary = engine.run_summary().await?;
 let active_hooks = engine.list_active_hooks().await?;
 let history = engine.history(&run_ids[0]).await?;
 ```
@@ -489,7 +490,9 @@ let history = engine.history(&run_ids[0]).await?;
 `list_run_ids()` returns sorted run IDs from the active store.
 `list_snapshots()` projects every known history into `WorkflowRunSnapshot`, so
 dashboards can group by `WorkflowRunStatus`, step counts, waits, hooks, and
-terminal errors. `list_active_hooks()` returns stable `ActiveHookSnapshot`
+terminal errors. `run_summary()` returns `WorkflowRunSummary` counts for status
+tiles and health probes, with open wait/hook/retry counters limited to
+non-terminal runs. `list_active_hooks()` returns stable `ActiveHookSnapshot`
 records for callback routers and dashboards. `history()` returns the raw
 committed `FlowEventEnvelope` sequence for audit exports and replay debugging.
 See `examples/run_inspection.rs` for a runnable mixed-status inspection flow.
