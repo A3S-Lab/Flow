@@ -129,6 +129,54 @@ async fn scheduler_enqueues_due_wait_work_only_when_due() {
 }
 
 #[tokio::test]
+async fn scheduler_reports_next_wakeup_delay() {
+    let now = Utc::now();
+    let engine = FlowEngine::in_memory(Arc::new(SleepRuntime));
+    let future_run_id = engine
+        .start(
+            spec(),
+            json!({ "resume_at": (now + ChronoDuration::hours(1)).to_rfc3339() }),
+        )
+        .await
+        .unwrap();
+    let queue = Arc::new(InMemoryFlowTaskQueue::new());
+    let scheduler = FlowScheduler::new(engine, queue);
+
+    let wakeup = scheduler.next_wakeup(now).await.unwrap().unwrap();
+    assert_eq!(wakeup.run_id(), future_run_id);
+    assert_eq!(wakeup.subject_id(), "sleep");
+    assert_eq!(
+        wakeup.scheduled_at().unwrap(),
+        now + ChronoDuration::hours(1)
+    );
+    assert_eq!(
+        scheduler.next_wakeup_delay(now).await.unwrap(),
+        Some(Duration::from_secs(60 * 60))
+    );
+    assert_eq!(
+        scheduler
+            .next_wakeup_delay(now + ChronoDuration::hours(2))
+            .await
+            .unwrap(),
+        Some(Duration::ZERO)
+    );
+}
+
+#[tokio::test]
+async fn scheduler_reports_no_wakeup_without_timers_or_retries() {
+    let engine = FlowEngine::in_memory(Arc::new(SleepRuntime));
+    let queue = Arc::new(InMemoryFlowTaskQueue::new());
+    let scheduler = FlowScheduler::new(engine, queue);
+
+    assert!(scheduler.next_wakeup(Utc::now()).await.unwrap().is_none());
+    assert!(scheduler
+        .next_wakeup_delay(Utc::now())
+        .await
+        .unwrap()
+        .is_none());
+}
+
+#[tokio::test]
 async fn scheduler_skips_cancelled_due_waits() {
     let now = Utc::now();
     let engine = FlowEngine::in_memory(Arc::new(SleepRuntime));

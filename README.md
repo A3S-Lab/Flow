@@ -800,7 +800,9 @@ Use `FlowScheduler` to turn due waits and due retries into queue tasks:
 use a3s_flow::FlowScheduler;
 
 let scheduler = FlowScheduler::new(engine.clone(), queue.clone());
-let tick = scheduler.enqueue_due_work(chrono::Utc::now()).await?;
+let now = chrono::Utc::now();
+let next_delay = scheduler.next_wakeup_delay(now).await?;
+let tick = scheduler.enqueue_due_work(now).await?;
 ```
 
 ## Observability
@@ -910,7 +912,7 @@ complete local audit flow.
 | `PostgresFlowTaskQueue` | Postgres-backed shared durable task queue, available with the `postgres` feature |
 | `PostgresDeadLetteredTask` | Dead-letter record for stale Postgres inflight queue tasks |
 | `FlowWorker` | Handles queued tasks against a `FlowEngine` |
-| `FlowScheduler` | Scans due waits and retries, then enqueues worker tasks |
+| `FlowScheduler` | Reports the next scheduler wake-up, scans due waits and retries, then enqueues worker tasks |
 | `NativeTsRuntime` | Optional runtime adapter that compiles TypeScript workflow source into native artifacts |
 | `NativeTsRuntimeConfig` | Compiler binary, artifact cache directory, and working directory for `NativeTsRuntime` |
 | `NativeTsRuntimePreflight` | Public result of Native TypeScript validation and compile preflight, including entrypoint, artifact, source hash, and cache-hit metadata |

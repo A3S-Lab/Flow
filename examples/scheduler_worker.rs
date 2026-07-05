@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde_json::json;
 use std::sync::Arc;
+use std::time::Duration;
 
 struct ReminderRuntime;
 
@@ -57,6 +58,12 @@ async fn main() -> a3s_flow::Result<()> {
         .await?;
     let suspended = engine.snapshot(&run_id).await?;
     println!("before_scheduler={:?}", suspended.status);
+    let next_delay = scheduler.next_wakeup_delay(now).await?;
+    println!(
+        "next_wakeup_delay_ms={:?}",
+        next_delay.map(|delay| delay.as_millis())
+    );
+    assert_eq!(next_delay, Some(Duration::ZERO));
 
     let tick = scheduler.enqueue_due_work(now).await?;
     println!(

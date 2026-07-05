@@ -1,9 +1,11 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::engine::FlowEngine;
 use crate::error::Result;
+use crate::model::WorkflowRunSuspension;
 use crate::worker::{FlowTask, FlowTaskQueue};
 
 /// Result of one scheduler scan.
@@ -38,6 +40,31 @@ impl FlowScheduler {
 
     pub fn queue(&self) -> Arc<dyn FlowTaskQueue> {
         Arc::clone(&self.queue)
+    }
+
+    /// Return the earliest wait or delayed retry that can wake the scheduler.
+    pub async fn next_wakeup(&self, now: DateTime<Utc>) -> Result<Option<WorkflowRunSuspension>> {
+        self.engine.next_wakeup(now).await
+    }
+
+    /// Return how long the host can sleep before the next scheduled wake-up.
+    ///
+    /// Due or overdue wake-ups return `Duration::ZERO`. Active hooks are not
+    /// represented because external callbacks are pushed into the queue by the
+    /// callback router instead of time.
+    pub async fn next_wakeup_delay(&self, now: DateTime<Utc>) -> Result<Option<Duration>> {
+        let Some(wakeup) = self.next_wakeup(now).await? else {
+            return Ok(None);
+        };
+        let Some(scheduled_at) = wakeup.scheduled_at() else {
+            return Ok(None);
+        };
+        Ok(Some(
+            scheduled_at
+                .signed_duration_since(now)
+                .to_std()
+                .unwrap_or(Duration::ZERO),
+        ))
     }
 
     pub async fn enqueue_due_work(&self, now: DateTime<Utc>) -> Result<FlowSchedulerTick> {

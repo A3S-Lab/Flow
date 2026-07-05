@@ -120,6 +120,11 @@ Workers lease a task, handle it against `FlowEngine`, and acknowledge the lease
 only after successful handling. If handling fails, the task remains inflight so
 the host can requeue or dead-letter it according to its lease policy.
 
+`FlowScheduler` stays on the projected-state side of the boundary. It reports
+the next timed wake-up for hosts that want to sleep between ticks, then scans
+for due waits and delayed retries and enqueues coarse tasks such as
+`ResumeDueWaits { now }` or `ResumeDueRetries { now }`.
+
 `LocalFileFlowTaskQueue` stores one JSON task file per pending or inflight task.
 It serializes access inside one process and is intended for local
 crash/restart recovery.

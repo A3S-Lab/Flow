@@ -321,11 +321,18 @@ Ok(ctx.schedule_step_with_retry(
 Host loop:
 
 ```rust
-let tick = scheduler.enqueue_due_work(chrono::Utc::now()).await?;
+let now = chrono::Utc::now();
+let next_delay = scheduler.next_wakeup_delay(now).await?;
+let tick = scheduler.enqueue_due_work(now).await?;
 if tick.has_due_work() {
     worker.run_until_idle().await?;
 }
 ```
+
+`next_wakeup_delay()` returns `None` when there are no open waits or delayed
+retries, `Some(Duration::ZERO)` for due or overdue work, and a positive delay
+for future work. Hosts that own their own clock can sleep for that delay before
+calling `enqueue_due_work()` again.
 
 See `examples/retry_backoff.rs` for a complete delayed retry flow.
 
@@ -661,8 +668,9 @@ Before shipping a host integration:
   in workflow decisions.
 - Put side effects in steps and persist their outputs before fan-in.
 - Run a scheduler loop for due waits and delayed retries.
-- Use `next_wakeup()` to choose the next scheduler sleep deadline when the host
-  is not already using an external clock or queue trigger.
+- Use `FlowScheduler::next_wakeup_delay()` to choose the next scheduler sleep
+  deadline when the host is not already using an external clock or queue
+  trigger.
 - Expose an operator/API cancellation path for runs that should become terminal
   before their next wait, hook, or retry resumes.
 - Requeue local inflight tasks on startup; for long-running hosts, apply
