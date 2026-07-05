@@ -171,44 +171,22 @@ storage, workers, and scheduling.
 The native artifact receives a workflow or step invocation and returns the same
 command JSON that a Rust `FlowRuntime` would return.
 
+Use [`docs/NATIVE_TYPESCRIPT.md`](docs/NATIVE_TYPESCRIPT.md) for the compiler
+contract and protocol envelope. The authoring types live in
+[`examples/native-ts/a3s-flow-runtime.d.ts`](examples/native-ts/a3s-flow-runtime.d.ts),
+and the runnable source sample lives in
+[`examples/native-ts/greeting.ts`](examples/native-ts/greeting.ts).
+
 ### Workflow and step source
 
 ```ts
 // workflows/greeting.ts
-type Json = unknown;
-
-type FlowEventEnvelope = {
-  event: {
-    type: string;
-    step_id?: string;
-    output?: Json;
-  };
-};
-
-type WorkflowInvocation<Input> = {
-  run_id: string;
-  input: Input;
-  history: FlowEventEnvelope[];
-};
-
-type StepInvocation<Input> = {
-  run_id: string;
-  step_id: string;
-  step_name: string;
-  input: Input;
-  history: FlowEventEnvelope[];
-};
-
-type RuntimeCommand =
-  | { type: "complete"; output: Json }
-  | { type: "fail"; error: string }
-  | {
-      type: "schedule_step";
-      step_id: string;
-      step_name: string;
-      input: Json;
-      retry?: { max_attempts: number; delay_ms: number };
-    };
+import type {
+  FlowEventEnvelope,
+  RuntimeCommand,
+  StepInvocation,
+  WorkflowInvocation,
+} from "./a3s-flow-runtime";
 
 type GreetingInput = { name: string };
 type GreetingOutput = { message: string };
@@ -289,6 +267,15 @@ async fn main() -> a3s_flow::Result<()> {
 when needed, then invokes the cached artifact for workflow replay and step
 execution. Changing the source creates a new artifact cache key.
 
+The example is compiler-gated so normal Rust validation stays portable:
+
+```sh
+cargo run --example native_ts_greeting
+
+A3S_FLOW_NATIVE_TS_COMPILER=/path/to/a3s-flow-native-compiler \
+  cargo run --example native_ts_greeting
+```
+
 ## Examples
 
 The crate includes runnable examples that cover the main Rust SDK paths:
@@ -304,6 +291,7 @@ cargo run --example polling_loop
 cargo run --example local_file_durability
 cargo run --example task_queue_durability
 cargo run --example observer_bridge
+cargo run --example native_ts_greeting
 ```
 
 | Example | Demonstrates |
@@ -318,6 +306,7 @@ cargo run --example observer_bridge
 | `local_file_durability` | `LocalFileEventStore` JSONL durability across engine reconstruction |
 | `task_queue_durability` | `LocalFileFlowTaskQueue` pending/inflight files, crash recovery, and worker draining |
 | `observer_bridge` | `FlowEventObserver` mirroring committed events into a host audit/log sink |
+| `native_ts_greeting` | Rust `NativeTsRuntime` wiring for a TypeScript workflow source; exits successfully with a prerequisite message unless `A3S_FLOW_NATIVE_TS_COMPILER` points at a compiler |
 
 ## Cookbook and Planning
 
@@ -327,6 +316,7 @@ Use these docs when moving from API exploration to a host integration:
 |----------|---------|
 | [`docs/COOKBOOK.md`](docs/COOKBOOK.md) | Practical host recipes for local durable operation, stable run IDs, fan-out/fan-in, retries, timers, hooks, compensation, observability, and Native TypeScript boundaries |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Engine architecture, replay model, event sourcing, and native runtime boundary |
+| [`docs/NATIVE_TYPESCRIPT.md`](docs/NATIVE_TYPESCRIPT.md) | Native TypeScript compiler contract, JSON protocol envelope, authoring types, and greeting example |
 | [`docs/FUNCTIONAL_PLAN.md`](docs/FUNCTIONAL_PLAN.md) | Capability coverage map, example status, near-term work, and non-goals |
 
 ## Features

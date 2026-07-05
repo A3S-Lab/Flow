@@ -21,7 +21,7 @@ Workflow as a Service product surfaces.
 | Scheduling | `FlowScheduler::enqueue_due_work` | `examples/scheduler_worker.rs`, `tests/scheduler.rs` | Scheduler converts due waits and due retries into queue tasks. |
 | Local durability | `LocalFileEventStore`, `LocalFileFlowTaskQueue` | `examples/local_file_durability.rs`, `examples/task_queue_durability.rs`, `tests/worker.rs` | JSONL event histories and JSON task files are local single-process durable backends. |
 | Observability | `FlowEventObserver`, `InMemoryFlowEventObserver` | `examples/observer_bridge.rs`, `tests/engine.rs` | Observers mirror committed events after store append; stores remain authoritative. |
-| Native TypeScript runtime | `NativeTsRuntime`, `NativeRuntimeRequest`, `NativeRuntimeResponse` | `README.md`, `tests/native_ts_runtime.rs` | Rust owns the engine; TypeScript is compiled/invoked as a native runtime artifact. |
+| Native TypeScript runtime | `NativeTsRuntime`, `NativeRuntimeRequest`, `NativeRuntimeResponse` | `README.md`, `docs/NATIVE_TYPESCRIPT.md`, `examples/native_ts_greeting.rs`, `examples/native-ts/greeting.ts`, `tests/native_ts_runtime.rs` | Rust owns the engine; TypeScript is compiled/invoked as a native runtime artifact. |
 
 ## Example Coverage Goals
 
@@ -41,14 +41,18 @@ test helpers.
 | `local_file_durability` | Present | Restart an engine over the same `LocalFileEventStore` and inspect preserved history. |
 | `task_queue_durability` | Present | Persist queued work, recover an unacked inflight lease, and drain it with a worker. |
 | `observer_bridge` | Present | Mirror committed events into a host log/metrics bridge. |
-| `native_ts_greeting` | Planned | End-to-end native TypeScript workflow once the compiler tool is available in developer environments. |
+| `native_ts_greeting` | Present, compiler-gated | Rust `NativeTsRuntime` wiring for TypeScript source; runs fully when `A3S_FLOW_NATIVE_TS_COMPILER` points at a compatible compiler and otherwise exits with a prerequisite message. |
 
 ## Near-Term Functional Work
 
 1. **Native TypeScript developer kit**
-   - Provide a documented compiler installation path.
-   - Add a runnable `native_ts_greeting` example gated by clear prerequisites.
-   - Include TypeScript type definitions for workflow and step invocation shapes.
+   - Document the compiler command contract and environment variable used by
+     examples; add a public compiler installation path when the compiler is
+     packaged.
+   - Keep the compiler-gated `native_ts_greeting` example aligned with the
+     runtime protocol.
+   - Maintain TypeScript type definitions for workflow and step invocation
+     shapes under `examples/native-ts/`.
 
 2. **Durable local operations**
    - Maintain cookbook guidance for pairing `LocalFileEventStore` and

@@ -242,6 +242,12 @@ host still owns:
 Keep TypeScript workflow code deterministic. It should inspect invocation
 history and return commands. Put side effects behind step handlers.
 
+Use [`NATIVE_TYPESCRIPT.md`](NATIVE_TYPESCRIPT.md) for the native compiler
+contract, protocol envelope, and TypeScript authoring types. The
+`native_ts_greeting` example shows a Rust host wiring `NativeTsRuntime` to
+`examples/native-ts/greeting.ts`; it exits successfully with a prerequisite
+message unless `A3S_FLOW_NATIVE_TS_COMPILER` points at a compiler.
+
 ## Operational Checklist
 
 Before shipping a host integration:
