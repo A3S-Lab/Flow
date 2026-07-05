@@ -161,6 +161,18 @@ let snapshots = engine.list_snapshots().await?;
 let history = engine.history(&run_id).await?;
 ```
 
+### Run cancellation
+
+Hosts can stop a non-terminal run with an operator-facing reason. Cancellation
+appends a terminal `flow.run.cancelled` event; due wait and retry scanners skip
+terminal histories, so cancelled runs are not resumed later by workers.
+
+```rust
+engine
+    .cancel(&run_id, Some("user requested cancellation".to_string()))
+    .await?;
+```
+
 ## TypeScript Workflows
 
 A3S Flow can drive workflow source files through `NativeTsRuntime` while the SDK
@@ -304,6 +316,7 @@ cargo run --example retry_backoff
 cargo run --example hook_approval
 cargo run --example scheduler_worker
 cargo run --example polling_loop
+cargo run --example cancellation
 cargo run --example local_file_durability
 cargo run --example sqlite_durability --features sqlite
 cargo run --example postgres_durability --features postgres
@@ -325,6 +338,7 @@ cargo run --example local_retention
 | `hook_approval` | `create_hook()` suspension and `resume_hook_by_token()` callback completion |
 | `scheduler_worker` | `wait_until()`, due-work scanning through `FlowScheduler`, and queue draining through `FlowWorker` |
 | `polling_loop` | A long-running external job poll loop using stable wait IDs, scheduler ticks, and worker resumes |
+| `cancellation` | `FlowEngine::cancel()` terminal run state, cancellation reason projection, and scheduler skip behavior for formerly due waits |
 | `local_file_durability` | `LocalFileEventStore` JSONL durability across engine reconstruction |
 | `sqlite_durability` | `SqliteEventStore` durability across engine reconstruction; prints a feature hint unless run with `--features sqlite` |
 | `postgres_durability` | `PostgresEventStore` durability across engine reconstruction; prints a feature or environment hint unless run with `--features postgres` and `A3S_FLOW_POSTGRES_URL` |
@@ -357,6 +371,7 @@ Use these docs when moving from API exploration to a host integration:
 | **Durable steps** | Side-effecting step outputs are persisted before replay continues |
 | **Batch step scheduling** | A runtime can fan out multiple durable steps from one replay command |
 | **Idempotent creation** | Stable run IDs make workflow start safe to retry |
+| **Cancellation** | Hosts can append a terminal cancellation event so suspended work is not resumed later |
 | **Timers** | Waits suspend runs without holding compute |
 | **Hooks** | External callbacks resume active runs by hook ID or public token |
 | **Retries** | Failed steps can retry immediately or after a durable delay |
@@ -390,6 +405,9 @@ do not leak into logs.
 
 Events use A3S dot-separated keys such as `flow.run.created`,
 `flow.step.completed`, and `flow.hook.received`.
+`FlowEngine::cancel()` is a host control-plane operation rather than a workflow
+command. It persists `flow.run.cancelled`, stores the optional reason on the run
+snapshot error field, and makes scheduler scans ignore the run.
 
 ### Workflow context
 

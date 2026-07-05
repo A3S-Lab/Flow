@@ -402,6 +402,25 @@ and exposes `events()` for local inspection. Because observers run after store
 commit, write errors are recorded in `last_error()` instead of rolling back the
 workflow event. See `examples/local_audit_log.rs` for a runnable audit-log flow.
 
+## Cancellation
+
+Use `FlowEngine::cancel()` when an operator, API caller, or host policy decides
+that a non-terminal run should stop. Cancellation appends a terminal
+`flow.run.cancelled` event with an optional reason. The projected snapshot moves
+to `WorkflowRunStatus::Cancelled`, and scheduler scans skip cancelled histories
+when looking for due waits or delayed retries.
+
+```rust
+engine
+    .cancel(&run_id, Some("operator cancelled".to_string()))
+    .await?;
+```
+
+Cancellation does not delete history. Pair it with the same retention policy as
+completed and failed runs once the audit window has passed. See
+`examples/cancellation.rs` for a runnable flow that cancels a suspended run and
+verifies that no due work is enqueued afterward.
+
 ## Local Retention
 
 Local JSONL storage is durable by design, so long-lived hosts should pair it
@@ -465,6 +484,8 @@ Before shipping a host integration:
   in workflow decisions.
 - Put side effects in steps and persist their outputs before fan-in.
 - Run a scheduler loop for due waits and delayed retries.
+- Expose an operator/API cancellation path for runs that should become terminal
+  before their next wait, hook, or retry resumes.
 - Requeue local inflight tasks on startup; for long-running hosts, apply
   `requeue_inflight_older_than` and move poison tasks with
   `dead_letter_inflight_older_than`.

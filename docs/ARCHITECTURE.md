@@ -56,6 +56,11 @@ The runtime returns exactly one command:
 - `complete`: the engine persists `run_completed`.
 - `fail`: the engine persists `run_failed`.
 
+Cancellation is a host control-plane operation rather than a runtime command.
+`FlowEngine::cancel()` appends `flow.run.cancelled` with an optional reason and
+makes the projected run terminal, so later scheduler scans ignore its waits and
+delayed retries.
+
 The workflow function is deterministic because it derives its next decision from
 the input and event history. Side effects are isolated to steps and are only
 observed by the workflow after their outputs have been persisted.

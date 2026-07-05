@@ -129,6 +129,36 @@ async fn scheduler_enqueues_due_wait_work_only_when_due() {
 }
 
 #[tokio::test]
+async fn scheduler_skips_cancelled_due_waits() {
+    let now = Utc::now();
+    let engine = FlowEngine::in_memory(Arc::new(SleepRuntime));
+    let run_id = engine
+        .start(
+            spec(),
+            json!({ "resume_at": (now - ChronoDuration::seconds(1)).to_rfc3339() }),
+        )
+        .await
+        .unwrap();
+
+    engine
+        .cancel(&run_id, Some("operator cancelled".to_string()))
+        .await
+        .unwrap();
+
+    let queue = Arc::new(InMemoryFlowTaskQueue::new());
+    let scheduler = FlowScheduler::new(engine.clone(), queue.clone());
+    let tick = scheduler.enqueue_due_work(now).await.unwrap();
+    let snapshot = engine.snapshot(&run_id).await.unwrap();
+
+    assert_eq!(snapshot.status, WorkflowRunStatus::Cancelled);
+    assert_eq!(snapshot.error.as_deref(), Some("operator cancelled"));
+    assert!(tick.due_waits.is_empty());
+    assert!(tick.due_retries.is_empty());
+    assert_eq!(tick.enqueued_tasks, 0);
+    assert_eq!(queue.len().await.unwrap(), 0);
+}
+
+#[tokio::test]
 async fn scheduler_enqueues_due_retry_and_worker_drains_it() {
     let now = Utc::now();
     let runtime = Arc::new(DelayedRetryRuntime::default());
