@@ -150,6 +150,9 @@ For polling, give each wait a deterministic ID derived from the poll attempt,
 for example `poll-1`, `poll-2`, and so on. Reusing a completed wait ID for a new
 deadline is non-deterministic replay.
 
+See `examples/polling_loop.rs` for a complete external-job polling workflow
+driven by scheduler ticks and worker resumes.
+
 ## Human Approval Or Webhook Callback
 
 Use hooks when an external system or user must call back later. The token is the

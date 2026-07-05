@@ -14,7 +14,7 @@ Workflow as a Service product surfaces.
 | Sequential durable steps | `RuntimeCommand::ScheduleStep`, `WorkflowContext::schedule_step` | `examples/sequential_steps.rs` | Side effects are isolated to step execution and observed only after persistence. |
 | Batch durable steps | `RuntimeCommand::ScheduleSteps`, `WorkflowContext::schedule_steps` | `examples/batch_steps.rs`, `tests/engine.rs` | Step IDs must be stable and unique in the batch. |
 | Retry policies | `RetryPolicy`, `schedule_step_with_retry`, `step_with_retry` | `examples/batch_steps.rs`, `examples/retry_backoff.rs`, `tests/engine.rs`, `tests/scheduler.rs` | Immediate retries stay in the drive loop; delayed retries suspend until due. |
-| Timers | `RuntimeCommand::WaitUntil`, `WorkflowContext::wait_until` | `examples/scheduler_worker.rs`, `tests/scheduler.rs` | Waits do not hold compute; hosts resume them directly or through scheduler work. |
+| Timers | `RuntimeCommand::WaitUntil`, `WorkflowContext::wait_until` | `examples/scheduler_worker.rs`, `examples/polling_loop.rs`, `tests/scheduler.rs` | Waits do not hold compute; hosts resume them directly or through scheduler work. |
 | External callbacks | `RuntimeCommand::CreateHook`, `resume_hook`, `resume_hook_by_token` | `examples/hook_approval.rs`, `tests/worker.rs` | Active hook tokens are unique across active runs. |
 | Workers | `FlowTask`, `FlowTaskQueue`, `FlowWorker` | `examples/scheduler_worker.rs`, `examples/task_queue_durability.rs`, `tests/worker.rs` | Queue leases are acknowledged after successful task handling. |
 | Scheduling | `FlowScheduler::enqueue_due_work` | `examples/scheduler_worker.rs`, `tests/scheduler.rs` | Scheduler converts due waits and due retries into queue tasks. |
@@ -35,6 +35,7 @@ test helpers.
 | `retry_backoff` | Present | Delayed retry with `retry_after`, scheduler due scanning, and worker resume. |
 | `hook_approval` | Present | Model a human approval/webhook callback with a public token. |
 | `scheduler_worker` | Present | Show suspended timers being found by a scheduler and resumed by a worker. |
+| `polling_loop` | Present | Model a long-running external job with stable poll wait IDs. |
 | `local_file_durability` | Present | Restart an engine over the same `LocalFileEventStore` and inspect preserved history. |
 | `task_queue_durability` | Present | Persist queued work, recover an unacked inflight lease, and drain it with a worker. |
 | `observer_bridge` | Present | Mirror committed events into a host log/metrics bridge. |

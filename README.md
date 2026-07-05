@@ -299,6 +299,7 @@ cargo run --example batch_steps
 cargo run --example retry_backoff
 cargo run --example hook_approval
 cargo run --example scheduler_worker
+cargo run --example polling_loop
 cargo run --example local_file_durability
 cargo run --example task_queue_durability
 cargo run --example observer_bridge
@@ -311,6 +312,7 @@ cargo run --example observer_bridge
 | `retry_backoff` | Delayed step retry, `retry_after` suspension, due retry scheduling, and worker-driven resume |
 | `hook_approval` | `create_hook()` suspension and `resume_hook_by_token()` callback completion |
 | `scheduler_worker` | `wait_until()`, due-work scanning through `FlowScheduler`, and queue draining through `FlowWorker` |
+| `polling_loop` | A long-running external job poll loop using stable wait IDs, scheduler ticks, and worker resumes |
 | `local_file_durability` | `LocalFileEventStore` JSONL durability across engine reconstruction |
 | `task_queue_durability` | `LocalFileFlowTaskQueue` pending/inflight files, crash recovery, and worker draining |
 | `observer_bridge` | `FlowEventObserver` mirroring committed events into a host audit/log sink |
