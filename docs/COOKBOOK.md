@@ -101,14 +101,62 @@ let worker = FlowWorker::new(engine.clone(), queue.clone());
 The store creates parent directories and the database when missing, enables WAL
 mode, persists one row per event envelope, and checks expected sequence inside
 each append transaction. Keep `LocalFileFlowTaskQueue` lease recovery in place
-until a database-backed queue adapter is available. Move to a future Postgres
-store and production queue adapter before running multi-process or distributed
+until a database-backed queue adapter is available. Move to `PostgresEventStore`
+and a production queue adapter before running multi-process or distributed
 workers against shared state.
 
 Run the companion example with:
 
 ```sh
 cargo run --example sqlite_durability --features sqlite
+```
+
+## Postgres Durable Host
+
+Use `PostgresEventStore` when multiple Flow processes need to share workflow
+event history. The store creates the `flow_events` table and index when missing,
+persists one row per event envelope, and wraps expected-sequence appends in a
+transaction-scoped advisory lock for the run ID.
+
+Enable the feature:
+
+```toml
+[dependencies]
+a3s-flow = { version = "0.1", features = ["postgres"] }
+```
+
+Then wire the Postgres event store into the same engine and worker shape:
+
+```rust
+use a3s_flow::{
+    FlowEngine, FlowTaskQueue, FlowWorker, LocalFileFlowTaskQueue, PostgresEventStore,
+};
+use std::sync::Arc;
+
+# async fn run(runtime: Arc<dyn a3s_flow::FlowRuntime>) -> a3s_flow::Result<()> {
+let store = Arc::new(
+    PostgresEventStore::connect("postgres://user:pass@localhost:5432/a3s_flow").await?,
+);
+let queue = Arc::new(LocalFileFlowTaskQueue::new(".a3s-flow/tasks"));
+
+queue.requeue_inflight().await?;
+
+let engine = FlowEngine::new(store, runtime);
+let worker = FlowWorker::new(engine.clone(), queue.clone());
+# Ok(())
+# }
+```
+
+`PostgresEventStore` solves shared event history. It does not make the local
+file queue safe for distributed workers. Keep one queue writer process, or pair
+Postgres event storage with a production queue adapter that provides durable
+leases, visibility timeouts, and dead-letter handling.
+
+Run the companion example with:
+
+```sh
+A3S_FLOW_POSTGRES_URL=postgres://user:pass@localhost:5432/a3s_flow \
+  cargo run --example postgres_durability --features postgres
 ```
 
 ## Stable Run IDs
@@ -379,7 +427,9 @@ Before shipping a host integration:
   `requeue_inflight_older_than` and move poison tasks with
   `dead_letter_inflight_older_than`.
 - Use SQLite for single-node durable event storage when JSONL files are too
-  coarse, but keep multi-writer deployments on the production-adapter roadmap.
+  coarse.
+- Use Postgres for shared multi-process event storage, and pair it with a
+  production queue adapter before distributed workers share dispatch state.
 - Attach an observer before adding dashboards or audit exports.
 - Define cleanup policy for completed event histories and task directories; for
   `LocalFileEventStore`, prune only old terminal histories.

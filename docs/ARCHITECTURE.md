@@ -92,6 +92,10 @@ before append, so a corrupt local log is rejected instead of extended.
 `SqliteEventStore` stores the same envelopes as rows in one SQLite database and
 performs expected-sequence checks inside append transactions for single-node
 durable hosts.
+`PostgresEventStore` stores the same envelopes in a shared Postgres table and
+takes a transaction-scoped advisory lock per run before expected-sequence
+appends, so multiple workers can preserve per-run event order while sharing one
+database.
 
 ## Native Runtime Boundary
 
@@ -132,7 +136,6 @@ crates directly.
 
 ## Next Components
 
-- Postgres-backed event store for multi-process and distributed workers.
 - Database-backed `FlowTaskQueue` with lease timeouts.
 - Additional production sinks for `A3sFlowEventBridge`, such as A3S Observer,
   OpenTelemetry, or hosted audit streams.

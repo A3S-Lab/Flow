@@ -37,6 +37,8 @@ pub use runtime::{
     FlowRuntime, NativeTsRuntime, NativeTsRuntimeConfig, StepInvocation, WorkflowInvocation,
 };
 pub use scheduler::{FlowScheduler, FlowSchedulerTick};
+#[cfg(feature = "postgres")]
+pub use store::PostgresEventStore;
 #[cfg(feature = "sqlite")]
 pub use store::SqliteEventStore;
 pub use store::{FlowEventStore, InMemoryEventStore, LocalFileEventStore};

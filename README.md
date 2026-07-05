@@ -290,6 +290,7 @@ cargo run --example scheduler_worker
 cargo run --example polling_loop
 cargo run --example local_file_durability
 cargo run --example sqlite_durability --features sqlite
+cargo run --example postgres_durability --features postgres
 cargo run --example task_queue_durability
 cargo run --example observer_bridge
 cargo run --example native_ts_greeting
@@ -307,6 +308,7 @@ cargo run --example local_retention
 | `polling_loop` | A long-running external job poll loop using stable wait IDs, scheduler ticks, and worker resumes |
 | `local_file_durability` | `LocalFileEventStore` JSONL durability across engine reconstruction |
 | `sqlite_durability` | `SqliteEventStore` durability across engine reconstruction; prints a feature hint unless run with `--features sqlite` |
+| `postgres_durability` | `PostgresEventStore` durability across engine reconstruction; prints a feature or environment hint unless run with `--features postgres` and `A3S_FLOW_POSTGRES_URL` |
 | `task_queue_durability` | `LocalFileFlowTaskQueue` pending/inflight files, crash recovery, lease timeout handling, dead-letter records, and worker draining |
 | `observer_bridge` | `A3sFlowEventBridge` mapping committed events into A3S-style records with safe metric labels |
 | `native_ts_greeting` | Rust `NativeTsRuntime` wiring for a TypeScript workflow source; exits successfully with a prerequisite message unless `A3S_FLOW_NATIVE_TS_COMPILER` points at a compiler |
@@ -339,7 +341,7 @@ Use these docs when moving from API exploration to a host integration:
 | **Workers** | Queued tasks let a host drive runs outside the request path |
 | **Schedulers** | Due waits and delayed retries can be scanned and enqueued |
 | **Observers** | Committed events can be mirrored into logs, metrics, or audit sinks |
-| **Pluggable stores** | Use in-memory storage for tests, JSONL storage for local file durability, or SQLite for single-node durable hosts |
+| **Pluggable stores** | Use in-memory storage for tests, JSONL storage for local file durability, SQLite for single-node durable hosts, or Postgres for shared database history |
 
 ## Runtime Model
 
@@ -465,6 +467,7 @@ the previous hook has been received or its run has terminated is allowed.
 | `InMemoryEventStore` | Tests, examples, embedded ephemeral runs | In process |
 | `LocalFileEventStore` | Local development and embedded hosts | JSONL files |
 | `SqliteEventStore` | Single-node durable hosts and local apps that want database inspection/querying | SQLite database, gated by the `sqlite` feature |
+| `PostgresEventStore` | Multi-process hosts and distributed workers that share workflow history | Postgres database, gated by the `postgres` feature |
 
 ### Local file event store
 
@@ -529,13 +532,45 @@ let engine = FlowEngine::new(store, runtime);
 `SqliteEventStore` creates parent directories and the database if needed,
 enables WAL mode, stores one row per `FlowEventEnvelope`, and performs
 expected-sequence checks inside a transaction. It uses a single connection for
-single-node durability; use a future Postgres-backed store for multi-process or
-distributed writers.
+single-node durability. Use `PostgresEventStore` when multiple processes or
+distributed workers must share the same event history.
 
 Run the durability example:
 
 ```sh
 cargo run --example sqlite_durability --features sqlite
+```
+
+### Postgres event store
+
+Enable the `postgres` feature when multiple Flow workers need to share durable
+event history through a database:
+
+```toml
+[dependencies]
+a3s-flow = { version = "0.1", features = ["postgres"] }
+```
+
+```rust
+use a3s_flow::{FlowEngine, PostgresEventStore};
+use std::sync::Arc;
+
+let store = Arc::new(PostgresEventStore::connect(
+    "postgres://user:pass@localhost:5432/a3s_flow",
+).await?);
+let engine = FlowEngine::new(store, runtime);
+```
+
+`PostgresEventStore` creates the `flow_events` table and index when missing,
+stores one row per `FlowEventEnvelope`, and wraps expected-sequence appends in a
+transaction-scoped advisory lock for the run ID. This preserves per-run event
+order when several workers share one database.
+
+Run the durability example:
+
+```sh
+A3S_FLOW_POSTGRES_URL=postgres://user:pass@localhost:5432/a3s_flow \
+  cargo run --example postgres_durability --features postgres
 ```
 
 ## Workers and Scheduling
@@ -640,6 +675,7 @@ high-cardinality fields such as `run_id` in logs or traces.
 | `InMemoryEventStore` | Ephemeral event store for tests and examples |
 | `LocalFileEventStore` | JSONL-backed local durable event store with terminal-run retention cleanup |
 | `SqliteEventStore` | SQLite-backed single-node durable event store, available with the `sqlite` feature |
+| `PostgresEventStore` | Postgres-backed shared durable event store, available with the `postgres` feature |
 | `FlowEventObserver` | Receives committed event envelopes after store append |
 | `A3sFlowEventBridge` | Maps committed envelopes into A3S-style event records for host sinks |
 | `A3sFlowEvent` | A3S-style event record with safe metric label helpers |
@@ -663,8 +699,10 @@ From this crate:
 cargo fmt --all
 cargo check --all-targets
 cargo check --all-targets --features sqlite
+cargo check --all-targets --features postgres
 cargo test --all-targets
 cargo test --all-targets --features sqlite
+cargo test --all-targets --features postgres
 ```
 
 The crate also defines local `just` recipes:
@@ -684,8 +722,8 @@ just flow-test
 ## Roadmap
 
 - Stabilize the Rust runtime, store, worker, and scheduler APIs.
-- Keep the SQLite event store aligned with engine replay and local host examples.
-- Add a Postgres event store for multi-process and distributed workers.
+- Keep the SQLite and Postgres event stores aligned with engine replay and host
+  examples.
 - Add production queue adapters with durable leases and dead-letter handling.
 - Add first-class event and metrics adapters for A3S observability.
 

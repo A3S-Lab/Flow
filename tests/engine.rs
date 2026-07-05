@@ -1,3 +1,5 @@
+#[cfg(feature = "postgres")]
+use a3s_flow::PostgresEventStore;
 #[cfg(feature = "sqlite")]
 use a3s_flow::SqliteEventStore;
 use a3s_flow::{
@@ -46,6 +48,13 @@ fn later_time() -> DateTime<Utc> {
 #[cfg(feature = "sqlite")]
 fn sqlite_url(dir: &tempfile::TempDir) -> String {
     format!("sqlite://{}", dir.path().join("flow.db").display())
+}
+
+#[cfg(feature = "postgres")]
+fn postgres_url_from_env() -> Option<String> {
+    std::env::var("A3S_FLOW_POSTGRES_URL")
+        .ok()
+        .filter(|url| !url.trim().is_empty())
 }
 
 fn assert_nondeterministic(err: FlowError, run_id: &str, expected_reason: &str) {
@@ -1510,6 +1519,40 @@ async fn sqlite_store_lists_snapshots_across_engine_instances() {
     assert!(snapshots
         .iter()
         .all(|snapshot| snapshot.status == WorkflowRunStatus::Completed));
+}
+
+#[cfg(feature = "postgres")]
+#[tokio::test]
+async fn postgres_store_roundtrips_engine_state_when_url_is_configured() {
+    let Some(url) = postgres_url_from_env() else {
+        eprintln!("skipping postgres integration test; set A3S_FLOW_POSTGRES_URL");
+        return;
+    };
+    let run_id = format!("postgres-run-{}", Uuid::new_v4());
+
+    {
+        let store = Arc::new(PostgresEventStore::connect(&url).await.unwrap());
+        let engine = FlowEngine::new(store, Arc::new(SequentialRuntime));
+        engine
+            .start_with_id(&run_id, spec(), json!({ "userId": "u1" }))
+            .await
+            .unwrap();
+    }
+
+    let store = Arc::new(PostgresEventStore::connect(&url).await.unwrap());
+    let engine = FlowEngine::new(store.clone(), Arc::new(SequentialRuntime));
+    let snapshot = engine.snapshot(&run_id).await.unwrap();
+    let history = store.list(&run_id).await.unwrap();
+
+    assert_eq!(snapshot.status, WorkflowRunStatus::Completed);
+    assert_eq!(history.first().unwrap().sequence, 1);
+    assert_eq!(history.last().unwrap().sequence, history.len() as u64);
+    assert!(engine
+        .list_run_ids()
+        .await
+        .unwrap()
+        .iter()
+        .any(|id| id == &run_id));
 }
 
 #[tokio::test]
