@@ -10,6 +10,7 @@ Workflow as a Service product surfaces.
 | Capability | Current API | Current examples or tests | Notes |
 | --- | --- | --- | --- |
 | Event-sourced runs | `FlowEngine`, `FlowEventStore`, `WorkflowRunSnapshot` | `examples/sequential_steps.rs`, `tests/engine.rs` | Run state is projected from append-only typed event envelopes. |
+| Run inspection | `FlowEngine::list_run_ids`, `FlowEngine::list_snapshots`, `FlowEngine::history` | `examples/run_inspection.rs`, `tests/engine.rs` | Hosts can list sorted run IDs, project snapshots for dashboards, and read raw event history for audit or replay debugging. |
 | Idempotent starts | `FlowEngine::start_with_id` | `examples/sequential_steps.rs`, `tests/engine.rs` | Stable business IDs are safe to retry when spec and input match. |
 | Cancellation | `FlowEngine::cancel`, `WorkflowRunStatus::Cancelled` | `examples/cancellation.rs`, `tests/scheduler.rs`, `tests/engine.rs` | Hosts can append a terminal cancellation event with a reason; scheduler scans skip cancelled waits and retries. |
 | Sequential durable steps | `RuntimeCommand::ScheduleStep`, `WorkflowContext::schedule_step` | `examples/sequential_steps.rs` | Side effects are isolated to step execution and observed only after persistence. |
@@ -40,6 +41,7 @@ test helpers.
 | `scheduler_worker` | Present | Show suspended timers being found by a scheduler and resumed by a worker. |
 | `polling_loop` | Present | Model a long-running external job with stable poll wait IDs. |
 | `cancellation` | Present | Cancel a suspended run, project the cancellation reason, and show scheduler/worker skip behavior afterward. |
+| `run_inspection` | Present | Inspect sorted run IDs, projected snapshots, and raw event history across mixed run states. |
 | `local_file_durability` | Present | Restart an engine over the same `LocalFileEventStore` and inspect preserved history. |
 | `sqlite_durability` | Present, `sqlite` feature-gated | Restart an engine over the same `SqliteEventStore` and inspect preserved history. |
 | `postgres_durability` | Present, `postgres` feature and `A3S_FLOW_POSTGRES_URL` gated | Restart an engine over the same `PostgresEventStore` and inspect preserved history in a shared database. |
@@ -69,6 +71,8 @@ test helpers.
 2. **Durable local operations**
    - Maintain cookbook guidance for pairing `LocalFileEventStore` and
      `LocalFileFlowTaskQueue` in embedded hosts.
+   - Keep `run_inspection` aligned with list/snapshot/history behavior across
+     in-memory, local file, SQLite, and Postgres stores.
    - Keep cancellation guidance aligned with terminal-state projection,
      scheduler skip behavior, and retention behavior.
    - Keep `local_retention` and `LocalFileEventStore` cleanup guidance aligned

@@ -348,6 +348,24 @@ See `examples/compensation.rs` for a checkout workflow that reserves inventory,
 observes a declined payment as a domain result, releases the reservation, and
 then completes with a compensated outcome.
 
+## Run Inspection
+
+Use inspection APIs when a host needs a run list, status dashboard, audit drill
+down, or debugging view:
+
+```rust
+let run_ids = engine.list_run_ids().await?;
+let snapshots = engine.list_snapshots().await?;
+let history = engine.history(&run_ids[0]).await?;
+```
+
+`list_run_ids()` returns sorted run IDs from the active store.
+`list_snapshots()` projects every known history into `WorkflowRunSnapshot`, so
+dashboards can group by `WorkflowRunStatus`, step counts, waits, hooks, and
+terminal errors. `history()` returns the raw committed `FlowEventEnvelope`
+sequence for audit exports and replay debugging. See `examples/run_inspection.rs`
+for a runnable mixed-status inspection flow.
+
 ## Observability
 
 Attach a `FlowEventObserver` to mirror committed events into logs, metrics, or

@@ -102,6 +102,10 @@ takes a transaction-scoped advisory lock per run before expected-sequence
 appends, so multiple workers can preserve per-run event order while sharing one
 database.
 
+Inspection APIs stay on this boundary: `history()` returns committed envelopes,
+while `snapshot()` and `list_snapshots()` project those envelopes for dashboards
+and debugging without becoming the durable state.
+
 ## Dispatch And Leasing
 
 `FlowTaskQueue` separates dispatch durability from workflow event durability.

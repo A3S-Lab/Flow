@@ -155,6 +155,11 @@ let run_id = engine
 
 ### Run inspection
 
+Inspection APIs project the append-only history into snapshots. `list_run_ids()`
+returns sorted run IDs from the active store, `list_snapshots()` projects every
+known run, and `history()` returns the raw event envelopes for audit, replay
+debugging, or custom diagnostics.
+
 ```rust
 let run_ids = engine.list_run_ids().await?;
 let snapshots = engine.list_snapshots().await?;
@@ -317,6 +322,7 @@ cargo run --example hook_approval
 cargo run --example scheduler_worker
 cargo run --example polling_loop
 cargo run --example cancellation
+cargo run --example run_inspection
 cargo run --example local_file_durability
 cargo run --example sqlite_durability --features sqlite
 cargo run --example postgres_durability --features postgres
@@ -340,6 +346,7 @@ cargo run --example local_retention
 | `scheduler_worker` | `wait_until()`, due-work scanning through `FlowScheduler`, and queue draining through `FlowWorker` |
 | `polling_loop` | A long-running external job poll loop using stable wait IDs, scheduler ticks, and worker resumes |
 | `cancellation` | `FlowEngine::cancel()` terminal run state, cancellation reason projection, and scheduler skip behavior for formerly due waits |
+| `run_inspection` | `list_run_ids()`, `list_snapshots()`, and `history()` over completed, suspended, cancelled, and failed runs |
 | `local_file_durability` | `LocalFileEventStore` JSONL durability across engine reconstruction |
 | `sqlite_durability` | `SqliteEventStore` durability across engine reconstruction; prints a feature hint unless run with `--features sqlite` |
 | `postgres_durability` | `PostgresEventStore` durability across engine reconstruction; prints a feature or environment hint unless run with `--features postgres` and `A3S_FLOW_POSTGRES_URL` |
@@ -368,6 +375,7 @@ Use these docs when moving from API exploration to a host integration:
 | Feature | How it works |
 |---------|--------------|
 | **Event-sourced runs** | Every workflow mutation is stored as a typed event envelope |
+| **Run inspection** | Hosts can list runs, project snapshots, and read raw histories |
 | **Replay-first execution** | Workflow decisions are derived from persisted history |
 | **Replay validation** | Reused step, wait, and hook IDs must match the definition already recorded in history |
 | **Durable steps** | Side-effecting step outputs are persisted before replay continues |
