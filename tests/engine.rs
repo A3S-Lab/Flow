@@ -4,7 +4,7 @@ use a3s_flow::{
     WorkflowRunStatus, WorkflowSpec,
 };
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde_json::json;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -157,6 +157,37 @@ impl FlowRuntime for WaitHookRuntime {
     }
 }
 
+struct InputSleepRuntime;
+
+#[async_trait]
+impl FlowRuntime for InputSleepRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        if completed_wait(&invocation, "nap") {
+            return Ok(RuntimeCommand::Complete {
+                output: json!({ "slept": true }),
+            });
+        }
+
+        let resume_at = invocation.input["resume_at"]
+            .as_str()
+            .ok_or_else(|| FlowError::Runtime("missing resume_at".to_string()))?
+            .parse::<DateTime<Utc>>()
+            .map_err(|err| FlowError::Runtime(format!("invalid resume_at: {err}")))?;
+
+        Ok(RuntimeCommand::WaitUntil {
+            wait_id: "nap".to_string(),
+            resume_at,
+        })
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        unreachable!("sleep workflow does not schedule steps")
+    }
+}
+
 #[tokio::test]
 async fn suspends_for_wait_and_hook_then_resumes() {
     let engine = FlowEngine::in_memory(Arc::new(WaitHookRuntime));
@@ -249,6 +280,65 @@ async fn resume_hook_by_token_reports_missing_active_token() {
         .unwrap_err();
 
     assert!(matches!(err, FlowError::HookTokenNotFound(token) if token == "missing-token"));
+}
+
+#[tokio::test]
+async fn resume_due_waits_only_drives_expired_timers() {
+    let now = Utc::now();
+    let engine = FlowEngine::in_memory(Arc::new(InputSleepRuntime));
+    let due_run_id = engine
+        .start(
+            spec(),
+            json!({ "resume_at": (now - ChronoDuration::seconds(1)).to_rfc3339() }),
+        )
+        .await
+        .unwrap();
+    let future_run_id = engine
+        .start(
+            spec(),
+            json!({ "resume_at": (now + ChronoDuration::hours(1)).to_rfc3339() }),
+        )
+        .await
+        .unwrap();
+
+    let due = engine.list_due_waits(now).await.unwrap();
+    assert_eq!(due, vec![(due_run_id.clone(), "nap".to_string())]);
+
+    let resumed = engine.resume_due_waits(now).await.unwrap();
+    assert_eq!(resumed, vec![(due_run_id.clone(), "nap".to_string())]);
+
+    let due_snapshot = engine.snapshot(&due_run_id).await.unwrap();
+    assert_eq!(due_snapshot.status, WorkflowRunStatus::Completed);
+    assert_eq!(due_snapshot.output.unwrap()["slept"], true);
+
+    let future_snapshot = engine.snapshot(&future_run_id).await.unwrap();
+    assert_eq!(future_snapshot.status, WorkflowRunStatus::Suspended);
+    assert_eq!(future_snapshot.waits["nap"].status, WaitStatus::Waiting);
+}
+
+#[tokio::test]
+async fn local_file_store_resumes_due_waits_across_engine_instances() {
+    let dir = tempfile::tempdir().unwrap();
+    let now = Utc::now();
+    let run_id = {
+        let store = Arc::new(LocalFileEventStore::new(dir.path()));
+        let engine = FlowEngine::new(store, Arc::new(InputSleepRuntime));
+        engine
+            .start(
+                spec(),
+                json!({ "resume_at": (now - ChronoDuration::seconds(1)).to_rfc3339() }),
+            )
+            .await
+            .unwrap()
+    };
+
+    let store = Arc::new(LocalFileEventStore::new(dir.path()));
+    let engine = FlowEngine::new(store, Arc::new(InputSleepRuntime));
+    let resumed = engine.resume_due_waits(now).await.unwrap();
+
+    assert_eq!(resumed, vec![(run_id.clone(), "nap".to_string())]);
+    let snapshot = engine.snapshot(&run_id).await.unwrap();
+    assert_eq!(snapshot.status, WorkflowRunStatus::Completed);
 }
 
 #[derive(Default)]

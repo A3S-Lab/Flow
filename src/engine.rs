@@ -1,4 +1,4 @@
-use chrono::{Duration as ChronoDuration, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
@@ -176,6 +176,41 @@ impl FlowEngine {
                 "hook token {token:?} is active in multiple runs"
             ))),
         }
+    }
+
+    /// List active waits whose `resume_at` is at or before `now`.
+    ///
+    /// Scheduler integrations can use this to inspect due timers before
+    /// deciding how aggressively to drive them.
+    pub async fn list_due_waits(&self, now: DateTime<Utc>) -> Result<Vec<(String, String)>> {
+        let mut due = Vec::new();
+        for run_id in self.store.list_run_ids().await? {
+            let snapshot = self.snapshot(&run_id).await?;
+            if snapshot.status.is_terminal() {
+                continue;
+            }
+            for wait in snapshot.waits.values() {
+                if wait.status == WaitStatus::Waiting && wait.resume_at <= now {
+                    due.push((run_id.clone(), wait.wait_id.clone()));
+                }
+            }
+        }
+        due.sort();
+        Ok(due)
+    }
+
+    /// Complete every due wait and drive the affected workflows.
+    ///
+    /// Returns the `(run_id, wait_id)` pairs that were resumed. A wait already
+    /// completed by another caller is skipped by [`resume_wait`].
+    pub async fn resume_due_waits(&self, now: DateTime<Utc>) -> Result<Vec<(String, String)>> {
+        let due = self.list_due_waits(now).await?;
+        let mut resumed = Vec::with_capacity(due.len());
+        for (run_id, wait_id) in due {
+            self.resume_wait(&run_id, &wait_id).await?;
+            resumed.push((run_id, wait_id));
+        }
+        Ok(resumed)
     }
 
     pub async fn cancel(&self, run_id: &str, reason: Option<String>) -> Result<()> {

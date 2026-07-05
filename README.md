@@ -127,6 +127,12 @@ engine
     .await?;
 ```
 
+Scheduler loops can resume expired timers without knowing individual run IDs:
+
+```rust
+let resumed = engine.resume_due_waits(chrono::Utc::now()).await?;
+```
+
 ### Run Lifecycle
 
 ```text
