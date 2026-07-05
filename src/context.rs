@@ -104,6 +104,15 @@ impl<'a> WorkflowContext<'a> {
             .map_err(FlowError::from)
     }
 
+    pub fn hook_disposed(&self, hook_id: &str) -> bool {
+        self.history().iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                FlowEvent::HookDisposed { hook_id: id } if id == hook_id
+            )
+        })
+    }
+
     pub fn complete(&self, output: JsonValue) -> RuntimeCommand {
         RuntimeCommand::Complete { output }
     }

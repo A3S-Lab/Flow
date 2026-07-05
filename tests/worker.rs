@@ -47,6 +47,15 @@ fn received_hook(invocation: &WorkflowInvocation, hook_id: &str) -> Option<serde
         })
 }
 
+fn disposed_hook(invocation: &WorkflowInvocation, hook_id: &str) -> bool {
+    invocation.history.iter().any(|event| {
+        matches!(
+            &event.event,
+            a3s_flow::FlowEvent::HookDisposed { hook_id: id } if id == hook_id
+        )
+    })
+}
+
 struct SleepRuntime;
 
 #[async_trait]
@@ -89,6 +98,11 @@ impl FlowRuntime for HookRuntime {
         if let Some(payload) = received_hook(&invocation, "approval") {
             return Ok(RuntimeCommand::Complete {
                 output: json!({ "approved": payload["approved"] }),
+            });
+        }
+        if disposed_hook(&invocation, "approval") {
+            return Ok(RuntimeCommand::Complete {
+                output: json!({ "status": "disposed" }),
             });
         }
 
@@ -245,6 +259,39 @@ async fn worker_resumes_hook_by_token_from_queue() {
     let completed = engine.snapshot(&run_id).await.unwrap();
     assert_eq!(completed.status, WorkflowRunStatus::Completed);
     assert_eq!(completed.output.unwrap()["approved"], true);
+}
+
+#[tokio::test]
+async fn worker_disposes_hook_by_token_from_queue() {
+    let engine = FlowEngine::in_memory(Arc::new(HookRuntime));
+    let run_id = engine
+        .start(spec(), json!({ "token": "approval-token" }))
+        .await
+        .unwrap();
+    let waiting = engine.snapshot(&run_id).await.unwrap();
+    assert_eq!(waiting.status, WorkflowRunStatus::Suspended);
+    assert_eq!(waiting.hooks["approval"].status, HookStatus::Active);
+
+    let worker = FlowWorker::in_memory(engine.clone());
+    worker
+        .enqueue(FlowTask::DisposeHookByToken {
+            token: "approval-token".to_string(),
+        })
+        .await
+        .unwrap();
+
+    let outcomes = worker.run_until_idle().await.unwrap();
+    assert_eq!(outcomes.len(), 1);
+    assert_eq!(
+        outcomes[0].disposed_hook,
+        Some((run_id.clone(), "approval".to_string()))
+    );
+    assert_eq!(outcomes[0].run_ids, vec![run_id.clone()]);
+
+    let completed = engine.snapshot(&run_id).await.unwrap();
+    assert_eq!(completed.status, WorkflowRunStatus::Completed);
+    assert_eq!(completed.hooks["approval"].status, HookStatus::Disposed);
+    assert_eq!(completed.output.unwrap()["status"], "disposed");
 }
 
 #[tokio::test]
@@ -618,6 +665,19 @@ fn flow_task_serializes_for_external_queues() {
     assert_eq!(
         encoded,
         r#"{"type":"resume_hook_by_token","token":"approval-token","payload":{"approved":true}}"#
+    );
+
+    let decoded: FlowTask = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded, task);
+
+    let task = FlowTask::DisposeHookByToken {
+        token: "approval-token".to_string(),
+    };
+
+    let encoded = serde_json::to_string(&task).unwrap();
+    assert_eq!(
+        encoded,
+        r#"{"type":"dispose_hook_by_token","token":"approval-token"}"#
     );
 
     let decoded: FlowTask = serde_json::from_str(&encoded).unwrap();

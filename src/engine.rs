@@ -269,6 +269,57 @@ impl FlowEngine {
         Err(FlowError::ReplayLimitExceeded(self.max_replay_iterations))
     }
 
+    /// Dispose an active hook without accepting a callback payload.
+    ///
+    /// This is useful when a host withdraws an approval request, expires a
+    /// webhook token, or closes an external callback route. The workflow is
+    /// driven after the disposal event so replay code can observe
+    /// [`WorkflowContext::hook_disposed`](crate::context::WorkflowContext::hook_disposed)
+    /// and complete, fail, or schedule an alternate path.
+    pub async fn dispose_hook(&self, run_id: &str, hook_id: &str) -> Result<()> {
+        for _ in 0..self.max_replay_iterations {
+            let snapshot = self.snapshot(run_id).await?;
+            if snapshot.status.is_terminal() {
+                return Err(FlowError::RunTerminal(run_id.to_string()));
+            }
+            match snapshot.hooks.get(hook_id) {
+                Some(hook) if hook.status == HookStatus::Active => {
+                    match self
+                        .record_event_at(
+                            run_id,
+                            snapshot.last_sequence,
+                            FlowEvent::HookDisposed {
+                                hook_id: hook_id.to_string(),
+                            },
+                        )
+                        .await
+                    {
+                        Ok(_) => {}
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                    match self.drive(run_id).await {
+                        Ok(_) => return Ok(()),
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
+                Some(_) => match self.drive(run_id).await {
+                    Ok(_) => return Ok(()),
+                    Err(err) if is_event_conflict(&err) => continue,
+                    Err(err) => return Err(err),
+                },
+                None => {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "hook {hook_id} does not exist for run {run_id}"
+                    )))
+                }
+            }
+        }
+
+        Err(FlowError::ReplayLimitExceeded(self.max_replay_iterations))
+    }
+
     /// Resume an active hook by its external token.
     ///
     /// This is the API webhook handlers normally want: the callback receives a
@@ -296,6 +347,37 @@ impl FlowEngine {
             1 => {
                 let (run_id, hook_id) = matches.remove(0);
                 self.resume_hook(&run_id, &hook_id, payload).await?;
+                Ok((run_id, hook_id))
+            }
+            _ => Err(FlowError::InvalidTransition(format!(
+                "hook token {token:?} is active in multiple runs"
+            ))),
+        }
+    }
+
+    /// Dispose an active hook by its external token.
+    ///
+    /// This mirrors [`resume_hook_by_token`](Self::resume_hook_by_token) for
+    /// callback routers that only know the public token.
+    pub async fn dispose_hook_by_token(&self, token: &str) -> Result<(String, String)> {
+        let mut matches = Vec::new();
+        for run_id in self.store.list_run_ids().await? {
+            let snapshot = self.snapshot(&run_id).await?;
+            if snapshot.status.is_terminal() {
+                continue;
+            }
+            for hook in snapshot.hooks.values() {
+                if hook.status == HookStatus::Active && hook.token == token {
+                    matches.push((run_id.clone(), hook.hook_id.clone()));
+                }
+            }
+        }
+
+        match matches.len() {
+            0 => Err(FlowError::HookTokenNotFound(token.to_string())),
+            1 => {
+                let (run_id, hook_id) = matches.remove(0);
+                self.dispose_hook(&run_id, &hook_id).await?;
                 Ok((run_id, hook_id))
             }
             _ => Err(FlowError::InvalidTransition(format!(
@@ -550,7 +632,7 @@ impl FlowEngine {
                 } => match snapshot.hooks.get(&hook_id) {
                     Some(hook) => {
                         ensure_hook_command_matches(run_id, hook, &token, &metadata)?;
-                        if hook.status == HookStatus::Received {
+                        if matches!(hook.status, HookStatus::Received | HookStatus::Disposed) {
                             continue;
                         }
                         return self.snapshot(run_id).await;

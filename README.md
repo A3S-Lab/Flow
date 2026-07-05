@@ -319,6 +319,7 @@ cargo run --example batch_steps
 cargo run --example compensation
 cargo run --example retry_backoff
 cargo run --example hook_approval
+cargo run --example hook_disposal
 cargo run --example scheduler_worker
 cargo run --example polling_loop
 cargo run --example cancellation
@@ -343,6 +344,7 @@ cargo run --example local_retention
 | `compensation` | Recoverable business failure handled by scheduling a durable compensating step before completion |
 | `retry_backoff` | Delayed step retry, `retry_after` suspension, due retry scheduling, and worker-driven resume |
 | `hook_approval` | `create_hook()` suspension and `resume_hook_by_token()` callback completion |
+| `hook_disposal` | `dispose_hook_by_token()` callback withdrawal, `hook_disposed()` replay handling, and late-callback rejection |
 | `scheduler_worker` | `wait_until()`, due-work scanning through `FlowScheduler`, and queue draining through `FlowWorker` |
 | `polling_loop` | A long-running external job poll loop using stable wait IDs, scheduler ticks, and worker resumes |
 | `cancellation` | `FlowEngine::cancel()` terminal run state, cancellation reason projection, and scheduler skip behavior for formerly due waits |
@@ -383,7 +385,7 @@ Use these docs when moving from API exploration to a host integration:
 | **Idempotent creation** | Stable run IDs make workflow start safe to retry |
 | **Cancellation** | Hosts can append a terminal cancellation event so suspended work is not resumed later |
 | **Timers** | Waits suspend runs without holding compute |
-| **Hooks** | External callbacks resume active runs by hook ID or public token |
+| **Hooks** | External callbacks resume or dispose active runs by hook ID or public token |
 | **Retries** | Failed steps can retry immediately or after a durable delay |
 | **Workers** | Queued tasks let a host drive runs outside the request path |
 | **Schedulers** | Due waits and delayed retries can be scanned and enqueued |
@@ -411,10 +413,10 @@ do not leak into logs.
 | `ScheduleStep` | Persist step lifecycle events, run the step, then replay |
 | `ScheduleSteps` | Persist and run a stable batch of step definitions, then replay |
 | `WaitUntil` | Persist `flow.wait.created` and suspend |
-| `CreateHook` | Persist `flow.hook.created` and suspend |
+| `CreateHook` | Persist `flow.hook.created` and suspend until `hook_received` or `hook_disposed` is recorded |
 
 Events use A3S dot-separated keys such as `flow.run.created`,
-`flow.step.completed`, and `flow.hook.received`.
+`flow.step.completed`, `flow.hook.received`, and `flow.hook.disposed`.
 `FlowEngine::cancel()` is a host control-plane operation rather than a workflow
 command. It persists `flow.run.cancelled`, stores the optional reason on the run
 snapshot error field, and makes scheduler scans ignore the run.
@@ -495,6 +497,21 @@ engine
     .await?;
 ```
 
+External hosts can also dispose an active hook when a request is withdrawn,
+expires, or no longer has a valid callback route:
+
+```rust
+engine.dispose_hook_by_token("approval-token").await?;
+```
+
+Workflow replay can branch on disposal deterministically:
+
+```rust
+if ctx.hook_disposed("approval") {
+    return Ok(ctx.complete(json!({ "status": "withdrawn" })));
+}
+```
+
 Use `HookMetadata` and `HookCallbackRoute` when hook metadata should expose a
 stable audit and callback shape while still being persisted as normal JSON:
 
@@ -509,7 +526,9 @@ Ok(ctx.create_hook_with_metadata("approval", approval_token, metadata)?)
 ```
 
 Hook tokens must be unique among active, non-terminal runs. Reusing a token after
-the previous hook has been received or its run has terminated is allowed.
+the previous hook has been received, disposed, or its run has terminated is
+allowed. Late token callbacks after disposal return `HookTokenNotFound` because
+only active hooks are resumable.
 
 ## Storage
 
@@ -629,6 +648,8 @@ A3S_FLOW_POSTGRES_URL=postgres://user:pass@localhost:5432/a3s_flow \
 `FlowTask` is the serializable representation of engine work. `FlowWorker`
 leases a task, handles it against a `FlowEngine`, and acknowledges it only after
 successful handling.
+Queueable tasks cover direct driving, wait/retry scanning, hook resume by
+ID/token, and hook disposal by ID/token.
 
 ```rust
 use a3s_flow::{FlowTask, FlowWorker};
@@ -774,7 +795,7 @@ complete local audit flow.
 
 | Type | Description |
 |------|-------------|
-| `FlowEngine` | Starts, idempotently starts, drives, resumes, inspects, snapshots, and cancels runs |
+| `FlowEngine` | Starts, idempotently starts, drives, resumes/disposes hooks, inspects, snapshots, and cancels runs |
 | `FlowRuntime` | Host-provided Rust workflow and step executor trait |
 | `WorkflowInvocation` | Workflow replay input passed to a runtime |
 | `StepInvocation` | Step execution input passed to a runtime |

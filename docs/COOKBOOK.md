@@ -320,9 +320,24 @@ let (run_id, hook_id) = engine
     .await?;
 ```
 
+Withdrawal or expiry handler:
+
+```rust
+let (run_id, hook_id) = engine.dispose_hook_by_token(token).await?;
+```
+
+Workflow code can react to the disposal during replay:
+
+```rust
+if ctx.hook_disposed("approval") {
+    return Ok(ctx.complete(serde_json::json!({ "status": "withdrawn" })));
+}
+```
+
 Active hook tokens must be unique across non-terminal runs. Include enough
 metadata for audit and UI rendering, but keep secrets out of hook metadata
-because it is persisted in workflow history.
+because it is persisted in workflow history. Only active hooks can be resumed by
+token, so late callbacks after disposal return `HookTokenNotFound`.
 
 ## Compensation
 

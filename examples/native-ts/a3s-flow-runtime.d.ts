@@ -89,7 +89,8 @@ export type FlowEvent =
   | { type: "wait_created"; wait_id: string; resume_at: string }
   | { type: "wait_completed"; wait_id: string }
   | { type: "hook_created"; hook_id: string; token?: string; metadata: Json }
-  | { type: "hook_received"; hook_id: string; payload: Json };
+  | { type: "hook_received"; hook_id: string; payload: Json }
+  | { type: "hook_disposed"; hook_id: string };
 
 export type FlowEventEnvelope = {
   event_id: string;
@@ -145,4 +146,3 @@ export function stepOutput<Output extends Json>(
   history: FlowEventEnvelope[],
   stepId: string,
 ): Output | undefined;
-

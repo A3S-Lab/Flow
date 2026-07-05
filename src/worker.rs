@@ -39,6 +39,13 @@ pub enum FlowTask {
         token: String,
         payload: JsonValue,
     },
+    DisposeHook {
+        run_id: String,
+        hook_id: String,
+    },
+    DisposeHookByToken {
+        token: String,
+    },
     ResumeDueWaits {
         now: DateTime<Utc>,
     },
@@ -55,6 +62,8 @@ pub struct FlowTaskOutcome {
     pub resumed_waits: Vec<(String, String)>,
     pub resumed_retries: Vec<(String, String)>,
     pub resumed_hook: Option<(String, String)>,
+    #[serde(default)]
+    pub disposed_hook: Option<(String, String)>,
 }
 
 impl FlowTaskOutcome {
@@ -65,6 +74,7 @@ impl FlowTaskOutcome {
             resumed_waits: Vec::new(),
             resumed_retries: Vec::new(),
             resumed_hook: None,
+            disposed_hook: None,
         }
     }
 }
@@ -946,6 +956,16 @@ impl FlowWorker {
                 let (run_id, hook_id) = self.engine.resume_hook_by_token(&token, payload).await?;
                 outcome.run_ids.push(run_id.clone());
                 outcome.resumed_hook = Some((run_id, hook_id));
+            }
+            FlowTask::DisposeHook { run_id, hook_id } => {
+                self.engine.dispose_hook(&run_id, &hook_id).await?;
+                outcome.run_ids.push(run_id.clone());
+                outcome.disposed_hook = Some((run_id, hook_id));
+            }
+            FlowTask::DisposeHookByToken { token } => {
+                let (run_id, hook_id) = self.engine.dispose_hook_by_token(&token).await?;
+                outcome.run_ids.push(run_id.clone());
+                outcome.disposed_hook = Some((run_id, hook_id));
             }
             FlowTask::ResumeDueWaits { now } => {
                 let resumed = self.engine.resume_due_waits(now).await?;

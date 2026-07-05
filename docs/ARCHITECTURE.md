@@ -52,7 +52,9 @@ The runtime returns exactly one command:
 - `wait_until`: the engine persists `wait_created` and stops driving the run
   until `resume_wait()` records `wait_completed`.
 - `create_hook`: the engine persists `hook_created` and stops until
-  `resume_hook()` records `hook_received`.
+  `resume_hook()` records `hook_received` or `dispose_hook()` records
+  `hook_disposed`. Replay then continues so workflow code can observe
+  `hook_payload()` or `hook_disposed()` and choose the next command.
 - `complete`: the engine persists `run_completed`.
 - `fail`: the engine persists `run_failed`.
 
@@ -72,7 +74,8 @@ replay error instead of silently accepting the changed definition.
 
 Active hook tokens are unique across non-terminal runs. A duplicate token is
 rejected before `hook_created` is appended, so callback routing by token remains
-unambiguous.
+unambiguous. Disposed hooks are no longer active and cannot be resumed by token;
+late callbacks receive `HookTokenNotFound`.
 
 ## Event Sourcing
 

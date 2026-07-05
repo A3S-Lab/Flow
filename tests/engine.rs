@@ -170,6 +170,15 @@ fn received_hook(invocation: &WorkflowInvocation, hook_id: &str) -> Option<serde
         })
 }
 
+fn disposed_hook(invocation: &WorkflowInvocation, hook_id: &str) -> bool {
+    invocation.history.iter().any(|event| {
+        matches!(
+            &event.event,
+            a3s_flow::FlowEvent::HookDisposed { hook_id: id } if id == hook_id
+        )
+    })
+}
+
 struct SequentialRuntime;
 
 #[async_trait]
@@ -1319,6 +1328,86 @@ async fn rejects_duplicate_active_hook_tokens_across_runs() {
     let second = engine.snapshot(&second_run_id).await.unwrap();
     assert_eq!(second.status, WorkflowRunStatus::Suspended);
     assert_eq!(second.hooks["approval"].token, "shared-approval-token");
+}
+
+struct DisposableHookRuntime;
+
+#[async_trait]
+impl FlowRuntime for DisposableHookRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let ctx = invocation.context();
+        if let Some(payload) = ctx.hook_payload("approval") {
+            return Ok(ctx.complete(json!({
+                "status": "received",
+                "approved": payload["approved"],
+            })));
+        }
+        if ctx.hook_disposed("approval") {
+            return Ok(ctx.complete(json!({ "status": "disposed" })));
+        }
+
+        Ok(ctx.create_hook(
+            "approval",
+            ctx.input()["token"].as_str().unwrap_or("approval-token"),
+            json!({ "kind": "human_review" }),
+        ))
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        unreachable!("disposable hook runtime does not schedule steps")
+    }
+}
+
+#[tokio::test]
+async fn dispose_hook_records_disposal_and_drives_workflow() {
+    let engine = FlowEngine::in_memory(Arc::new(DisposableHookRuntime));
+    let run_id = engine
+        .start(spec(), json!({ "token": "approval-token" }))
+        .await
+        .unwrap();
+
+    let waiting = engine.snapshot(&run_id).await.unwrap();
+    assert_eq!(waiting.status, WorkflowRunStatus::Suspended);
+    assert_eq!(waiting.hooks["approval"].status, HookStatus::Active);
+
+    engine.dispose_hook(&run_id, "approval").await.unwrap();
+    let completed = engine.snapshot(&run_id).await.unwrap();
+    assert_eq!(completed.status, WorkflowRunStatus::Completed);
+    assert_eq!(completed.hooks["approval"].status, HookStatus::Disposed);
+    assert_eq!(completed.output.as_ref().unwrap()["status"], "disposed");
+
+    let invocation = WorkflowInvocation {
+        run_id: run_id.clone(),
+        spec: completed.spec.clone(),
+        input: completed.input.clone(),
+        history: engine.history(&run_id).await.unwrap(),
+    };
+    assert!(invocation.context().hook_disposed("approval"));
+    assert!(disposed_hook(&invocation, "approval"));
+}
+
+#[tokio::test]
+async fn dispose_hook_by_token_closes_token_and_rejects_late_callback() {
+    let engine = FlowEngine::in_memory(Arc::new(DisposableHookRuntime));
+    let run_id = engine
+        .start(spec(), json!({ "token": "approval-token" }))
+        .await
+        .unwrap();
+
+    let disposed = engine
+        .dispose_hook_by_token("approval-token")
+        .await
+        .unwrap();
+    assert_eq!(disposed, (run_id.clone(), "approval".to_string()));
+
+    let err = engine
+        .resume_hook_by_token("approval-token", json!({ "approved": true }))
+        .await
+        .unwrap_err();
+    assert!(matches!(err, FlowError::HookTokenNotFound(token) if token == "approval-token"));
 }
 
 struct WaitHookRuntime;
