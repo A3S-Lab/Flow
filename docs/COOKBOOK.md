@@ -211,6 +211,21 @@ Attach a `FlowEventObserver` to mirror committed events into logs, metrics, or
 A3S event bridges. The observer runs after the store append; the event store
 remains the source of truth.
 
+For A3S-shaped event output, use `A3sFlowEventBridge` with a host-provided sink:
+
+```rust
+use a3s_flow::{A3sFlowEventBridge, InMemoryA3sFlowEventSink};
+use std::sync::Arc;
+
+let sink = Arc::new(InMemoryA3sFlowEventSink::new());
+let observer = Arc::new(A3sFlowEventBridge::new(sink.clone()));
+```
+
+`A3sFlowEvent` carries audit identity (`run_id`, `event_id`, sequence) plus
+workflow identity, status, and step/wait/hook subject when one exists. Use
+`safe_metric_labels()` for metrics and keep high-cardinality identity in logs or
+traces.
+
 Safe metric labels:
 
 | Label | Use |

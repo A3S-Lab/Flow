@@ -306,7 +306,7 @@ cargo run --example local_retention
 | `polling_loop` | A long-running external job poll loop using stable wait IDs, scheduler ticks, and worker resumes |
 | `local_file_durability` | `LocalFileEventStore` JSONL durability across engine reconstruction |
 | `task_queue_durability` | `LocalFileFlowTaskQueue` pending/inflight files, crash recovery, and worker draining |
-| `observer_bridge` | `FlowEventObserver` mirroring committed events into a host audit/log sink |
+| `observer_bridge` | `A3sFlowEventBridge` mapping committed events into A3S-style records with safe metric labels |
 | `native_ts_greeting` | Rust `NativeTsRuntime` wiring for a TypeScript workflow source; exits successfully with a prerequisite message unless `A3S_FLOW_NATIVE_TS_COMPILER` points at a compiler |
 | `local_retention` | `LocalFileEventStore::prune_terminal_runs_older_than()` cleanup for terminal local histories while suspended runs are retained |
 
@@ -535,10 +535,11 @@ Attach a `FlowEventObserver` when committed workflow events should be mirrored
 into logs, metrics, audit sinks, or A3S event bridges:
 
 ```rust
-use a3s_flow::{FlowEngine, InMemoryFlowEventObserver};
+use a3s_flow::{A3sFlowEventBridge, FlowEngine, InMemoryA3sFlowEventSink};
 use std::sync::Arc;
 
-let observer = Arc::new(InMemoryFlowEventObserver::new());
+let sink = Arc::new(InMemoryA3sFlowEventSink::new());
+let observer = Arc::new(A3sFlowEventBridge::new(sink.clone()));
 let engine = FlowEngine::builder(runtime)
     .with_observer(observer.clone())
     .build();
@@ -546,6 +547,11 @@ let engine = FlowEngine::builder(runtime)
 
 Observers run after an event has been appended to the durable store. The event
 store remains the source of truth for workflow state.
+
+`A3sFlowEventBridge` converts committed envelopes into records with the A3S
+event key, run audit identity, workflow identity, status, and subject. Use
+`A3sFlowEvent::safe_metric_labels()` for low-cardinality metrics labels; keep
+high-cardinality fields such as `run_id` in logs or traces.
 
 ## API Reference
 
@@ -565,6 +571,9 @@ store remains the source of truth for workflow state.
 | `InMemoryEventStore` | Ephemeral event store for tests and examples |
 | `LocalFileEventStore` | JSONL-backed local durable event store with terminal-run retention cleanup |
 | `FlowEventObserver` | Receives committed event envelopes after store append |
+| `A3sFlowEventBridge` | Maps committed envelopes into A3S-style event records for host sinks |
+| `A3sFlowEvent` | A3S-style event record with safe metric label helpers |
+| `InMemoryA3sFlowEventSink` | In-memory sink for tests, examples, and local debugging |
 | `WorkflowRunSnapshot` | Materialized state projected from event history |
 | `RetryPolicy` | Step retry attempts and delay |
 | `FlowTask` | Serializable unit of queued workflow work |

@@ -1,8 +1,8 @@
 use a3s_flow::{
-    FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore, FlowRuntime, HookStatus,
-    InMemoryEventStore, InMemoryFlowEventObserver, LocalFileEventStore, RetryPolicy,
-    RuntimeCommand, StepInvocation, StepStatus, WaitStatus, WorkflowInvocation, WorkflowRunStatus,
-    WorkflowSpec,
+    A3sFlowEventBridge, FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore,
+    FlowRuntime, HookStatus, InMemoryA3sFlowEventSink, InMemoryEventStore,
+    InMemoryFlowEventObserver, LocalFileEventStore, RetryPolicy, RuntimeCommand, StepInvocation,
+    StepStatus, WaitStatus, WorkflowInvocation, WorkflowRunStatus, WorkflowSpec,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
@@ -410,6 +410,59 @@ async fn observer_receives_committed_events_in_store_order() {
         stored.len(),
         "idempotent start should not append or observe duplicate events"
     );
+}
+
+#[tokio::test]
+async fn a3s_event_bridge_maps_committed_events_to_safe_labels() {
+    let sink = Arc::new(InMemoryA3sFlowEventSink::new());
+    let observer = Arc::new(A3sFlowEventBridge::new(sink.clone()));
+    let engine = FlowEngine::builder(Arc::new(SequentialRuntime))
+        .with_observer(observer)
+        .build();
+
+    engine
+        .start_with_id("bridge-run", spec(), json!({ "userId": "u1" }))
+        .await
+        .unwrap();
+
+    let events = sink.events().await;
+    assert_eq!(events.first().unwrap().key, "flow.run.created");
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event.key.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "flow.run.created",
+            "flow.run.started",
+            "flow.step.created",
+            "flow.step.started",
+            "flow.step.completed",
+            "flow.step.created",
+            "flow.step.started",
+            "flow.step.completed",
+            "flow.run.completed",
+        ]
+    );
+    assert!(events.iter().all(|event| event
+        .workflow
+        .as_ref()
+        .is_some_and(|workflow| workflow.name == "test.workflow" && workflow.version == "0.1.0")));
+
+    let step_completed = events
+        .iter()
+        .find(|event| event.key == "flow.step.completed")
+        .unwrap();
+    assert_eq!(step_completed.status.as_deref(), Some("completed"));
+    assert_eq!(step_completed.subject.as_ref().unwrap().kind, "step");
+    assert_eq!(step_completed.subject.as_ref().unwrap().id, "load-user");
+
+    let labels = step_completed.safe_metric_labels();
+    assert_eq!(labels["event_key"], "flow.step.completed");
+    assert_eq!(labels["workflow_name"], "test.workflow");
+    assert_eq!(labels["workflow_version"], "0.1.0");
+    assert_eq!(labels["status"], "completed");
+    assert!(!labels.contains_key("run_id"));
 }
 
 #[tokio::test]

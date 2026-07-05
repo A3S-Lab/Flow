@@ -131,6 +131,7 @@ crates directly.
 
 - `SqliteEventStore`: durable local store.
 - Database-backed `FlowTaskQueue` with lease timeouts.
-- Event stream bridge to A3S Observer/Sentry.
+- Additional production sinks for `A3sFlowEventBridge`, such as A3S Observer,
+  OpenTelemetry, or hosted audit streams.
 - Native runtime compile diagnostics and build-time validation for unsupported
   workflow APIs.

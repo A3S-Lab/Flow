@@ -1,34 +1,10 @@
 use a3s_flow::{
-    FlowEngine, FlowEventEnvelope, FlowEventObserver, FlowRuntime, RuntimeCommand, StepInvocation,
-    WorkflowInvocation, WorkflowSpec,
+    A3sFlowEventBridge, FlowEngine, FlowRuntime, InMemoryA3sFlowEventSink, RuntimeCommand,
+    StepInvocation, WorkflowInvocation, WorkflowSpec,
 };
 use async_trait::async_trait;
 use serde_json::json;
 use std::sync::Arc;
-use tokio::sync::Mutex;
-
-#[derive(Default)]
-struct AuditObserver {
-    lines: Mutex<Vec<String>>,
-}
-
-impl AuditObserver {
-    async fn lines(&self) -> Vec<String> {
-        self.lines.lock().await.clone()
-    }
-}
-
-#[async_trait]
-impl FlowEventObserver for AuditObserver {
-    async fn observe(&self, envelope: FlowEventEnvelope) {
-        self.lines.lock().await.push(format!(
-            "{} seq={} key={}",
-            envelope.run_id,
-            envelope.sequence,
-            envelope.event.event_key()
-        ));
-    }
-}
 
 struct AuditRuntime;
 
@@ -60,7 +36,8 @@ impl FlowRuntime for AuditRuntime {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> a3s_flow::Result<()> {
-    let observer = Arc::new(AuditObserver::default());
+    let sink = Arc::new(InMemoryA3sFlowEventSink::new());
+    let observer = Arc::new(A3sFlowEventBridge::new(sink.clone()));
     let engine = FlowEngine::builder(Arc::new(AuditRuntime))
         .with_observer(observer.clone())
         .build();
@@ -73,8 +50,14 @@ async fn main() -> a3s_flow::Result<()> {
 
     println!("status={:?}", snapshot.status);
     println!("observed_events:");
-    for line in observer.lines().await {
-        println!("  {line}");
+    for event in sink.events().await {
+        println!(
+            "  key={} seq={} status={:?} labels={:?}",
+            event.key,
+            event.sequence,
+            event.status,
+            event.safe_metric_labels()
+        );
     }
     Ok(())
 }

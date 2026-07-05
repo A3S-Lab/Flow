@@ -25,7 +25,11 @@ pub use model::{
     RuntimeKind, RuntimeSpec, StepCommand, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus,
     WorkflowRunSnapshot, WorkflowRunStatus, WorkflowSpec,
 };
-pub use observe::{FlowEventObserver, InMemoryFlowEventObserver, NoopFlowEventObserver};
+pub use observe::{
+    A3sFlowEvent, A3sFlowEventBridge, A3sFlowEventSink, A3sFlowEventSubject, FlowEventObserver,
+    FlowWorkflowIdentity, InMemoryA3sFlowEventSink, InMemoryFlowEventObserver,
+    NoopFlowEventObserver,
+};
 pub use protocol::{
     NativeRuntimeKind, NativeRuntimeRequest, NativeRuntimeResponse, NATIVE_RUNTIME_PROTOCOL,
 };
