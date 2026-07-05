@@ -89,6 +89,9 @@ lifecycle transitions, including duplicate step/wait/hook creation and events
 appended after a terminal run state.
 The local JSONL store keeps file order intact and projects existing history
 before append, so a corrupt local log is rejected instead of extended.
+`SqliteEventStore` stores the same envelopes as rows in one SQLite database and
+performs expected-sequence checks inside append transactions for single-node
+durable hosts.
 
 ## Native Runtime Boundary
 
@@ -129,7 +132,7 @@ crates directly.
 
 ## Next Components
 
-- `SqliteEventStore`: durable local store.
+- Postgres-backed event store for multi-process and distributed workers.
 - Database-backed `FlowTaskQueue` with lease timeouts.
 - Additional production sinks for `A3sFlowEventBridge`, such as A3S Observer,
   OpenTelemetry, or hosted audit streams.

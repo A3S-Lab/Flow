@@ -1,3 +1,5 @@
+#[cfg(feature = "sqlite")]
+use a3s_flow::SqliteEventStore;
 use a3s_flow::{
     A3sFlowEventBridge, FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore,
     FlowRuntime, HookStatus, InMemoryA3sFlowEventSink, InMemoryEventStore,
@@ -39,6 +41,11 @@ fn fixed_time() -> DateTime<Utc> {
 
 fn later_time() -> DateTime<Utc> {
     "2026-01-01T01:00:00Z".parse().unwrap()
+}
+
+#[cfg(feature = "sqlite")]
+fn sqlite_url(dir: &tempfile::TempDir) -> String {
+    format!("sqlite://{}", dir.path().join("flow.db").display())
 }
 
 fn assert_nondeterministic(err: FlowError, run_id: &str, expected_reason: &str) {
@@ -643,6 +650,56 @@ async fn local_file_store_rejects_stale_expected_sequence() {
         } if run_id == "sequence-run"
     ));
     assert_eq!(store.list("sequence-run").await.unwrap().len(), 2);
+}
+
+#[cfg(feature = "sqlite")]
+#[tokio::test]
+async fn sqlite_store_rejects_stale_expected_sequence() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SqliteEventStore::connect(sqlite_url(&dir)).await.unwrap();
+
+    let first = store
+        .append_if_sequence("sequence-run", 0, run_created_event())
+        .await
+        .unwrap();
+    let second = store
+        .append_if_sequence("sequence-run", first.sequence, FlowEvent::RunStarted)
+        .await
+        .unwrap();
+
+    let err = store
+        .append_if_sequence("sequence-run", first.sequence, FlowEvent::RunStarted)
+        .await
+        .unwrap_err();
+
+    assert_eq!(first.sequence, 1);
+    assert_eq!(second.sequence, 2);
+    assert!(matches!(
+        err,
+        FlowError::EventConflict {
+            run_id,
+            expected_sequence: 1,
+            actual_sequence: 2,
+        } if run_id == "sequence-run"
+    ));
+    assert_eq!(store.list("sequence-run").await.unwrap().len(), 2);
+}
+
+#[cfg(feature = "sqlite")]
+#[tokio::test]
+async fn sqlite_store_creates_parent_directory_on_connect() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("nested").join("flow.db");
+    let store = SqliteEventStore::connect(format!("sqlite://{}", db_path.display()))
+        .await
+        .unwrap();
+
+    assert!(db_path.parent().unwrap().is_dir());
+    store
+        .append_if_sequence("parent-dir-run", 0, run_created_event())
+        .await
+        .unwrap();
+    assert_eq!(store.list("parent-dir-run").await.unwrap().len(), 1);
 }
 
 #[tokio::test]
@@ -1305,6 +1362,39 @@ async fn local_file_store_resumes_wait_and_hook_across_engine_instances() {
     assert_eq!(completed.output.unwrap()["approved"], true);
 }
 
+#[cfg(feature = "sqlite")]
+#[tokio::test]
+async fn sqlite_store_resumes_wait_and_hook_across_engine_instances() {
+    let dir = tempfile::tempdir().unwrap();
+    let url = sqlite_url(&dir);
+    let run_id = {
+        let store = Arc::new(SqliteEventStore::connect(&url).await.unwrap());
+        let engine = FlowEngine::new(store, Arc::new(WaitHookRuntime));
+        let run_id = engine.start(spec(), json!({})).await.unwrap();
+        let snapshot = engine.snapshot(&run_id).await.unwrap();
+        assert_eq!(snapshot.status, WorkflowRunStatus::Suspended);
+        assert_eq!(snapshot.waits["review-window"].status, WaitStatus::Waiting);
+        run_id
+    };
+
+    let store = Arc::new(SqliteEventStore::connect(&url).await.unwrap());
+    let engine = FlowEngine::new(store, Arc::new(WaitHookRuntime));
+    engine.resume_wait(&run_id, "review-window").await.unwrap();
+    let hooked = engine.snapshot(&run_id).await.unwrap();
+    assert_eq!(hooked.status, WorkflowRunStatus::Suspended);
+    assert_eq!(hooked.hooks["approval"].status, HookStatus::Active);
+
+    let store = Arc::new(SqliteEventStore::connect(&url).await.unwrap());
+    let engine = FlowEngine::new(store, Arc::new(WaitHookRuntime));
+    engine
+        .resume_hook(&run_id, "approval", json!({ "approved": true }))
+        .await
+        .unwrap();
+    let completed = engine.snapshot(&run_id).await.unwrap();
+    assert_eq!(completed.status, WorkflowRunStatus::Completed);
+    assert_eq!(completed.output.unwrap()["approved"], true);
+}
+
 #[tokio::test]
 async fn local_file_store_start_with_id_is_idempotent_across_engine_instances() {
     let dir = tempfile::tempdir().unwrap();
@@ -1378,6 +1468,44 @@ async fn local_file_store_lists_snapshots_across_engine_instances() {
             .map(|snapshot| snapshot.run_id.as_str())
             .collect::<Vec<_>>(),
         vec!["file-run-a", "file-run-b"]
+    );
+    assert!(snapshots
+        .iter()
+        .all(|snapshot| snapshot.status == WorkflowRunStatus::Completed));
+}
+
+#[cfg(feature = "sqlite")]
+#[tokio::test]
+async fn sqlite_store_lists_snapshots_across_engine_instances() {
+    let dir = tempfile::tempdir().unwrap();
+    let url = sqlite_url(&dir);
+    {
+        let store = Arc::new(SqliteEventStore::connect(&url).await.unwrap());
+        let engine = FlowEngine::new(store, Arc::new(SequentialRuntime));
+        engine
+            .start_with_id("sqlite-run-b", spec(), json!({ "userId": "u2" }))
+            .await
+            .unwrap();
+        engine
+            .start_with_id("sqlite-run-a", spec(), json!({ "userId": "u1" }))
+            .await
+            .unwrap();
+    }
+
+    let store = Arc::new(SqliteEventStore::connect(&url).await.unwrap());
+    let engine = FlowEngine::new(store, Arc::new(SequentialRuntime));
+    let snapshots = engine.list_snapshots().await.unwrap();
+
+    assert_eq!(
+        engine.list_run_ids().await.unwrap(),
+        vec!["sqlite-run-a".to_string(), "sqlite-run-b".to_string()]
+    );
+    assert_eq!(
+        snapshots
+            .iter()
+            .map(|snapshot| snapshot.run_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["sqlite-run-a", "sqlite-run-b"]
     );
     assert!(snapshots
         .iter()

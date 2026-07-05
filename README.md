@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <em>Rust SDK for event-sourced workflow runs, replay-safe steps, timers, hooks, retries, workers, and local durable storage.</em>
+  <em>Rust SDK for event-sourced workflow runs, replay-safe steps, timers, hooks, retries, workers, and durable local storage.</em>
 </p>
 
 <p align="center">
@@ -289,6 +289,7 @@ cargo run --example hook_approval
 cargo run --example scheduler_worker
 cargo run --example polling_loop
 cargo run --example local_file_durability
+cargo run --example sqlite_durability --features sqlite
 cargo run --example task_queue_durability
 cargo run --example observer_bridge
 cargo run --example native_ts_greeting
@@ -305,6 +306,7 @@ cargo run --example local_retention
 | `scheduler_worker` | `wait_until()`, due-work scanning through `FlowScheduler`, and queue draining through `FlowWorker` |
 | `polling_loop` | A long-running external job poll loop using stable wait IDs, scheduler ticks, and worker resumes |
 | `local_file_durability` | `LocalFileEventStore` JSONL durability across engine reconstruction |
+| `sqlite_durability` | `SqliteEventStore` durability across engine reconstruction; prints a feature hint unless run with `--features sqlite` |
 | `task_queue_durability` | `LocalFileFlowTaskQueue` pending/inflight files, crash recovery, lease timeout handling, dead-letter records, and worker draining |
 | `observer_bridge` | `A3sFlowEventBridge` mapping committed events into A3S-style records with safe metric labels |
 | `native_ts_greeting` | Rust `NativeTsRuntime` wiring for a TypeScript workflow source; exits successfully with a prerequisite message unless `A3S_FLOW_NATIVE_TS_COMPILER` points at a compiler |
@@ -337,7 +339,7 @@ Use these docs when moving from API exploration to a host integration:
 | **Workers** | Queued tasks let a host drive runs outside the request path |
 | **Schedulers** | Due waits and delayed retries can be scanned and enqueued |
 | **Observers** | Committed events can be mirrored into logs, metrics, or audit sinks |
-| **Pluggable stores** | Use in-memory storage for tests and JSONL storage for local durability |
+| **Pluggable stores** | Use in-memory storage for tests, JSONL storage for local file durability, or SQLite for single-node durable hosts |
 
 ## Runtime Model
 
@@ -462,6 +464,7 @@ the previous hook has been received or its run has terminated is allowed.
 |-------|----------|------------|
 | `InMemoryEventStore` | Tests, examples, embedded ephemeral runs | In process |
 | `LocalFileEventStore` | Local development and embedded hosts | JSONL files |
+| `SqliteEventStore` | Single-node durable hosts and local apps that want database inspection/querying | SQLite database, gated by the `sqlite` feature |
 
 ### Local file event store
 
@@ -504,6 +507,36 @@ let removed = store
 ```
 
 See `examples/local_retention.rs` for a complete local cleanup flow.
+
+### SQLite event store
+
+Enable the `sqlite` feature when a local host needs durable event history in a
+single SQLite database instead of one JSONL file per run:
+
+```toml
+[dependencies]
+a3s-flow = { version = "0.1", features = ["sqlite"] }
+```
+
+```rust
+use a3s_flow::{FlowEngine, SqliteEventStore};
+use std::sync::Arc;
+
+let store = Arc::new(SqliteEventStore::connect("sqlite://.a3s-flow/flow.db").await?);
+let engine = FlowEngine::new(store, runtime);
+```
+
+`SqliteEventStore` creates parent directories and the database if needed,
+enables WAL mode, stores one row per `FlowEventEnvelope`, and performs
+expected-sequence checks inside a transaction. It uses a single connection for
+single-node durability; use a future Postgres-backed store for multi-process or
+distributed writers.
+
+Run the durability example:
+
+```sh
+cargo run --example sqlite_durability --features sqlite
+```
 
 ## Workers and Scheduling
 
@@ -606,6 +639,7 @@ high-cardinality fields such as `run_id` in logs or traces.
 | `FlowEventStore` | Append-only event persistence trait with expected-sequence writes |
 | `InMemoryEventStore` | Ephemeral event store for tests and examples |
 | `LocalFileEventStore` | JSONL-backed local durable event store with terminal-run retention cleanup |
+| `SqliteEventStore` | SQLite-backed single-node durable event store, available with the `sqlite` feature |
 | `FlowEventObserver` | Receives committed event envelopes after store append |
 | `A3sFlowEventBridge` | Maps committed envelopes into A3S-style event records for host sinks |
 | `A3sFlowEvent` | A3S-style event record with safe metric label helpers |
@@ -628,7 +662,9 @@ From this crate:
 ```sh
 cargo fmt --all
 cargo check --all-targets
+cargo check --all-targets --features sqlite
 cargo test --all-targets
+cargo test --all-targets --features sqlite
 ```
 
 The crate also defines local `just` recipes:
@@ -648,8 +684,9 @@ just flow-test
 ## Roadmap
 
 - Stabilize the Rust runtime, store, worker, and scheduler APIs.
-- Add SQLite and Postgres event stores.
-- Add production queue adapters with durable leases.
+- Keep the SQLite event store aligned with engine replay and local host examples.
+- Add a Postgres event store for multi-process and distributed workers.
+- Add production queue adapters with durable leases and dead-letter handling.
 - Add first-class event and metrics adapters for A3S observability.
 
 ## License

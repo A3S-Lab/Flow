@@ -64,6 +64,53 @@ The local backends serialize access inside one process. They are useful for
 developer tools, desktop apps, and embedded single-process hosts. Use a database
 store and queue before running multiple writers against the same state.
 
+## SQLite Durable Host
+
+Use `SqliteEventStore` when a single-node host wants durable workflow history in
+one inspectable database instead of one JSONL file per run. This is a good fit
+for desktop apps, local agents, embedded services, and development hosts that
+restart often but do not have multiple Flow writers sharing the same database.
+
+Enable the feature:
+
+```toml
+[dependencies]
+a3s-flow = { version = "0.1", features = ["sqlite"] }
+```
+
+Then wire the SQLite event store into the same engine and worker shape:
+
+```rust
+use a3s_flow::{
+    FlowEngine, FlowTaskQueue, FlowWorker, LocalFileFlowTaskQueue, SqliteEventStore,
+};
+use std::sync::Arc;
+
+# async fn run(runtime: Arc<dyn a3s_flow::FlowRuntime>) -> a3s_flow::Result<()> {
+let store = Arc::new(SqliteEventStore::connect("sqlite://.a3s-flow/flow.db").await?);
+let queue = Arc::new(LocalFileFlowTaskQueue::new(".a3s-flow/tasks"));
+
+queue.requeue_inflight().await?;
+
+let engine = FlowEngine::new(store, runtime);
+let worker = FlowWorker::new(engine.clone(), queue.clone());
+# Ok(())
+# }
+```
+
+The store creates parent directories and the database when missing, enables WAL
+mode, persists one row per event envelope, and checks expected sequence inside
+each append transaction. Keep `LocalFileFlowTaskQueue` lease recovery in place
+until a database-backed queue adapter is available. Move to a future Postgres
+store and production queue adapter before running multi-process or distributed
+workers against shared state.
+
+Run the companion example with:
+
+```sh
+cargo run --example sqlite_durability --features sqlite
+```
+
 ## Stable Run IDs
 
 Use `start_with_id()` whenever a business object already has an id, such as an
@@ -331,6 +378,8 @@ Before shipping a host integration:
 - Requeue local inflight tasks on startup; for long-running hosts, apply
   `requeue_inflight_older_than` and move poison tasks with
   `dead_letter_inflight_older_than`.
+- Use SQLite for single-node durable event storage when JSONL files are too
+  coarse, but keep multi-writer deployments on the production-adapter roadmap.
 - Attach an observer before adding dashboards or audit exports.
 - Define cleanup policy for completed event histories and task directories; for
   `LocalFileEventStore`, prune only old terminal histories.

@@ -37,6 +37,8 @@ pub use runtime::{
     FlowRuntime, NativeTsRuntime, NativeTsRuntimeConfig, StepInvocation, WorkflowInvocation,
 };
 pub use scheduler::{FlowScheduler, FlowSchedulerTick};
+#[cfg(feature = "sqlite")]
+pub use store::SqliteEventStore;
 pub use store::{FlowEventStore, InMemoryEventStore, LocalFileEventStore};
 pub use worker::{
     FlowTask, FlowTaskLease, FlowTaskOutcome, FlowTaskQueue, FlowWorker, InMemoryFlowTaskQueue,
