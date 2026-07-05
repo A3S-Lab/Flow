@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -467,6 +468,20 @@ pub struct StepSnapshot {
     pub retry_after: Option<DateTime<Utc>>,
 }
 
+impl StepSnapshot {
+    /// Decode the persisted step output into a host-defined serde type.
+    pub fn output_as<T>(&self) -> Result<Option<T>>
+    where
+        T: DeserializeOwned,
+    {
+        self.output
+            .clone()
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(FlowError::from)
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum WaitStatus {
@@ -498,6 +513,20 @@ pub struct HookSnapshot {
     pub payload: Option<JsonValue>,
 }
 
+impl HookSnapshot {
+    /// Decode the received hook payload into a host-defined serde type.
+    pub fn payload_as<T>(&self) -> Result<Option<T>>
+    where
+        T: DeserializeOwned,
+    {
+        self.payload
+            .clone()
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(FlowError::from)
+    }
+}
+
 /// Active external callback hook with the run that owns it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ActiveHookSnapshot {
@@ -521,16 +550,58 @@ pub struct WorkflowRunSnapshot {
 }
 
 impl WorkflowRunSnapshot {
+    /// Decode the workflow input into a host-defined serde type.
+    pub fn input_as<T>(&self) -> Result<T>
+    where
+        T: DeserializeOwned,
+    {
+        serde_json::from_value(self.input.clone()).map_err(FlowError::from)
+    }
+
+    /// Decode the terminal workflow output into a host-defined serde type.
+    pub fn output_as<T>(&self) -> Result<Option<T>>
+    where
+        T: DeserializeOwned,
+    {
+        self.output
+            .clone()
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(FlowError::from)
+    }
+
     pub fn step_output(&self, step_id: &str) -> Option<&JsonValue> {
         self.steps
             .get(step_id)
             .and_then(|step| step.output.as_ref())
     }
 
+    /// Decode a persisted step output into a host-defined serde type.
+    pub fn step_output_as<T>(&self, step_id: &str) -> Result<Option<T>>
+    where
+        T: DeserializeOwned,
+    {
+        match self.steps.get(step_id) {
+            Some(step) => step.output_as(),
+            None => Ok(None),
+        }
+    }
+
     pub fn hook_payload(&self, hook_id: &str) -> Option<&JsonValue> {
         self.hooks
             .get(hook_id)
             .and_then(|hook| hook.payload.as_ref())
+    }
+
+    /// Decode a received hook payload into a host-defined serde type.
+    pub fn hook_payload_as<T>(&self, hook_id: &str) -> Result<Option<T>>
+    where
+        T: DeserializeOwned,
+    {
+        match self.hooks.get(hook_id) {
+            Some(hook) => hook.payload_as(),
+            None => Ok(None),
+        }
     }
 
     pub fn has_open_suspension(&self) -> bool {

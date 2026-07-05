@@ -13,7 +13,8 @@ Workflow as a Service product surfaces.
 | Run inspection | `FlowEngine::list_run_ids`, `FlowEngine::list_snapshots`, `FlowEngine::list_active_hooks`, `FlowEngine::history` | `examples/run_inspection.rs`, `tests/engine.rs` | Hosts can list sorted run IDs, project snapshots for dashboards, list resumable external callback hooks, and read raw event history for audit or replay debugging. |
 | Idempotent starts | `FlowEngine::start_with_id` | `examples/sequential_steps.rs`, `tests/engine.rs` | Stable business IDs are safe to retry when spec and input match. |
 | Cancellation | `FlowEngine::cancel`, `WorkflowRunStatus::Cancelled` | `examples/cancellation.rs`, `tests/scheduler.rs`, `tests/engine.rs` | Hosts can append a terminal cancellation event with a reason; scheduler scans skip cancelled waits and retries. |
-| Sequential durable steps | `RuntimeCommand::ScheduleStep`, `WorkflowContext::schedule_step`, `WorkflowContext::input_as`, `StepInvocation::input_as` | `examples/sequential_steps.rs` | Side effects are isolated to step execution and observed only after persistence; typed input helpers keep workflow and step contracts explicit. |
+| Sequential durable steps | `RuntimeCommand::ScheduleStep`, `WorkflowContext::schedule_step`, `WorkflowContext::input_as`, `StepInvocation::input_as` | `examples/sequential_steps.rs` | Side effects are isolated to step execution and observed only after persistence. |
+| Typed JSON contracts | `WorkflowContext::input_as`, `WorkflowContext::step_output_as`, `WorkflowContext::hook_payload_as`, `WorkflowRunSnapshot::input_as`, `WorkflowRunSnapshot::output_as`, `WorkflowRunSnapshot::step_output_as`, `WorkflowRunSnapshot::hook_payload_as`, `StepInvocation::input_as`, `StepSnapshot::output_as`, `HookSnapshot::payload_as` | `examples/sequential_steps.rs`, `tests/context.rs` | Workflow authors and hosts can decode inputs, durable outputs, hook payloads, and projected snapshot values through serde instead of hand-indexing JSON. |
 | Batch durable steps | `RuntimeCommand::ScheduleSteps`, `WorkflowContext::schedule_steps` | `examples/batch_steps.rs`, `tests/engine.rs` | Step IDs must be stable and unique in the batch. |
 | Compensation patterns | `WorkflowContext::schedule_step`, domain-result step outputs | `examples/compensation.rs`, `docs/COOKBOOK.md` | Recoverable business failures can schedule durable compensating steps before completion. |
 | Retry policies | `RetryPolicy`, `StepFailureAction`, `schedule_step_with_retry`, `step_with_retry`, `WorkflowContext::step_failed` | `examples/batch_steps.rs`, `examples/retry_backoff.rs`, `examples/recoverable_step_failure.rs`, `tests/engine.rs`, `tests/scheduler.rs` | Immediate retries stay in the drive loop; delayed retries suspend until due; exhausted failures fail the run by default or replay to workflow fallback logic when explicitly configured. |
@@ -33,7 +34,7 @@ test helpers.
 
 | Example | Status | Purpose |
 | --- | --- | --- |
-| `sequential_steps` | Present | First workflow to read: deterministic replay plus ordered durable steps. |
+| `sequential_steps` | Present | First workflow to read: deterministic replay, typed inputs, typed durable step fan-in, and ordered durable steps. |
 | `batch_steps` | Present | Fan-out within one replay command and synthesize persisted step outputs. |
 | `compensation` | Present | Model recoverable business failure as a durable compensation workflow. |
 | `retry_backoff` | Present | Delayed retry with `retry_after`, scheduler due scanning, and worker resume. |
@@ -102,8 +103,8 @@ test helpers.
      them.
 
 5. **Workflow authoring ergonomics**
-   - Keep typed input decoding helpers aligned with serde examples and
-     `sequential_steps`.
+   - Keep typed input and output decoding helpers aligned with serde examples
+     and `sequential_steps`.
    - Keep recoverable step failure guidance aligned with `RetryPolicy`,
      `StepFailureAction`, and `WorkflowContext::step_failed`.
    - Keep typed hook metadata and callback routing helpers aligned with

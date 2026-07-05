@@ -23,6 +23,12 @@ struct Approval {
     approved: bool,
 }
 
+#[derive(Debug, Deserialize, PartialEq)]
+struct FinalOutput {
+    user: User,
+    approved: bool,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ContextInput {
@@ -123,9 +129,51 @@ async fn workflow_context_drives_step_wait_and_hook_flow() {
     let completed = engine.snapshot(&run_id).await.unwrap();
 
     assert_eq!(completed.status, WorkflowRunStatus::Completed);
-    let output = completed.output.unwrap();
-    assert_eq!(output["user"]["id"], "u1");
-    assert_eq!(output["approved"], true);
+    let input = completed.input_as::<ContextInput>().unwrap();
+    assert_eq!(input.user_id, "u1");
+    let user = completed.step_output_as::<User>("load-user").unwrap();
+    assert_eq!(
+        user,
+        Some(User {
+            id: "u1".to_string(),
+            name: "Ada".to_string(),
+        })
+    );
+    let approval = completed
+        .hook_payload_as::<Approval>("approval")
+        .unwrap()
+        .expect("approval payload");
+    assert!(approval.approved);
+    let output = completed
+        .output_as::<FinalOutput>()
+        .unwrap()
+        .expect("terminal output");
+    assert_eq!(
+        output,
+        FinalOutput {
+            user: User {
+                id: "u1".to_string(),
+                name: "Ada".to_string(),
+            },
+            approved: true,
+        }
+    );
+
+    let step = completed.steps.get("load-user").expect("step snapshot");
+    assert_eq!(
+        step.output_as::<User>().unwrap().unwrap().name,
+        "Ada".to_string()
+    );
+    let hook = completed.hooks.get("approval").expect("hook snapshot");
+    assert!(hook.payload_as::<Approval>().unwrap().unwrap().approved);
+    assert!(completed
+        .step_output_as::<User>("missing-step")
+        .unwrap()
+        .is_none());
+    assert!(completed
+        .hook_payload_as::<Approval>("missing-hook")
+        .unwrap()
+        .is_none());
 }
 
 #[test]
@@ -148,4 +196,30 @@ fn typed_input_helpers_surface_serialization_errors() {
     };
     let step_error = step.input_as::<LoadUserInput>().unwrap_err();
     assert!(matches!(step_error, FlowError::Serialization(_)));
+}
+
+#[tokio::test]
+async fn snapshot_typed_helpers_surface_serialization_errors() {
+    let engine = FlowEngine::in_memory(Arc::new(ContextRuntime));
+    let run_id = engine
+        .start(spec(), json!({ "userId": "u1" }))
+        .await
+        .unwrap();
+    engine.resume_wait(&run_id, "review-window").await.unwrap();
+    engine
+        .resume_hook(&run_id, "approval", json!({ "approved": true }))
+        .await
+        .unwrap();
+    let completed = engine.snapshot(&run_id).await.unwrap();
+
+    let input_error = completed.input_as::<Approval>().unwrap_err();
+    assert!(matches!(input_error, FlowError::Serialization(_)));
+    let output_error = completed.output_as::<User>().unwrap_err();
+    assert!(matches!(output_error, FlowError::Serialization(_)));
+    let step_error = completed
+        .step_output_as::<Approval>("load-user")
+        .unwrap_err();
+    assert!(matches!(step_error, FlowError::Serialization(_)));
+    let hook_error = completed.hook_payload_as::<User>("approval").unwrap_err();
+    assert!(matches!(hook_error, FlowError::Serialization(_)));
 }

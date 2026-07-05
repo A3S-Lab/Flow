@@ -220,14 +220,15 @@ Replay mismatch errors include compact `history=...; replay=...` command diffs
 for step definitions, wait deadlines, and hook metadata. Hook token mismatches
 are reported without printing token values.
 
-## Typed Inputs
+## Typed Inputs And Outputs
 
 Use raw JSON helpers for small examples and typed decoding when a host has a
-stable input contract. `WorkflowContext::input_as<T>()` decodes workflow input,
-and `StepInvocation::input_as<T>()` decodes step input using serde.
+stable JSON contract. `WorkflowContext::input_as<T>()` decodes workflow input,
+`StepInvocation::input_as<T>()` decodes step input, and
+`WorkflowContext::step_output_as<T>()` decodes durable step output during replay.
 
 ```rust
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -235,8 +236,18 @@ struct WorkflowInput {
     user_id: String,
 }
 
+#[derive(Deserialize, Serialize)]
+struct User {
+    id: String,
+    name: String,
+}
+
 let ctx = invocation.context();
 let input = ctx.input_as::<WorkflowInput>()?;
+
+if let Some(user) = ctx.step_output_as::<User>("load-user")? {
+    return Ok(ctx.complete(serde_json::json!({ "user": user })));
+}
 
 Ok(ctx.schedule_step(
     "load-user",
@@ -259,6 +270,17 @@ let input = invocation.input_as::<LoadUserInput>()?;
 
 Deserialization failures return a normal `FlowError`, so hosts can surface
 invalid workflow input without panicking.
+
+Hosts can decode projected snapshots the same way:
+
+```rust
+let snapshot = engine.snapshot(&run_id).await?;
+let output = snapshot.output_as::<WorkflowOutput>()?;
+let user = snapshot.step_output_as::<User>("load-user")?;
+let approval = snapshot.hook_payload_as::<Approval>("approval")?;
+```
+
+`WorkflowOutput`, `User`, and `Approval` are ordinary host-defined serde types.
 
 ## Fan-Out And Fan-In
 

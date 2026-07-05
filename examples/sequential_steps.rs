@@ -3,7 +3,7 @@ use a3s_flow::{
     WorkflowSpec,
 };
 use async_trait::async_trait;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
 
@@ -24,6 +24,25 @@ struct ChargeCardInput {
     amount: u64,
 }
 
+#[derive(Deserialize, Serialize)]
+struct Invoice {
+    id: String,
+    amount: u64,
+    currency: String,
+}
+
+#[derive(Deserialize, Serialize)]
+struct Charge {
+    status: String,
+    amount: u64,
+}
+
+#[derive(Deserialize, Serialize)]
+struct InvoiceWorkflowOutput {
+    invoice: Invoice,
+    charge: Charge,
+}
+
 struct InvoiceRuntime;
 
 #[async_trait]
@@ -34,8 +53,8 @@ impl FlowRuntime for InvoiceRuntime {
     ) -> a3s_flow::Result<RuntimeCommand> {
         let ctx = invocation.context();
         let input = ctx.input_as::<InvoiceWorkflowInput>()?;
-        let invoice = ctx.step_output("load-invoice");
-        let charge = ctx.step_output("charge-card");
+        let invoice = ctx.step_output_as::<Invoice>("load-invoice")?;
+        let charge = ctx.step_output_as::<Charge>("charge-card")?;
 
         match (invoice, charge) {
             (None, _) => Ok(ctx.schedule_step(
@@ -47,14 +66,13 @@ impl FlowRuntime for InvoiceRuntime {
                 "charge-card",
                 "charge_card",
                 json!({
-                    "invoiceId": invoice["id"],
-                    "amount": invoice["amount"],
+                    "invoiceId": invoice.id,
+                    "amount": invoice.amount,
                 }),
             )),
-            (Some(invoice), Some(charge)) => Ok(ctx.complete(json!({
-                "invoice": invoice,
-                "charge": charge,
-            }))),
+            (Some(invoice), Some(charge)) => {
+                Ok(ctx.complete(json!(InvoiceWorkflowOutput { invoice, charge })))
+            }
         }
     }
 
@@ -96,9 +114,12 @@ async fn main() -> a3s_flow::Result<()> {
 
     println!("run_id={}", snapshot.run_id);
     println!("status={:?}", snapshot.status);
+    let output = snapshot
+        .output_as::<InvoiceWorkflowOutput>()?
+        .expect("workflow completed");
     println!(
         "output={}",
-        serde_json::to_string_pretty(&snapshot.output).unwrap()
+        serde_json::to_string_pretty(&output).expect("serializable output")
     );
     Ok(())
 }

@@ -343,7 +343,7 @@ cargo run --example local_retention
 
 | Example | Demonstrates |
 |---------|--------------|
-| `sequential_steps` | A deterministic workflow that decodes typed workflow/step input, schedules one durable step, observes its persisted output, schedules the next step, then completes |
+| `sequential_steps` | A deterministic workflow that decodes typed workflow/step input, fans in typed durable step output, schedules dependent steps, then decodes the final snapshot output |
 | `batch_steps` | `schedule_steps()` fan-out with stable step IDs and per-step retry policy |
 | `compensation` | Recoverable business failure handled by scheduling a durable compensating step before completion |
 | `retry_backoff` | Delayed step retry, `retry_after` suspension, due retry scheduling, and worker-driven resume |
@@ -434,7 +434,7 @@ snapshot error field, and makes scheduler scans ignore the run.
 persisted history:
 
 ```rust
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -442,10 +442,16 @@ struct UserWorkflowInput {
     user_id: String,
 }
 
+#[derive(Deserialize, Serialize)]
+struct User {
+    id: String,
+    name: String,
+}
+
 let ctx = invocation.context();
 let input = ctx.input_as::<UserWorkflowInput>()?;
 
-if let Some(user) = ctx.step_output("load-user") {
+if let Some(user) = ctx.step_output_as::<User>("load-user")? {
     return Ok(ctx.complete(json!({ "user": user })));
 }
 
@@ -459,7 +465,9 @@ Ok(ctx.schedule_step(
 Use `ctx.input()` when a workflow needs the raw JSON value. Use
 `ctx.input_as::<T>()`, `WorkflowInvocation::input_as::<T>()`, and
 `StepInvocation::input_as::<T>()` when the host has a typed input contract and
-wants serde validation at the runtime boundary.
+wants serde validation at the runtime boundary. Use
+`ctx.step_output_as::<T>()` and `ctx.hook_payload_as::<T>()` when replay should
+fan in typed durable outputs instead of raw JSON.
 
 ### Step retries
 
@@ -857,13 +865,16 @@ complete local audit flow.
 | `FlowRuntime` | Host-provided Rust workflow and step executor trait |
 | `WorkflowInvocation` | Workflow replay input passed to a runtime, with typed `input_as<T>()` decoding |
 | `StepInvocation` | Step execution input passed to a runtime, with typed `input_as<T>()` decoding |
-| `WorkflowContext` | Replay helper for history inspection, typed input decoding, and command creation |
+| `WorkflowContext` | Replay helper for history inspection, typed input/output decoding, and command creation |
 | `RuntimeCommand` | Command returned by workflow replay |
 | `StepCommand` | Durable step definition used by batched step scheduling |
 | `WorkflowSpec` | Durable workflow identity and runtime metadata |
 | `FlowEvent` | Event-sourced run, step, wait, and hook mutation |
 | `FlowEventEnvelope` | Persisted event with run ID, sequence, event ID, and timestamp |
 | `ActiveHookSnapshot` | Host-facing active hook record with owning run ID and hook metadata |
+| `WorkflowRunSnapshot` | Projected run state with typed input, output, step output, and hook payload decoding helpers |
+| `StepSnapshot` | Projected step state with typed output decoding |
+| `HookSnapshot` | Projected hook state with typed payload decoding |
 | `HookMetadata` | Typed helper for common hook audit, label, data, and callback-route metadata |
 | `HookCallbackRoute` | Typed HTTP method/path metadata for external hook callback routes |
 | `FlowEventStore` | Append-only event persistence trait with expected-sequence writes |
