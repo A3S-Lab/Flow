@@ -24,7 +24,8 @@ pub use model::{
     ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookCallbackRoute, HookMetadata,
     HookSnapshot, HookStatus, JsonValue, RetryPolicy, RuntimeCommand, RuntimeKind, RuntimeSpec,
     StepCommand, StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus,
-    WorkflowRunSnapshot, WorkflowRunStatus, WorkflowRunSummary, WorkflowSpec,
+    WorkflowRunSnapshot, WorkflowRunStatus, WorkflowRunSummary, WorkflowRunSuspension,
+    WorkflowSpec,
 };
 pub use observe::{
     A3sFlowEvent, A3sFlowEventBridge, A3sFlowEventSink, A3sFlowEventSubject,

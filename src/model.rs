@@ -595,6 +595,59 @@ impl WorkflowRunSummary {
     }
 }
 
+/// Open suspension projected for host dashboards and operator consoles.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum WorkflowRunSuspension {
+    Wait {
+        run_id: String,
+        wait: WaitSnapshot,
+        due: bool,
+    },
+    Hook {
+        run_id: String,
+        hook: HookSnapshot,
+    },
+    Retry {
+        run_id: String,
+        step: StepSnapshot,
+        due: bool,
+    },
+}
+
+impl WorkflowRunSuspension {
+    pub fn run_id(&self) -> &str {
+        match self {
+            Self::Wait { run_id, .. } | Self::Hook { run_id, .. } | Self::Retry { run_id, .. } => {
+                run_id
+            }
+        }
+    }
+
+    pub fn subject_id(&self) -> &str {
+        match self {
+            Self::Wait { wait, .. } => &wait.wait_id,
+            Self::Hook { hook, .. } => &hook.hook_id,
+            Self::Retry { step, .. } => &step.step_id,
+        }
+    }
+
+    pub(crate) fn kind_order(&self) -> u8 {
+        match self {
+            Self::Wait { .. } => 0,
+            Self::Hook { .. } => 1,
+            Self::Retry { .. } => 2,
+        }
+    }
+
+    pub fn is_due(&self) -> bool {
+        match self {
+            Self::Wait { due, .. } | Self::Retry { due, .. } => *due,
+            Self::Hook { .. } => false,
+        }
+    }
+}
+
 /// Materialized state of a workflow run.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WorkflowRunSnapshot {

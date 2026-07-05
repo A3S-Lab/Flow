@@ -158,13 +158,15 @@ let run_id = engine
 Inspection APIs project the append-only history into snapshots. `list_run_ids()`
 returns sorted run IDs from the active store, `list_snapshots()` projects every
 known run, `run_summary()` returns dashboard counts, `list_active_hooks()`
-returns callback hooks that can still be resumed, and `history()` returns the
-raw event envelopes for audit, replay debugging, or custom diagnostics.
+returns callback hooks that can still be resumed, `list_open_suspensions()`
+returns open waits, hooks, and delayed retries, and `history()` returns the raw
+event envelopes for audit, replay debugging, or custom diagnostics.
 
 ```rust
 let run_ids = engine.list_run_ids().await?;
 let snapshots = engine.list_snapshots().await?;
 let summary = engine.run_summary().await?;
+let suspensions = engine.list_open_suspensions(chrono::Utc::now()).await?;
 let active_hooks = engine.list_active_hooks().await?;
 let history = engine.history(&run_id).await?;
 ```
@@ -354,7 +356,7 @@ cargo run --example local_retention
 | `scheduler_worker` | `wait_until()`, due-work scanning through `FlowScheduler`, and queue draining through `FlowWorker` |
 | `polling_loop` | A long-running external job poll loop using stable wait IDs, scheduler ticks, and worker resumes |
 | `cancellation` | `FlowEngine::cancel()` terminal run state, cancellation reason projection, and scheduler skip behavior for formerly due waits |
-| `run_inspection` | `list_run_ids()`, `list_snapshots()`, `run_summary()`, `list_active_hooks()`, and `history()` over completed, suspended, cancelled, and failed runs |
+| `run_inspection` | `list_run_ids()`, `list_snapshots()`, `run_summary()`, `list_open_suspensions()`, `list_active_hooks()`, and `history()` over completed, suspended, cancelled, and failed runs |
 | `local_file_durability` | `LocalFileEventStore` JSONL durability across engine reconstruction |
 | `sqlite_durability` | `SqliteEventStore` durability across engine reconstruction; prints a feature hint unless run with `--features sqlite` |
 | `sqlite_worker` | `SqliteEventStore` plus `LocalFileFlowTaskQueue` for a single-node durable worker/scheduler host |
@@ -384,7 +386,7 @@ Use these docs when moving from API exploration to a host integration:
 | Feature | How it works |
 |---------|--------------|
 | **Event-sourced runs** | Every workflow mutation is stored as a typed event envelope |
-| **Run inspection** | Hosts can list runs, project snapshots, summarize status counts, inspect active hooks, and read raw histories |
+| **Run inspection** | Hosts can list runs, project snapshots, summarize status counts, inspect open suspensions and active hooks, and read raw histories |
 | **Replay-first execution** | Workflow decisions are derived from persisted history |
 | **Replay validation** | Reused step, wait, and hook IDs must match the definition already recorded in history |
 | **Durable steps** | Side-effecting step outputs are persisted before replay continues |
@@ -875,6 +877,7 @@ complete local audit flow.
 | `ActiveHookSnapshot` | Host-facing active hook record with owning run ID and hook metadata |
 | `WorkflowRunSnapshot` | Projected run state with typed input, output, step output, and hook payload decoding helpers |
 | `WorkflowRunSummary` | Aggregated status and actionable suspension counts for dashboards and health probes |
+| `WorkflowRunSuspension` | Projected open wait, hook, or delayed retry record with stable run/subject helpers |
 | `StepSnapshot` | Projected step state with typed output decoding |
 | `HookSnapshot` | Projected hook state with typed payload decoding |
 | `HookMetadata` | Typed helper for common hook audit, label, data, and callback-route metadata |

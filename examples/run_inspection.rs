@@ -111,6 +111,7 @@ async fn main() -> a3s_flow::Result<()> {
     let run_ids = engine.list_run_ids().await?;
     let snapshots = engine.list_snapshots().await?;
     let summary = engine.run_summary().await?;
+    let suspensions = engine.list_open_suspensions(now).await?;
     let active_hooks = engine.list_active_hooks().await?;
     let failed_history = engine.history("inspect-failed").await?;
 
@@ -132,6 +133,15 @@ async fn main() -> a3s_flow::Result<()> {
         println!(
             "  {} {} token={}",
             active.run_id, active.hook.hook_id, active.hook.token
+        );
+    }
+    println!("open_suspensions:");
+    for suspension in &suspensions {
+        println!(
+            "  {} {} due={}",
+            suspension.run_id(),
+            suspension.subject_id(),
+            suspension.is_due()
         );
     }
     println!(
@@ -178,6 +188,20 @@ async fn main() -> a3s_flow::Result<()> {
     assert_eq!(active_hooks[0].run_id, "inspect-hook");
     assert_eq!(active_hooks[0].hook.hook_id, "approval");
     assert_eq!(active_hooks[0].hook.token, "inspection-token");
+    assert_eq!(
+        suspensions
+            .iter()
+            .map(|suspension| (
+                suspension.run_id(),
+                suspension.subject_id(),
+                suspension.is_due()
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            ("inspect-hook", "approval", false),
+            ("inspect-suspended", "inspection-wait", false),
+        ]
+    );
     assert_eq!(summary.total_runs, 5);
     assert_eq!(summary.suspended_runs, 2);
     assert_eq!(summary.completed_runs, 1);

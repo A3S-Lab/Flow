@@ -8,7 +8,8 @@ use crate::error::{FlowError, Result};
 use crate::model::{
     project_run, ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookSnapshot, HookStatus,
     RetryPolicy, RuntimeCommand, StepCommand, StepFailureAction, StepSnapshot, StepStatus,
-    WaitSnapshot, WaitStatus, WorkflowRunSnapshot, WorkflowRunSummary, WorkflowSpec,
+    WaitSnapshot, WaitStatus, WorkflowRunSnapshot, WorkflowRunSummary, WorkflowRunSuspension,
+    WorkflowSpec,
 };
 use crate::observe::{FlowEventObserver, NoopFlowEventObserver};
 use crate::runtime::{FlowRuntime, StepInvocation, WorkflowInvocation};
@@ -506,6 +507,60 @@ impl FlowEngine {
     pub async fn run_summary(&self) -> Result<WorkflowRunSummary> {
         let snapshots = self.list_snapshots().await?;
         Ok(WorkflowRunSummary::from_snapshots(&snapshots))
+    }
+
+    /// List open waits, active hooks, and pending delayed retries.
+    ///
+    /// The `due` flag on wait and retry suspensions is computed against `now`.
+    /// Terminal runs are skipped so cancelled histories do not produce
+    /// actionable operator work.
+    pub async fn list_open_suspensions(
+        &self,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<WorkflowRunSuspension>> {
+        let mut suspensions = Vec::new();
+        for run_id in self.store.list_run_ids().await? {
+            let snapshot = self.snapshot(&run_id).await?;
+            if snapshot.status.is_terminal() {
+                continue;
+            }
+            for wait in snapshot.waits.values() {
+                if wait.status == WaitStatus::Waiting {
+                    suspensions.push(WorkflowRunSuspension::Wait {
+                        run_id: run_id.clone(),
+                        wait: wait.clone(),
+                        due: wait.resume_at <= now,
+                    });
+                }
+            }
+            for hook in snapshot.hooks.values() {
+                if hook.status == HookStatus::Active {
+                    suspensions.push(WorkflowRunSuspension::Hook {
+                        run_id: run_id.clone(),
+                        hook: hook.clone(),
+                    });
+                }
+            }
+            for step in snapshot.steps.values() {
+                if step.status == StepStatus::Pending {
+                    if let Some(retry_after) = step.retry_after {
+                        suspensions.push(WorkflowRunSuspension::Retry {
+                            run_id: run_id.clone(),
+                            step: step.clone(),
+                            due: retry_after <= now,
+                        });
+                    }
+                }
+            }
+        }
+        suspensions.sort_by(|left, right| {
+            (left.run_id(), left.kind_order(), left.subject_id()).cmp(&(
+                right.run_id(),
+                right.kind_order(),
+                right.subject_id(),
+            ))
+        });
+        Ok(suspensions)
     }
 
     /// List active external callback hooks across non-terminal runs.

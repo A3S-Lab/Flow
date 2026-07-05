@@ -7,7 +7,7 @@ use a3s_flow::{
     FlowEventEnvelope, FlowEventStore, FlowRuntime, HookStatus, InMemoryA3sFlowEventSink,
     InMemoryEventStore, InMemoryFlowEventObserver, LocalFileA3sFlowEventSink, LocalFileEventStore,
     RetryPolicy, RuntimeCommand, StepFailureAction, StepInvocation, StepStatus, WaitStatus,
-    WorkflowInvocation, WorkflowRunStatus, WorkflowRunSummary, WorkflowSpec,
+    WorkflowInvocation, WorkflowRunStatus, WorkflowRunSummary, WorkflowRunSuspension, WorkflowSpec,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
@@ -2124,7 +2124,8 @@ async fn run_summary_counts_statuses_and_actionable_work() {
     let wait_engine = FlowEngine::new(store.clone(), Arc::new(InputSleepRuntime));
     let hook_engine = FlowEngine::new(store.clone(), Arc::new(DisposableHookRuntime));
     let retry_engine = FlowEngine::new(store.clone(), Arc::new(DelayedFlakyRuntime::default()));
-    let future = (Utc::now() + ChronoDuration::hours(1)).to_rfc3339();
+    let started_at = Utc::now();
+    let future = (started_at + ChronoDuration::hours(1)).to_rfc3339();
 
     completed_engine
         .start_with_id("summary-completed", spec(), json!({ "userId": "u1" }))
@@ -2182,6 +2183,40 @@ async fn run_summary_counts_statuses_and_actionable_work() {
             .status,
         WaitStatus::Waiting
     );
+
+    let suspensions = completed_engine
+        .list_open_suspensions(started_at + ChronoDuration::seconds(120))
+        .await
+        .unwrap();
+    assert_eq!(
+        suspensions
+            .iter()
+            .map(|suspension| (
+                suspension.run_id(),
+                suspension.subject_id(),
+                suspension.is_due()
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            ("summary-hook", "approval", false),
+            ("summary-retry", "delayed-flaky", true),
+            ("summary-wait", "nap", false),
+        ]
+    );
+    assert!(matches!(
+        &suspensions[0],
+        WorkflowRunSuspension::Hook { hook, .. } if hook.token == "summary-token"
+    ));
+    assert!(matches!(
+        &suspensions[1],
+        WorkflowRunSuspension::Retry { step, due: true, .. }
+            if step.retry_after.is_some()
+    ));
+    assert!(matches!(
+        &suspensions[2],
+        WorkflowRunSuspension::Wait { wait, due: false, .. }
+            if wait.resume_at > started_at
+    ));
 }
 
 struct RecordingRuntime {
