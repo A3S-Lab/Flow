@@ -637,6 +637,67 @@ async fn local_file_store_rejects_append_to_invalid_log() {
     assert_eq!(tokio::fs::read_to_string(path).await.unwrap(), content);
 }
 
+#[tokio::test]
+async fn local_file_store_prunes_only_old_terminal_runs() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(LocalFileEventStore::new(dir.path()));
+    let completed_engine = FlowEngine::new(store.clone(), Arc::new(SequentialRuntime));
+    completed_engine
+        .start_with_id("completed-run", spec(), json!({ "userId": "u1" }))
+        .await
+        .unwrap();
+
+    let suspended_engine = FlowEngine::new(store.clone(), Arc::new(InputSleepRuntime));
+    suspended_engine
+        .start_with_id(
+            "cancelled-run",
+            spec(),
+            json!({ "resume_at": (Utc::now() + ChronoDuration::hours(1)).to_rfc3339() }),
+        )
+        .await
+        .unwrap();
+    completed_engine
+        .cancel("cancelled-run", Some("retention test".to_string()))
+        .await
+        .unwrap();
+
+    suspended_engine
+        .start_with_id(
+            "suspended-run",
+            spec(),
+            json!({ "resume_at": (Utc::now() + ChronoDuration::hours(1)).to_rfc3339() }),
+        )
+        .await
+        .unwrap();
+
+    let none_removed = store
+        .prune_terminal_runs_older_than(Utc::now() - ChronoDuration::days(1))
+        .await
+        .unwrap();
+    assert!(none_removed.is_empty());
+
+    let removed = store
+        .prune_terminal_runs_older_than(Utc::now() + ChronoDuration::days(1))
+        .await
+        .unwrap();
+    assert_eq!(
+        removed,
+        vec!["cancelled-run".to_string(), "completed-run".to_string()]
+    );
+
+    assert!(matches!(
+        store.list("completed-run").await.unwrap_err(),
+        FlowError::RunNotFound(_)
+    ));
+    assert!(matches!(
+        store.list("cancelled-run").await.unwrap_err(),
+        FlowError::RunNotFound(_)
+    ));
+    let retained = suspended_engine.snapshot("suspended-run").await.unwrap();
+    assert_eq!(retained.status, WorkflowRunStatus::Suspended);
+    assert_eq!(store.list_run_ids().await.unwrap(), vec!["suspended-run"]);
+}
+
 struct RunCreatedConflictStore {
     inner: InMemoryEventStore,
     injected: AtomicBool,

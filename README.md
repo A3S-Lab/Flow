@@ -292,6 +292,7 @@ cargo run --example local_file_durability
 cargo run --example task_queue_durability
 cargo run --example observer_bridge
 cargo run --example native_ts_greeting
+cargo run --example local_retention
 ```
 
 | Example | Demonstrates |
@@ -307,6 +308,7 @@ cargo run --example native_ts_greeting
 | `task_queue_durability` | `LocalFileFlowTaskQueue` pending/inflight files, crash recovery, and worker draining |
 | `observer_bridge` | `FlowEventObserver` mirroring committed events into a host audit/log sink |
 | `native_ts_greeting` | Rust `NativeTsRuntime` wiring for a TypeScript workflow source; exits successfully with a prerequisite message unless `A3S_FLOW_NATIVE_TS_COMPILER` points at a compiler |
+| `local_retention` | `LocalFileEventStore::prune_terminal_runs_older_than()` cleanup for terminal local histories while suspended runs are retained |
 
 ## Cookbook and Planning
 
@@ -468,6 +470,23 @@ run. Existing JSONL histories are projected before append, so corrupt histories
 are rejected instead of being extended. Use a database-backed store for
 multi-process or distributed writers.
 
+### Local retention
+
+Long-lived local hosts should define a retention policy for completed, failed,
+or cancelled run histories. `LocalFileEventStore::prune_terminal_runs_older_than`
+removes only terminal JSONL files whose terminal event timestamp is older than
+the provided cutoff. Running and suspended runs are retained.
+
+```rust
+use chrono::{Duration as ChronoDuration, Utc};
+
+let removed = store
+    .prune_terminal_runs_older_than(Utc::now() - ChronoDuration::days(30))
+    .await?;
+```
+
+See `examples/local_retention.rs` for a complete local cleanup flow.
+
 ## Workers and Scheduling
 
 `FlowTask` is the serializable representation of engine work. `FlowWorker`
@@ -544,7 +563,7 @@ store remains the source of truth for workflow state.
 | `FlowEventEnvelope` | Persisted event with run ID, sequence, event ID, and timestamp |
 | `FlowEventStore` | Append-only event persistence trait with expected-sequence writes |
 | `InMemoryEventStore` | Ephemeral event store for tests and examples |
-| `LocalFileEventStore` | JSONL-backed local durable event store |
+| `LocalFileEventStore` | JSONL-backed local durable event store with terminal-run retention cleanup |
 | `FlowEventObserver` | Receives committed event envelopes after store append |
 | `WorkflowRunSnapshot` | Materialized state projected from event history |
 | `RetryPolicy` | Step retry attempts and delay |

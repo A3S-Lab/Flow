@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -249,6 +249,67 @@ impl LocalFileEventStore {
         file.sync_data().await?;
         Ok(())
     }
+
+    async fn list_run_ids_inner(&self) -> Result<Vec<String>> {
+        let mut ids = Vec::new();
+
+        let mut dir = match tokio::fs::read_dir(&self.root).await {
+            Ok(dir) => dir,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(ids),
+            Err(err) => return Err(FlowError::Io(err)),
+        };
+
+        while let Some(entry) = dir.next_entry().await? {
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            if is_safe_run_id(stem) {
+                ids.push(stem.to_string());
+            }
+        }
+
+        ids.sort();
+        Ok(ids)
+    }
+
+    /// Remove completed, failed, or cancelled local run histories whose terminal
+    /// event timestamp is strictly before `terminal_before`.
+    ///
+    /// Suspended and running runs are never removed by this helper. Corrupt
+    /// histories are returned as errors rather than deleted, so operators can
+    /// inspect them before cleanup.
+    pub async fn prune_terminal_runs_older_than(
+        &self,
+        terminal_before: DateTime<Utc>,
+    ) -> Result<Vec<String>> {
+        let _guard = self.lock.lock().await;
+        let mut removed = Vec::new();
+
+        for run_id in self.list_run_ids_inner().await? {
+            let events = self.list_inner(&run_id, false).await?;
+            self.validate_existing_log(&run_id, &events)?;
+            let Some(terminal_at) = terminal_event_timestamp(&events) else {
+                continue;
+            };
+            if terminal_at >= terminal_before {
+                continue;
+            }
+
+            let path = self.run_path(&run_id)?;
+            match tokio::fs::remove_file(&path).await {
+                Ok(()) => removed.push(run_id),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => return Err(FlowError::Io(err)),
+            }
+        }
+
+        removed.sort();
+        Ok(removed)
+    }
 }
 
 #[async_trait]
@@ -276,30 +337,20 @@ impl FlowEventStore for LocalFileEventStore {
 
     async fn list_run_ids(&self) -> Result<Vec<String>> {
         let _guard = self.lock.lock().await;
-        let mut ids = Vec::new();
-
-        let mut dir = match tokio::fs::read_dir(&self.root).await {
-            Ok(dir) => dir,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(ids),
-            Err(err) => return Err(FlowError::Io(err)),
-        };
-
-        while let Some(entry) = dir.next_entry().await? {
-            let path = entry.path();
-            if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
-                continue;
-            }
-            let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
-                continue;
-            };
-            if is_safe_run_id(stem) {
-                ids.push(stem.to_string());
-            }
-        }
-
-        ids.sort();
-        Ok(ids)
+        self.list_run_ids_inner().await
     }
+}
+
+fn terminal_event_timestamp(events: &[FlowEventEnvelope]) -> Option<DateTime<Utc>> {
+    events
+        .iter()
+        .rev()
+        .find_map(|envelope| match envelope.event {
+            FlowEvent::RunCompleted { .. }
+            | FlowEvent::RunFailed { .. }
+            | FlowEvent::RunCancelled { .. } => Some(envelope.timestamp),
+            _ => None,
+        })
 }
 
 fn is_safe_run_id(run_id: &str) -> bool {

@@ -19,7 +19,7 @@ Workflow as a Service product surfaces.
 | External callbacks | `RuntimeCommand::CreateHook`, `resume_hook`, `resume_hook_by_token` | `examples/hook_approval.rs`, `tests/worker.rs` | Active hook tokens are unique across active runs. |
 | Workers | `FlowTask`, `FlowTaskQueue`, `FlowWorker` | `examples/scheduler_worker.rs`, `examples/task_queue_durability.rs`, `tests/worker.rs` | Queue leases are acknowledged after successful task handling. |
 | Scheduling | `FlowScheduler::enqueue_due_work` | `examples/scheduler_worker.rs`, `tests/scheduler.rs` | Scheduler converts due waits and due retries into queue tasks. |
-| Local durability | `LocalFileEventStore`, `LocalFileFlowTaskQueue` | `examples/local_file_durability.rs`, `examples/task_queue_durability.rs`, `tests/worker.rs` | JSONL event histories and JSON task files are local single-process durable backends. |
+| Local durability | `LocalFileEventStore`, `LocalFileFlowTaskQueue` | `examples/local_file_durability.rs`, `examples/task_queue_durability.rs`, `examples/local_retention.rs`, `tests/worker.rs`, `tests/engine.rs` | JSONL event histories and JSON task files are local single-process durable backends; old terminal histories can be pruned by cutoff. |
 | Observability | `FlowEventObserver`, `InMemoryFlowEventObserver` | `examples/observer_bridge.rs`, `tests/engine.rs` | Observers mirror committed events after store append; stores remain authoritative. |
 | Native TypeScript runtime | `NativeTsRuntime`, `NativeRuntimeRequest`, `NativeRuntimeResponse` | `README.md`, `docs/NATIVE_TYPESCRIPT.md`, `examples/native_ts_greeting.rs`, `examples/native-ts/greeting.ts`, `tests/native_ts_runtime.rs` | Rust owns the engine; TypeScript is compiled/invoked as a native runtime artifact. |
 
@@ -42,6 +42,7 @@ test helpers.
 | `task_queue_durability` | Present | Persist queued work, recover an unacked inflight lease, and drain it with a worker. |
 | `observer_bridge` | Present | Mirror committed events into a host log/metrics bridge. |
 | `native_ts_greeting` | Present, compiler-gated | Rust `NativeTsRuntime` wiring for TypeScript source; runs fully when `A3S_FLOW_NATIVE_TS_COMPILER` points at a compatible compiler and otherwise exits with a prerequisite message. |
+| `local_retention` | Present | Prune old terminal JSONL run histories while retaining suspended local runs. |
 
 ## Near-Term Functional Work
 
@@ -57,7 +58,8 @@ test helpers.
 2. **Durable local operations**
    - Maintain cookbook guidance for pairing `LocalFileEventStore` and
      `LocalFileFlowTaskQueue` in embedded hosts.
-   - Add cleanup and retention guidance for long-lived local event histories.
+   - Keep `local_retention` and `LocalFileEventStore` cleanup guidance aligned
+     with retention behavior for terminal histories.
 
 3. **Production store and queue adapters**
    - Add SQLite first for single-node durable development.

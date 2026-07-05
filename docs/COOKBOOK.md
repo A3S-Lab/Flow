@@ -223,6 +223,27 @@ Safe metric labels:
 Avoid high-cardinality labels such as raw `run_id`, user identifiers, tokens, or
 full step inputs. Put those in trace/audit records when needed, not in metrics.
 
+## Local Retention
+
+Local JSONL storage is durable by design, so long-lived hosts should pair it
+with an explicit retention policy. Keep active and suspended runs until they are
+resolved; prune only terminal histories once the business audit window has
+passed.
+
+```rust
+use chrono::{Duration as ChronoDuration, Utc};
+
+let removed = store
+    .prune_terminal_runs_older_than(Utc::now() - ChronoDuration::days(30))
+    .await?;
+```
+
+`LocalFileEventStore::prune_terminal_runs_older_than()` validates each run
+history before deleting it and removes only completed, failed, or cancelled
+histories whose terminal event timestamp is before the cutoff. Corrupt histories
+return an error instead of being deleted. See `examples/local_retention.rs` for
+a runnable cleanup example.
+
 ## Native TypeScript Runtime
 
 The public SDK remains Rust-first. `NativeTsRuntime` lets a Rust host execute
@@ -260,6 +281,7 @@ Before shipping a host integration:
 - Requeue local inflight tasks on startup, or implement queue lease timeout in a
   production queue.
 - Attach an observer before adding dashboards or audit exports.
-- Define cleanup policy for completed event histories and task directories.
+- Define cleanup policy for completed event histories and task directories; for
+  `LocalFileEventStore`, prune only old terminal histories.
 - Document which fields are safe to persist in inputs, hook metadata, and step
   outputs.
