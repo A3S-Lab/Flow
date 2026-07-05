@@ -13,6 +13,7 @@ Workflow as a Service product surfaces.
 | Idempotent starts | `FlowEngine::start_with_id` | `examples/sequential_steps.rs`, `tests/engine.rs` | Stable business IDs are safe to retry when spec and input match. |
 | Sequential durable steps | `RuntimeCommand::ScheduleStep`, `WorkflowContext::schedule_step` | `examples/sequential_steps.rs` | Side effects are isolated to step execution and observed only after persistence. |
 | Batch durable steps | `RuntimeCommand::ScheduleSteps`, `WorkflowContext::schedule_steps` | `examples/batch_steps.rs`, `tests/engine.rs` | Step IDs must be stable and unique in the batch. |
+| Compensation patterns | `WorkflowContext::schedule_step`, domain-result step outputs | `examples/compensation.rs`, `docs/COOKBOOK.md` | Recoverable business failures can schedule durable compensating steps before completion. |
 | Retry policies | `RetryPolicy`, `schedule_step_with_retry`, `step_with_retry` | `examples/batch_steps.rs`, `examples/retry_backoff.rs`, `tests/engine.rs`, `tests/scheduler.rs` | Immediate retries stay in the drive loop; delayed retries suspend until due. |
 | Timers | `RuntimeCommand::WaitUntil`, `WorkflowContext::wait_until` | `examples/scheduler_worker.rs`, `examples/polling_loop.rs`, `tests/scheduler.rs` | Waits do not hold compute; hosts resume them directly or through scheduler work. |
 | External callbacks | `RuntimeCommand::CreateHook`, `resume_hook`, `resume_hook_by_token` | `examples/hook_approval.rs`, `tests/worker.rs` | Active hook tokens are unique across active runs. |
@@ -32,6 +33,7 @@ test helpers.
 | --- | --- | --- |
 | `sequential_steps` | Present | First workflow to read: deterministic replay plus ordered durable steps. |
 | `batch_steps` | Present | Fan-out within one replay command and synthesize persisted step outputs. |
+| `compensation` | Present | Model recoverable business failure as a durable compensation workflow. |
 | `retry_backoff` | Present | Delayed retry with `retry_after`, scheduler due scanning, and worker resume. |
 | `hook_approval` | Present | Model a human approval/webhook callback with a public token. |
 | `scheduler_worker` | Present | Show suspended timers being found by a scheduler and resumed by a worker. |

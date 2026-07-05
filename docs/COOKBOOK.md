@@ -201,6 +201,10 @@ Recommended shape:
 This keeps every side effect in the event history and avoids trying to run new
 workflow decisions after the run has already reached a terminal failure state.
 
+See `examples/compensation.rs` for a checkout workflow that reserves inventory,
+observes a declined payment as a domain result, releases the reservation, and
+then completes with a compensated outcome.
+
 ## Observability
 
 Attach a `FlowEventObserver` to mirror committed events into logs, metrics, or

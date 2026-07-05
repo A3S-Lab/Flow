@@ -296,6 +296,7 @@ The crate includes runnable examples that cover the main Rust SDK paths:
 ```sh
 cargo run --example sequential_steps
 cargo run --example batch_steps
+cargo run --example compensation
 cargo run --example retry_backoff
 cargo run --example hook_approval
 cargo run --example scheduler_worker
@@ -309,6 +310,7 @@ cargo run --example observer_bridge
 |---------|--------------|
 | `sequential_steps` | A deterministic workflow that schedules one durable step, observes its persisted output, schedules the next step, then completes |
 | `batch_steps` | `schedule_steps()` fan-out with stable step IDs and per-step retry policy |
+| `compensation` | Recoverable business failure handled by scheduling a durable compensating step before completion |
 | `retry_backoff` | Delayed step retry, `retry_after` suspension, due retry scheduling, and worker-driven resume |
 | `hook_approval` | `create_hook()` suspension and `resume_hook_by_token()` callback completion |
 | `scheduler_worker` | `wait_until()`, due-work scanning through `FlowScheduler`, and queue draining through `FlowWorker` |
