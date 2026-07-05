@@ -39,11 +39,41 @@ The runnable example also accepts:
 ```sh
 A3S_FLOW_NATIVE_TS_COMPILER=/path/to/a3s-flow-native-compiler \
   cargo run --example native_ts_greeting
+
+A3S_FLOW_NATIVE_TS_COMPILER=/path/to/a3s-flow-native-compiler \
+  cargo run --example native_ts_preflight
 ```
 
-When that environment variable is not set, the example prints the missing
+When that environment variable is not set, the examples print the missing
 prerequisite and exits successfully so the normal Rust example suite remains
 portable.
+
+## Preflight And Diagnostics
+
+Call `NativeTsRuntime::preflight(&spec)` before accepting user-authored source or
+starting a run when a host wants early validation and compiler diagnostics.
+
+```rust
+let preflight = runtime.preflight(&spec).await?;
+
+println!("entrypoint={}", preflight.entrypoint.display());
+println!("artifact={}", preflight.artifact.display());
+println!("source_hash={}", preflight.source_hash);
+println!("cache_hit={}", preflight.cache_hit);
+```
+
+Preflight performs the same compile path used by workflow and step execution:
+
+- validates that the `WorkflowSpec` is a valid `native_ts` spec,
+- resolves the entrypoint relative to the runtime working directory,
+- hashes the source and runtime identity fields into the artifact cache key,
+- compiles the source only when the artifact cache is cold,
+- returns `NativeTsRuntimePreflight` with entrypoint, artifact, source hash, and
+  cache-hit metadata,
+- returns a runtime error containing compiler stderr when compilation fails.
+
+Use `examples/native_ts_preflight.rs` when testing compiler installation,
+artifact cache paths, or CI diagnostics without starting a workflow run.
 
 ## Protocol Envelope
 
@@ -128,4 +158,3 @@ Workflow exports should be deterministic:
 
 Step handlers may perform side effects, but their outputs are persisted before
 workflow replay observes them.
-

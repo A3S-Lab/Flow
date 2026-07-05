@@ -34,7 +34,8 @@ pub use protocol::{
     NativeRuntimeKind, NativeRuntimeRequest, NativeRuntimeResponse, NATIVE_RUNTIME_PROTOCOL,
 };
 pub use runtime::{
-    FlowRuntime, NativeTsRuntime, NativeTsRuntimeConfig, StepInvocation, WorkflowInvocation,
+    FlowRuntime, NativeTsRuntime, NativeTsRuntimeConfig, NativeTsRuntimePreflight, StepInvocation,
+    WorkflowInvocation,
 };
 pub use scheduler::{FlowScheduler, FlowSchedulerTick};
 #[cfg(feature = "postgres")]

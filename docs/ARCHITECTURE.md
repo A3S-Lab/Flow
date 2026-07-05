@@ -130,10 +130,12 @@ JSONL for local audit trails and records write failures in `last_error()`.
 
 `NativeTsRuntime` intentionally depends on a process boundary first:
 
-1. Compile the workflow entrypoint with the configured native compiler.
-2. Execute the compiled binary with `--a3s-flow-runtime`.
-3. Send a `NativeRuntimeRequest` JSON envelope on stdin.
-4. Read a `NativeRuntimeResponse` JSON envelope from stdout.
+1. Validate and preflight the `native_ts` workflow spec.
+2. Compile the workflow entrypoint with the configured native compiler when the
+   artifact cache is cold.
+3. Execute the compiled binary with `--a3s-flow-runtime`.
+4. Send a `NativeRuntimeRequest` JSON envelope on stdin.
+5. Read a `NativeRuntimeResponse` JSON envelope from stdout.
 
 Request envelope:
 
@@ -158,10 +160,12 @@ Response envelope:
 }
 ```
 
-The adapter validates `protocol`, response `kind`, error envelopes, and source
-hash based artifact cache keys. This leaves deeper compiler integration
-incremental: a host can start with a process boundary and later link compiler
-crates directly.
+The adapter validates `protocol`, response `kind`, error envelopes, and
+source-hash based artifact cache keys. `NativeTsRuntime::preflight()` exposes the
+resolved entrypoint, artifact path, source hash, and cache-hit metadata before a
+run starts, and compile failures include compiler stderr in the returned runtime
+error. This leaves deeper compiler integration incremental: a host can start
+with a process boundary and later link compiler crates directly.
 
 ## Next Components
 
@@ -169,5 +173,5 @@ crates directly.
   OpenTelemetry, or remote audit streams.
 - Additional task queue adapters when concrete deployments need a backend other
   than Postgres.
-- Native runtime compile diagnostics and build-time validation for unsupported
-  workflow APIs.
+- Deeper Native TypeScript build-time validation for unsupported workflow APIs
+  once compiler integration moves beyond the process contract.

@@ -442,11 +442,19 @@ host still owns:
 Keep TypeScript workflow code deterministic. It should inspect invocation
 history and return commands. Put side effects behind step handlers.
 
+Before accepting user-authored source or starting a run, call
+`NativeTsRuntime::preflight(&spec)` to validate the spec, compile the source if
+the artifact cache is cold, and report the resolved entrypoint, artifact path,
+source hash, and cache-hit state. Compile failures include compiler stderr in
+the returned runtime error so hosts can show actionable diagnostics.
+
 Use [`NATIVE_TYPESCRIPT.md`](NATIVE_TYPESCRIPT.md) for the native compiler
 contract, protocol envelope, and TypeScript authoring types. The
 `native_ts_greeting` example shows a Rust host wiring `NativeTsRuntime` to
 `examples/native-ts/greeting.ts`; it exits successfully with a prerequisite
-message unless `A3S_FLOW_NATIVE_TS_COMPILER` points at a compiler.
+message unless `A3S_FLOW_NATIVE_TS_COMPILER` points at a compiler. The
+`native_ts_preflight` example exercises the validation and artifact-cache path
+without starting a workflow run.
 
 ## Operational Checklist
 

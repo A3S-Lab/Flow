@@ -47,6 +47,19 @@ chmod +x "$4"
         write_executable(path, &content);
     }
 
+    fn write_failing_compiler(path: &Path, compile_log: &Path) {
+        let content = format!(
+            r#"#!/bin/sh
+set -eu
+printf 'compile\n' >> {compile_log}
+echo "compile broke on purpose" >&2
+exit 9
+"#,
+            compile_log = shell_quote(compile_log),
+        );
+        write_executable(path, &content);
+    }
+
     fn write_runtime_source(path: &Path, request_log: &Path, marker: &str, protocol: &str) {
         let content = format!(
             r#"#!/bin/sh
@@ -127,6 +140,94 @@ printf '{{"protocol":"a3s.flow.native_ts.v1","kind":"workflow","ok":false,"error
         let content = fs::read_to_string(path).unwrap();
         let line = content.lines().last().unwrap();
         serde_json::from_str(line).unwrap()
+    }
+
+    #[tokio::test]
+    async fn native_runtime_preflight_compiles_and_reports_artifact() {
+        let dir = tempfile::tempdir().unwrap();
+        let compiler = dir.path().join("fake-compiler");
+        let compile_log = dir.path().join("compile.log");
+        let entrypoint = dir.path().join("workflow.ts");
+        let request_log = dir.path().join("requests.jsonl");
+        let cache_dir = dir.path().join("cache");
+
+        write_fake_compiler(&compiler, &compile_log);
+        write_runtime_source(
+            &entrypoint,
+            &request_log,
+            "preflight",
+            "a3s.flow.native_ts.v1",
+        );
+
+        let runtime = NativeTsRuntime::new(NativeTsRuntimeConfig::new(
+            &compiler,
+            &cache_dir,
+            dir.path(),
+        ));
+        let spec = native_spec("workflow.ts");
+
+        let first = runtime.preflight(&spec).await.unwrap();
+        assert_eq!(first.entrypoint, entrypoint);
+        assert!(first.artifact.starts_with(&cache_dir));
+        assert_eq!(first.source_hash.len(), 64);
+        assert!(!first.cache_hit);
+        assert!(first.artifact.is_file());
+        assert_eq!(compile_count(&compile_log), 1);
+
+        let second = runtime.preflight(&spec).await.unwrap();
+        assert_eq!(second.entrypoint, first.entrypoint);
+        assert_eq!(second.artifact, first.artifact);
+        assert_eq!(second.source_hash, first.source_hash);
+        assert!(second.cache_hit);
+        assert_eq!(compile_count(&compile_log), 1);
+    }
+
+    #[tokio::test]
+    async fn native_runtime_preflight_surfaces_compile_stderr() {
+        let dir = tempfile::tempdir().unwrap();
+        let compiler = dir.path().join("failing-compiler");
+        let compile_log = dir.path().join("compile.log");
+        let entrypoint = dir.path().join("workflow.ts");
+        let cache_dir = dir.path().join("cache");
+
+        write_failing_compiler(&compiler, &compile_log);
+        fs::write(&entrypoint, "export async function main() {}\n").unwrap();
+
+        let runtime = NativeTsRuntime::new(NativeTsRuntimeConfig::new(
+            &compiler,
+            &cache_dir,
+            dir.path(),
+        ));
+        let err = runtime
+            .preflight(&native_spec("workflow.ts"))
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(err, FlowError::Runtime(message) if message.contains("native TypeScript compile failed") && message.contains("compile broke on purpose"))
+        );
+        assert_eq!(compile_count(&compile_log), 1);
+    }
+
+    #[tokio::test]
+    async fn native_runtime_preflight_rejects_non_native_ts_spec() {
+        let dir = tempfile::tempdir().unwrap();
+        let compiler = dir.path().join("fake-compiler");
+        let compile_log = dir.path().join("compile.log");
+        let runtime = NativeTsRuntime::new(NativeTsRuntimeConfig::new(
+            &compiler,
+            dir.path().join("cache"),
+            dir.path(),
+        ));
+        write_fake_compiler(&compiler, &compile_log);
+
+        let spec = WorkflowSpec::rust_embedded("rust.workflow", "0.1.0", "src/lib.rs", "main");
+        let err = runtime.preflight(&spec).await.unwrap_err();
+
+        assert!(
+            matches!(err, FlowError::InvalidWorkflow(message) if message.contains("native_ts workflow spec"))
+        );
+        assert_eq!(compile_count(&compile_log), 0);
     }
 
     #[tokio::test]

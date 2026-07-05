@@ -267,13 +267,29 @@ async fn main() -> a3s_flow::Result<()> {
 when needed, then invokes the cached artifact for workflow replay and step
 execution. Changing the source creates a new artifact cache key.
 
+Hosts can preflight a workflow before accepting or starting a run. Preflight
+validates the `WorkflowSpec`, compiles the source when the artifact cache is
+cold, returns the resolved entrypoint, artifact path, source hash, and cache-hit
+flag, and surfaces compiler stderr in the runtime error when compilation fails.
+
+```rust
+let preflight = runtime.preflight(&spec).await?;
+println!("artifact={}", preflight.artifact.display());
+println!("source_hash={}", preflight.source_hash);
+println!("cache_hit={}", preflight.cache_hit);
+```
+
 The example is compiler-gated so normal Rust validation stays portable:
 
 ```sh
 cargo run --example native_ts_greeting
+cargo run --example native_ts_preflight
 
 A3S_FLOW_NATIVE_TS_COMPILER=/path/to/a3s-flow-native-compiler \
   cargo run --example native_ts_greeting
+
+A3S_FLOW_NATIVE_TS_COMPILER=/path/to/a3s-flow-native-compiler \
+  cargo run --example native_ts_preflight
 ```
 
 ## Examples
@@ -296,6 +312,7 @@ cargo run --example postgres_task_queue_durability --features postgres
 cargo run --example observer_bridge
 cargo run --example local_audit_log
 cargo run --example native_ts_greeting
+cargo run --example native_ts_preflight
 cargo run --example local_retention
 ```
 
@@ -316,6 +333,7 @@ cargo run --example local_retention
 | `observer_bridge` | `A3sFlowEventBridge` mapping committed events into A3S-style records with safe metric labels |
 | `local_audit_log` | `LocalFileA3sFlowEventSink` JSONL audit logging through `A3sFlowEventBridge` |
 | `native_ts_greeting` | Rust `NativeTsRuntime` wiring for a TypeScript workflow source; exits successfully with a prerequisite message unless `A3S_FLOW_NATIVE_TS_COMPILER` points at a compiler |
+| `native_ts_preflight` | `NativeTsRuntime::preflight()` validation, artifact cache metadata, source hash reporting, and compiler prerequisite gating |
 | `local_retention` | `LocalFileEventStore::prune_terminal_runs_older_than()` cleanup for terminal local histories while suspended runs are retained |
 
 ## Cookbook and Planning
@@ -326,7 +344,7 @@ Use these docs when moving from API exploration to a host integration:
 |----------|---------|
 | [`docs/COOKBOOK.md`](docs/COOKBOOK.md) | Practical host recipes for local durable operation, stable run IDs, fan-out/fan-in, retries, timers, hooks, compensation, observability, and Native TypeScript boundaries |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Engine architecture, replay model, event sourcing, and native runtime boundary |
-| [`docs/NATIVE_TYPESCRIPT.md`](docs/NATIVE_TYPESCRIPT.md) | Native TypeScript compiler contract, JSON protocol envelope, authoring types, and greeting example |
+| [`docs/NATIVE_TYPESCRIPT.md`](docs/NATIVE_TYPESCRIPT.md) | Native TypeScript compiler contract, preflight diagnostics, JSON protocol envelope, authoring types, and examples |
 | [`docs/FUNCTIONAL_PLAN.md`](docs/FUNCTIONAL_PLAN.md) | Capability coverage map, example status, near-term work, and non-goals |
 
 ## Features
@@ -742,6 +760,11 @@ complete local audit flow.
 | `PostgresDeadLetteredTask` | Dead-letter record for stale Postgres inflight queue tasks |
 | `FlowWorker` | Handles queued tasks against a `FlowEngine` |
 | `FlowScheduler` | Scans due waits and retries, then enqueues worker tasks |
+| `NativeTsRuntime` | Optional runtime adapter that compiles TypeScript workflow source into native artifacts |
+| `NativeTsRuntimeConfig` | Compiler binary, artifact cache directory, and working directory for `NativeTsRuntime` |
+| `NativeTsRuntimePreflight` | Public result of Native TypeScript validation and compile preflight, including entrypoint, artifact, source hash, and cache-hit metadata |
+| `NativeRuntimeRequest` | Versioned JSON request envelope sent to a native runtime artifact |
+| `NativeRuntimeResponse` | Versioned JSON response envelope returned by a native runtime artifact |
 
 ## Development
 
@@ -781,6 +804,8 @@ just flow-test
 - Add additional production queue adapters as concrete deployment targets need
   them.
 - Keep the local audit sink aligned with Flow event keys and host examples.
+- Keep Native TypeScript preflight diagnostics aligned with compiler behavior,
+  artifact cache metadata, and host authoring examples.
 - Add hosted event and metrics adapters for A3S observability.
 
 ## License

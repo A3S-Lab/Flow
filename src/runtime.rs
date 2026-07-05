@@ -1,8 +1,12 @@
 use async_trait::async_trait;
+#[cfg(feature = "native-ts")]
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "native-ts")]
 use sha2::{Digest, Sha256};
-use std::path::{Path, PathBuf};
+#[cfg(feature = "native-ts")]
+use std::path::Path;
+use std::path::PathBuf;
 
 #[cfg(feature = "native-ts")]
 use tokio::io::AsyncWriteExt;
@@ -11,7 +15,10 @@ use tokio::process::Command;
 
 use crate::context::WorkflowContext;
 use crate::error::{FlowError, Result};
+#[cfg(feature = "native-ts")]
+use crate::model::RuntimeKind;
 use crate::model::{FlowEventEnvelope, JsonValue, RuntimeCommand, WorkflowSpec};
+#[cfg(feature = "native-ts")]
 use crate::protocol::{
     NativeRuntimeKind, NativeRuntimeRequest, NativeRuntimeResponse, NATIVE_RUNTIME_PROTOCOL,
 };
@@ -90,10 +97,25 @@ pub struct NativeTsRuntime {
     config: NativeTsRuntimeConfig,
 }
 
+#[cfg(feature = "native-ts")]
 #[derive(Debug, Clone)]
 struct NativeArtifact {
+    entrypoint: PathBuf,
     binary: PathBuf,
     source_hash: String,
+}
+
+/// Result of validating and compiling a native TypeScript workflow source.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NativeTsRuntimePreflight {
+    /// Resolved workflow source entrypoint used by the compiler.
+    pub entrypoint: PathBuf,
+    /// Resolved native artifact path that will be invoked by the runtime.
+    pub artifact: PathBuf,
+    /// Stable hash of the workflow source and runtime identity fields.
+    pub source_hash: String,
+    /// True when the existing artifact cache entry was reused.
+    pub cache_hit: bool,
 }
 
 impl NativeTsRuntime {
@@ -106,7 +128,20 @@ impl NativeTsRuntime {
     }
 
     #[cfg(feature = "native-ts")]
+    pub async fn preflight(&self, spec: &WorkflowSpec) -> Result<NativeTsRuntimePreflight> {
+        self.compile_if_needed(spec).await
+    }
+
+    #[cfg(not(feature = "native-ts"))]
+    pub async fn preflight(&self, _spec: &WorkflowSpec) -> Result<NativeTsRuntimePreflight> {
+        Err(FlowError::Runtime(
+            "native-ts feature is disabled for NativeTsRuntime".to_string(),
+        ))
+    }
+
+    #[cfg(feature = "native-ts")]
     async fn artifact_for(&self, spec: &WorkflowSpec) -> Result<NativeArtifact> {
+        validate_native_ts_spec(spec)?;
         let entrypoint = resolve_against(&self.config.working_dir, &spec.runtime.entrypoint);
         let source = tokio::fs::read(&entrypoint).await?;
         let source_hash = stable_hash([
@@ -119,23 +154,28 @@ impl NativeTsRuntime {
         ]);
         let name = format!("{}-{source_hash}", sanitize_filename(&spec.name));
         Ok(NativeArtifact {
+            entrypoint,
             binary: self.config.cache_dir.join(name),
             source_hash,
         })
     }
 
     #[cfg(feature = "native-ts")]
-    async fn compile_if_needed(&self, spec: &WorkflowSpec) -> Result<NativeArtifact> {
+    async fn compile_if_needed(&self, spec: &WorkflowSpec) -> Result<NativeTsRuntimePreflight> {
         let artifact = self.artifact_for(spec).await?;
         if tokio::fs::metadata(&artifact.binary).await.is_ok() {
-            return Ok(artifact);
+            return Ok(NativeTsRuntimePreflight {
+                entrypoint: artifact.entrypoint,
+                artifact: artifact.binary,
+                source_hash: artifact.source_hash,
+                cache_hit: true,
+            });
         }
 
         tokio::fs::create_dir_all(&self.config.cache_dir).await?;
-        let entrypoint = resolve_against(&self.config.working_dir, &spec.runtime.entrypoint);
         let output = Command::new(&self.config.compiler_binary)
             .arg("compile")
-            .arg(&entrypoint)
+            .arg(&artifact.entrypoint)
             .arg("-o")
             .arg(&artifact.binary)
             .current_dir(&self.config.working_dir)
@@ -156,7 +196,12 @@ impl NativeTsRuntime {
             ))
         })?;
 
-        Ok(artifact)
+        Ok(NativeTsRuntimePreflight {
+            entrypoint: artifact.entrypoint,
+            artifact: artifact.binary,
+            source_hash: artifact.source_hash,
+            cache_hit: false,
+        })
     }
 
     #[cfg(feature = "native-ts")]
@@ -170,15 +215,15 @@ impl NativeTsRuntime {
         I: Serialize + Send,
         O: DeserializeOwned,
     {
-        let artifact = self.compile_if_needed(spec).await?;
+        let preflight = self.compile_if_needed(spec).await?;
         let request = NativeRuntimeRequest::new(
             kind,
             spec.runtime.export_name.clone(),
-            artifact.source_hash,
+            preflight.source_hash,
             payload,
         );
 
-        let mut child = Command::new(&artifact.binary)
+        let mut child = Command::new(&preflight.artifact)
             .arg("--a3s-flow-runtime")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -206,6 +251,18 @@ impl NativeTsRuntime {
 
         decode_native_response(kind, &output.stdout)
     }
+}
+
+#[cfg(feature = "native-ts")]
+fn validate_native_ts_spec(spec: &WorkflowSpec) -> Result<()> {
+    spec.validate()?;
+    if spec.runtime.kind != RuntimeKind::NativeTs {
+        return Err(FlowError::InvalidWorkflow(format!(
+            "NativeTsRuntime requires a native_ts workflow spec, got {:?}",
+            spec.runtime.kind
+        )));
+    }
+    Ok(())
 }
 
 #[async_trait]
@@ -239,6 +296,7 @@ impl FlowRuntime for NativeTsRuntime {
     }
 }
 
+#[cfg(feature = "native-ts")]
 fn workflow_spec_from_history(history: &[FlowEventEnvelope]) -> Result<WorkflowSpec> {
     let first = history
         .first()
@@ -251,6 +309,7 @@ fn workflow_spec_from_history(history: &[FlowEventEnvelope]) -> Result<WorkflowS
     }
 }
 
+#[cfg(feature = "native-ts")]
 fn sanitize_filename(value: &str) -> String {
     value
         .chars()
@@ -264,6 +323,7 @@ fn sanitize_filename(value: &str) -> String {
         .collect()
 }
 
+#[cfg(feature = "native-ts")]
 fn resolve_against(root: &Path, value: &str) -> PathBuf {
     let path = PathBuf::from(value);
     if path.is_absolute() {
@@ -273,6 +333,7 @@ fn resolve_against(root: &Path, value: &str) -> PathBuf {
     }
 }
 
+#[cfg(feature = "native-ts")]
 fn stable_hash(parts: impl IntoIterator<Item = impl AsRef<[u8]>>) -> String {
     let mut hasher = Sha256::new();
     for part in parts {
@@ -283,6 +344,7 @@ fn stable_hash(parts: impl IntoIterator<Item = impl AsRef<[u8]>>) -> String {
     hex_lower(&hasher.finalize())
 }
 
+#[cfg(feature = "native-ts")]
 fn hex_lower(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut output = String::with_capacity(bytes.len() * 2);
@@ -293,6 +355,7 @@ fn hex_lower(bytes: &[u8]) -> String {
     output
 }
 
+#[cfg(feature = "native-ts")]
 fn decode_native_response<O>(kind: NativeRuntimeKind, bytes: &[u8]) -> Result<O>
 where
     O: DeserializeOwned,
