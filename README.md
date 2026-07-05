@@ -327,6 +327,7 @@ cargo run --example cancellation
 cargo run --example run_inspection
 cargo run --example local_file_durability
 cargo run --example sqlite_durability --features sqlite
+cargo run --example sqlite_worker --features sqlite
 cargo run --example postgres_durability --features postgres
 cargo run --example task_queue_durability
 cargo run --example postgres_task_queue_durability --features postgres
@@ -353,6 +354,7 @@ cargo run --example local_retention
 | `run_inspection` | `list_run_ids()`, `list_snapshots()`, and `history()` over completed, suspended, cancelled, and failed runs |
 | `local_file_durability` | `LocalFileEventStore` JSONL durability across engine reconstruction |
 | `sqlite_durability` | `SqliteEventStore` durability across engine reconstruction; prints a feature hint unless run with `--features sqlite` |
+| `sqlite_worker` | `SqliteEventStore` plus `LocalFileFlowTaskQueue` for a single-node durable worker/scheduler host |
 | `postgres_durability` | `PostgresEventStore` durability across engine reconstruction; prints a feature or environment hint unless run with `--features postgres` and `A3S_FLOW_POSTGRES_URL` |
 | `task_queue_durability` | `LocalFileFlowTaskQueue` pending/inflight files, crash recovery, lease timeout handling, dead-letter records, and worker draining |
 | `postgres_task_queue_durability` | `PostgresEventStore` plus `PostgresFlowTaskQueue` shared database durability, lease recovery, worker draining, and dead-letter handling |
@@ -650,6 +652,7 @@ Run the durability example:
 
 ```sh
 cargo run --example sqlite_durability --features sqlite
+cargo run --example sqlite_worker --features sqlite
 ```
 
 ### Postgres event store

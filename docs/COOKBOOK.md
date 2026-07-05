@@ -109,6 +109,7 @@ Run the companion example with:
 
 ```sh
 cargo run --example sqlite_durability --features sqlite
+cargo run --example sqlite_worker --features sqlite
 ```
 
 ## Postgres Durable Host
