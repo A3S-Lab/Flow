@@ -24,7 +24,7 @@ Workflow as a Service product surfaces.
 | Scheduling | `FlowScheduler::enqueue_due_work` | `examples/scheduler_worker.rs`, `tests/scheduler.rs` | Scheduler converts due waits and due retries into queue tasks. |
 | Local and shared durability | `LocalFileEventStore`, `SqliteEventStore`, `PostgresEventStore`, `LocalFileFlowTaskQueue`, `PostgresFlowTaskQueue`, `LocalFileDeadLetteredTask`, `PostgresDeadLetteredTask` | `examples/local_file_durability.rs`, `examples/sqlite_durability.rs`, `examples/sqlite_worker.rs`, `examples/postgres_durability.rs`, `examples/task_queue_durability.rs`, `examples/postgres_task_queue_durability.rs`, `examples/local_retention.rs`, `tests/worker.rs`, `tests/engine.rs` | JSONL event histories, SQLite event rows, Postgres event rows, JSON task files, and Postgres task rows cover local and shared durability. Old terminal histories can be pruned by cutoff, stale inflight tasks can be requeued by lease age, and poison tasks can be dead-lettered. |
 | Observability | `FlowEventObserver`, `FanoutFlowEventObserver`, `A3sFlowEventBridge`, `A3sFlowEvent`, `InMemoryFlowEventObserver`, `LocalFileA3sFlowEventSink` | `examples/observer_bridge.rs`, `examples/observer_fanout.rs`, `examples/local_audit_log.rs`, `tests/engine.rs` | Observers mirror committed events after store append; fan-out observers feed multiple sinks; bridge records expose A3S event keys, safe metric labels, and local JSONL audit records while stores remain authoritative. |
-| Native TypeScript runtime | `NativeTsRuntime`, `NativeTsRuntimePreflight`, `NativeRuntimeRequest`, `NativeRuntimeResponse` | `README.md`, `docs/NATIVE_TYPESCRIPT.md`, `examples/native_ts_greeting.rs`, `examples/native_ts_preflight.rs`, `examples/native-ts/greeting.ts`, `tests/native_ts_runtime.rs` | Rust owns the engine; TypeScript is validated, compiled, cached, and invoked as a native runtime artifact. |
+| Native TypeScript runtime | `NativeTsRuntime`, `NativeTsRuntimePreflight`, `NativeRuntimeRequest`, `NativeRuntimeResponse` | `README.md`, `docs/NATIVE_TYPESCRIPT.md`, `examples/native_ts_greeting.rs`, `examples/native_ts_preflight.rs`, `examples/native-ts/greeting.ts`, `examples/native-ts/a3s-flow-runtime.d.ts`, `tests/native_ts_runtime.rs`, `tests/protocol.rs` | Rust owns the engine; TypeScript is validated, compiled, cached, and invoked as a native runtime artifact. Authoring types track the Rust protocol shape without claiming to be a standalone TypeScript SDK. |
 
 ## Example Coverage Goals
 
@@ -70,7 +70,8 @@ test helpers.
      compiler stderr, artifact cache paths, source hashes, and cache-hit
      reporting.
    - Maintain TypeScript type definitions for workflow and step invocation
-     shapes under `examples/native-ts/`.
+     shapes under `examples/native-ts/`, with protocol tests guarding the
+     authoring contract against Rust serde drift.
 
 2. **Durable local operations**
    - Maintain cookbook guidance for pairing `LocalFileEventStore` and

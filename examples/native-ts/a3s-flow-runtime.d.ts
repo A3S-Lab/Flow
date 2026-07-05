@@ -50,7 +50,7 @@ export type RuntimeCommand =
   | {
       type: "create_hook";
       hook_id: string;
-      token?: string;
+      token: string;
       metadata: Json;
     };
 
@@ -58,7 +58,7 @@ export type StepCommand = {
   step_id: string;
   step_name: string;
   input: Json;
-  retry: RetryPolicy;
+  retry?: RetryPolicy;
 };
 
 export type FlowEvent =
@@ -70,6 +70,7 @@ export type FlowEvent =
   | { type: "run_started" }
   | { type: "run_completed"; output: Json }
   | { type: "run_failed"; error: string }
+  | { type: "run_cancelled"; reason: string | null }
   | {
       type: "step_created";
       step_id: string;
@@ -84,12 +85,12 @@ export type FlowEvent =
       step_id: string;
       attempt: number;
       error: string;
-      retry_after?: string;
+      retry_after: string | null;
     }
   | { type: "step_failed"; step_id: string; attempt: number; error: string }
   | { type: "wait_created"; wait_id: string; resume_at: string }
   | { type: "wait_completed"; wait_id: string }
-  | { type: "hook_created"; hook_id: string; token?: string; metadata: Json }
+  | { type: "hook_created"; hook_id: string; token: string; metadata: Json }
   | { type: "hook_received"; hook_id: string; payload: Json }
   | { type: "hook_disposed"; hook_id: string };
 
@@ -97,7 +98,6 @@ export type FlowEventEnvelope = {
   event_id: string;
   run_id: string;
   sequence: number;
-  key: string;
   timestamp: string;
   event: FlowEvent;
 };
@@ -142,8 +142,3 @@ export type NativeRuntimeResponse<Output extends Json = Json> =
       ok: false;
       error: string;
     };
-
-export function stepOutput<Output extends Json>(
-  history: FlowEventEnvelope[],
-  stepId: string,
-): Output | undefined;

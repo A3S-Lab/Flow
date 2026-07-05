@@ -113,15 +113,34 @@ requests, `output` is a `RuntimeCommand`.
 ## Authoring Types
 
 Use [`examples/native-ts/a3s-flow-runtime.d.ts`](../examples/native-ts/a3s-flow-runtime.d.ts)
-as the authoring contract for workflow and step source. It defines:
+as the authoring contract for workflow and step source. It mirrors the Rust
+serde field names used in `NativeRuntimeRequest`, `WorkflowInvocation`,
+`StepInvocation`, `RuntimeCommand`, and `FlowEventEnvelope`. The file is a type
+contract, not a runtime helper module, so workflow source should define local
+history helpers or rely on helpers injected by the compiler artifact.
+
+The contract defines:
 
 - `WorkflowInvocation<Input>`
 - `StepInvocation<Input>`
 - `RuntimeCommand`
 - `RetryPolicy`
+- `FlowEvent`
+- `FlowEventEnvelope`
 - `StepDefinition<Input, Output>`
 - `NativeRuntimeRequest<Payload>`
 - `NativeRuntimeResponse<Output>`
+
+Important protocol details:
+
+- `FlowEventEnvelope` includes `event_id`, `run_id`, `sequence`, `timestamp`,
+  and `event`. It does not include a derived event key.
+- `create_hook` commands and `hook_created` history events include a required
+  `token` because callback routing must be stable across replay.
+- `step_retrying.retry_after` is `string | null`, matching Rust's serialized
+  `Option<DateTime<Utc>>`.
+- `schedule_step.retry` and batched `StepCommand.retry` may be omitted; Rust
+  applies the default retry policy.
 
 The greeting source in
 [`examples/native-ts/greeting.ts`](../examples/native-ts/greeting.ts) shows the

@@ -198,6 +198,8 @@ contract and protocol envelope. The authoring types live in
 [`examples/native-ts/a3s-flow-runtime.d.ts`](examples/native-ts/a3s-flow-runtime.d.ts),
 and the runnable source sample lives in
 [`examples/native-ts/greeting.ts`](examples/native-ts/greeting.ts).
+The `.d.ts` file mirrors the Rust JSON protocol for authoring only; it does not
+ship runtime helper functions.
 
 ### Workflow and step source
 
