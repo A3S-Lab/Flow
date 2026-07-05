@@ -25,6 +25,7 @@ export type WorkflowSpec = {
 export type RetryPolicy = {
   max_attempts: number;
   delay_ms: number;
+  on_exhausted?: "fail_run" | "continue_workflow";
 };
 
 export type RuntimeCommand =

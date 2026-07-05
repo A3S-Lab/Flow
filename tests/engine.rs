@@ -6,8 +6,8 @@ use a3s_flow::{
     A3sFlowEventBridge, FanoutFlowEventObserver, FlowEngine, FlowError, FlowEvent,
     FlowEventEnvelope, FlowEventStore, FlowRuntime, HookStatus, InMemoryA3sFlowEventSink,
     InMemoryEventStore, InMemoryFlowEventObserver, LocalFileA3sFlowEventSink, LocalFileEventStore,
-    RetryPolicy, RuntimeCommand, StepInvocation, StepStatus, WaitStatus, WorkflowInvocation,
-    WorkflowRunStatus, WorkflowSpec,
+    RetryPolicy, RuntimeCommand, StepFailureAction, StepInvocation, StepStatus, WaitStatus,
+    WorkflowInvocation, WorkflowRunStatus, WorkflowSpec,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
@@ -76,6 +76,32 @@ fn assert_invalid_transition(err: FlowError, expected_message: &str) {
         matches!(&err, FlowError::InvalidTransition(message) if message.contains(expected_message)),
         "expected invalid transition containing {expected_message:?}, got {err:?}"
     );
+}
+
+#[test]
+fn retry_policy_serializes_failure_action_only_when_non_default() {
+    let default_policy = RetryPolicy::none();
+    let encoded = serde_json::to_value(default_policy).unwrap();
+    assert_eq!(encoded, json!({ "max_attempts": 1, "delay_ms": 0 }));
+
+    let recoverable = RetryPolicy::none().continue_workflow_on_failure();
+    let encoded = serde_json::to_value(recoverable).unwrap();
+    assert_eq!(
+        encoded,
+        json!({
+            "max_attempts": 1,
+            "delay_ms": 0,
+            "on_exhausted": "continue_workflow",
+        })
+    );
+
+    let decoded: RetryPolicy = serde_json::from_value(json!({
+        "max_attempts": 1,
+        "delay_ms": 0,
+        "on_exhausted": "continue_workflow",
+    }))
+    .unwrap();
+    assert_eq!(decoded.on_exhausted, StepFailureAction::ContinueWorkflow);
 }
 
 struct StaticHistoryStore {
@@ -1855,6 +1881,110 @@ async fn retries_failed_step_before_failing_run() {
     assert_eq!(snapshot.status, WorkflowRunStatus::Completed);
     assert_eq!(snapshot.steps["flaky"].attempt, 2);
     assert_eq!(snapshot.steps["flaky"].status, StepStatus::Completed);
+}
+
+struct RecoverableStepFailureRuntime;
+
+struct ExhaustedStepFailureRuntime;
+
+#[async_trait]
+impl FlowRuntime for ExhaustedStepFailureRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        Ok(invocation.context().schedule_step_with_retry(
+            "primary",
+            "primaryStep",
+            json!({}),
+            RetryPolicy::none(),
+        ))
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        Err(FlowError::Runtime("primary failed".to_string()))
+    }
+}
+
+#[tokio::test]
+async fn exhausted_step_failure_fails_run_by_default() {
+    let engine = FlowEngine::in_memory(Arc::new(ExhaustedStepFailureRuntime));
+    let run_id = engine.start(spec(), json!({})).await.unwrap();
+    let snapshot = engine.snapshot(&run_id).await.unwrap();
+    let history = engine.history(&run_id).await.unwrap();
+
+    assert_eq!(snapshot.status, WorkflowRunStatus::Failed);
+    assert_eq!(snapshot.steps["primary"].status, StepStatus::Failed);
+    assert_eq!(snapshot.steps["primary"].attempt, 1);
+    assert_eq!(
+        snapshot.steps["primary"].retry.on_exhausted,
+        StepFailureAction::FailRun
+    );
+    assert!(history
+        .iter()
+        .any(|envelope| matches!(envelope.event, FlowEvent::RunFailed { .. })));
+}
+
+#[async_trait]
+impl FlowRuntime for RecoverableStepFailureRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let ctx = invocation.context();
+        if let Some(fallback) = ctx.step_output("fallback") {
+            return Ok(ctx.complete(json!({
+                "status": "degraded",
+                "fallback": fallback,
+            })));
+        }
+        if let Some(error) = ctx.step_failed("primary") {
+            return Ok(ctx.schedule_step(
+                "fallback",
+                "fallbackStep",
+                json!({ "primaryError": error }),
+            ));
+        }
+
+        Ok(ctx.schedule_step_with_retry(
+            "primary",
+            "primaryStep",
+            json!({}),
+            RetryPolicy::none().continue_workflow_on_failure(),
+        ))
+    }
+
+    async fn run_step(&self, invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        match invocation.step_name.as_str() {
+            "primaryStep" => Err(FlowError::Runtime("primary system unavailable".to_string())),
+            "fallbackStep" => Ok(json!({
+                "used": true,
+                "primaryError": invocation.input["primaryError"],
+            })),
+            step => Err(FlowError::Runtime(format!("unknown step {step}"))),
+        }
+    }
+}
+
+#[tokio::test]
+async fn recoverable_step_failure_replays_to_workflow_for_fallback() {
+    let engine = FlowEngine::in_memory(Arc::new(RecoverableStepFailureRuntime));
+    let run_id = engine.start(spec(), json!({})).await.unwrap();
+    let snapshot = engine.snapshot(&run_id).await.unwrap();
+
+    assert_eq!(snapshot.status, WorkflowRunStatus::Completed);
+    assert_eq!(snapshot.steps["primary"].status, StepStatus::Failed);
+    assert_eq!(snapshot.steps["primary"].attempt, 1);
+    assert_eq!(
+        snapshot.steps["primary"].retry.on_exhausted,
+        StepFailureAction::ContinueWorkflow
+    );
+    assert_eq!(snapshot.steps["fallback"].status, StepStatus::Completed);
+    assert_eq!(snapshot.output.as_ref().unwrap()["status"], "degraded");
+    assert_eq!(
+        snapshot.output.as_ref().unwrap()["fallback"]["primaryError"],
+        "runtime error: primary system unavailable"
+    );
 }
 
 #[derive(Default)]

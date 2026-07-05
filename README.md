@@ -318,6 +318,7 @@ cargo run --example sequential_steps
 cargo run --example batch_steps
 cargo run --example compensation
 cargo run --example retry_backoff
+cargo run --example recoverable_step_failure
 cargo run --example hook_approval
 cargo run --example hook_disposal
 cargo run --example scheduler_worker
@@ -343,6 +344,7 @@ cargo run --example local_retention
 | `batch_steps` | `schedule_steps()` fan-out with stable step IDs and per-step retry policy |
 | `compensation` | Recoverable business failure handled by scheduling a durable compensating step before completion |
 | `retry_backoff` | Delayed step retry, `retry_after` suspension, due retry scheduling, and worker-driven resume |
+| `recoverable_step_failure` | `RetryPolicy::continue_workflow_on_failure()` with `ctx.step_failed()` fallback orchestration |
 | `hook_approval` | `create_hook()` suspension and `resume_hook_by_token()` callback completion |
 | `hook_disposal` | `dispose_hook_by_token()` callback withdrawal, `hook_disposed()` replay handling, and late-callback rejection |
 | `scheduler_worker` | `wait_until()`, due-work scanning through `FlowScheduler`, and queue draining through `FlowWorker` |
@@ -387,6 +389,7 @@ Use these docs when moving from API exploration to a host integration:
 | **Timers** | Waits suspend runs without holding compute |
 | **Hooks** | External callbacks resume or dispose active runs by hook ID or public token |
 | **Retries** | Failed steps can retry immediately or after a durable delay |
+| **Recoverable step failures** | Exhausted step failures can either fail the run or replay to workflow fallback logic |
 | **Workers** | Queued tasks let a host drive runs outside the request path |
 | **Schedulers** | Due waits and delayed retries can be scanned and enqueued |
 | **Observers** | Committed events can be mirrored into logs, metrics, or audit sinks |
@@ -457,6 +460,30 @@ Ok(ctx.schedule_step_with_retry(
 ```
 
 When a retry has a delay, the run suspends and is resumed by due retry scanning.
+By default, a step that exhausts its attempts records `flow.step.failed` and then
+fails the workflow run. When workflow code should choose a fallback or explicit
+compensation path, opt in to replay after exhaustion:
+
+```rust
+Ok(ctx.schedule_step_with_retry(
+    "load-fresh-report",
+    "load_fresh_report",
+    json!({ "reportId": ctx.input()["reportId"] }),
+    RetryPolicy::fixed(2, Duration::from_secs(5)).continue_workflow_on_failure(),
+))
+```
+
+Then branch on the persisted failure during replay:
+
+```rust
+if let Some(error) = ctx.step_failed("load-fresh-report") {
+    return Ok(ctx.schedule_step(
+        "load-cached-report",
+        "load_cached_report",
+        json!({ "freshReportError": error }),
+    ));
+}
+```
 
 ### Batch steps
 
@@ -820,6 +847,7 @@ complete local audit flow.
 | `LocalFileA3sFlowEventSink` | JSONL-backed local audit sink for A3S-style Flow events |
 | `WorkflowRunSnapshot` | Materialized state projected from event history |
 | `RetryPolicy` | Step retry attempts and delay |
+| `StepFailureAction` | Retry exhaustion behavior: fail the run or replay to workflow logic |
 | `FlowTask` | Serializable unit of queued workflow work |
 | `FlowTaskQueue` | Queue abstraction for workflow dispatch |
 | `FlowTaskLease` | Queue lease acknowledged after successful handling |

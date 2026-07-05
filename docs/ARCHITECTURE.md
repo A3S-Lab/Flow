@@ -46,7 +46,9 @@ The runtime returns exactly one command:
 - `schedule_step`: the engine persists `step_created`, runs the step runtime,
   persists `step_completed` or retry/failure events, then replays. Delayed
   retries persist `retry_after` and suspend until due retry scanning drives the
-  run again.
+  run again. Exhausted failures fail the run by default; when the step retry
+  policy uses `continue_workflow_on_failure()`, the engine records
+  `step_failed` and replays so workflow code can observe `step_failed(...)`.
 - `schedule_steps`: the engine validates a stable batch of unique step IDs, then
   applies the same durable step lifecycle to each step before replaying.
 - `wait_until`: the engine persists `wait_created` and stops driving the run

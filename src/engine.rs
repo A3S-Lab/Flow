@@ -7,8 +7,8 @@ use uuid::Uuid;
 use crate::error::{FlowError, Result};
 use crate::model::{
     project_run, FlowEvent, FlowEventEnvelope, HookSnapshot, HookStatus, RetryPolicy,
-    RuntimeCommand, StepCommand, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus,
-    WorkflowRunSnapshot, WorkflowSpec,
+    RuntimeCommand, StepCommand, StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot,
+    WaitStatus, WorkflowRunSnapshot, WorkflowSpec,
 };
 use crate::observe::{FlowEventObserver, NoopFlowEventObserver};
 use crate::runtime::{FlowRuntime, StepInvocation, WorkflowInvocation};
@@ -719,7 +719,7 @@ impl FlowEngine {
         let mut expected_sequence = snapshot.last_sequence;
         if let Some(step) = snapshot.steps.get(&step_id) {
             ensure_step_command_matches(run_id, step, &step_name, &input, retry)?;
-            if step.status == StepStatus::Completed {
+            if matches!(step.status, StepStatus::Completed | StepStatus::Failed) {
                 return Ok(());
             }
         } else {
@@ -814,6 +814,9 @@ impl FlowEngine {
                             },
                         )
                         .await?;
+                    if retry.on_exhausted == StepFailureAction::ContinueWorkflow {
+                        return Ok(());
+                    }
                     self.record_event_at(run_id, failed.sequence, FlowEvent::RunFailed { error })
                         .await?;
                     return Ok(());

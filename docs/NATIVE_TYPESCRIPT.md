@@ -118,6 +118,7 @@ as the authoring contract for workflow and step source. It defines:
 - `WorkflowInvocation<Input>`
 - `StepInvocation<Input>`
 - `RuntimeCommand`
+- `RetryPolicy`
 - `StepDefinition<Input, Output>`
 - `NativeRuntimeRequest<Payload>`
 - `NativeRuntimeResponse<Output>`
@@ -155,6 +156,8 @@ Workflow exports should be deterministic:
 - do not perform network, clock, random, filesystem, or shell work,
 - put side effects in step handlers,
 - use stable step IDs, wait IDs, and hook IDs.
+- set `retry.on_exhausted` to `"continue_workflow"` only when workflow replay
+  explicitly handles the resulting `step_failed` history.
 
 Step handlers may perform side effects, but their outputs are persisted before
 workflow replay observes them.

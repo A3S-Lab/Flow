@@ -266,6 +266,39 @@ if tick.has_due_work() {
 
 See `examples/retry_backoff.rs` for a complete delayed retry flow.
 
+## Recoverable Step Failure
+
+By default, an exhausted step failure fails the workflow run. Use
+`continue_workflow_on_failure()` when a failed step should become durable
+workflow input instead, so replay can choose a fallback, compensation, or
+explicit failure command.
+
+```rust
+Ok(ctx.schedule_step_with_retry(
+    "fresh-report",
+    "load_fresh_report",
+    serde_json::json!({ "reportId": ctx.input()["reportId"] }),
+    RetryPolicy::fixed(2, Duration::from_secs(5)).continue_workflow_on_failure(),
+))
+```
+
+Then branch on the recorded failure:
+
+```rust
+if let Some(error) = ctx.step_failed("fresh-report") {
+    return Ok(ctx.schedule_step(
+        "cached-report",
+        "load_cached_report",
+        serde_json::json!({ "freshReportError": error }),
+    ));
+}
+```
+
+If workflow code keeps returning the same failed step command without observing
+`ctx.step_failed(...)`, the engine cannot make progress and will eventually hit
+the replay limit. Treat that as a workflow authoring bug. See
+`examples/recoverable_step_failure.rs` for a complete fallback flow.
+
 ## Timers
 
 Use `wait_until()` when a workflow should stop consuming compute until a known

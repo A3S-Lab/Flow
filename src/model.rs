@@ -106,11 +106,36 @@ impl WorkflowSpec {
     }
 }
 
+/// What the engine should do after a step exhausts its retry attempts.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StepFailureAction {
+    /// Record `step_failed`, then fail the workflow run.
+    FailRun,
+    /// Record `step_failed`, then replay the workflow so it can choose a
+    /// fallback, compensation, or explicit failure command.
+    ContinueWorkflow,
+}
+
+impl StepFailureAction {
+    pub fn is_fail_run(&self) -> bool {
+        matches!(self, Self::FailRun)
+    }
+}
+
+impl Default for StepFailureAction {
+    fn default() -> Self {
+        Self::FailRun
+    }
+}
+
 /// Retry behavior for a step command.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RetryPolicy {
     pub max_attempts: u32,
     pub delay_ms: u64,
+    #[serde(default, skip_serializing_if = "StepFailureAction::is_fail_run")]
+    pub on_exhausted: StepFailureAction,
 }
 
 impl RetryPolicy {
@@ -118,6 +143,7 @@ impl RetryPolicy {
         Self {
             max_attempts: 1,
             delay_ms: 0,
+            on_exhausted: StepFailureAction::FailRun,
         }
     }
 
@@ -125,7 +151,17 @@ impl RetryPolicy {
         Self {
             max_attempts: max_attempts.max(1),
             delay_ms: delay.as_millis().min(u128::from(u64::MAX)) as u64,
+            on_exhausted: StepFailureAction::FailRun,
         }
+    }
+
+    pub fn with_failure_action(mut self, action: StepFailureAction) -> Self {
+        self.on_exhausted = action;
+        self
+    }
+
+    pub fn continue_workflow_on_failure(self) -> Self {
+        self.with_failure_action(StepFailureAction::ContinueWorkflow)
     }
 }
 
@@ -134,6 +170,7 @@ impl Default for RetryPolicy {
         Self {
             max_attempts: 3,
             delay_ms: 0,
+            on_exhausted: StepFailureAction::FailRun,
         }
     }
 }
