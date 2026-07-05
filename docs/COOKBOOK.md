@@ -9,7 +9,9 @@ Use it with the runnable examples in `examples/` and the architecture notes in
 For an embedded local host, pair the local JSONL event store with the local task
 queue. Keep both under a host-owned state directory and call
 `requeue_inflight()` during startup so tasks leased before a crash become
-pending again.
+pending again. Long-running hosts can also apply a lease policy: requeue
+inflight tasks that are old enough to retry, or move known poison tasks into the
+dead-letter directory for inspection.
 
 ```rust
 use a3s_flow::{
@@ -22,6 +24,9 @@ let store = Arc::new(LocalFileEventStore::new(".a3s-flow/events"));
 let queue = Arc::new(LocalFileFlowTaskQueue::new(".a3s-flow/tasks"));
 
 queue.requeue_inflight().await?;
+queue
+    .requeue_inflight_older_than(chrono::Utc::now() - chrono::Duration::minutes(10))
+    .await?;
 
 let engine = FlowEngine::new(store, runtime);
 let worker = FlowWorker::new(engine.clone(), queue.clone());
@@ -38,8 +43,21 @@ Directory layout:
   tasks/
     pending/
     inflight/
+    dead/
   artifacts/
     native-ts/
+```
+
+Dead-letter a stale task only after the host decides it should not be retried:
+
+```rust
+let moved = queue
+    .dead_letter_inflight_older_than(
+        chrono::Utc::now() - chrono::Duration::hours(1),
+        "lease expired repeatedly",
+    )
+    .await?;
+let dead = queue.dead_lettered_tasks().await?;
 ```
 
 The local backends serialize access inside one process. They are useful for
@@ -306,8 +324,9 @@ Before shipping a host integration:
   in workflow decisions.
 - Put side effects in steps and persist their outputs before fan-in.
 - Run a scheduler loop for due waits and delayed retries.
-- Requeue local inflight tasks on startup, or implement queue lease timeout in a
-  production queue.
+- Requeue local inflight tasks on startup; for long-running hosts, apply
+  `requeue_inflight_older_than` and move poison tasks with
+  `dead_letter_inflight_older_than`.
 - Attach an observer before adding dashboards or audit exports.
 - Define cleanup policy for completed event histories and task directories; for
   `LocalFileEventStore`, prune only old terminal histories.

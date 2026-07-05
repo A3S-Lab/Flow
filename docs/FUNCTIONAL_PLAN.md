@@ -19,7 +19,7 @@ Workflow as a Service product surfaces.
 | External callbacks | `RuntimeCommand::CreateHook`, `WorkflowContext::create_hook_with_metadata`, `HookMetadata`, `HookCallbackRoute`, `resume_hook`, `resume_hook_by_token` | `examples/hook_approval.rs`, `tests/context.rs`, `tests/worker.rs` | Active hook tokens are unique across active runs; typed metadata helpers standardize audit and callback routing fields without changing event storage. |
 | Workers | `FlowTask`, `FlowTaskQueue`, `FlowWorker` | `examples/scheduler_worker.rs`, `examples/task_queue_durability.rs`, `tests/worker.rs` | Queue leases are acknowledged after successful task handling. |
 | Scheduling | `FlowScheduler::enqueue_due_work` | `examples/scheduler_worker.rs`, `tests/scheduler.rs` | Scheduler converts due waits and due retries into queue tasks. |
-| Local durability | `LocalFileEventStore`, `LocalFileFlowTaskQueue` | `examples/local_file_durability.rs`, `examples/task_queue_durability.rs`, `examples/local_retention.rs`, `tests/worker.rs`, `tests/engine.rs` | JSONL event histories and JSON task files are local single-process durable backends; old terminal histories can be pruned by cutoff. |
+| Local durability | `LocalFileEventStore`, `LocalFileFlowTaskQueue`, `LocalFileDeadLetteredTask` | `examples/local_file_durability.rs`, `examples/task_queue_durability.rs`, `examples/local_retention.rs`, `tests/worker.rs`, `tests/engine.rs` | JSONL event histories and JSON task files are local single-process durable backends; old terminal histories can be pruned by cutoff, stale inflight tasks can be requeued by lease age, and poison tasks can be dead-lettered. |
 | Observability | `FlowEventObserver`, `A3sFlowEventBridge`, `A3sFlowEvent`, `InMemoryFlowEventObserver` | `examples/observer_bridge.rs`, `tests/engine.rs` | Observers mirror committed events after store append; bridge records expose A3S event keys and safe metric labels while stores remain authoritative. |
 | Native TypeScript runtime | `NativeTsRuntime`, `NativeRuntimeRequest`, `NativeRuntimeResponse` | `README.md`, `docs/NATIVE_TYPESCRIPT.md`, `examples/native_ts_greeting.rs`, `examples/native-ts/greeting.ts`, `tests/native_ts_runtime.rs` | Rust owns the engine; TypeScript is compiled/invoked as a native runtime artifact. |
 
@@ -39,7 +39,7 @@ test helpers.
 | `scheduler_worker` | Present | Show suspended timers being found by a scheduler and resumed by a worker. |
 | `polling_loop` | Present | Model a long-running external job with stable poll wait IDs. |
 | `local_file_durability` | Present | Restart an engine over the same `LocalFileEventStore` and inspect preserved history. |
-| `task_queue_durability` | Present | Persist queued work, recover an unacked inflight lease, and drain it with a worker. |
+| `task_queue_durability` | Present | Persist queued work, recover an unacked inflight lease, dead-letter a stale lease, and drain work with a worker. |
 | `observer_bridge` | Present | Map committed events into A3S-style records and safe metric labels for host sinks. |
 | `native_ts_greeting` | Present, compiler-gated | Rust `NativeTsRuntime` wiring for TypeScript source; runs fully when `A3S_FLOW_NATIVE_TS_COMPILER` points at a compatible compiler and otherwise exits with a prerequisite message. |
 | `local_retention` | Present | Prune old terminal JSONL run histories while retaining suspended local runs. |
@@ -60,11 +60,14 @@ test helpers.
      `LocalFileFlowTaskQueue` in embedded hosts.
    - Keep `local_retention` and `LocalFileEventStore` cleanup guidance aligned
      with retention behavior for terminal histories.
+   - Keep local queue lease timeout and dead-letter examples aligned with
+     `task_queue_durability`.
 
 3. **Production store and queue adapters**
    - Add SQLite first for single-node durable development.
    - Add Postgres for multi-process and distributed workers.
-   - Add queue lease timeouts and dead-letter handling for production dispatch.
+   - Carry the local queue lease timeout/dead-letter contract into production
+     queue adapters.
 
 4. **Observability adapters**
    - Keep `A3sFlowEventBridge` aligned with Flow event keys and host sink needs.

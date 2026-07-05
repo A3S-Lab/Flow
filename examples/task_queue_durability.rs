@@ -76,10 +76,28 @@ async fn main() -> a3s_flow::Result<()> {
     let outcomes = worker.run_until_idle().await?;
     let snapshot = engine.snapshot(&run_id).await?;
 
+    recovered_queue
+        .enqueue(FlowTask::DriveRun {
+            run_id: "poison-run".to_string(),
+        })
+        .await?;
+    let stale = recovered_queue
+        .lease()
+        .await?
+        .expect("poison task should be leased");
+    let dead_lettered = recovered_queue
+        .dead_letter_inflight_older_than(
+            Utc::now() + ChronoDuration::seconds(1),
+            "example poison task",
+        )
+        .await?;
+
     println!("requeued_inflight={requeued}");
     println!("worker_outcomes={}", outcomes.len());
     println!("status={:?}", snapshot.status);
     println!("pending_after_worker={}", recovered_queue.len().await?);
+    println!("dead_lettered={dead_lettered}");
+    println!("dead_letter_lease={}", stale.lease_id);
 
     let _ = tokio::fs::remove_dir_all(&queue_root).await;
     Ok(())

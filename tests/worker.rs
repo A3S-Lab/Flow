@@ -362,6 +362,92 @@ async fn local_file_task_queue_requeues_unacked_inflight_tasks() {
 }
 
 #[tokio::test]
+async fn local_file_task_queue_requeues_expired_inflight_tasks() {
+    let dir = tempfile::tempdir().unwrap();
+    let queue = LocalFileFlowTaskQueue::new(dir.path());
+    queue
+        .enqueue(FlowTask::DriveRun {
+            run_id: "expired-run".to_string(),
+        })
+        .await
+        .unwrap();
+
+    let lease = queue.lease().await.unwrap().unwrap();
+    assert_eq!(queue.inflight_len().await.unwrap(), 1);
+
+    assert_eq!(
+        queue
+            .requeue_inflight_older_than(Utc::now() - ChronoDuration::seconds(1))
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(queue.inflight_len().await.unwrap(), 1);
+
+    assert_eq!(
+        queue
+            .requeue_inflight_older_than(Utc::now() + ChronoDuration::seconds(1))
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(queue.inflight_len().await.unwrap(), 0);
+    assert_eq!(queue.len().await.unwrap(), 1);
+    assert_eq!(
+        queue.dequeue().await.unwrap(),
+        Some(FlowTask::DriveRun {
+            run_id: "expired-run".to_string()
+        })
+    );
+    assert_eq!(queue.dead_letter_len().await.unwrap(), 0);
+
+    queue.ack(&lease.lease_id).await.unwrap();
+}
+
+#[tokio::test]
+async fn local_file_task_queue_dead_letters_expired_inflight_tasks() {
+    let dir = tempfile::tempdir().unwrap();
+    let queue = LocalFileFlowTaskQueue::new(dir.path());
+    let task = FlowTask::DriveRun {
+        run_id: "poison-run".to_string(),
+    };
+    queue.enqueue(task.clone()).await.unwrap();
+
+    let lease = queue.lease().await.unwrap().unwrap();
+    assert_eq!(
+        queue
+            .dead_letter_inflight_older_than(
+                Utc::now() - ChronoDuration::seconds(1),
+                "lease still fresh",
+            )
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(queue.inflight_len().await.unwrap(), 1);
+
+    assert_eq!(
+        queue
+            .dead_letter_inflight_older_than(
+                Utc::now() + ChronoDuration::seconds(1),
+                "lease expired after worker failure",
+            )
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(queue.inflight_len().await.unwrap(), 0);
+    assert_eq!(queue.len().await.unwrap(), 0);
+    assert_eq!(queue.dead_letter_len().await.unwrap(), 1);
+
+    let dead = queue.dead_lettered_tasks().await.unwrap();
+    assert_eq!(dead.len(), 1);
+    assert_eq!(dead[0].lease_id, lease.lease_id);
+    assert_eq!(dead[0].task, task);
+    assert_eq!(dead[0].reason, "lease expired after worker failure");
+}
+
+#[tokio::test]
 async fn local_file_task_queue_drives_worker_after_restart() {
     let now = Utc::now();
     let engine = FlowEngine::in_memory(Arc::new(SleepRuntime));

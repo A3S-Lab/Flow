@@ -40,5 +40,5 @@ pub use scheduler::{FlowScheduler, FlowSchedulerTick};
 pub use store::{FlowEventStore, InMemoryEventStore, LocalFileEventStore};
 pub use worker::{
     FlowTask, FlowTaskLease, FlowTaskOutcome, FlowTaskQueue, FlowWorker, InMemoryFlowTaskQueue,
-    LocalFileFlowTaskQueue,
+    LocalFileDeadLetteredTask, LocalFileFlowTaskQueue,
 };

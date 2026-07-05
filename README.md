@@ -305,7 +305,7 @@ cargo run --example local_retention
 | `scheduler_worker` | `wait_until()`, due-work scanning through `FlowScheduler`, and queue draining through `FlowWorker` |
 | `polling_loop` | A long-running external job poll loop using stable wait IDs, scheduler ticks, and worker resumes |
 | `local_file_durability` | `LocalFileEventStore` JSONL durability across engine reconstruction |
-| `task_queue_durability` | `LocalFileFlowTaskQueue` pending/inflight files, crash recovery, and worker draining |
+| `task_queue_durability` | `LocalFileFlowTaskQueue` pending/inflight files, crash recovery, lease timeout handling, dead-letter records, and worker draining |
 | `observer_bridge` | `A3sFlowEventBridge` mapping committed events into A3S-style records with safe metric labels |
 | `native_ts_greeting` | Rust `NativeTsRuntime` wiring for a TypeScript workflow source; exits successfully with a prerequisite message unless `A3S_FLOW_NATIVE_TS_COMPILER` points at a compiler |
 | `local_retention` | `LocalFileEventStore::prune_terminal_runs_older_than()` cleanup for terminal local histories while suspended runs are retained |
@@ -529,8 +529,24 @@ use std::sync::Arc;
 
 let queue = Arc::new(LocalFileFlowTaskQueue::new(".a3s-flow/tasks"));
 queue.requeue_inflight().await?;
+queue
+    .requeue_inflight_older_than(chrono::Utc::now() - chrono::Duration::minutes(10))
+    .await?;
 
 let worker = FlowWorker::new(engine.clone(), queue.clone());
+```
+
+Use `dead_letter_inflight_older_than(...)` when a host decides that stale
+inflight tasks should be inspected instead of retried:
+
+```rust
+let moved = queue
+    .dead_letter_inflight_older_than(
+        chrono::Utc::now() - chrono::Duration::hours(1),
+        "lease expired repeatedly",
+    )
+    .await?;
+let dead = queue.dead_lettered_tasks().await?;
 ```
 
 Use `FlowScheduler` to turn due waits and due retries into queue tasks:
@@ -596,6 +612,7 @@ high-cardinality fields such as `run_id` in logs or traces.
 | `FlowTaskLease` | Queue lease acknowledged after successful handling |
 | `InMemoryFlowTaskQueue` | In-process FIFO task queue |
 | `LocalFileFlowTaskQueue` | JSON-backed local durable task queue |
+| `LocalFileDeadLetteredTask` | Dead-letter record for stale local inflight queue tasks |
 | `FlowWorker` | Handles queued tasks against a `FlowEngine` |
 | `FlowScheduler` | Scans due waits and retries, then enqueues worker tasks |
 
