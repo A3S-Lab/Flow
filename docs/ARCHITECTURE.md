@@ -114,6 +114,18 @@ so multiple workers can lease concurrently without taking the same task.
 Requeue and dead-letter operations use `leased_at_nanos` cutoffs to implement
 host-defined visibility timeout policies.
 
+## Observability Boundary
+
+`FlowEventObserver` runs after an event has been committed to the event store.
+Observers are for telemetry, audit, and host integration; they are not the
+source of truth for workflow state and cannot roll back a committed event.
+
+`A3sFlowEventBridge` converts committed envelopes into A3S-style records with
+workflow identity, event key, status, subject, audit identity, and
+low-cardinality metric labels. `InMemoryA3sFlowEventSink` keeps those records in
+process for tests and examples. `LocalFileA3sFlowEventSink` appends them to
+JSONL for local audit trails and records write failures in `last_error()`.
+
 ## Native Runtime Boundary
 
 `NativeTsRuntime` intentionally depends on a process boundary first:
@@ -153,8 +165,8 @@ crates directly.
 
 ## Next Components
 
-- Additional production sinks for `A3sFlowEventBridge`, such as A3S Observer,
-  OpenTelemetry, or hosted audit streams.
+- Hosted observability sinks for `A3sFlowEventBridge`, such as A3S Observer,
+  OpenTelemetry, or remote audit streams.
 - Additional task queue adapters when concrete deployments need a backend other
   than Postgres.
 - Native runtime compile diagnostics and build-time validation for unsupported

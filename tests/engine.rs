@@ -5,8 +5,9 @@ use a3s_flow::SqliteEventStore;
 use a3s_flow::{
     A3sFlowEventBridge, FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore,
     FlowRuntime, HookStatus, InMemoryA3sFlowEventSink, InMemoryEventStore,
-    InMemoryFlowEventObserver, LocalFileEventStore, RetryPolicy, RuntimeCommand, StepInvocation,
-    StepStatus, WaitStatus, WorkflowInvocation, WorkflowRunStatus, WorkflowSpec,
+    InMemoryFlowEventObserver, LocalFileA3sFlowEventSink, LocalFileEventStore, RetryPolicy,
+    RuntimeCommand, StepInvocation, StepStatus, WaitStatus, WorkflowInvocation, WorkflowRunStatus,
+    WorkflowSpec,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
@@ -479,6 +480,44 @@ async fn a3s_event_bridge_maps_committed_events_to_safe_labels() {
     assert_eq!(labels["workflow_version"], "0.1.0");
     assert_eq!(labels["status"], "completed");
     assert!(!labels.contains_key("run_id"));
+}
+
+#[tokio::test]
+async fn local_file_a3s_event_sink_persists_jsonl_audit_events() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("audit/flow-events.jsonl");
+    let sink = Arc::new(LocalFileA3sFlowEventSink::new(&path));
+    let observer = Arc::new(A3sFlowEventBridge::new(sink.clone()));
+    let engine = FlowEngine::builder(Arc::new(SequentialRuntime))
+        .with_observer(observer)
+        .build();
+
+    engine
+        .start_with_id("audit-run", spec(), json!({ "userId": "u1" }))
+        .await
+        .unwrap();
+
+    let events = sink.events().await.unwrap();
+    assert_eq!(events.len(), 9);
+    assert_eq!(events.first().unwrap().key, "flow.run.created");
+    assert_eq!(events.last().unwrap().key, "flow.run.completed");
+    assert!(events.iter().all(|event| event.run_id == "audit-run"));
+    assert!(sink.last_error().await.is_none());
+    assert_eq!(sink.path(), path.as_path());
+
+    let raw = tokio::fs::read_to_string(&path).await.unwrap();
+    assert_eq!(raw.lines().count(), events.len());
+    assert!(raw.contains(r#""key":"flow.step.completed""#));
+
+    engine
+        .start_with_id("audit-run", spec(), json!({ "userId": "u1" }))
+        .await
+        .unwrap();
+    assert_eq!(
+        sink.events().await.unwrap().len(),
+        events.len(),
+        "idempotent start should not append duplicate audit events"
+    );
 }
 
 #[tokio::test]

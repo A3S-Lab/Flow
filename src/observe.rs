@@ -2,10 +2,14 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tokio::fs::{File, OpenOptions};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+use crate::error::{FlowError, Result};
 use crate::model::{FlowEvent, FlowEventEnvelope, WorkflowSpec};
 
 /// Observer for committed workflow events.
@@ -197,6 +201,96 @@ impl InMemoryA3sFlowEventSink {
 impl A3sFlowEventSink for InMemoryA3sFlowEventSink {
     async fn emit(&self, event: A3sFlowEvent) {
         self.events.lock().await.push(event);
+    }
+}
+
+/// JSONL-backed A3S Flow event sink for local audit logs.
+///
+/// `A3sFlowEventSink::emit` is intentionally best-effort because observers run
+/// after the event store commit. Write failures are recorded in `last_error()`
+/// and logged, while the workflow event store remains the source of truth.
+#[derive(Debug)]
+pub struct LocalFileA3sFlowEventSink {
+    path: PathBuf,
+    lock: Mutex<()>,
+    last_error: Mutex<Option<String>>,
+}
+
+impl LocalFileA3sFlowEventSink {
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self {
+            path: path.into(),
+            lock: Mutex::new(()),
+            last_error: Mutex::new(None),
+        }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub async fn last_error(&self) -> Option<String> {
+        self.last_error.lock().await.clone()
+    }
+
+    pub async fn events(&self) -> Result<Vec<A3sFlowEvent>> {
+        let _guard = self.lock.lock().await;
+        let file = match File::open(&self.path).await {
+            Ok(file) => file,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(err) => return Err(FlowError::Io(err)),
+        };
+        let mut lines = BufReader::new(file).lines();
+        let mut events = Vec::new();
+        while let Some(line) = lines.next_line().await? {
+            if line.trim().is_empty() {
+                continue;
+            }
+            events.push(serde_json::from_str(&line)?);
+        }
+        Ok(events)
+    }
+
+    async fn append_event(&self, event: &A3sFlowEvent) -> Result<()> {
+        if let Some(parent) = self
+            .path
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+        {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+            .await?;
+        file.write_all(serde_json::to_string(event)?.as_bytes())
+            .await?;
+        file.write_all(b"\n").await?;
+        file.flush().await?;
+        file.sync_data().await?;
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl A3sFlowEventSink for LocalFileA3sFlowEventSink {
+    async fn emit(&self, event: A3sFlowEvent) {
+        let _guard = self.lock.lock().await;
+        match self.append_event(&event).await {
+            Ok(()) => {
+                *self.last_error.lock().await = None;
+            }
+            Err(err) => {
+                let message = err.to_string();
+                tracing::warn!(
+                    error = %message,
+                    path = %self.path.display(),
+                    "failed to emit flow audit event"
+                );
+                *self.last_error.lock().await = Some(message);
+            }
+        }
     }
 }
 

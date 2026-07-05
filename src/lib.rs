@@ -28,7 +28,7 @@ pub use model::{
 pub use observe::{
     A3sFlowEvent, A3sFlowEventBridge, A3sFlowEventSink, A3sFlowEventSubject, FlowEventObserver,
     FlowWorkflowIdentity, InMemoryA3sFlowEventSink, InMemoryFlowEventObserver,
-    NoopFlowEventObserver,
+    LocalFileA3sFlowEventSink, NoopFlowEventObserver,
 };
 pub use protocol::{
     NativeRuntimeKind, NativeRuntimeRequest, NativeRuntimeResponse, NATIVE_RUNTIME_PROTOCOL,

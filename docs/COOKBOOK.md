@@ -381,6 +381,27 @@ Safe metric labels:
 Avoid high-cardinality labels such as raw `run_id`, user identifiers, tokens, or
 full step inputs. Put those in trace/audit records when needed, not in metrics.
 
+For local audit trails, write the bridged events to JSONL:
+
+```rust
+use a3s_flow::{A3sFlowEventBridge, FlowEngine, LocalFileA3sFlowEventSink};
+use std::sync::Arc;
+
+# fn runtime() -> Arc<dyn a3s_flow::FlowRuntime> { unimplemented!() }
+# fn build() {
+let sink = Arc::new(LocalFileA3sFlowEventSink::new(".a3s-flow/audit/events.jsonl"));
+let observer = Arc::new(A3sFlowEventBridge::new(sink.clone()));
+let engine = FlowEngine::builder(runtime())
+    .with_observer(observer)
+    .build();
+# }
+```
+
+The file sink appends one `A3sFlowEvent` per line, creates parent directories,
+and exposes `events()` for local inspection. Because observers run after store
+commit, write errors are recorded in `last_error()` instead of rolling back the
+workflow event. See `examples/local_audit_log.rs` for a runnable audit-log flow.
+
 ## Local Retention
 
 Local JSONL storage is durable by design, so long-lived hosts should pair it
@@ -444,6 +465,8 @@ Before shipping a host integration:
 - Use Postgres event storage and `PostgresFlowTaskQueue` before distributed
   workers share event history and dispatch state.
 - Attach an observer before adding dashboards or audit exports.
+- Use `LocalFileA3sFlowEventSink` for local JSONL audit trails before wiring a
+  hosted event sink.
 - Define cleanup policy for completed event histories and task directories; for
   `LocalFileEventStore`, prune only old terminal histories.
 - Document which fields are safe to persist in inputs, hook metadata, and step
