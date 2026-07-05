@@ -107,6 +107,10 @@ name, input, and retry policy for that ID. If workflow code changes the
 definition, A3S Flow reports non-deterministic replay instead of silently doing
 new work under an old ID.
 
+Replay mismatch errors include compact `history=...; replay=...` command diffs
+for step definitions, wait deadlines, and hook metadata. Hook token mismatches
+are reported without printing token values.
+
 ## Fan-Out And Fan-In
 
 Use `schedule_steps()` when independent work should happen before synthesis.

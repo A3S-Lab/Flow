@@ -347,6 +347,11 @@ present in history, the engine validates that the replayed definition still
 matches the persisted one. Definition drift is reported as non-deterministic
 replay instead of being silently accepted.
 
+Replay mismatch errors include compact `history=...; replay=...` command diffs
+for step names, step inputs, retry policies, wait deadlines, and hook metadata.
+Hook token mismatches are reported with the values redacted so callback secrets
+do not leak into logs.
+
 | Runtime command | Engine behavior |
 |-----------------|-----------------|
 | `Complete` | Persist `flow.run.completed` and finish the run |

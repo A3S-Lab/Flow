@@ -76,7 +76,7 @@ test helpers.
 5. **Workflow authoring ergonomics**
    - Keep typed hook metadata and callback routing helpers aligned with
      approval/webhook examples.
-   - Improve replay-error messages with command diffs where practical.
+   - Keep replay-error command diffs useful while redacting hook token values.
    - Keep cookbook entries for approval, timeout, compensation, polling, and
      fan-out/fan-in patterns aligned with runnable examples.
 

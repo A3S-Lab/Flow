@@ -917,7 +917,11 @@ async fn replay_rejects_existing_step_input_drift() {
         .await
         .unwrap_err();
 
-    assert_nondeterministic(err, &run_id, "step load-user input differs");
+    assert_nondeterministic(
+        err,
+        &run_id,
+        r#"step load-user input differs: history={"version":"v1"}; replay={"version":"v2"}"#,
+    );
 }
 
 #[tokio::test]
@@ -946,7 +950,11 @@ async fn replay_rejects_existing_step_retry_policy_drift() {
         .await
         .unwrap_err();
 
-    assert_nondeterministic(err, &run_id, "step load-user retry policy differs");
+    assert_nondeterministic(
+        err,
+        &run_id,
+        r#"step load-user retry policy differs: history={"max_attempts":2,"delay_ms":5000}; replay={"max_attempts":3,"delay_ms":5000}"#,
+    );
 }
 
 struct WaitDefinitionRuntime {
@@ -1001,10 +1009,15 @@ async fn replay_rejects_existing_wait_resume_at_drift() {
         .await
         .unwrap_err();
 
-    assert_nondeterministic(err, &run_id, "wait definition-gate resume_at differs");
+    assert_nondeterministic(
+        err,
+        &run_id,
+        r#"wait definition-gate resume_at differs: history="2026-01-01T00:00:00Z"; replay="2026-01-01T01:00:00Z""#,
+    );
 }
 
 struct HookDefinitionRuntime {
+    token: &'static str,
     metadata_version: u32,
 }
 
@@ -1016,7 +1029,7 @@ impl FlowRuntime for HookDefinitionRuntime {
     ) -> a3s_flow::Result<RuntimeCommand> {
         Ok(RuntimeCommand::CreateHook {
             hook_id: "approval".to_string(),
-            token: "approval-token".to_string(),
+            token: self.token.to_string(),
             metadata: json!({ "version": self.metadata_version }),
         })
     }
@@ -1032,6 +1045,7 @@ async fn replay_rejects_existing_hook_metadata_drift() {
     let first = FlowEngine::new(
         store.clone(),
         Arc::new(HookDefinitionRuntime {
+            token: "approval-token",
             metadata_version: 1,
         }),
     );
@@ -1040,6 +1054,7 @@ async fn replay_rejects_existing_hook_metadata_drift() {
     let second = FlowEngine::new(
         store,
         Arc::new(HookDefinitionRuntime {
+            token: "approval-token",
             metadata_version: 2,
         }),
     );
@@ -1048,7 +1063,51 @@ async fn replay_rejects_existing_hook_metadata_drift() {
         .await
         .unwrap_err();
 
-    assert_nondeterministic(err, &run_id, "hook approval metadata differs");
+    assert_nondeterministic(
+        err,
+        &run_id,
+        r#"hook approval metadata differs: history={"version":1}; replay={"version":2}"#,
+    );
+}
+
+#[tokio::test]
+async fn replay_rejects_existing_hook_token_drift_without_leaking_token_values() {
+    let store = Arc::new(InMemoryEventStore::new());
+    let first = FlowEngine::new(
+        store.clone(),
+        Arc::new(HookDefinitionRuntime {
+            token: "old-approval-token",
+            metadata_version: 1,
+        }),
+    );
+    let run_id = first.start(spec(), json!({})).await.unwrap();
+
+    let second = FlowEngine::new(
+        store,
+        Arc::new(HookDefinitionRuntime {
+            token: "new-approval-token",
+            metadata_version: 1,
+        }),
+    );
+    let err = second
+        .resume_hook(&run_id, "approval", json!({ "approved": true }))
+        .await
+        .unwrap_err();
+
+    match err {
+        FlowError::NonDeterministic {
+            run_id: actual_run_id,
+            reason,
+        } => {
+            assert_eq!(actual_run_id, run_id);
+            assert!(reason.contains(
+                "hook approval token differs: history token and replay token are different (values redacted)"
+            ));
+            assert!(!reason.contains("old-approval-token"));
+            assert!(!reason.contains("new-approval-token"));
+        }
+        other => panic!("expected non-deterministic hook token drift, got {other:?}"),
+    }
 }
 
 struct UniqueHookRuntime;

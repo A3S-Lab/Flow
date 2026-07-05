@@ -1,4 +1,5 @@
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use serde::Serialize;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -808,21 +809,30 @@ fn ensure_step_command_matches(
         return Err(FlowError::NonDeterministic {
             run_id: run_id.to_string(),
             reason: format!(
-                "step {} name differs: history has {:?}, replay returned {:?}",
-                step.step_id, step.step_name, step_name
+                "step {} name differs: {}",
+                step.step_id,
+                replay_diff(&step.step_name, &step_name.to_string())
             ),
         });
     }
     if step.input != *input {
         return Err(FlowError::NonDeterministic {
             run_id: run_id.to_string(),
-            reason: format!("step {} input differs from history", step.step_id),
+            reason: format!(
+                "step {} input differs: {}",
+                step.step_id,
+                replay_diff(&step.input, input)
+            ),
         });
     }
     if step.retry != retry {
         return Err(FlowError::NonDeterministic {
             run_id: run_id.to_string(),
-            reason: format!("step {} retry policy differs from history", step.step_id),
+            reason: format!(
+                "step {} retry policy differs: {}",
+                step.step_id,
+                replay_diff(&step.retry, &retry)
+            ),
         });
     }
     Ok(())
@@ -836,7 +846,11 @@ fn ensure_wait_command_matches(
     if wait.resume_at != resume_at {
         return Err(FlowError::NonDeterministic {
             run_id: run_id.to_string(),
-            reason: format!("wait {} resume_at differs from history", wait.wait_id),
+            reason: format!(
+                "wait {} resume_at differs: {}",
+                wait.wait_id,
+                replay_diff(&wait.resume_at, &resume_at)
+            ),
         });
     }
     Ok(())
@@ -851,16 +865,41 @@ fn ensure_hook_command_matches(
     if hook.token != token {
         return Err(FlowError::NonDeterministic {
             run_id: run_id.to_string(),
-            reason: format!("hook {} token differs from history", hook.hook_id),
+            reason: format!(
+                "hook {} token differs: history token and replay token are different (values redacted)",
+                hook.hook_id
+            ),
         });
     }
     if hook.metadata != *metadata {
         return Err(FlowError::NonDeterministic {
             run_id: run_id.to_string(),
-            reason: format!("hook {} metadata differs from history", hook.hook_id),
+            reason: format!(
+                "hook {} metadata differs: {}",
+                hook.hook_id,
+                replay_diff(&hook.metadata, metadata)
+            ),
         });
     }
     Ok(())
+}
+
+fn replay_diff<T>(history: &T, replay: &T) -> String
+where
+    T: Serialize,
+{
+    format!(
+        "history={}; replay={}",
+        compact_json(history),
+        compact_json(replay)
+    )
+}
+
+fn compact_json<T>(value: &T) -> String
+where
+    T: Serialize,
+{
+    serde_json::to_string(value).unwrap_or_else(|err| format!("<failed to encode: {err}>"))
 }
 
 fn is_event_conflict(err: &FlowError) -> bool {
