@@ -109,8 +109,9 @@ database.
 
 Inspection APIs stay on this boundary: `history()` returns committed envelopes,
 while `snapshot()`, `list_snapshots()`, `run_summary()`,
-`list_open_suspensions()`, and `list_active_hooks()` project those envelopes for
-dashboards, callback routers, and debugging without becoming the durable state.
+`list_open_suspensions()`, `next_wakeup()`, and `list_active_hooks()` project
+those envelopes for dashboards, scheduler hosts, callback routers, and
+debugging without becoming the durable state.
 
 ## Dispatch And Leasing
 

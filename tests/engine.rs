@@ -2217,6 +2217,16 @@ async fn run_summary_counts_statuses_and_actionable_work() {
         WorkflowRunSuspension::Wait { wait, due: false, .. }
             if wait.resume_at > started_at
     ));
+
+    let next_wakeup = completed_engine
+        .next_wakeup(started_at + ChronoDuration::seconds(120))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(next_wakeup.run_id(), "summary-retry");
+    assert_eq!(next_wakeup.subject_id(), "delayed-flaky");
+    assert!(next_wakeup.is_due());
+    assert!(next_wakeup.scheduled_at().unwrap() < started_at + ChronoDuration::hours(1));
 }
 
 struct RecordingRuntime {

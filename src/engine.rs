@@ -563,6 +563,31 @@ impl FlowEngine {
         Ok(suspensions)
     }
 
+    /// Return the earliest open wait or delayed retry across non-terminal runs.
+    ///
+    /// This is useful for hosts that want to sleep until the next scheduler tick
+    /// instead of polling at a fixed interval. Active hooks are intentionally
+    /// ignored because they do not have a scheduled wake-up time.
+    pub async fn next_wakeup(&self, now: DateTime<Utc>) -> Result<Option<WorkflowRunSuspension>> {
+        let mut wakeups = self.list_open_suspensions(now).await?;
+        wakeups.retain(|suspension| suspension.scheduled_at().is_some());
+        wakeups.sort_by(|left, right| {
+            (
+                left.scheduled_at(),
+                left.run_id(),
+                left.kind_order(),
+                left.subject_id(),
+            )
+                .cmp(&(
+                    right.scheduled_at(),
+                    right.run_id(),
+                    right.kind_order(),
+                    right.subject_id(),
+                ))
+        });
+        Ok(wakeups.into_iter().next())
+    }
+
     /// List active external callback hooks across non-terminal runs.
     ///
     /// Callback routers and dashboards can use this to discover public hook

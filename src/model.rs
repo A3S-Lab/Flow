@@ -646,6 +646,15 @@ impl WorkflowRunSuspension {
             Self::Hook { .. } => false,
         }
     }
+
+    /// Scheduled resume time for wait and delayed-retry suspensions.
+    pub fn scheduled_at(&self) -> Option<DateTime<Utc>> {
+        match self {
+            Self::Wait { wait, .. } => Some(wait.resume_at),
+            Self::Retry { step, .. } => step.retry_after,
+            Self::Hook { .. } => None,
+        }
+    }
 }
 
 /// Materialized state of a workflow run.

@@ -483,7 +483,9 @@ down, or debugging view:
 let run_ids = engine.list_run_ids().await?;
 let snapshots = engine.list_snapshots().await?;
 let summary = engine.run_summary().await?;
-let suspensions = engine.list_open_suspensions(chrono::Utc::now()).await?;
+let now = chrono::Utc::now();
+let suspensions = engine.list_open_suspensions(now).await?;
+let next_wakeup = engine.next_wakeup(now).await?;
 let active_hooks = engine.list_active_hooks().await?;
 let history = engine.history(&run_ids[0]).await?;
 ```
@@ -495,11 +497,13 @@ terminal errors. `run_summary()` returns `WorkflowRunSummary` counts for status
 tiles and health probes, with open wait/hook/retry counters limited to
 non-terminal runs. `list_open_suspensions()` returns stable
 `WorkflowRunSuspension` records for open waits, hooks, and delayed retries, with
-wait/retry due flags computed from `now`. `list_active_hooks()` returns stable
-`ActiveHookSnapshot` records for callback routers and dashboards. `history()`
-returns the raw committed `FlowEventEnvelope` sequence for audit exports and
-replay debugging. See `examples/run_inspection.rs` for a runnable mixed-status
-inspection flow.
+wait/retry due flags computed from `now`. `next_wakeup()` returns the earliest
+open wait or delayed retry by scheduled time, which lets scheduler hosts sleep
+until the next useful tick instead of polling at a fixed interval.
+`list_active_hooks()` returns stable `ActiveHookSnapshot` records for callback
+routers and dashboards. `history()` returns the raw committed
+`FlowEventEnvelope` sequence for audit exports and replay debugging. See
+`examples/run_inspection.rs` for a runnable mixed-status inspection flow.
 
 ## Observability
 
@@ -657,6 +661,8 @@ Before shipping a host integration:
   in workflow decisions.
 - Put side effects in steps and persist their outputs before fan-in.
 - Run a scheduler loop for due waits and delayed retries.
+- Use `next_wakeup()` to choose the next scheduler sleep deadline when the host
+  is not already using an external clock or queue trigger.
 - Expose an operator/API cancellation path for runs that should become terminal
   before their next wait, hook, or retry resumes.
 - Requeue local inflight tasks on startup; for long-running hosts, apply

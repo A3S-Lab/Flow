@@ -112,6 +112,7 @@ async fn main() -> a3s_flow::Result<()> {
     let snapshots = engine.list_snapshots().await?;
     let summary = engine.run_summary().await?;
     let suspensions = engine.list_open_suspensions(now).await?;
+    let next_wakeup = engine.next_wakeup(now).await?;
     let active_hooks = engine.list_active_hooks().await?;
     let failed_history = engine.history("inspect-failed").await?;
 
@@ -142,6 +143,14 @@ async fn main() -> a3s_flow::Result<()> {
             suspension.run_id(),
             suspension.subject_id(),
             suspension.is_due()
+        );
+    }
+    if let Some(wakeup) = &next_wakeup {
+        println!(
+            "next_wakeup={} {} at={}",
+            wakeup.run_id(),
+            wakeup.subject_id(),
+            wakeup.scheduled_at().unwrap()
         );
     }
     println!(
@@ -201,6 +210,13 @@ async fn main() -> a3s_flow::Result<()> {
             ("inspect-hook", "approval", false),
             ("inspect-suspended", "inspection-wait", false),
         ]
+    );
+    let wakeup = next_wakeup.unwrap();
+    assert_eq!(wakeup.run_id(), "inspect-suspended");
+    assert_eq!(wakeup.subject_id(), "inspection-wait");
+    assert_eq!(
+        wakeup.scheduled_at().unwrap(),
+        now + ChronoDuration::hours(1)
     );
     assert_eq!(summary.total_runs, 5);
     assert_eq!(summary.suspended_runs, 2);
