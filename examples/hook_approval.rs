@@ -1,6 +1,6 @@
 use a3s_flow::{
-    FlowEngine, FlowRuntime, HookStatus, RuntimeCommand, StepInvocation, WorkflowInvocation,
-    WorkflowSpec,
+    FlowEngine, FlowRuntime, HookCallbackRoute, HookMetadata, HookStatus, RuntimeCommand,
+    StepInvocation, WorkflowInvocation, WorkflowSpec,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -22,16 +22,18 @@ impl FlowRuntime for ApprovalRuntime {
             })));
         }
 
-        Ok(ctx.create_hook(
+        let invoice_id = ctx.input()["invoiceId"].as_str().unwrap_or("unknown");
+        let metadata = HookMetadata::human_approval(format!("invoice:{invoice_id}"))
+            .with_callback_route(HookCallbackRoute::post("/callbacks/flow/hooks/{token}"))
+            .with_data("invoiceId", json!(invoice_id));
+
+        Ok(ctx.create_hook_with_metadata(
             "approval",
             ctx.input()["approvalToken"]
                 .as_str()
                 .unwrap_or("approval-token"),
-            json!({
-                "kind": "human_approval",
-                "invoiceId": ctx.input()["invoiceId"],
-            }),
-        ))
+            metadata,
+        )?)
     }
 
     async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {

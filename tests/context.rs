@@ -1,6 +1,6 @@
 use a3s_flow::{
-    FlowEngine, FlowError, FlowRuntime, RuntimeCommand, StepInvocation, WorkflowInvocation,
-    WorkflowRunStatus, WorkflowSpec,
+    FlowEngine, FlowError, FlowRuntime, HookCallbackRoute, HookMetadata, RuntimeCommand,
+    StepInvocation, WorkflowInvocation, WorkflowRunStatus, WorkflowSpec,
 };
 use async_trait::async_trait;
 use chrono::Utc;
@@ -46,7 +46,11 @@ impl FlowRuntime for ContextRuntime {
         }
 
         let Some(approval) = ctx.hook_payload_as::<Approval>("approval")? else {
-            return Ok(ctx.create_hook("approval", "approval-token", json!({ "user": user.name })));
+            let metadata = HookMetadata::human_approval(format!("user:{}", user.id))
+                .with_callback_route(HookCallbackRoute::post("/callbacks/flow/hooks/{token}"))
+                .with_label("source", "context-test")
+                .with_data("user", json!(user.name));
+            return Ok(ctx.create_hook_with_metadata("approval", "approval-token", metadata)?);
         };
 
         Ok(ctx.complete(json!({
@@ -85,7 +89,16 @@ async fn workflow_context_drives_step_wait_and_hook_flow() {
     engine.resume_wait(&run_id, "review-window").await.unwrap();
     let hooked = engine.snapshot(&run_id).await.unwrap();
     assert_eq!(hooked.status, WorkflowRunStatus::Suspended);
-    assert_eq!(hooked.hooks["approval"].metadata["user"], "Ada");
+    let metadata = &hooked.hooks["approval"].metadata;
+    assert_eq!(metadata["kind"], "human_approval");
+    assert_eq!(metadata["subject"], "user:u1");
+    assert_eq!(metadata["callback"]["method"], "POST");
+    assert_eq!(
+        metadata["callback"]["path"],
+        "/callbacks/flow/hooks/{token}"
+    );
+    assert_eq!(metadata["labels"]["source"], "context-test");
+    assert_eq!(metadata["data"]["user"], "Ada");
 
     engine
         .resume_hook(&run_id, "approval", json!({ "approved": true }))

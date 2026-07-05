@@ -435,6 +435,19 @@ engine
     .await?;
 ```
 
+Use `HookMetadata` and `HookCallbackRoute` when hook metadata should expose a
+stable audit and callback shape while still being persisted as normal JSON:
+
+```rust
+use a3s_flow::{HookCallbackRoute, HookMetadata};
+
+let metadata = HookMetadata::human_approval("invoice:2026-0001")
+    .with_callback_route(HookCallbackRoute::post("/callbacks/flow/hooks/{token}"))
+    .with_data("invoiceId", json!("2026-0001"));
+
+Ok(ctx.create_hook_with_metadata("approval", approval_token, metadata)?)
+```
+
 Hook tokens must be unique among active, non-terminal runs. Reusing a token after
 the previous hook has been received or its run has terminated is allowed.
 
@@ -567,6 +580,8 @@ high-cardinality fields such as `run_id` in logs or traces.
 | `WorkflowSpec` | Durable workflow identity and runtime metadata |
 | `FlowEvent` | Event-sourced run, step, wait, and hook mutation |
 | `FlowEventEnvelope` | Persisted event with run ID, sequence, event ID, and timestamp |
+| `HookMetadata` | Typed helper for common hook audit, label, data, and callback-route metadata |
+| `HookCallbackRoute` | Typed HTTP method/path metadata for external hook callback routes |
 | `FlowEventStore` | Append-only event persistence trait with expected-sequence writes |
 | `InMemoryEventStore` | Ephemeral event store for tests and examples |
 | `LocalFileEventStore` | JSONL-backed local durable event store with terminal-run retention cleanup |

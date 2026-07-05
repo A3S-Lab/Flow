@@ -16,7 +16,7 @@ Workflow as a Service product surfaces.
 | Compensation patterns | `WorkflowContext::schedule_step`, domain-result step outputs | `examples/compensation.rs`, `docs/COOKBOOK.md` | Recoverable business failures can schedule durable compensating steps before completion. |
 | Retry policies | `RetryPolicy`, `schedule_step_with_retry`, `step_with_retry` | `examples/batch_steps.rs`, `examples/retry_backoff.rs`, `tests/engine.rs`, `tests/scheduler.rs` | Immediate retries stay in the drive loop; delayed retries suspend until due. |
 | Timers | `RuntimeCommand::WaitUntil`, `WorkflowContext::wait_until` | `examples/scheduler_worker.rs`, `examples/polling_loop.rs`, `tests/scheduler.rs` | Waits do not hold compute; hosts resume them directly or through scheduler work. |
-| External callbacks | `RuntimeCommand::CreateHook`, `resume_hook`, `resume_hook_by_token` | `examples/hook_approval.rs`, `tests/worker.rs` | Active hook tokens are unique across active runs. |
+| External callbacks | `RuntimeCommand::CreateHook`, `WorkflowContext::create_hook_with_metadata`, `HookMetadata`, `HookCallbackRoute`, `resume_hook`, `resume_hook_by_token` | `examples/hook_approval.rs`, `tests/context.rs`, `tests/worker.rs` | Active hook tokens are unique across active runs; typed metadata helpers standardize audit and callback routing fields without changing event storage. |
 | Workers | `FlowTask`, `FlowTaskQueue`, `FlowWorker` | `examples/scheduler_worker.rs`, `examples/task_queue_durability.rs`, `tests/worker.rs` | Queue leases are acknowledged after successful task handling. |
 | Scheduling | `FlowScheduler::enqueue_due_work` | `examples/scheduler_worker.rs`, `tests/scheduler.rs` | Scheduler converts due waits and due retries into queue tasks. |
 | Local durability | `LocalFileEventStore`, `LocalFileFlowTaskQueue` | `examples/local_file_durability.rs`, `examples/task_queue_durability.rs`, `examples/local_retention.rs`, `tests/worker.rs`, `tests/engine.rs` | JSONL event histories and JSON task files are local single-process durable backends; old terminal histories can be pruned by cutoff. |
@@ -71,7 +71,8 @@ test helpers.
    - Maintain event cardinality and safe-label guidance in README and cookbook.
 
 5. **Workflow authoring ergonomics**
-   - Add typed helpers for common hook metadata and callback routing.
+   - Keep typed hook metadata and callback routing helpers aligned with
+     approval/webhook examples.
    - Improve replay-error messages with command diffs where practical.
    - Keep cookbook entries for approval, timeout, compensation, polling, and
      fan-out/fan-in patterns aligned with runnable examples.

@@ -21,9 +21,9 @@ pub use context::WorkflowContext;
 pub use engine::{FlowEngine, FlowEngineBuilder};
 pub use error::{FlowError, Result};
 pub use model::{
-    FlowEvent, FlowEventEnvelope, HookSnapshot, HookStatus, JsonValue, RetryPolicy, RuntimeCommand,
-    RuntimeKind, RuntimeSpec, StepCommand, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus,
-    WorkflowRunSnapshot, WorkflowRunStatus, WorkflowSpec,
+    FlowEvent, FlowEventEnvelope, HookCallbackRoute, HookMetadata, HookSnapshot, HookStatus,
+    JsonValue, RetryPolicy, RuntimeCommand, RuntimeKind, RuntimeSpec, StepCommand, StepSnapshot,
+    StepStatus, WaitSnapshot, WaitStatus, WorkflowRunSnapshot, WorkflowRunStatus, WorkflowSpec,
 };
 pub use observe::{
     A3sFlowEvent, A3sFlowEventBridge, A3sFlowEventSink, A3sFlowEventSubject, FlowEventObserver,

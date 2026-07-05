@@ -166,6 +166,19 @@ Ok(ctx.create_hook(
 ))
 ```
 
+For common approval and webhook routing metadata, prefer the typed helpers:
+
+```rust
+use a3s_flow::{HookCallbackRoute, HookMetadata};
+
+let metadata = HookMetadata::human_approval("invoice:2026-0001")
+    .with_callback_route(HookCallbackRoute::post("/callbacks/flow/hooks/{token}"))
+    .with_label("queue", "finance")
+    .with_data("invoiceId", serde_json::json!("2026-0001"));
+
+Ok(ctx.create_hook_with_metadata("approval", approval_token, metadata)?)
+```
+
 Callback handler:
 
 ```rust

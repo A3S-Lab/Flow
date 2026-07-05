@@ -3,7 +3,7 @@ use serde::de::DeserializeOwned;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    FlowEvent, FlowEventEnvelope, JsonValue, RetryPolicy, RuntimeCommand, StepCommand,
+    FlowEvent, FlowEventEnvelope, HookMetadata, JsonValue, RetryPolicy, RuntimeCommand, StepCommand,
 };
 use crate::runtime::WorkflowInvocation;
 
@@ -183,5 +183,14 @@ impl<'a> WorkflowContext<'a> {
             token: token.into(),
             metadata,
         }
+    }
+
+    pub fn create_hook_with_metadata(
+        &self,
+        hook_id: impl Into<String>,
+        token: impl Into<String>,
+        metadata: HookMetadata,
+    ) -> Result<RuntimeCommand> {
+        Ok(self.create_hook(hook_id, token, metadata.into_json()?))
     }
 }
