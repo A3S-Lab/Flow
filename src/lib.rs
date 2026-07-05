@@ -23,4 +23,4 @@ pub use model::{
 pub use runtime::{
     FlowRuntime, NativeTsRuntime, NativeTsRuntimeConfig, StepInvocation, WorkflowInvocation,
 };
-pub use store::{FlowEventStore, InMemoryEventStore};
+pub use store::{FlowEventStore, InMemoryEventStore, LocalFileEventStore};

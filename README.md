@@ -1,122 +1,221 @@
-# a3s-flow
+# A3S Flow
 
-Durable workflow engine core for A3S.
+<p align="center">
+  <strong>Rust SDK for Durable Workflows</strong>
+</p>
 
-`a3s-flow` is planned as the A3S workflow project inspired by Workflow SDK's
-durable JavaScript model and Perry's native TypeScript compilation model. The
-crate is the Rust SDK and engine core: it owns workflow state, event sourcing,
-retries, waits, hooks, and runtime dispatch. TypeScript execution is a pluggable
-runtime boundary so a Perry-style compiler can turn workflow code into native
-binaries without making the engine depend on a Node.js process.
+<p align="center">
+  <em>Event-sourced workflow runs, resumable steps, waits, hooks, and pluggable runtime backends for A3S</em>
+</p>
 
-## Goals
+<p align="center">
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#core-model">Core Model</a> •
+  <a href="#event-stores">Event Stores</a> •
+  <a href="#runtime-adapters">Runtime Adapters</a> •
+  <a href="#development">Development</a>
+</p>
 
-- Express workflows as deterministic orchestration code with side-effecting
-  steps.
-- Persist every run mutation as an append-only event.
-- Replay workflow code from history until it completes, schedules a step, waits,
-  or opens a hook for external input.
-- Keep step execution idempotent from the workflow's point of view by persisting
-  step outputs before replay continues.
-- Support a Perry-style native TypeScript runtime through a stable JSON protocol.
-- Keep storage and runtime backends trait-based so local, SQL, queue-backed, and
-  distributed deployments can share the same engine core.
+---
 
-## Current Status
+## Overview
 
-This repository contains the first engine core:
+**A3S Flow** is the Rust SDK and engine core for durable workflows in the A3S
+ecosystem. It keeps workflow progress in an append-only event log, replays runs
+from history, persists step outputs before continuing, and supports suspension
+through timers and external hooks.
 
-- `FlowEngine` starts and drives workflow runs.
-- `FlowEventStore` is append-only, with `InMemoryEventStore` for local use.
-- `FlowEvent` covers run, step, wait, and hook lifecycles.
-- `FlowRuntime` separates deterministic workflow replay from side-effecting step
-  execution.
-- `NativeTsRuntime` compiles TypeScript with `perry compile` and invokes the
-  resulting binary through a JSON stdin/stdout protocol.
-- Tests cover sequential replay, wait/hook suspension and resumption, retry, and
-  persisted runtime metadata.
+The crate owns the durable execution layer only:
 
-This is not a complete Workflow SDK clone yet. The Rust core is intentionally
-the first stable layer. This iteration only provides the Rust SDK; durable
-storage, queues, observability adapters, and deeper Perry runtime integration
-come next.
+- `FlowEngine` starts, drives, resumes, and cancels workflow runs.
+- `FlowEventStore` persists the append-only event history.
+- `FlowRuntime` executes deterministic workflow replay and side-effecting steps.
+- `WorkflowRunSnapshot` materializes run, step, wait, and hook state from events.
 
 ## Quick Start
 
+### Installation
+
+```toml
+[dependencies]
+a3s-flow = { version = "0.1", path = "../flow" }
+async-trait = "0.1"
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+### Start a workflow
+
 ```rust
-use a3s_flow::{FlowEngine, NativeTsRuntime, WorkflowSpec};
+use a3s_flow::{
+    FlowEngine, FlowRuntime, RuntimeCommand, StepInvocation, WorkflowInvocation,
+    WorkflowSpec,
+};
+use async_trait::async_trait;
 use serde_json::json;
 use std::sync::Arc;
 
+struct DemoRuntime;
+
+#[async_trait]
+impl FlowRuntime for DemoRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let completed = invocation.history.iter().any(|event| {
+            matches!(
+                &event.event,
+                a3s_flow::FlowEvent::StepCompleted { step_id, .. } if step_id == "greet"
+            )
+        });
+
+        if completed {
+            Ok(RuntimeCommand::Complete {
+                output: json!({ "status": "done" }),
+            })
+        } else {
+            Ok(RuntimeCommand::schedule_step(
+                "greet",
+                "greetUser",
+                json!({ "name": invocation.input["name"] }),
+            ))
+        }
+    }
+
+    async fn run_step(&self, invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        let name = invocation.input["name"].as_str().unwrap_or("unknown");
+        Ok(json!({ "message": format!("hello {name}") }))
+    }
+}
+
 #[tokio::main]
 async fn main() -> a3s_flow::Result<()> {
-    let runtime = Arc::new(NativeTsRuntime::new(Default::default()));
-    let engine = FlowEngine::in_memory(runtime);
+    let engine = FlowEngine::in_memory(Arc::new(DemoRuntime));
+    let spec = WorkflowSpec::rust_embedded("demo.greeting", "0.1.0", "demo", "main");
 
-    let spec = WorkflowSpec::native_ts(
-        "user.onboarding",
-        "0.1.0",
-        "workflows/user-onboarding.ts",
-        "main",
-    );
-
-    let run_id = engine.start(spec, json!({ "userId": "u1" })).await?;
+    let run_id = engine.start(spec, json!({ "name": "Ada" })).await?;
     let snapshot = engine.snapshot(&run_id).await?;
+
     println!("{:?}", snapshot.status);
     Ok(())
 }
 ```
 
-Runtime implementations return one `RuntimeCommand` per replay:
+## Core Model
 
-- `complete`: finish the run.
-- `fail`: fail the run.
-- `schedule_step`: execute a side-effecting step, persist its output, then
-  replay.
-- `wait_until`: persist a timer and suspend.
-- `create_hook`: persist an external input hook and suspend.
+The engine drives a run by replaying workflow history and applying one runtime
+command at a time.
 
-## Native TypeScript Runtime Protocol
+| Runtime command | Engine behavior |
+|-----------------|-----------------|
+| `complete` | Persist `flow.run.completed` and finish the run |
+| `fail` | Persist `flow.run.failed` and finish the run |
+| `schedule_step` | Persist step lifecycle events, execute the step, then replay |
+| `wait_until` | Persist `flow.wait.created` and suspend until `resume_wait()` |
+| `create_hook` | Persist `flow.hook.created` and suspend until `resume_hook()` |
 
-`NativeTsRuntime` compiles `WorkflowSpec.runtime.entrypoint` with:
+Events use A3S dot-separated keys such as `flow.run.created`,
+`flow.step.completed`, and `flow.hook.received`.
 
-```bash
-perry compile <entrypoint> -o .a3s-flow/native-ts/<workflow-hash>
+### Run Lifecycle
+
+```text
+run_created -> run_started -> running
+running     -> run_completed | run_failed | run_cancelled
+running     -> wait_created  -> suspended -> wait_completed -> running
+running     -> hook_created  -> suspended -> hook_received  -> running
 ```
 
-The compiled binary is invoked with `--a3s-flow-runtime`. It receives a JSON
-request on stdin:
+### Step Lifecycle
 
-```json
-{
-  "protocol": "a3s.flow.native_ts.v1",
-  "kind": "workflow",
-  "exportName": "main",
-  "payload": {
-    "run_id": "...",
-    "spec": {},
-    "input": {},
-    "history": []
-  }
+```text
+step_created -> step_started -> step_completed
+step_started -> step_retrying -> step_started
+step_started -> step_failed
+```
+
+## Event Stores
+
+| Store | Use Case | Durability |
+|-------|----------|------------|
+| `InMemoryEventStore` | Tests, examples, single-process ephemeral runs | In memory |
+| `LocalFileEventStore` | Local development and embedded hosts | JSONL files |
+
+### Local file storage
+
+```rust
+use a3s_flow::{FlowEngine, LocalFileEventStore};
+use std::sync::Arc;
+
+let store = Arc::new(LocalFileEventStore::new(".a3s-flow/events"));
+let engine = FlowEngine::new(store, runtime);
+```
+
+Directory layout:
+
+```text
+.a3s-flow/events/
+  <run-id>.jsonl
+```
+
+Each line is one serialized `FlowEventEnvelope`. The file store serializes
+appends inside the current process and is intended for local durability. Use a
+database-backed store for multi-process or distributed writers.
+
+## Runtime Adapters
+
+Implement `FlowRuntime` to connect the engine to any execution environment:
+
+```rust
+#[async_trait::async_trait]
+pub trait FlowRuntime: Send + Sync {
+    async fn run_workflow(&self, invocation: WorkflowInvocation) -> Result<RuntimeCommand>;
+    async fn run_step(&self, invocation: StepInvocation) -> Result<serde_json::Value>;
 }
 ```
 
-For `kind = "workflow"`, stdout must be a serialized `RuntimeCommand`. For
-`kind = "step"`, stdout must be the step output JSON value.
+The default SDK surface is Rust. `RustEmbedded` runtime specs are useful when the
+host process owns the runtime implementation directly. `NativeTsRuntime` is a
+Rust-side adapter for invoking precompiled native TypeScript workflow programs
+through the same engine protocol.
+
+## API Reference
+
+| Type | Description |
+|------|-------------|
+| `FlowEngine` | Starts, drives, resumes, snapshots, and cancels runs |
+| `FlowRuntime` | Host-provided workflow and step executor trait |
+| `FlowEventStore` | Append-only event persistence trait |
+| `WorkflowSpec` | Durable workflow identity and runtime metadata |
+| `RuntimeCommand` | Command returned by workflow replay |
+| `FlowEvent` | Event-sourced run, step, wait, and hook mutations |
+| `WorkflowRunSnapshot` | Materialized state projected from event history |
+| `RetryPolicy` | Step retry attempts and delay |
+
+## Development
+
+```sh
+cargo fmt --all
+cargo test --all-targets
+```
+
+From the monorepo root:
+
+```sh
+just flow-check
+just flow-test
+```
 
 ## Roadmap
 
-1. Stabilize the Rust SDK surface for defining runtime adapters, stores, and
-   workflow run management.
-2. Add persistent stores: SQLite first, then Postgres-compatible schemas
-   for the broader A3S stack.
-3. Add queue-backed dispatch for workflow replays, step execution, waits, and
-   retries.
-4. Add stream and event adapters for observability dashboards.
-5. Deepen the Perry-style runtime adapter so Rust hosts can compile, cache, and
-   invoke native TypeScript workflow executables through the stable engine
-   protocol.
+- Stabilize the Rust SDK surface for runtimes, stores, and run management.
+- Add SQLite and Postgres event stores.
+- Add queue-backed replay, step, wait, and retry dispatch.
+- Add observability adapters for run and step event streams.
+- Harden the native executable runtime protocol with source hashing, artifact
+  cache management, and stricter response validation.
 
 ## License
 
-MIT.
+MIT

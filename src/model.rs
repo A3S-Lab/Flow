@@ -36,6 +36,14 @@ impl RuntimeSpec {
             export_name: export_name.into(),
         }
     }
+
+    pub fn rust_embedded(entrypoint: impl Into<String>, export_name: impl Into<String>) -> Self {
+        Self {
+            kind: RuntimeKind::RustEmbedded,
+            entrypoint: entrypoint.into(),
+            export_name: export_name.into(),
+        }
+    }
 }
 
 /// Durable workflow definition.
@@ -57,6 +65,19 @@ impl WorkflowSpec {
             name: name.into(),
             version: version.into(),
             runtime: RuntimeSpec::native_ts(entrypoint, export_name),
+        }
+    }
+
+    pub fn rust_embedded(
+        name: impl Into<String>,
+        version: impl Into<String>,
+        entrypoint: impl Into<String>,
+        export_name: impl Into<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            version: version.into(),
+            runtime: RuntimeSpec::rust_embedded(entrypoint, export_name),
         }
     }
 

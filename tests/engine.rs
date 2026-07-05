@@ -1,6 +1,7 @@
 use a3s_flow::{
-    FlowEngine, FlowError, FlowRuntime, HookStatus, RetryPolicy, RuntimeCommand, StepInvocation,
-    StepStatus, WaitStatus, WorkflowInvocation, WorkflowRunStatus, WorkflowSpec,
+    FlowEngine, FlowError, FlowRuntime, HookStatus, LocalFileEventStore, RetryPolicy,
+    RuntimeCommand, StepInvocation, StepStatus, WaitStatus, WorkflowInvocation, WorkflowRunStatus,
+    WorkflowSpec,
 };
 use async_trait::async_trait;
 use chrono::Utc;
@@ -10,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 fn spec() -> WorkflowSpec {
-    WorkflowSpec::native_ts("test.workflow", "0.1.0", "workflows/test.ts", "main")
+    WorkflowSpec::rust_embedded("test.workflow", "0.1.0", "tests::runtime", "main")
 }
 
 fn completed_step(invocation: &WorkflowInvocation, step_id: &str) -> Option<serde_json::Value> {
@@ -181,6 +182,37 @@ async fn suspends_for_wait_and_hook_then_resumes() {
     assert_eq!(completed.output.unwrap()["approved"], true);
 }
 
+#[tokio::test]
+async fn local_file_store_resumes_wait_and_hook_across_engine_instances() {
+    let dir = tempfile::tempdir().unwrap();
+    let run_id = {
+        let store = Arc::new(LocalFileEventStore::new(dir.path()));
+        let engine = FlowEngine::new(store, Arc::new(WaitHookRuntime));
+        let run_id = engine.start(spec(), json!({})).await.unwrap();
+        let snapshot = engine.snapshot(&run_id).await.unwrap();
+        assert_eq!(snapshot.status, WorkflowRunStatus::Suspended);
+        assert_eq!(snapshot.waits["review-window"].status, WaitStatus::Waiting);
+        run_id
+    };
+
+    let store = Arc::new(LocalFileEventStore::new(dir.path()));
+    let engine = FlowEngine::new(store, Arc::new(WaitHookRuntime));
+    engine.resume_wait(&run_id, "review-window").await.unwrap();
+    let hooked = engine.snapshot(&run_id).await.unwrap();
+    assert_eq!(hooked.status, WorkflowRunStatus::Suspended);
+    assert_eq!(hooked.hooks["approval"].status, HookStatus::Active);
+
+    let store = Arc::new(LocalFileEventStore::new(dir.path()));
+    let engine = FlowEngine::new(store, Arc::new(WaitHookRuntime));
+    engine
+        .resume_hook(&run_id, "approval", json!({ "approved": true }))
+        .await
+        .unwrap();
+    let completed = engine.snapshot(&run_id).await.unwrap();
+    assert_eq!(completed.status, WorkflowRunStatus::Completed);
+    assert_eq!(completed.output.unwrap()["approved"], true);
+}
+
 #[derive(Default)]
 struct FlakyRuntime {
     attempts: AtomicUsize,
@@ -267,7 +299,7 @@ async fn stores_spec_with_run_for_runtime_replay() {
     let snapshot = engine.snapshot(&run_id).await.unwrap();
 
     assert_eq!(snapshot.spec.name, "test.workflow");
-    assert_eq!(snapshot.spec.runtime.entrypoint, "workflows/test.ts");
+    assert_eq!(snapshot.spec.runtime.entrypoint, "tests::runtime");
     assert_eq!(
         *runtime.workflow_invocations.lock().unwrap(),
         vec![2],
