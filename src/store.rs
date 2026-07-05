@@ -17,6 +17,8 @@ pub trait FlowEventStore: Send + Sync {
     async fn append(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope>;
 
     async fn list(&self, run_id: &str) -> Result<Vec<FlowEventEnvelope>>;
+
+    async fn list_run_ids(&self) -> Result<Vec<String>>;
 }
 
 /// In-memory event store for tests, local development, and embedded hosts.
@@ -53,6 +55,13 @@ impl FlowEventStore for InMemoryEventStore {
             Some(events) => Ok(events.clone()),
             None => Err(FlowError::RunNotFound(run_id.to_string())),
         }
+    }
+
+    async fn list_run_ids(&self) -> Result<Vec<String>> {
+        let runs = self.runs.lock().await;
+        let mut ids: Vec<String> = runs.keys().cloned().collect();
+        ids.sort();
+        Ok(ids)
     }
 }
 
@@ -168,6 +177,33 @@ impl FlowEventStore for LocalFileEventStore {
     async fn list(&self, run_id: &str) -> Result<Vec<FlowEventEnvelope>> {
         let _guard = self.lock.lock().await;
         self.list_inner(run_id, false).await
+    }
+
+    async fn list_run_ids(&self) -> Result<Vec<String>> {
+        let _guard = self.lock.lock().await;
+        let mut ids = Vec::new();
+
+        let mut dir = match tokio::fs::read_dir(&self.root).await {
+            Ok(dir) => dir,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(ids),
+            Err(err) => return Err(FlowError::Io(err)),
+        };
+
+        while let Some(entry) = dir.next_entry().await? {
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            if is_safe_run_id(stem) {
+                ids.push(stem.to_string());
+            }
+        }
+
+        ids.sort();
+        Ok(ids)
     }
 }
 

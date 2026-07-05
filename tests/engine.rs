@@ -1,7 +1,7 @@
 use a3s_flow::{
-    FlowEngine, FlowError, FlowRuntime, HookStatus, LocalFileEventStore, RetryPolicy,
-    RuntimeCommand, StepInvocation, StepStatus, WaitStatus, WorkflowInvocation, WorkflowRunStatus,
-    WorkflowSpec,
+    FlowEngine, FlowError, FlowEventStore, FlowRuntime, HookStatus, LocalFileEventStore,
+    RetryPolicy, RuntimeCommand, StepInvocation, StepStatus, WaitStatus, WorkflowInvocation,
+    WorkflowRunStatus, WorkflowSpec,
 };
 use async_trait::async_trait;
 use chrono::Utc;
@@ -211,6 +211,44 @@ async fn local_file_store_resumes_wait_and_hook_across_engine_instances() {
     let completed = engine.snapshot(&run_id).await.unwrap();
     assert_eq!(completed.status, WorkflowRunStatus::Completed);
     assert_eq!(completed.output.unwrap()["approved"], true);
+}
+
+#[tokio::test]
+async fn local_file_store_resumes_hook_by_token_across_engine_instances() {
+    let dir = tempfile::tempdir().unwrap();
+    let run_id = {
+        let store = Arc::new(LocalFileEventStore::new(dir.path()));
+        let engine = FlowEngine::new(store, Arc::new(WaitHookRuntime));
+        engine.start(spec(), json!({})).await.unwrap()
+    };
+
+    let store = Arc::new(LocalFileEventStore::new(dir.path()));
+    let engine = FlowEngine::new(store.clone(), Arc::new(WaitHookRuntime));
+    assert_eq!(store.list_run_ids().await.unwrap(), vec![run_id.clone()]);
+
+    engine.resume_wait(&run_id, "review-window").await.unwrap();
+    let (matched_run_id, matched_hook_id) = engine
+        .resume_hook_by_token("approval-token", json!({ "approved": true }))
+        .await
+        .unwrap();
+
+    assert_eq!(matched_run_id, run_id);
+    assert_eq!(matched_hook_id, "approval");
+
+    let completed = engine.snapshot(&matched_run_id).await.unwrap();
+    assert_eq!(completed.status, WorkflowRunStatus::Completed);
+    assert_eq!(completed.output.unwrap()["approved"], true);
+}
+
+#[tokio::test]
+async fn resume_hook_by_token_reports_missing_active_token() {
+    let engine = FlowEngine::in_memory(Arc::new(WaitHookRuntime));
+    let err = engine
+        .resume_hook_by_token("missing-token", json!({}))
+        .await
+        .unwrap_err();
+
+    assert!(matches!(err, FlowError::HookTokenNotFound(token) if token == "missing-token"));
 }
 
 #[derive(Default)]

@@ -143,6 +143,41 @@ impl FlowEngine {
         }
     }
 
+    /// Resume an active hook by its external token.
+    ///
+    /// This is the API webhook handlers normally want: the callback receives a
+    /// token, while `run_id` and `hook_id` remain engine internals.
+    pub async fn resume_hook_by_token(
+        &self,
+        token: &str,
+        payload: serde_json::Value,
+    ) -> Result<(String, String)> {
+        let mut matches = Vec::new();
+        for run_id in self.store.list_run_ids().await? {
+            let snapshot = self.snapshot(&run_id).await?;
+            if snapshot.status.is_terminal() {
+                continue;
+            }
+            for hook in snapshot.hooks.values() {
+                if hook.status == HookStatus::Active && hook.token == token {
+                    matches.push((run_id.clone(), hook.hook_id.clone()));
+                }
+            }
+        }
+
+        match matches.len() {
+            0 => Err(FlowError::HookTokenNotFound(token.to_string())),
+            1 => {
+                let (run_id, hook_id) = matches.remove(0);
+                self.resume_hook(&run_id, &hook_id, payload).await?;
+                Ok((run_id, hook_id))
+            }
+            _ => Err(FlowError::InvalidTransition(format!(
+                "hook token {token:?} is active in multiple runs"
+            ))),
+        }
+    }
+
     pub async fn cancel(&self, run_id: &str, reason: Option<String>) -> Result<()> {
         let snapshot = self.snapshot(run_id).await?;
         if snapshot.status.is_terminal() {

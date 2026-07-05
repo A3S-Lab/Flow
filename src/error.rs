@@ -12,6 +12,9 @@ pub enum FlowError {
     #[error("workflow run {0} is already terminal")]
     RunTerminal(String),
 
+    #[error("active hook token not found: {0}")]
+    HookTokenNotFound(String),
+
     #[error("invalid workflow definition: {0}")]
     InvalidWorkflow(String),
 

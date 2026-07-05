@@ -118,6 +118,15 @@ command at a time.
 Events use A3S dot-separated keys such as `flow.run.created`,
 `flow.step.completed`, and `flow.hook.received`.
 
+External callback handlers can resume hooks either by internal IDs or by the
+public hook token:
+
+```rust
+engine
+    .resume_hook_by_token("approval-token", json!({ "approved": true }))
+    .await?;
+```
+
 ### Run Lifecycle
 
 ```text
@@ -187,6 +196,7 @@ through the same engine protocol.
 | `FlowEngine` | Starts, drives, resumes, snapshots, and cancels runs |
 | `FlowRuntime` | Host-provided workflow and step executor trait |
 | `FlowEventStore` | Append-only event persistence trait |
+| `LocalFileEventStore` | JSONL-backed local durable event store |
 | `WorkflowSpec` | Durable workflow identity and runtime metadata |
 | `RuntimeCommand` | Command returned by workflow replay |
 | `FlowEvent` | Event-sourced run, step, wait, and hook mutations |
