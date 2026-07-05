@@ -1,0 +1,34 @@
+[package]
+name = "a3s-flow"
+version = "0.1.0"
+edition = "2021"
+authors = ["A3S Lab"]
+license = "MIT"
+description = "Durable workflow engine core for A3S with a Perry-style native TypeScript runtime boundary"
+repository = "https://github.com/A3S-Lab/Flow"
+documentation = "https://docs.rs/a3s-flow"
+readme = "README.md"
+keywords = ["workflow", "durable", "event-sourcing", "typescript", "runtime"]
+categories = ["asynchronous", "development-tools"]
+
+[lib]
+name = "a3s_flow"
+path = "src/lib.rs"
+
+[features]
+default = ["native-ts"]
+native-ts = []
+
+[dependencies]
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+tracing = "0.1"
+uuid = { version = "1", features = ["serde", "v4"] }
+tokio = { version = "1", features = ["fs", "io-util", "process", "sync", "time"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+tempfile = "3"
