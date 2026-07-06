@@ -75,7 +75,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.1", features = ["sqlite"] }
+a3s-flow = { version = "0.4", features = ["sqlite"] }
 ```
 
 Then wire the SQLite event store into the same engine and worker shape:
@@ -123,7 +123,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.1", features = ["postgres"] }
+a3s-flow = { version = "0.4", features = ["postgres"] }
 ```
 
 Then wire the Postgres event store and task queue into the same engine and

@@ -1,0 +1,23 @@
+# Changelog
+
+## 0.4.0 - 2026-07-06
+
+This release promotes A3S Flow into the durable Rust workflow SDK for A3S.
+
+Highlights:
+
+- Added an event-sourced workflow engine with deterministic replay, durable
+  step outputs, waits, hooks, retries, cancellation, and compensation-friendly
+  run history.
+- Added local JSONL, SQLite, and Postgres event stores, plus local and Postgres
+  task queues for worker-based execution.
+- Added scheduler and worker helpers for suspended runs, task leasing,
+  wake-up delay calculation, and recovery after host restarts.
+- Added run inspection APIs for summaries, open suspensions, next wake-up time,
+  active hooks, and event history.
+- Added typed serde helpers for step payloads, workflow input, workflow output,
+  and hook metadata.
+- Added a native TypeScript authoring contract, runtime bridge, preflight
+  validation, and runnable TypeScript workflow examples.
+- Added observability primitives, fan-out observers, bridge observers, and a
+  local audit log example.
