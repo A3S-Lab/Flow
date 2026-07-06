@@ -1143,7 +1143,12 @@ The crate also defines local `just` recipes:
 ```sh
 just check
 just test
+just deep-test-non-pg
 ```
+
+`just deep-test-non-pg` runs formatting and diff checks, strict clippy, the
+non-Postgres feature test matrix, docs with warnings denied, non-Postgres
+examples, and package/publish dry-runs.
 
 From the monorepo root:
 

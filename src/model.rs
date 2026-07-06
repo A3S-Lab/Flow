@@ -108,10 +108,11 @@ impl WorkflowSpec {
 }
 
 /// What the engine should do after a step exhausts its retry attempts.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum StepFailureAction {
     /// Record `step_failed`, then fail the workflow run.
+    #[default]
     FailRun,
     /// Record `step_failed`, then replay the workflow so it can choose a
     /// fallback, compensation, or explicit failure command.
@@ -121,12 +122,6 @@ pub enum StepFailureAction {
 impl StepFailureAction {
     pub fn is_fail_run(&self) -> bool {
         matches!(self, Self::FailRun)
-    }
-}
-
-impl Default for StepFailureAction {
-    fn default() -> Self {
-        Self::FailRun
     }
 }
 

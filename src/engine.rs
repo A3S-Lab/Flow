@@ -411,7 +411,7 @@ impl FlowEngine {
     /// Complete every due wait and drive the affected workflows.
     ///
     /// Returns the `(run_id, wait_id)` pairs that were resumed. A wait already
-    /// completed by another caller is skipped by [`resume_wait`].
+    /// completed by another caller is skipped by [`Self::resume_wait`].
     pub async fn resume_due_waits(&self, now: DateTime<Utc>) -> Result<Vec<(String, String)>> {
         let due = self.list_due_waits(now).await?;
         let mut resumed = Vec::with_capacity(due.len());

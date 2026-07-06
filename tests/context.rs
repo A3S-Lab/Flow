@@ -69,7 +69,7 @@ impl FlowRuntime for ContextRuntime {
                 .with_callback_route(HookCallbackRoute::post("/callbacks/flow/hooks/{token}"))
                 .with_label("source", "context-test")
                 .with_data("user", json!(user.name));
-            return Ok(ctx.create_hook_with_metadata("approval", "approval-token", metadata)?);
+            return ctx.create_hook_with_metadata("approval", "approval-token", metadata);
         };
 
         Ok(ctx.complete(json!({

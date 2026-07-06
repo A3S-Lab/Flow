@@ -7,6 +7,14 @@ default:
 fmt:
     cargo fmt --all
 
+# Check crate formatting
+fmt-check:
+    cargo fmt --all --check
+
+# Check the current diff for whitespace errors
+diff-check:
+    git diff --check
+
 # Run tests
 test:
     cargo test --all-targets
@@ -14,3 +22,39 @@ test:
 # Type-check the crate
 check:
     cargo check --all-targets
+
+# Run the non-Postgres deep validation suite
+deep-test-non-pg: fmt-check diff-check clippy-non-pg test-non-pg doc-non-pg examples-non-pg package-dry-run
+
+# Run strict linting across non-Postgres feature combinations
+clippy-non-pg:
+    cargo clippy --all-targets -- -D warnings
+    cargo clippy --all-targets --no-default-features -- -D warnings
+    cargo clippy --all-targets --no-default-features --features sqlite,native-ts -- -D warnings
+
+# Run tests across non-Postgres feature combinations
+test-non-pg:
+    cargo test --all-targets
+    cargo test --all-targets --no-default-features
+    cargo test --all-targets --no-default-features --features sqlite
+    cargo test --all-targets --no-default-features --features native-ts
+    cargo test --all-targets --no-default-features --features sqlite,native-ts
+
+# Build docs with warnings denied for non-Postgres feature combinations
+doc-non-pg:
+    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --no-default-features --features sqlite,native-ts
+
+# Run executable examples that do not require Postgres
+examples-non-pg:
+    cargo run --quiet --no-default-features --example sequential_steps
+    cargo run --quiet --no-default-features --example task_queue_durability
+    cargo run --quiet --no-default-features --features sqlite --example sqlite_durability
+    cargo run --quiet --no-default-features --features sqlite --example sqlite_worker
+    cargo run --quiet --no-default-features --features native-ts --example native_ts_greeting
+    cargo run --quiet --no-default-features --features native-ts --example native_ts_preflight
+
+# Verify the crate package and publish payload without uploading it
+package-dry-run:
+    cargo package --allow-dirty
+    cargo publish --dry-run --allow-dirty
