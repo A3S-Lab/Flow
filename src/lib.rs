@@ -27,6 +27,8 @@ pub use model::{
     WorkflowRunSnapshot, WorkflowRunStatus, WorkflowRunSummary, WorkflowRunSuspension,
     WorkflowSpec,
 };
+#[cfg(feature = "a3s-event")]
+pub use observe::A3sEventBusFlowEventSink;
 pub use observe::{
     A3sFlowEvent, A3sFlowEventBridge, A3sFlowEventSink, A3sFlowEventSubject,
     FanoutFlowEventObserver, FlowEventObserver, FlowWorkflowIdentity, InMemoryA3sFlowEventSink,

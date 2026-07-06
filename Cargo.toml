@@ -1,6 +1,6 @@
 [package]
 name = "a3s-flow"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 authors = ["A3S Lab"]
 license = "MIT"
@@ -18,10 +18,12 @@ path = "src/lib.rs"
 [features]
 default = ["native-ts"]
 native-ts = []
+a3s-event = ["dep:a3s-event"]
 sqlite = ["dep:sqlx", "sqlx/sqlite"]
 postgres = ["dep:sqlx", "sqlx/postgres"]
 
 [dependencies]
+a3s-event = { version = "0.3", optional = true, default-features = false }
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }

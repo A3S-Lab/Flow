@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.1 - 2026-07-06
+
+- Added the optional `a3s-event` feature.
+- Added `A3sEventBusFlowEventSink` for publishing committed Flow events through
+  A3S Event providers while keeping Flow event storage authoritative.
+- Documented A3S Event integration in the README and cookbook.
+- Added coverage that publishes Flow events into an `a3s_event::EventBus` backed
+  by the in-memory provider.
+
 ## 0.4.0 - 2026-07-06
 
 This release promotes A3S Flow into the durable Rust workflow SDK for A3S.

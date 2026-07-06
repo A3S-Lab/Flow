@@ -595,6 +595,36 @@ and exposes `events()` for local inspection. Because observers run after store
 commit, write errors are recorded in `last_error()` instead of rolling back the
 workflow event. See `examples/local_audit_log.rs` for a runnable audit-log flow.
 
+When the host uses A3S Event as its event backbone, enable the `a3s-event`
+feature and publish bridged records through an `EventBus`:
+
+```toml
+[dependencies]
+a3s-flow = { version = "0.4", features = ["a3s-event"] }
+a3s-event = { version = "0.3", default-features = false }
+```
+
+```rust
+use a3s_event::{EventBus, MemoryProvider};
+use a3s_flow::{A3sEventBusFlowEventSink, A3sFlowEventBridge, FlowEngine};
+use std::sync::Arc;
+
+# fn runtime() -> Arc<dyn a3s_flow::FlowRuntime> { unimplemented!() }
+# fn build() {
+let bus = Arc::new(EventBus::new(MemoryProvider::default()));
+let sink = Arc::new(A3sEventBusFlowEventSink::new(bus.clone()));
+let observer = Arc::new(A3sFlowEventBridge::new(sink.clone()));
+let engine = FlowEngine::builder(runtime())
+    .with_observer(observer)
+    .build();
+# }
+```
+
+The sink publishes category `flow`, provider-built subjects such as
+`events.flow.step.completed`, the Flow event key as `event_type`, and the full
+`A3sFlowEvent` as payload. Publish failures are best-effort and visible through
+`last_error()`.
+
 ## Cancellation
 
 Use `FlowEngine::cancel()` when an operator, API caller, or host policy decides

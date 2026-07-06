@@ -251,6 +251,8 @@ Available observability primitives:
 - `FanoutFlowEventObserver` for sending the same stream to multiple observers.
 - `A3sFlowEventBridge` for A3S-shaped event records.
 - `A3sFlowEvent::safe_metric_labels()` for low-cardinality labels.
+- `A3sEventBusFlowEventSink` for publishing Flow events into A3S Event when
+  the `a3s-event` feature is enabled.
 - `InMemoryA3sFlowEventSink` for local inspection.
 - `LocalFileA3sFlowEventSink` for append-only JSONL audit records.
 
@@ -1072,6 +1074,34 @@ The sink records write failures in `last_error()` because observer failures do
 not roll back committed workflow events. See `examples/local_audit_log.rs` for a
 complete local audit flow.
 
+Enable the `a3s-event` feature when committed Flow events should be published
+through A3S Event providers:
+
+```toml
+[dependencies]
+a3s-flow = { version = "0.4", features = ["a3s-event"] }
+a3s-event = { version = "0.3", default-features = false }
+```
+
+```rust
+use a3s_event::{EventBus, MemoryProvider};
+use a3s_flow::{A3sEventBusFlowEventSink, A3sFlowEventBridge, FlowEngine};
+use std::sync::Arc;
+
+let bus = Arc::new(EventBus::new(MemoryProvider::default()));
+let sink = Arc::new(A3sEventBusFlowEventSink::new(bus.clone()));
+let observer = Arc::new(A3sFlowEventBridge::new(sink.clone()));
+let engine = FlowEngine::builder(runtime)
+    .with_observer(observer)
+    .build();
+```
+
+The sink publishes typed A3S Event records with category `flow`, subjects such
+as `events.flow.run.created`, event types such as `flow.run.created`, the full
+Flow audit record as JSON payload, and low-cardinality workflow/status metadata.
+Like the local audit sink, it is best-effort: publish failures are recorded in
+`last_error()` and logged, while the Flow event store remains authoritative.
+
 ## API Reference
 
 | Type | Description |
@@ -1103,6 +1133,7 @@ complete local audit flow.
 | `FanoutFlowEventObserver` | Forwards committed event envelopes to multiple observers |
 | `A3sFlowEventBridge` | Maps committed envelopes into A3S-style event records for host sinks |
 | `A3sFlowEvent` | A3S-style event record with safe metric label helpers |
+| `A3sEventBusFlowEventSink` | Publishes bridged Flow events through A3S Event, available with the `a3s-event` feature |
 | `InMemoryA3sFlowEventSink` | In-memory sink for tests, examples, and local debugging |
 | `LocalFileA3sFlowEventSink` | JSONL-backed local audit sink for A3S-style Flow events |
 | `WorkflowRunSnapshot` | Materialized state projected from event history |

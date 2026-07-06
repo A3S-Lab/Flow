@@ -1,3 +1,5 @@
+#[cfg(feature = "a3s-event")]
+use a3s_flow::A3sEventBusFlowEventSink;
 #[cfg(feature = "postgres")]
 use a3s_flow::PostgresEventStore;
 #[cfg(feature = "sqlite")]
@@ -547,6 +549,56 @@ async fn a3s_event_bridge_maps_committed_events_to_safe_labels() {
     assert_eq!(labels["workflow_version"], "0.1.0");
     assert_eq!(labels["status"], "completed");
     assert!(!labels.contains_key("run_id"));
+}
+
+#[cfg(feature = "a3s-event")]
+#[tokio::test]
+async fn a3s_event_bus_sink_publishes_committed_events() {
+    let bus = Arc::new(a3s_event::EventBus::new(
+        a3s_event::MemoryProvider::default(),
+    ));
+    let sink = Arc::new(A3sEventBusFlowEventSink::new(bus.clone()));
+    let observer = Arc::new(A3sFlowEventBridge::new(sink.clone()));
+    let engine = FlowEngine::builder(Arc::new(SequentialRuntime))
+        .with_observer(observer)
+        .build();
+
+    engine
+        .start_with_id("a3s-event-run", spec(), json!({ "userId": "u1" }))
+        .await
+        .unwrap();
+
+    let events = bus.list_events(Some("flow"), 20).await.unwrap();
+    assert_eq!(events.len(), 9);
+    assert!(sink.last_error().await.is_none());
+
+    let run_created = events
+        .iter()
+        .find(|event| event.event_type == "flow.run.created")
+        .unwrap();
+    assert_eq!(run_created.subject, "events.flow.run.created");
+    assert_eq!(run_created.category, "flow");
+    assert_eq!(run_created.source, "a3s-flow");
+    assert_eq!(run_created.metadata["flow.run_id"], "a3s-event-run");
+    assert_eq!(run_created.metadata["flow.workflow_name"], "test.workflow");
+    assert_eq!(run_created.metadata["flow.workflow_version"], "0.1.0");
+
+    let step_completed = events
+        .iter()
+        .find(|event| {
+            event.event_type == "flow.step.completed"
+                && event
+                    .metadata
+                    .get("flow.subject_id")
+                    .is_some_and(|subject_id| subject_id == "load-user")
+        })
+        .unwrap();
+    assert_eq!(step_completed.subject, "events.flow.step.completed");
+    assert_eq!(step_completed.metadata["flow.status"], "completed");
+    assert_eq!(step_completed.metadata["flow.subject_kind"], "step");
+    assert_eq!(step_completed.metadata["flow.subject_id"], "load-user");
+    assert_eq!(step_completed.payload["run_id"], "a3s-event-run");
+    assert_eq!(step_completed.payload["key"], "flow.step.completed");
 }
 
 #[tokio::test]

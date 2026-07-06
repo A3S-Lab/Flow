@@ -189,6 +189,147 @@ impl A3sFlowEvent {
     }
 }
 
+#[cfg(feature = "a3s-event")]
+/// Sink that publishes bridged Flow events into an A3S Event bus.
+///
+/// The sink uses A3S Event as the transport and history layer while preserving
+/// the durable Flow event store as the source of truth. Publish failures are
+/// recorded in `last_error()` and logged; they do not roll back workflow events
+/// that have already been committed.
+pub struct A3sEventBusFlowEventSink {
+    bus: Arc<a3s_event::EventBus>,
+    category: String,
+    source: String,
+    last_error: Mutex<Option<String>>,
+}
+
+#[cfg(feature = "a3s-event")]
+impl A3sEventBusFlowEventSink {
+    pub fn new(bus: Arc<a3s_event::EventBus>) -> Self {
+        Self {
+            bus,
+            category: "flow".to_string(),
+            source: "a3s-flow".to_string(),
+            last_error: Mutex::new(None),
+        }
+    }
+
+    pub fn with_category(mut self, category: impl Into<String>) -> Self {
+        self.category = category.into();
+        self
+    }
+
+    pub fn with_source(mut self, source: impl Into<String>) -> Self {
+        self.source = source.into();
+        self
+    }
+
+    pub fn bus(&self) -> Arc<a3s_event::EventBus> {
+        Arc::clone(&self.bus)
+    }
+
+    pub fn category(&self) -> &str {
+        &self.category
+    }
+
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+
+    pub async fn last_error(&self) -> Option<String> {
+        self.last_error.lock().await.clone()
+    }
+
+    pub fn to_a3s_event(
+        &self,
+        event: &A3sFlowEvent,
+    ) -> std::result::Result<a3s_event::Event, serde_json::Error> {
+        let topic = flow_event_topic(&event.key);
+        let subject = self.bus.provider_arc().build_subject(&self.category, topic);
+        let timestamp = event.timestamp.timestamp_millis();
+        let mut metadata = HashMap::new();
+        metadata.insert("flow.event_key".to_string(), event.key.clone());
+        metadata.insert("flow.run_id".to_string(), event.run_id.clone());
+        metadata.insert("flow.sequence".to_string(), event.sequence.to_string());
+        metadata.insert("flow.event_id".to_string(), event.event_id.to_string());
+        if let Some(status) = &event.status {
+            metadata.insert("flow.status".to_string(), status.clone());
+        }
+        if let Some(workflow) = &event.workflow {
+            metadata.insert("flow.workflow_name".to_string(), workflow.name.clone());
+            metadata.insert(
+                "flow.workflow_version".to_string(),
+                workflow.version.clone(),
+            );
+        }
+        if let Some(subject) = &event.subject {
+            metadata.insert("flow.subject_kind".to_string(), subject.kind.clone());
+            metadata.insert("flow.subject_id".to_string(), subject.id.clone());
+        }
+
+        Ok(a3s_event::Event {
+            id: format!("evt-{}", event.event_id),
+            subject,
+            category: self.category.clone(),
+            event_type: event.key.clone(),
+            version: 1,
+            payload: serde_json::to_value(event)?,
+            summary: format!("{} for run {}", event.key, event.run_id),
+            source: self.source.clone(),
+            timestamp: timestamp.max(0) as u64,
+            metadata,
+        })
+    }
+}
+
+#[cfg(feature = "a3s-event")]
+impl fmt::Debug for A3sEventBusFlowEventSink {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("A3sEventBusFlowEventSink")
+            .field("category", &self.category)
+            .field("source", &self.source)
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "a3s-event")]
+#[async_trait]
+impl A3sFlowEventSink for A3sEventBusFlowEventSink {
+    async fn emit(&self, event: A3sFlowEvent) {
+        let a3s_event = match self.to_a3s_event(&event) {
+            Ok(event) => event,
+            Err(err) => {
+                let message = err.to_string();
+                tracing::warn!(
+                    error = %message,
+                    event_key = %event.key,
+                    run_id = %event.run_id,
+                    "failed to convert flow event for A3S Event"
+                );
+                *self.last_error.lock().await = Some(message);
+                return;
+            }
+        };
+
+        match self.bus.publish_event(&a3s_event).await {
+            Ok(_) => {
+                *self.last_error.lock().await = None;
+            }
+            Err(err) => {
+                let message = err.to_string();
+                tracing::warn!(
+                    error = %message,
+                    subject = %a3s_event.subject,
+                    event_type = %a3s_event.event_type,
+                    "failed to publish flow event to A3S Event"
+                );
+                *self.last_error.lock().await = Some(message);
+            }
+        }
+    }
+}
+
 /// Sink for A3S-style Flow events.
 #[async_trait]
 pub trait A3sFlowEventSink: Send + Sync {
@@ -348,6 +489,11 @@ impl A3sFlowEventSink for LocalFileA3sFlowEventSink {
             }
         }
     }
+}
+
+#[cfg(feature = "a3s-event")]
+fn flow_event_topic(key: &str) -> &str {
+    key.strip_prefix("flow.").unwrap_or(key)
 }
 
 fn event_status(event: &FlowEvent) -> Option<&'static str> {
