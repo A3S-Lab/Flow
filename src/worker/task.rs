@@ -1,0 +1,90 @@
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
+use crate::model::JsonValue;
+
+/// Queueable unit of workflow engine work.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum FlowTask {
+    DriveRun {
+        run_id: String,
+    },
+    ResumeWait {
+        run_id: String,
+        wait_id: String,
+    },
+    ResumeHook {
+        run_id: String,
+        hook_id: String,
+        payload: JsonValue,
+    },
+    ResumeHookByToken {
+        token: String,
+        payload: JsonValue,
+    },
+    DisposeHook {
+        run_id: String,
+        hook_id: String,
+    },
+    DisposeHookByToken {
+        token: String,
+    },
+    ResumeDueWaits {
+        now: DateTime<Utc>,
+    },
+    ResumeDueRetries {
+        now: DateTime<Utc>,
+    },
+}
+
+/// Result of handling one queued [`FlowTask`].
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FlowTaskOutcome {
+    pub task: FlowTask,
+    pub run_ids: Vec<String>,
+    pub resumed_waits: Vec<(String, String)>,
+    pub resumed_retries: Vec<(String, String)>,
+    pub resumed_hook: Option<(String, String)>,
+    #[serde(default)]
+    pub disposed_hook: Option<(String, String)>,
+}
+
+impl FlowTaskOutcome {
+    pub(super) fn new(task: FlowTask) -> Self {
+        Self {
+            task,
+            run_ids: Vec::new(),
+            resumed_waits: Vec::new(),
+            resumed_retries: Vec::new(),
+            resumed_hook: None,
+            disposed_hook: None,
+        }
+    }
+}
+
+/// Leased task returned by a queue worker before acknowledgement.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FlowTaskLease {
+    pub lease_id: String,
+    pub task: FlowTask,
+}
+
+/// Task moved out of inflight dispatch after exceeding a local lease policy.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LocalFileDeadLetteredTask {
+    pub lease_id: String,
+    pub task: FlowTask,
+    pub reason: String,
+    pub dead_lettered_at: DateTime<Utc>,
+}
+
+/// Task moved out of Postgres inflight dispatch after exceeding a lease policy.
+#[cfg(feature = "postgres")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PostgresDeadLetteredTask {
+    pub lease_id: String,
+    pub task: FlowTask,
+    pub reason: String,
+    pub dead_lettered_at: DateTime<Utc>,
+}

@@ -1,0 +1,35 @@
+use async_trait::async_trait;
+
+use crate::error::Result;
+use crate::model::{FlowEvent, FlowEventEnvelope};
+
+mod local_file;
+mod memory;
+#[cfg(feature = "postgres")]
+mod postgres;
+#[cfg(feature = "sqlite")]
+mod sqlite;
+
+pub use local_file::LocalFileEventStore;
+pub use memory::InMemoryEventStore;
+#[cfg(feature = "postgres")]
+pub use postgres::PostgresEventStore;
+#[cfg(feature = "sqlite")]
+pub use sqlite::SqliteEventStore;
+
+/// Append-only event store for durable workflow runs.
+#[async_trait]
+pub trait FlowEventStore: Send + Sync {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope>;
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> Result<FlowEventEnvelope>;
+
+    async fn list(&self, run_id: &str) -> Result<Vec<FlowEventEnvelope>>;
+
+    async fn list_run_ids(&self) -> Result<Vec<String>>;
+}
