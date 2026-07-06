@@ -16,6 +16,7 @@
 
 <p align="center">
   <a href="#overview">Overview</a> •
+  <a href="#capabilities">Capabilities</a> •
   <a href="#quick-start">Quick Start</a> •
   <a href="#typescript-workflows">TypeScript Workflows</a> •
   <a href="#examples">Examples</a> •
@@ -62,6 +63,204 @@ let run_id = engine
 
 let snapshot = engine.snapshot(&run_id).await?;
 ```
+
+## Capabilities
+
+A3S Flow is built for hosts that need workflow execution to survive process
+restarts, delayed work, external callbacks, tool failures, and user-driven
+control-plane operations. The engine does not rely on an in-memory call stack as
+the source of truth. It persists every meaningful workflow mutation as a typed
+event, then rebuilds the current run state by projecting that history.
+
+### Durable execution
+
+Flow runs are event-sourced from creation to terminal state:
+
+- Workflows start from a durable `WorkflowSpec` and JSON input.
+- Every run, step, wait, hook, retry, cancellation, and terminal result is
+  stored as a `FlowEventEnvelope` with a per-run sequence number.
+- `WorkflowRunSnapshot` is a projection of the event stream, not mutable state.
+- Expected-sequence appends detect stale writers and concurrent updates.
+- Projection validates event order, duplicate definitions, invalid lifecycle
+  transitions, and events appended after terminal states.
+
+This gives hosts crash recovery, audit-friendly histories, idempotent re-drive,
+and deterministic replay without requiring a long-running workflow process to
+stay alive.
+
+### Replay-safe workflow logic
+
+Workflow code returns one `RuntimeCommand` per replay. The engine applies that
+command, persists the result, then replays until the run completes or suspends.
+
+Supported commands:
+
+| Command | Capability |
+|---------|------------|
+| `Complete` | Finish a run with durable JSON output |
+| `Fail` | Finish a run with a durable error |
+| `ScheduleStep` | Execute one side-effecting step and persist its output or failure |
+| `ScheduleSteps` | Fan out a stable batch of durable steps before replaying |
+| `WaitUntil` | Suspend a run until a timer is resumed |
+| `CreateHook` | Suspend a run until an external callback arrives or is disposed |
+
+Replay validation protects deterministic behavior. If workflow code reuses an
+existing step, wait, or hook ID with different input, retry policy, timer
+deadline, token, or metadata, Flow reports a non-deterministic replay error
+instead of accepting the drift.
+
+### Steps, tools, and side effects
+
+Side effects belong in steps. A step can call APIs, invoke local tools, run host
+capabilities, write files, or perform any operation the host runtime allows. The
+workflow only observes the step after the engine records its output or failure,
+so replay does not repeat successful side effects.
+
+Flow supports:
+
+- Sequential durable steps with stable step IDs.
+- Batched fan-out through `schedule_steps()`.
+- Typed step input and output decoding through serde helpers.
+- Immediate retries inside the drive loop.
+- Delayed retries that suspend the run and are resumed by scheduler work.
+- Recoverable failures that replay back to workflow logic for fallback or
+  compensation.
+
+This makes Flow suitable for agentic tool orchestration, approval flows, polling
+loops, local automation, and long-running business workflows where individual
+steps may fail or need to be retried safely.
+
+### Timers, waits, and polling loops
+
+`wait_until()` records a durable timer and suspends the run without holding
+compute. A host can resume a specific wait directly, call
+`resume_due_waits(now)`, or let `FlowScheduler` enqueue due work for workers.
+
+Common patterns include:
+
+- Backoff between retry attempts.
+- Polling an external job until it reaches a terminal state.
+- Waiting for an SLA deadline or human response timeout.
+- Sleeping between agent/tool iterations without keeping a task alive.
+
+`next_wakeup()` and `FlowScheduler::next_wakeup_delay()` let hosts sleep until
+the earliest known timer or delayed retry needs attention.
+
+### External callbacks and human-in-the-loop work
+
+Hooks model work that must pause until something outside the workflow responds:
+human approvals, webhooks, UI actions, OAuth callbacks, review gates, or host
+events. A hook stores a stable hook ID, a public callback token, and JSON
+metadata.
+
+Hook capabilities include:
+
+- Resume by run/hook ID or by public token.
+- Dispose by run/hook ID or by public token when a request expires or is
+  withdrawn.
+- Unique active hook tokens across non-terminal runs.
+- Late-callback rejection after disposal or terminal completion.
+- Typed `HookMetadata` and `HookCallbackRoute` helpers for audit records,
+  dashboards, and callback routers.
+- `list_active_hooks()` for hosts that need to build callback indexes or UI
+  queues.
+
+### Run control and inspection
+
+The engine exposes host-facing control-plane APIs:
+
+- `start()` for generated run IDs.
+- `start_with_id()` for idempotent business IDs.
+- `drive()` for explicit re-drive.
+- `cancel()` for terminal operator cancellation with a reason.
+- `snapshot()` and `history()` for per-run state and raw audit events.
+- `list_run_ids()` and `list_snapshots()` for dashboards.
+- `run_summary()` for status and actionable-work counts.
+- `list_open_suspensions()` for waits, active hooks, and delayed retries.
+- `next_wakeup()` for scheduler planning.
+- `list_active_hooks()` for callback routing.
+
+These APIs are designed so a host can build a local dashboard, CLI status view,
+TUI workflow panel, or service health probe without directly parsing event
+files or database rows.
+
+### Storage backends
+
+Flow separates engine semantics from persistence. All stores implement the same
+append-only `FlowEventStore` contract:
+
+| Store | Best fit |
+|-------|----------|
+| `InMemoryEventStore` | Tests, examples, and ephemeral embedded runs |
+| `LocalFileEventStore` | Local tools, desktop apps, and single-process durable hosts using JSONL history files |
+| `SqliteEventStore` | Single-node durable hosts that want one inspectable database |
+| `PostgresEventStore` | Multi-process hosts and distributed workers sharing event history |
+
+Local JSONL histories can prune old terminal runs while keeping suspended runs.
+SQLite and Postgres preserve the same event envelope shape while using database
+transactions for expected-sequence writes.
+
+### Workers, queues, and scheduling
+
+Flow can run inside the request path for simple hosts, or through durable task
+dispatch for background execution.
+
+Dispatch capabilities include:
+
+- `FlowTask` as a serializable unit of workflow work.
+- `FlowWorker` to lease, handle, and acknowledge tasks.
+- In-memory queues for tests.
+- JSON-backed local queues for crash/restart durability.
+- Postgres queues for shared workers using `FOR UPDATE SKIP LOCKED`.
+- Lease recovery through `requeue_inflight()`.
+- Lease-age policies through `requeue_inflight_older_than(...)`.
+- Dead-letter handling for stale or poison tasks.
+- `FlowScheduler` to enqueue due waits and delayed retries.
+
+This lets hosts choose between a small embedded loop and a multi-worker
+deployment without changing workflow code.
+
+### Native TypeScript workflow authoring
+
+The SDK is Rust-first. Flow also includes `NativeTsRuntime`, a Rust runtime
+adapter that compiles TypeScript workflow source into a native artifact and
+invokes it through a versioned JSON protocol.
+
+The TypeScript path provides:
+
+- TypeScript workflow and step source files.
+- Authoring-only `.d.ts` definitions that mirror the Rust protocol shape.
+- Compile preflight through `NativeTsRuntime::preflight()`.
+- Source-hash based artifact caching.
+- Runtime request/response protocol validation.
+- Compiler stderr surfaced as runtime errors.
+
+This is not a separate TypeScript SDK. Rust still owns run creation, event
+history, replay, storage, workers, scheduling, and observability.
+
+### Observability and audit
+
+Observers receive events after they have been committed to the durable store.
+They are integration points for telemetry, logs, metrics, audit trails, and A3S
+event pipelines, while the event store remains authoritative.
+
+Available observability primitives:
+
+- `FlowEventObserver` for committed event envelopes.
+- `InMemoryFlowEventObserver` for tests and debugging.
+- `FanoutFlowEventObserver` for sending the same stream to multiple observers.
+- `A3sFlowEventBridge` for A3S-shaped event records.
+- `A3sFlowEvent::safe_metric_labels()` for low-cardinality labels.
+- `InMemoryA3sFlowEventSink` for local inspection.
+- `LocalFileA3sFlowEventSink` for append-only JSONL audit records.
+
+### What Flow intentionally leaves to the host
+
+A3S Flow is the durable workflow engine and Rust SDK. It does not prescribe a
+specific product UI, permission system, tool registry, tenant model, or hosted
+Workflow-as-a-Service surface. Hosts decide which tools a step can call, how
+hook tokens are exposed, how users authenticate, how queues are deployed, and
+which observability sinks receive committed events.
 
 ## Quick Start
 
