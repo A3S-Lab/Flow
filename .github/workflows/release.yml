@@ -1,0 +1,140 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Tag name to release, for example v0.4.0"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CRATE_NAME: a3s-flow
+
+jobs:
+  ci:
+    name: CI Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check release version
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag_name || github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
+          EXPECTED_TAG="v${VERSION}"
+          if [ "$RELEASE_TAG" != "$EXPECTED_TAG" ]; then
+            echo "Release tag ${RELEASE_TAG} does not match Cargo.toml version ${VERSION}."
+            exit 1
+          fi
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test without default features
+        run: cargo test --all-targets --no-default-features
+
+      - name: Test default features
+        run: cargo test --all-targets
+
+      - name: Test SQLite and native TypeScript features
+        run: cargo test --all-targets --no-default-features --features sqlite,native-ts
+
+      - name: Package check
+        run: cargo package
+
+  publish-crate:
+    name: Publish to crates.io
+    needs: ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_TOKEN: ${{ secrets.CARGO_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
+          if curl -fsSL "https://crates.io/api/v1/crates/${CRATE_NAME}/${VERSION}" >/dev/null 2>&1; then
+            echo "${CRATE_NAME} ${VERSION} already exists on crates.io, skipping publish."
+            exit 0
+          fi
+
+          TOKEN="${CARGO_REGISTRY_TOKEN:-${CARGO_TOKEN:-}}"
+          if [ -z "$TOKEN" ]; then
+            echo "Missing CARGO_REGISTRY_TOKEN or CARGO_TOKEN repository secret."
+            exit 1
+          fi
+
+          set +e
+          OUTPUT="$(cargo publish --token "$TOKEN" 2>&1)"
+          STATUS=$?
+          set -e
+          echo "$OUTPUT"
+          if [ "$STATUS" -ne 0 ]; then
+            if echo "$OUTPUT" | grep -Eqi "already (uploaded|exists)"; then
+              echo "${CRATE_NAME} ${VERSION} was already published, treating as success."
+              exit 0
+            fi
+            exit "$STATUS"
+          fi
+
+  github-release:
+    name: GitHub Release
+    needs: publish-crate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes
+        run: |
+          set -euo pipefail
+          PREV_TAG="$(git tag --sort=-v:refname | grep '^v' | head -2 | tail -1 || true)"
+          if [ -z "$PREV_TAG" ]; then
+            echo "Initial release" > /tmp/release-notes.md
+          else
+            git log "${PREV_TAG}..HEAD" --oneline --no-merges --pretty=format:"- %s" | head -50 > /tmp/release-notes.md
+          fi
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.inputs.tag_name || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --title "$RELEASE_TAG" \
+              --notes-file /tmp/release-notes.md
+          else
+            gh release create "$RELEASE_TAG" \
+              --title "$RELEASE_TAG" \
+              --notes-file /tmp/release-notes.md
+          fi
