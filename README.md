@@ -241,18 +241,19 @@ history, replay, storage, workers, scheduling, and observability.
 ### Observability and audit
 
 Observers receive events after they have been committed to the durable store.
-They are integration points for telemetry, logs, metrics, audit trails, and A3S
-event pipelines, while the event store remains authoritative.
+They are integration points for telemetry, logs, metrics, local audit trails,
+and A3S Event providers, while the Flow event store remains authoritative.
 
 Available observability primitives:
 
 - `FlowEventObserver` for committed event envelopes.
 - `InMemoryFlowEventObserver` for tests and debugging.
 - `FanoutFlowEventObserver` for sending the same stream to multiple observers.
-- `A3sFlowEventBridge` for A3S-shaped event records.
+- `A3sFlowEventBridge` for converting committed Flow envelopes into
+  `A3sFlowEvent` audit records.
 - `A3sFlowEvent::safe_metric_labels()` for low-cardinality labels.
-- `A3sEventBusFlowEventSink` for publishing Flow events into A3S Event when
-  the `a3s-event` feature is enabled.
+- `A3sEventBusFlowEventSink` for first-class A3S Event publishing when the
+  `a3s-event` feature is enabled.
 - `InMemoryA3sFlowEventSink` for local inspection.
 - `LocalFileA3sFlowEventSink` for append-only JSONL audit records.
 
@@ -268,7 +269,7 @@ which observability sinks receive committed events.
 
 ```toml
 [dependencies]
-a3s-flow = "0.4"
+a3s-flow = "0.4.1"
 async-trait = "0.1"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -569,8 +570,8 @@ cargo run --example local_retention
 | `postgres_durability` | `PostgresEventStore` durability across engine reconstruction; prints a feature or environment hint unless run with `--features postgres` and `A3S_FLOW_POSTGRES_URL` |
 | `task_queue_durability` | `LocalFileFlowTaskQueue` pending/inflight files, crash recovery, lease timeout handling, dead-letter records, and worker draining |
 | `postgres_task_queue_durability` | `PostgresEventStore` plus `PostgresFlowTaskQueue` shared database durability, lease recovery, worker draining, and dead-letter handling |
-| `observer_bridge` | `A3sFlowEventBridge` mapping committed events into A3S-style records with safe metric labels |
-| `observer_fanout` | `FanoutFlowEventObserver` forwarding committed events to raw envelope and A3S-shaped observers at the same time |
+| `observer_bridge` | `A3sFlowEventBridge` mapping committed events into Flow audit records with safe metric labels |
+| `observer_fanout` | `FanoutFlowEventObserver` forwarding committed events to raw envelope observers and Flow audit sinks at the same time |
 | `local_audit_log` | `LocalFileA3sFlowEventSink` JSONL audit logging through `A3sFlowEventBridge` |
 | `native_ts_greeting` | Rust `NativeTsRuntime` wiring for a TypeScript workflow source; exits successfully with a prerequisite message unless `A3S_FLOW_NATIVE_TS_COMPILER` points at a compiler |
 | `native_ts_preflight` | `NativeTsRuntime::preflight()` validation, artifact cache metadata, source hash reporting, and compiler prerequisite gating |
@@ -868,7 +869,7 @@ single SQLite database instead of one JSONL file per run:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.4", features = ["sqlite"] }
+a3s-flow = { version = "0.4.1", features = ["sqlite"] }
 ```
 
 ```rust
@@ -899,7 +900,7 @@ event history through a database:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.4", features = ["postgres"] }
+a3s-flow = { version = "0.4.1", features = ["postgres"] }
 ```
 
 ```rust
@@ -1015,7 +1016,7 @@ let tick = scheduler.enqueue_due_work(now).await?;
 ## Observability
 
 Attach a `FlowEventObserver` when committed workflow events should be mirrored
-into logs, metrics, audit sinks, or A3S event bridges:
+into logs, metrics, local audit sinks, or A3S Event:
 
 ```rust
 use a3s_flow::{A3sFlowEventBridge, FlowEngine, InMemoryA3sFlowEventSink};
@@ -1037,7 +1038,7 @@ event key, run audit identity, workflow identity, status, and subject. Use
 high-cardinality fields such as `run_id` in logs or traces.
 
 Use `FanoutFlowEventObserver` when the same committed event stream should feed
-several observers, such as raw envelope debugging plus an A3S-shaped audit sink:
+several observers, such as raw envelope debugging plus A3S Event publishing:
 
 ```rust
 use a3s_flow::{
@@ -1075,11 +1076,12 @@ not roll back committed workflow events. See `examples/local_audit_log.rs` for a
 complete local audit flow.
 
 Enable the `a3s-event` feature when committed Flow events should be published
-through A3S Event providers:
+through A3S Event providers. This is the recommended integration path for A3S
+hosts that already use A3S Event as their event backbone:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.4", features = ["a3s-event"] }
+a3s-flow = { version = "0.4.1", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 
@@ -1096,11 +1098,12 @@ let engine = FlowEngine::builder(runtime)
     .build();
 ```
 
-The sink publishes typed A3S Event records with category `flow`, subjects such
-as `events.flow.run.created`, event types such as `flow.run.created`, the full
-Flow audit record as JSON payload, and low-cardinality workflow/status metadata.
-Like the local audit sink, it is best-effort: publish failures are recorded in
-`last_error()` and logged, while the Flow event store remains authoritative.
+`A3sEventBusFlowEventSink` publishes typed A3S Event records with category
+`flow`, subjects such as `events.flow.run.created`, event types such as
+`flow.run.created`, the full Flow audit record as JSON payload, and
+low-cardinality workflow/status metadata. Like the local audit sink, it is
+best-effort: publish failures are recorded in `last_error()` and logged, while
+the Flow event store remains authoritative.
 
 ## API Reference
 
@@ -1131,11 +1134,11 @@ Like the local audit sink, it is best-effort: publish failures are recorded in
 | `PostgresEventStore` | Postgres-backed shared durable event store, available with the `postgres` feature |
 | `FlowEventObserver` | Receives committed event envelopes after store append |
 | `FanoutFlowEventObserver` | Forwards committed event envelopes to multiple observers |
-| `A3sFlowEventBridge` | Maps committed envelopes into A3S-style event records for host sinks |
-| `A3sFlowEvent` | A3S-style event record with safe metric label helpers |
+| `A3sFlowEventBridge` | Maps committed envelopes into Flow audit records for host sinks and A3S Event publishers |
+| `A3sFlowEvent` | Flow audit record with safe metric label helpers |
 | `A3sEventBusFlowEventSink` | Publishes bridged Flow events through A3S Event, available with the `a3s-event` feature |
 | `InMemoryA3sFlowEventSink` | In-memory sink for tests, examples, and local debugging |
-| `LocalFileA3sFlowEventSink` | JSONL-backed local audit sink for A3S-style Flow events |
+| `LocalFileA3sFlowEventSink` | JSONL-backed local audit sink for Flow audit records |
 | `WorkflowRunSnapshot` | Materialized state projected from event history |
 | `RetryPolicy` | Step retry attempts and delay |
 | `StepFailureAction` | Retry exhaustion behavior: fail the run or replay to workflow logic |
@@ -1162,9 +1165,11 @@ From this crate:
 ```sh
 cargo fmt --all
 cargo check --all-targets
+cargo check --all-targets --no-default-features --features a3s-event
 cargo check --all-targets --features sqlite
 cargo check --all-targets --features postgres
 cargo test --all-targets
+cargo test --all-targets --no-default-features --features a3s-event
 cargo test --all-targets --features sqlite
 cargo test --all-targets --features postgres
 ```
