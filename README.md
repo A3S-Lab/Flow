@@ -281,7 +281,7 @@ which observability sinks receive committed events.
 
 ```toml
 [dependencies]
-a3s-flow = "0.4.1"
+a3s-flow = "0.4.2"
 async-trait = "0.1"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -881,7 +881,7 @@ single SQLite database instead of one JSONL file per run:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.4.1", features = ["sqlite"] }
+a3s-flow = { version = "0.4.2", features = ["sqlite"] }
 ```
 
 ```rust
@@ -912,7 +912,7 @@ event history through a database:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.4.1", features = ["postgres"] }
+a3s-flow = { version = "0.4.2", features = ["postgres"] }
 ```
 
 ```rust
@@ -1093,7 +1093,7 @@ hosts that already use A3S Event as their event backbone:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.4.1", features = ["a3s-event"] }
+a3s-flow = { version = "0.4.2", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.2 - 2026-07-15
+
 - Redeliver a running step after engine restart when its side effect may have
   completed before `StepCompleted` was persisted. Recovery reuses the same
   attempt number, preserving retry budgets and explicit at-least-once semantics.
