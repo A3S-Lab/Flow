@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Redeliver a running step after engine restart when its side effect may have
+  completed before `StepCompleted` was persisted. Recovery reuses the same
+  attempt number, preserving retry budgets and explicit at-least-once semantics.
+- Reject no-progress replay commands that reschedule an already completed or
+  failed step. A single terminal step, or a batch containing only terminal
+  steps, now returns an immediate invalid-transition error instead of replaying
+  unchanged history up to the iteration limit. Partially completed durable
+  batches can still schedule their unfinished steps.
+
 ## 0.4.1 - 2026-07-06
 
 - Added the optional `a3s-event` feature.

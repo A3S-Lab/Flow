@@ -690,6 +690,14 @@ impl FlowEngine {
                     input,
                     retry,
                 } => {
+                    if let Some(step) = snapshot.steps.get(&step_id) {
+                        ensure_step_command_matches(run_id, step, &step_name, &input, retry)?;
+                        if matches!(step.status, StepStatus::Completed | StepStatus::Failed) {
+                            return Err(FlowError::InvalidTransition(format!(
+                                "workflow rescheduled terminal step {step_id} without progress"
+                            )));
+                        }
+                    }
                     match self
                         .execute_step(run_id, &snapshot, step_id, step_name, input, retry)
                         .await
@@ -701,6 +709,31 @@ impl FlowEngine {
                 }
                 RuntimeCommand::ScheduleSteps { steps } => {
                     ensure_step_batch_valid(&steps)?;
+                    for step in &steps {
+                        if let Some(existing) = snapshot.steps.get(&step.step_id) {
+                            ensure_step_command_matches(
+                                run_id,
+                                existing,
+                                &step.step_name,
+                                &step.input,
+                                step.retry,
+                            )?;
+                        }
+                    }
+                    if steps.iter().all(|step| {
+                        snapshot.steps.get(&step.step_id).is_some_and(|existing| {
+                            matches!(existing.status, StepStatus::Completed | StepStatus::Failed)
+                        })
+                    }) {
+                        let step_ids = steps
+                            .iter()
+                            .map(|step| step.step_id.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        return Err(FlowError::InvalidTransition(format!(
+                            "workflow rescheduled only terminal steps without progress: {step_ids}"
+                        )));
+                    }
                     for step in steps {
                         let current_snapshot = self.snapshot(run_id).await?;
                         match self
@@ -865,20 +898,33 @@ impl FlowEngine {
             .get(&step_id)
             .map(|step| step.attempt)
             .unwrap_or(0);
+        let mut redelivering_running_step = snapshot
+            .steps
+            .get(&step_id)
+            .is_some_and(|step| step.status == StepStatus::Running);
 
         loop {
-            attempt += 1;
-            let started = self
-                .record_event_at(
-                    run_id,
-                    expected_sequence,
-                    FlowEvent::StepStarted {
-                        step_id: step_id.clone(),
-                        attempt,
-                    },
-                )
-                .await?;
-            expected_sequence = started.sequence;
+            if redelivering_running_step {
+                // A process can die after the step side effect succeeds but before
+                // StepCompleted is durable. Redeliver the same attempt so an
+                // idempotent step can recover that ambiguous boundary.
+                redelivering_running_step = false;
+            } else {
+                attempt = attempt.checked_add(1).ok_or_else(|| {
+                    FlowError::InvalidTransition(format!("step attempt overflowed for {step_id}"))
+                })?;
+                let started = self
+                    .record_event_at(
+                        run_id,
+                        expected_sequence,
+                        FlowEvent::StepStarted {
+                            step_id: step_id.clone(),
+                            attempt,
+                        },
+                    )
+                    .await?;
+                expected_sequence = started.sequence;
+            }
 
             let history = self.store.list(run_id).await?;
             let invocation = StepInvocation {

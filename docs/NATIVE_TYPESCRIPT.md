@@ -29,7 +29,7 @@ Set a custom compiler path in Rust:
 ```rust
 let runtime = NativeTsRuntime::new(NativeTsRuntimeConfig::new(
     "/path/to/a3s-flow-native-compiler",
-    ".a3s-flow/native-ts",
+    ".a3s/flow/native-ts",
     ".",
 ));
 ```

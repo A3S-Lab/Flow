@@ -20,8 +20,8 @@ use a3s_flow::{
 use std::sync::Arc;
 
 # async fn run(runtime: Arc<dyn a3s_flow::FlowRuntime>) -> a3s_flow::Result<()> {
-let store = Arc::new(LocalFileEventStore::new(".a3s-flow/events"));
-let queue = Arc::new(LocalFileFlowTaskQueue::new(".a3s-flow/tasks"));
+let store = Arc::new(LocalFileEventStore::new(".a3s/flow/events"));
+let queue = Arc::new(LocalFileFlowTaskQueue::new(".a3s/flow/tasks"));
 
 queue.requeue_inflight().await?;
 queue
@@ -37,7 +37,7 @@ let worker = FlowWorker::new(engine.clone(), queue.clone());
 Directory layout:
 
 ```text
-.a3s-flow/
+.a3s/flow/
   events/
     <run-id>.jsonl
   tasks/
@@ -87,8 +87,8 @@ use a3s_flow::{
 use std::sync::Arc;
 
 # async fn run(runtime: Arc<dyn a3s_flow::FlowRuntime>) -> a3s_flow::Result<()> {
-let store = Arc::new(SqliteEventStore::connect("sqlite://.a3s-flow/flow.db").await?);
-let queue = Arc::new(LocalFileFlowTaskQueue::new(".a3s-flow/tasks"));
+let store = Arc::new(SqliteEventStore::connect("sqlite://.a3s/flow/flow.db").await?);
+let queue = Arc::new(LocalFileFlowTaskQueue::new(".a3s/flow/tasks"));
 
 queue.requeue_inflight().await?;
 
@@ -582,7 +582,7 @@ use std::sync::Arc;
 
 # fn runtime() -> Arc<dyn a3s_flow::FlowRuntime> { unimplemented!() }
 # fn build() {
-let sink = Arc::new(LocalFileA3sFlowEventSink::new(".a3s-flow/audit/events.jsonl"));
+let sink = Arc::new(LocalFileA3sFlowEventSink::new(".a3s/flow/audit/events.jsonl"));
 let observer = Arc::new(A3sFlowEventBridge::new(sink.clone()));
 let engine = FlowEngine::builder(runtime())
     .with_observer(observer)

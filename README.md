@@ -109,12 +109,24 @@ existing step, wait, or hook ID with different input, retry policy, timer
 deadline, token, or metadata, Flow reports a non-deterministic replay error
 instead of accepting the drift.
 
+Replay must also make progress. Rescheduling one already completed or failed
+step, or a batch made entirely of terminal steps, is rejected immediately.
+This prevents a faulty runtime from replaying unchanged history until the
+iteration limit while preserving partial batch replay for unfinished steps.
+
 ### Steps, tools, and side effects
 
 Side effects belong in steps. A step can call APIs, invoke local tools, run host
 capabilities, write files, or perform any operation the host runtime allows. The
 workflow only observes the step after the engine records its output or failure,
-so replay does not repeat successful side effects.
+so replay does not repeat a step whose successful output is already durable.
+
+The boundary between the external side effect and `StepCompleted` is
+at-least-once. If a process dies after the effect succeeds but before the output
+is stored, the next engine instance redelivers the same running attempt. Step
+implementations must therefore use a stable idempotency key or otherwise make
+their side effects replay-safe. Flow preserves the original attempt number so a
+crash redelivery does not consume the configured business retry budget.
 
 Flow supports:
 
@@ -469,10 +481,10 @@ use std::sync::Arc;
 async fn main() -> a3s_flow::Result<()> {
     let runtime = Arc::new(NativeTsRuntime::new(NativeTsRuntimeConfig::new(
         "a3s-flow-native-compiler",
-        ".a3s-flow/artifacts",
+        ".a3s/flow/artifacts",
         ".",
     )));
-    let store = Arc::new(LocalFileEventStore::new(".a3s-flow/events"));
+    let store = Arc::new(LocalFileEventStore::new(".a3s/flow/events"));
     let engine = FlowEngine::new(store, runtime);
 
     let spec = WorkflowSpec::native_ts(
@@ -826,14 +838,14 @@ for active in engine.list_active_hooks().await? {
 use a3s_flow::{FlowEngine, LocalFileEventStore};
 use std::sync::Arc;
 
-let store = Arc::new(LocalFileEventStore::new(".a3s-flow/events"));
+let store = Arc::new(LocalFileEventStore::new(".a3s/flow/events"));
 let engine = FlowEngine::new(store, runtime);
 ```
 
 Directory layout:
 
 ```text
-.a3s-flow/events/
+.a3s/flow/events/
   <run-id>.jsonl
 ```
 
@@ -876,7 +888,7 @@ a3s-flow = { version = "0.4.1", features = ["sqlite"] }
 use a3s_flow::{FlowEngine, SqliteEventStore};
 use std::sync::Arc;
 
-let store = Arc::new(SqliteEventStore::connect("sqlite://.a3s-flow/flow.db").await?);
+let store = Arc::new(SqliteEventStore::connect("sqlite://.a3s/flow/flow.db").await?);
 let engine = FlowEngine::new(store, runtime);
 ```
 
@@ -954,7 +966,7 @@ For local crash/restart durability of pending tasks, use
 use a3s_flow::{FlowTaskQueue, FlowWorker, LocalFileFlowTaskQueue};
 use std::sync::Arc;
 
-let queue = Arc::new(LocalFileFlowTaskQueue::new(".a3s-flow/tasks"));
+let queue = Arc::new(LocalFileFlowTaskQueue::new(".a3s/flow/tasks"));
 queue.requeue_inflight().await?;
 queue
     .requeue_inflight_older_than(chrono::Utc::now() - chrono::Duration::minutes(10))
@@ -1064,7 +1076,7 @@ records:
 use a3s_flow::{A3sFlowEventBridge, FlowEngine, LocalFileA3sFlowEventSink};
 use std::sync::Arc;
 
-let sink = Arc::new(LocalFileA3sFlowEventSink::new(".a3s-flow/audit/events.jsonl"));
+let sink = Arc::new(LocalFileA3sFlowEventSink::new(".a3s/flow/audit/events.jsonl"));
 let observer = Arc::new(A3sFlowEventBridge::new(sink.clone()));
 let engine = FlowEngine::builder(runtime)
     .with_observer(observer)

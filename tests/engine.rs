@@ -2106,6 +2106,50 @@ async fn recoverable_step_failure_replays_to_workflow_for_fallback() {
 }
 
 #[derive(Default)]
+struct RepeatedTerminalStepRuntime {
+    workflow_invocations: AtomicUsize,
+    step_invocations: AtomicUsize,
+}
+
+#[async_trait]
+impl FlowRuntime for RepeatedTerminalStepRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        self.workflow_invocations.fetch_add(1, Ordering::SeqCst);
+        Ok(invocation.context().schedule_step_with_retry(
+            "primary",
+            "primaryStep",
+            json!({}),
+            RetryPolicy::none().continue_workflow_on_failure(),
+        ))
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        self.step_invocations.fetch_add(1, Ordering::SeqCst);
+        Err(FlowError::Runtime("primary failed".to_string()))
+    }
+}
+
+#[tokio::test]
+async fn rescheduling_a_terminal_step_fails_without_replay_spam() {
+    let runtime = Arc::new(RepeatedTerminalStepRuntime::default());
+    let engine = FlowEngine::builder(runtime.clone())
+        .with_max_replay_iterations(8)
+        .build();
+
+    let error = engine.start(spec(), json!({})).await.unwrap_err();
+
+    assert!(
+        matches!(error, FlowError::InvalidTransition(ref message) if message.contains("rescheduled terminal step primary")),
+        "{error}"
+    );
+    assert_eq!(runtime.workflow_invocations.load(Ordering::SeqCst), 2);
+    assert_eq!(runtime.step_invocations.load(Ordering::SeqCst), 1);
+}
+
+#[derive(Default)]
 struct DelayedFlakyRuntime {
     attempts: AtomicUsize,
 }

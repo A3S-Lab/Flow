@@ -102,7 +102,7 @@ impl Default for NativeTsRuntimeConfig {
     fn default() -> Self {
         Self {
             compiler_binary: PathBuf::from("a3s-flow-native-compiler"),
-            cache_dir: PathBuf::from(".a3s-flow/native-ts"),
+            cache_dir: PathBuf::from(".a3s/flow/native-ts"),
             working_dir: PathBuf::from("."),
         }
     }
@@ -402,4 +402,17 @@ where
         FlowError::Runtime("native TypeScript runtime returned ok=true without output".to_string())
     })?;
     serde_json::from_value(output).map_err(FlowError::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NativeTsRuntimeConfig;
+    use std::path::Path;
+
+    #[test]
+    fn native_ts_default_cache_stays_under_a3s_state_root() {
+        let config = NativeTsRuntimeConfig::default();
+
+        assert_eq!(config.cache_dir, Path::new(".a3s/flow/native-ts"));
+    }
 }
