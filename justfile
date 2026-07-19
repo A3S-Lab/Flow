@@ -26,6 +26,11 @@ check:
 # Run the non-Postgres deep validation suite
 deep-test-non-pg: fmt-check diff-check clippy-non-pg test-non-pg doc-non-pg examples-non-pg package-dry-run
 
+# Run the real Postgres store and worker integration suite
+postgres-test:
+    test -n "${A3S_FLOW_POSTGRES_URL:-}" || (echo "A3S_FLOW_POSTGRES_URL is required" >&2; exit 1)
+    cargo test --all-targets --features postgres -- --test-threads=1
+
 # Run strict linting across non-Postgres feature combinations
 clippy-non-pg:
     cargo clippy --all-targets -- -D warnings
