@@ -1192,11 +1192,16 @@ The crate also defines local `just` recipes:
 just check
 just test
 just deep-test-non-pg
+just postgres-test
 ```
 
 `just deep-test-non-pg` runs formatting and diff checks, strict clippy, the
 non-Postgres feature test matrix, docs with warnings denied, non-Postgres
 examples, and package/publish dry-runs.
+
+`just postgres-test` requires `A3S_FLOW_POSTGRES_URL` and never silently skips
+the real Postgres event-store and worker-queue tests. Pull requests run this
+gate against PostgreSQL 17 in addition to the non-Postgres quality matrix.
 
 From the monorepo root:
 

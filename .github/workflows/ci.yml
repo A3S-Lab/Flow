@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  quality:
+    name: Rust quality
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Test default features
+        run: cargo test --all-targets
+
+      - name: Test minimal features
+        run: cargo test --all-targets --no-default-features
+
+      - name: Test SQLite and native TypeScript
+        run: cargo test --all-targets --no-default-features --features sqlite,native-ts
+
+      - name: Test A3S Event integration
+        run: cargo test --all-targets --no-default-features --features a3s-event
+
+      - name: Build documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --all-features --no-deps
+
+      - name: Verify package contents
+        run: cargo package
+
+  postgres:
+    name: PostgreSQL 17
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: a3s_flow
+          POSTGRES_PASSWORD: a3s_flow
+          POSTGRES_USER: a3s_flow
+        options: >-
+          --health-cmd "pg_isready -U a3s_flow -d a3s_flow"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+        ports:
+          - 5432:5432
+    env:
+      A3S_FLOW_POSTGRES_URL: postgres://a3s_flow:a3s_flow@127.0.0.1:5432/a3s_flow
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: postgres
+
+      - name: Run real PostgreSQL store and worker tests
+        run: cargo test --all-targets --features postgres -- --test-threads=1
