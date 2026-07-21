@@ -100,7 +100,7 @@ Supported commands:
 | `Complete` | Finish a run with durable JSON output |
 | `Fail` | Finish a run with a durable error |
 | `ScheduleStep` | Execute one side-effecting step and persist its output or failure |
-| `ScheduleSteps` | Fan out a stable batch of durable steps before replaying |
+| `ScheduleSteps` | Durably start and concurrently execute a stable batch of steps before replaying |
 | `WaitUntil` | Suspend a run until a timer is resumed |
 | `CreateHook` | Suspend a run until an external callback arrives or is disposed |
 
@@ -609,7 +609,7 @@ Use these docs when moving from API exploration to a host integration:
 | **Replay-first execution** | Workflow decisions are derived from persisted history |
 | **Replay validation** | Reused step, wait, and hook IDs must match the definition already recorded in history |
 | **Durable steps** | Side-effecting step outputs are persisted before replay continues |
-| **Batch step scheduling** | A runtime can fan out multiple durable steps from one replay command |
+| **Batch step scheduling** | A runtime can durably start and concurrently fan out multiple steps from one replay command |
 | **Idempotent creation** | Stable run IDs make workflow start safe to retry |
 | **Cancellation** | Hosts can append a terminal cancellation event so suspended work is not resumed later |
 | **Timers** | Waits suspend runs without holding compute |
@@ -640,7 +640,7 @@ do not leak into logs.
 | `Complete` | Persist `flow.run.completed` and finish the run |
 | `Fail` | Persist `flow.run.failed` and finish the run |
 | `ScheduleStep` | Persist step lifecycle events, run the step, then replay |
-| `ScheduleSteps` | Persist and run a stable batch of step definitions, then replay |
+| `ScheduleSteps` | Persist every sibling identity and attempt, run the stable batch concurrently, commit each outcome as it settles, then replay |
 | `WaitUntil` | Persist `flow.wait.created` and suspend |
 | `CreateHook` | Persist `flow.hook.created` and suspend until `hook_received` or `hook_disposed` is recorded |
 
@@ -750,8 +750,15 @@ Ok(ctx.schedule_steps(vec![
 ]))
 ```
 
-Step IDs in a batch must be unique. Each step definition is still replay
-validated against history before it is executed or skipped.
+Step IDs in a batch must be unique. Each step definition is replay validated
+against history before it is executed or skipped. Flow commits every sibling's
+`StepCreated` and `StepStarted` event before launching the batch concurrently,
+then records each outcome as that sibling settles so completed work is not held
+behind a slow sibling. Immediate retries fan out as another concurrent attempt
+set. Delayed retries stay durable: siblings that share a due deadline resume
+together, while a due sibling is never blocked by or joined with a sibling
+whose deadline is still in the future. A process restart redelivers only
+siblings left in `Running`, with the same attempt number.
 
 ### Waits and hooks
 

@@ -1,11 +1,12 @@
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use std::sync::Arc;
+use tokio::task::JoinSet;
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
     project_run, ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookStatus, RetryPolicy,
-    RuntimeCommand, StepFailureAction, StepStatus, WaitStatus, WorkflowRunSnapshot,
+    RuntimeCommand, StepCommand, StepFailureAction, StepStatus, WaitStatus, WorkflowRunSnapshot,
     WorkflowRunSummary, WorkflowRunSuspension, WorkflowSpec,
 };
 use crate::observe::{FlowEventObserver, NoopFlowEventObserver};
@@ -638,7 +639,7 @@ impl FlowEngine {
                     .hooks
                     .values()
                     .any(|hook| hook.status == HookStatus::Active)
-                || snapshot.has_future_retry(now)
+                || (snapshot.has_future_retry(now) && snapshot.due_retries(now).is_empty())
             {
                 return Ok(snapshot);
             }
@@ -699,7 +700,7 @@ impl FlowEngine {
                         }
                     }
                     match self
-                        .execute_step(run_id, &snapshot, step_id, step_name, input, retry)
+                        .execute_step(run_id, &snapshot, step_id, step_name, input, retry, now)
                         .await
                     {
                         Ok(()) => {}
@@ -734,23 +735,10 @@ impl FlowEngine {
                             "workflow rescheduled only terminal steps without progress: {step_ids}"
                         )));
                     }
-                    for step in steps {
-                        let current_snapshot = self.snapshot(run_id).await?;
-                        match self
-                            .execute_step(
-                                run_id,
-                                &current_snapshot,
-                                step.step_id,
-                                step.step_name,
-                                step.input,
-                                step.retry,
-                            )
-                            .await
-                        {
-                            Ok(()) => {}
-                            Err(err) if is_event_conflict(&err) => continue 'replay,
-                            Err(err) => return Err(err),
-                        }
+                    match self.execute_step_batch(run_id, &snapshot, steps, now).await {
+                        Ok(()) => {}
+                        Err(err) if is_event_conflict(&err) => continue 'replay,
+                        Err(err) => return Err(err),
                     }
                 }
                 RuntimeCommand::WaitUntil { wait_id, resume_at } => {
@@ -869,11 +857,19 @@ impl FlowEngine {
         step_name: String,
         input: serde_json::Value,
         retry: RetryPolicy,
+        now: DateTime<Utc>,
     ) -> Result<()> {
         let mut expected_sequence = snapshot.last_sequence;
         if let Some(step) = snapshot.steps.get(&step_id) {
             ensure_step_command_matches(run_id, step, &step_name, &input, retry)?;
             if matches!(step.status, StepStatus::Completed | StepStatus::Failed) {
+                return Ok(());
+            }
+            if step.status == StepStatus::Pending
+                && step
+                    .retry_after
+                    .is_some_and(|retry_after| retry_after > now)
+            {
                 return Ok(());
             }
         } else {
@@ -990,5 +986,226 @@ impl FlowEngine {
                 }
             }
         }
+    }
+
+    async fn execute_step_batch(
+        &self,
+        run_id: &str,
+        snapshot: &WorkflowRunSnapshot,
+        steps: Vec<StepCommand>,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        let mut expected_sequence = snapshot.last_sequence;
+
+        // Make every sibling identity durable before any side effect starts.
+        for step in &steps {
+            if snapshot.steps.contains_key(&step.step_id) {
+                continue;
+            }
+            let created = self
+                .record_event_at(
+                    run_id,
+                    expected_sequence,
+                    FlowEvent::StepCreated {
+                        step_id: step.step_id.clone(),
+                        step_name: step.step_name.clone(),
+                        input: step.input.clone(),
+                        retry: step.retry,
+                    },
+                )
+                .await?;
+            expected_sequence = created.sequence;
+        }
+
+        let mut active = Vec::new();
+        for step in steps {
+            let existing = snapshot.steps.get(&step.step_id);
+            let attempt = match existing.map(|existing| existing.status) {
+                Some(StepStatus::Completed | StepStatus::Failed) => continue,
+                Some(StepStatus::Running) => {
+                    existing.map(|existing| existing.attempt).ok_or_else(|| {
+                        FlowError::InvalidTransition(format!(
+                            "running batch step {} has no projected attempt",
+                            step.step_id
+                        ))
+                    })?
+                }
+                Some(StepStatus::Pending) => {
+                    if existing
+                        .and_then(|existing| existing.retry_after)
+                        .is_some_and(|retry_after| retry_after > now)
+                    {
+                        continue;
+                    }
+                    let attempt = existing
+                        .and_then(|existing| existing.attempt.checked_add(1))
+                        .ok_or_else(|| {
+                            FlowError::InvalidTransition(format!(
+                                "step attempt overflowed for {}",
+                                step.step_id
+                            ))
+                        })?;
+                    let started = self
+                        .record_event_at(
+                            run_id,
+                            expected_sequence,
+                            FlowEvent::StepStarted {
+                                step_id: step.step_id.clone(),
+                                attempt,
+                            },
+                        )
+                        .await?;
+                    expected_sequence = started.sequence;
+                    attempt
+                }
+                None => {
+                    let attempt = 1;
+                    let started = self
+                        .record_event_at(
+                            run_id,
+                            expected_sequence,
+                            FlowEvent::StepStarted {
+                                step_id: step.step_id.clone(),
+                                attempt,
+                            },
+                        )
+                        .await?;
+                    expected_sequence = started.sequence;
+                    attempt
+                }
+            };
+            active.push((step, attempt));
+        }
+
+        while !active.is_empty() {
+            let history = self.store.list(run_id).await?;
+            let mut tasks = JoinSet::new();
+            for (index, (step, _)) in active.iter().enumerate() {
+                let runtime = Arc::clone(&self.runtime);
+                let invocation = StepInvocation {
+                    run_id: run_id.to_string(),
+                    step_id: step.step_id.clone(),
+                    step_name: step.step_name.clone(),
+                    input: step.input.clone(),
+                    history: history.clone(),
+                };
+                tasks.spawn(async move { (index, runtime.run_step(invocation).await) });
+            }
+            let mut observed_outcomes = vec![false; active.len()];
+            let mut immediate_retries = Vec::new();
+            while let Some(joined) = tasks.join_next().await {
+                let (index, outcome) = joined.map_err(|error| {
+                    FlowError::Runtime(format!(
+                        "concurrent step task failed before returning an outcome: {error}"
+                    ))
+                })?;
+                if index >= observed_outcomes.len() || observed_outcomes[index] {
+                    return Err(FlowError::InvalidTransition(
+                        "concurrent step batch returned an invalid outcome index".to_string(),
+                    ));
+                }
+                observed_outcomes[index] = true;
+                let (step, attempt) = &active[index];
+                match outcome {
+                    Ok(output) => {
+                        let completed = self
+                            .record_event_at(
+                                run_id,
+                                expected_sequence,
+                                FlowEvent::StepCompleted {
+                                    step_id: step.step_id.clone(),
+                                    output,
+                                },
+                            )
+                            .await?;
+                        expected_sequence = completed.sequence;
+                    }
+                    Err(error) if *attempt < step.retry.max_attempts.max(1) => {
+                        let error = error.to_string();
+                        let retry_after = if step.retry.delay_ms > 0 {
+                            Some(
+                                Utc::now()
+                                    + ChronoDuration::milliseconds(step.retry.delay_ms as i64),
+                            )
+                        } else {
+                            None
+                        };
+                        let retrying = self
+                            .record_event_at(
+                                run_id,
+                                expected_sequence,
+                                FlowEvent::StepRetrying {
+                                    step_id: step.step_id.clone(),
+                                    attempt: *attempt,
+                                    error,
+                                    retry_after,
+                                },
+                            )
+                            .await?;
+                        expected_sequence = retrying.sequence;
+                        if retry_after.is_none() {
+                            immediate_retries.push((step.clone(), *attempt));
+                        }
+                    }
+                    Err(error) => {
+                        let error = error.to_string();
+                        let failed = self
+                            .record_event_at(
+                                run_id,
+                                expected_sequence,
+                                FlowEvent::StepFailed {
+                                    step_id: step.step_id.clone(),
+                                    attempt: *attempt,
+                                    error: error.clone(),
+                                },
+                            )
+                            .await?;
+                        expected_sequence = failed.sequence;
+                        if step.retry.on_exhausted == StepFailureAction::FailRun {
+                            self.record_event_at(
+                                run_id,
+                                expected_sequence,
+                                FlowEvent::RunFailed { error },
+                            )
+                            .await?;
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+            if let Some(index) = observed_outcomes.iter().position(|observed| !observed) {
+                return Err(FlowError::Runtime(format!(
+                    "concurrent step batch omitted outcome index {index}"
+                )));
+            }
+            if immediate_retries.is_empty() {
+                return Ok(());
+            }
+
+            let mut next_active = Vec::with_capacity(immediate_retries.len());
+            for (step, attempt) in immediate_retries {
+                let attempt = attempt.checked_add(1).ok_or_else(|| {
+                    FlowError::InvalidTransition(format!(
+                        "step attempt overflowed for {}",
+                        step.step_id
+                    ))
+                })?;
+                let started = self
+                    .record_event_at(
+                        run_id,
+                        expected_sequence,
+                        FlowEvent::StepStarted {
+                            step_id: step.step_id.clone(),
+                            attempt,
+                        },
+                    )
+                    .await?;
+                expected_sequence = started.sequence;
+                next_active.push((step, attempt));
+            }
+            active = next_active;
+        }
+
+        Ok(())
     }
 }
