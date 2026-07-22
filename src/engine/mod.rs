@@ -71,6 +71,14 @@ pub struct FlowEngine {
     max_replay_iterations: usize,
 }
 
+struct StepExecutionContext {
+    step_id: String,
+    step_name: String,
+    input: serde_json::Value,
+    retry: RetryPolicy,
+    now: DateTime<Utc>,
+}
+
 impl FlowEngine {
     pub fn builder(runtime: Arc<dyn FlowRuntime>) -> FlowEngineBuilder {
         FlowEngineBuilder::new(runtime)
@@ -700,7 +708,17 @@ impl FlowEngine {
                         }
                     }
                     match self
-                        .execute_step(run_id, &snapshot, step_id, step_name, input, retry, now)
+                        .execute_step(
+                            run_id,
+                            &snapshot,
+                            StepExecutionContext {
+                                step_id,
+                                step_name,
+                                input,
+                                retry,
+                                now,
+                            },
+                        )
                         .await
                     {
                         Ok(()) => {}
@@ -853,12 +871,15 @@ impl FlowEngine {
         &self,
         run_id: &str,
         snapshot: &WorkflowRunSnapshot,
-        step_id: String,
-        step_name: String,
-        input: serde_json::Value,
-        retry: RetryPolicy,
-        now: DateTime<Utc>,
+        context: StepExecutionContext,
     ) -> Result<()> {
+        let StepExecutionContext {
+            step_id,
+            step_name,
+            input,
+            retry,
+            now,
+        } = context;
         let mut expected_sequence = snapshot.last_sequence;
         if let Some(step) = snapshot.steps.get(&step_id) {
             ensure_step_command_matches(run_id, step, &step_name, &input, retry)?;

@@ -860,9 +860,12 @@ Each line is one serialized `FlowEventEnvelope`. The local file store serializes
 appends inside the current process and is intended for local durability.
 `FlowEventStore::append_if_sequence()` supports optimistic expected-sequence
 writes so engine appends fail cleanly when another writer has already advanced a
-run. Existing JSONL histories are projected before append, so corrupt histories
-are rejected instead of being extended. Use a database-backed store for
-multi-process or distributed writers.
+run. On restart, a complete final envelope that is missing only its newline is
+preserved. An unterminated malformed tail is treated as a torn append: reads
+return the preceding valid event prefix and the next append truncates only that
+tail before continuing. A malformed newline-terminated record or any invalid
+record inside the history still fails closed instead of being extended. Use a
+database-backed store for multi-process or distributed writers.
 
 ### Local retention
 

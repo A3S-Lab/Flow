@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.4.3 - 2026-07-22
+
+- Recover a local JSONL history after a process dies during its final append.
+  A complete final envelope that only lacks its newline is preserved, while an
+  unterminated malformed tail is ignored on read and truncated before the next
+  append. Corruption in a newline-terminated record still fails closed. Event
+  envelopes and their newline are now submitted as one buffered append before
+  flush and data sync.
 - Run `ScheduleSteps` siblings concurrently after all step identities and
   attempts are durably recorded. Each outcome is committed as its sibling
   settles, so completed work survives another sibling hanging or a process

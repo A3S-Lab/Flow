@@ -1252,6 +1252,96 @@ async fn local_file_store_rejects_append_to_invalid_log() {
 }
 
 #[tokio::test]
+async fn local_file_store_repairs_a_missing_final_delimiter_before_append() {
+    let dir = tempfile::tempdir().unwrap();
+    let run_id = "missing-final-delimiter";
+    let path = dir.path().join(format!("{run_id}.jsonl"));
+    let store = LocalFileEventStore::new(dir.path());
+    let first = store
+        .append_if_sequence(run_id, 0, run_created_event())
+        .await
+        .unwrap();
+
+    let mut bytes = tokio::fs::read(&path).await.unwrap();
+    assert_eq!(bytes.pop(), Some(b'\n'));
+    tokio::fs::write(&path, bytes).await.unwrap();
+
+    let resumed = LocalFileEventStore::new(dir.path());
+    resumed
+        .append_if_sequence(run_id, first.sequence, FlowEvent::RunStarted)
+        .await
+        .unwrap();
+
+    let events = resumed.list(run_id).await.unwrap();
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].sequence, 1);
+    assert_eq!(events[1].sequence, 2);
+    let repaired = tokio::fs::read(&path).await.unwrap();
+    assert!(repaired.ends_with(b"\n"));
+    assert_eq!(repaired.split(|byte| *byte == b'\n').count(), 3);
+}
+
+#[tokio::test]
+async fn local_file_store_discards_only_an_unterminated_torn_tail() {
+    let dir = tempfile::tempdir().unwrap();
+    let run_id = "unterminated-torn-tail";
+    let path = dir.path().join(format!("{run_id}.jsonl"));
+    let store = LocalFileEventStore::new(dir.path());
+    let first = store
+        .append_if_sequence(run_id, 0, run_created_event())
+        .await
+        .unwrap();
+
+    let mut bytes = tokio::fs::read(&path).await.unwrap();
+    bytes.extend_from_slice(br#"{"run_id":"unterminated"#);
+    tokio::fs::write(&path, bytes).await.unwrap();
+
+    let resumed = LocalFileEventStore::new(dir.path());
+    let recovered = resumed.list(run_id).await.unwrap();
+    assert_eq!(recovered.len(), 1);
+    resumed
+        .append_if_sequence(run_id, first.sequence, FlowEvent::RunStarted)
+        .await
+        .unwrap();
+
+    let events = resumed.list(run_id).await.unwrap();
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].sequence, 1);
+    assert_eq!(events[1].sequence, 2);
+    let repaired = tokio::fs::read_to_string(path).await.unwrap();
+    assert!(!repaired.contains(r#""run_id":"unterminated""#));
+    assert_eq!(repaired.lines().count(), 2);
+}
+
+#[tokio::test]
+async fn local_file_store_still_rejects_a_terminated_corrupt_tail() {
+    let dir = tempfile::tempdir().unwrap();
+    let run_id = "terminated-corrupt-tail";
+    let path = dir.path().join(format!("{run_id}.jsonl"));
+    let store = LocalFileEventStore::new(dir.path());
+    let first = store
+        .append_if_sequence(run_id, 0, run_created_event())
+        .await
+        .unwrap();
+
+    let mut bytes = tokio::fs::read(&path).await.unwrap();
+    bytes.extend_from_slice(b"not-json\n");
+    tokio::fs::write(&path, &bytes).await.unwrap();
+
+    let resumed = LocalFileEventStore::new(dir.path());
+    let error = resumed.list(run_id).await.unwrap_err();
+    assert!(error.to_string().contains("failed to decode event line 2"));
+    let append_error = resumed
+        .append_if_sequence(run_id, first.sequence, FlowEvent::RunStarted)
+        .await
+        .unwrap_err();
+    assert!(append_error
+        .to_string()
+        .contains("failed to decode event line 2"));
+    assert_eq!(tokio::fs::read(path).await.unwrap(), bytes);
+}
+
+#[tokio::test]
 async fn local_file_store_prunes_only_old_terminal_runs() {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(LocalFileEventStore::new(dir.path()));
