@@ -17,12 +17,27 @@ use super::FlowEventStore;
 /// Each workflow run is stored as `<root>/<run_id>.jsonl`; every line is a full
 /// [`FlowEventEnvelope`]. The store serializes appends inside this process, but
 /// it does not provide cross-process locking. Use it for local development,
-/// embedded Rust hosts, and crash/restart durability; use a database-backed
+/// embedded Rust hosts, and crash/restart durability. An unterminated malformed
+/// tail is treated as a torn append and truncated before the next write;
+/// terminated or interior corruption remains an error. Use a database-backed
 /// store for multi-writer deployments.
 #[derive(Debug, Clone)]
 pub struct LocalFileEventStore {
     root: PathBuf,
     lock: Arc<Mutex<()>>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum TailRepair {
+    None,
+    AppendDelimiter,
+    Truncate(u64),
+}
+
+#[derive(Debug)]
+struct LoadedEventLog {
+    events: Vec<FlowEventEnvelope>,
+    tail_repair: TailRepair,
 }
 
 impl LocalFileEventStore {
@@ -46,16 +61,15 @@ impl LocalFileEventStore {
         Ok(self.root.join(format!("{run_id}.jsonl")))
     }
 
-    async fn list_inner(
-        &self,
-        run_id: &str,
-        missing_is_empty: bool,
-    ) -> Result<Vec<FlowEventEnvelope>> {
+    async fn load_inner(&self, run_id: &str, missing_is_empty: bool) -> Result<LoadedEventLog> {
         let path = self.run_path(run_id)?;
         let file = match File::open(&path).await {
             Ok(file) => file,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound && missing_is_empty => {
-                return Ok(Vec::new());
+                return Ok(LoadedEventLog {
+                    events: Vec::new(),
+                    tail_repair: TailRepair::None,
+                });
             }
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                 return Err(FlowError::RunNotFound(run_id.to_string()));
@@ -63,20 +77,49 @@ impl LocalFileEventStore {
             Err(err) => return Err(FlowError::Io(err)),
         };
 
-        let mut lines = BufReader::new(file).lines();
+        let mut reader = BufReader::new(file);
         let mut events = Vec::new();
         let mut line_no = 0usize;
-        while let Some(line) = lines.next_line().await? {
+        let mut valid_prefix_len = 0u64;
+        let mut buffer = Vec::new();
+        loop {
+            buffer.clear();
+            let bytes_read = reader.read_until(b'\n', &mut buffer).await?;
+            if bytes_read == 0 {
+                break;
+            }
             line_no += 1;
-            if line.trim().is_empty() {
+            let terminated = buffer.last() == Some(&b'\n');
+            let line = if terminated {
+                &buffer[..buffer.len() - 1]
+            } else {
+                buffer.as_slice()
+            };
+            if line.iter().all(u8::is_ascii_whitespace) {
+                if !terminated {
+                    return Ok(LoadedEventLog {
+                        events,
+                        tail_repair: TailRepair::Truncate(valid_prefix_len),
+                    });
+                }
+                valid_prefix_len = checked_file_offset(valid_prefix_len, bytes_read, &path)?;
                 continue;
             }
-            let envelope: FlowEventEnvelope = serde_json::from_str(&line).map_err(|err| {
-                FlowError::Store(format!(
-                    "failed to decode event line {line_no} from {}: {err}",
-                    path.display()
-                ))
-            })?;
+            let envelope: FlowEventEnvelope = match serde_json::from_slice(line) {
+                Ok(envelope) => envelope,
+                Err(_) if !terminated => {
+                    return Ok(LoadedEventLog {
+                        events,
+                        tail_repair: TailRepair::Truncate(valid_prefix_len),
+                    });
+                }
+                Err(err) => {
+                    return Err(FlowError::Store(format!(
+                        "failed to decode event line {line_no} from {}: {err}",
+                        path.display()
+                    )));
+                }
+            };
             if envelope.run_id != run_id {
                 return Err(FlowError::Store(format!(
                     "event line {line_no} in {} belongs to run {}, not {run_id}",
@@ -85,9 +128,27 @@ impl LocalFileEventStore {
                 )));
             }
             events.push(envelope);
+            valid_prefix_len = checked_file_offset(valid_prefix_len, bytes_read, &path)?;
+            if !terminated {
+                return Ok(LoadedEventLog {
+                    events,
+                    tail_repair: TailRepair::AppendDelimiter,
+                });
+            }
         }
 
-        Ok(events)
+        Ok(LoadedEventLog {
+            events,
+            tail_repair: TailRepair::None,
+        })
+    }
+
+    async fn list_inner(
+        &self,
+        run_id: &str,
+        missing_is_empty: bool,
+    ) -> Result<Vec<FlowEventEnvelope>> {
+        Ok(self.load_inner(run_id, missing_is_empty).await?.events)
     }
 
     fn validate_existing_log(&self, run_id: &str, events: &[FlowEventEnvelope]) -> Result<()> {
@@ -101,7 +162,10 @@ impl LocalFileEventStore {
     async fn append_inner(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope> {
         tokio::fs::create_dir_all(&self.root).await?;
 
-        let events = self.list_inner(run_id, true).await?;
+        let LoadedEventLog {
+            events,
+            tail_repair,
+        } = self.load_inner(run_id, true).await?;
         self.validate_existing_log(run_id, &events)?;
         let envelope = FlowEventEnvelope {
             run_id: run_id.to_string(),
@@ -111,6 +175,7 @@ impl LocalFileEventStore {
             event,
         };
 
+        self.repair_tail(run_id, tail_repair).await?;
         self.write_envelope(&envelope).await?;
         Ok(envelope)
     }
@@ -123,7 +188,10 @@ impl LocalFileEventStore {
     ) -> Result<FlowEventEnvelope> {
         tokio::fs::create_dir_all(&self.root).await?;
 
-        let events = self.list_inner(run_id, true).await?;
+        let LoadedEventLog {
+            events,
+            tail_repair,
+        } = self.load_inner(run_id, true).await?;
         self.validate_existing_log(run_id, &events)?;
         let actual_sequence = events.last().map_or(0, |event| event.sequence);
         if actual_sequence != expected_sequence {
@@ -142,8 +210,29 @@ impl LocalFileEventStore {
             event,
         };
 
+        self.repair_tail(run_id, tail_repair).await?;
         self.write_envelope(&envelope).await?;
         Ok(envelope)
+    }
+
+    async fn repair_tail(&self, run_id: &str, repair: TailRepair) -> Result<()> {
+        let path = self.run_path(run_id)?;
+        match repair {
+            TailRepair::None => Ok(()),
+            TailRepair::AppendDelimiter => {
+                let mut file = OpenOptions::new().append(true).open(path).await?;
+                file.write_all(b"\n").await?;
+                file.flush().await?;
+                file.sync_data().await?;
+                Ok(())
+            }
+            TailRepair::Truncate(valid_prefix_len) => {
+                let file = OpenOptions::new().write(true).open(path).await?;
+                file.set_len(valid_prefix_len).await?;
+                file.sync_data().await?;
+                Ok(())
+            }
+        }
     }
 
     async fn write_envelope(&self, envelope: &FlowEventEnvelope) -> Result<()> {
@@ -153,9 +242,9 @@ impl LocalFileEventStore {
             .append(true)
             .open(path)
             .await?;
-        file.write_all(serde_json::to_string(envelope)?.as_bytes())
-            .await?;
-        file.write_all(b"\n").await?;
+        let mut line = serde_json::to_vec(envelope)?;
+        line.push(b'\n');
+        file.write_all(&line).await?;
         file.flush().await?;
         file.sync_data().await?;
         Ok(())
@@ -250,6 +339,21 @@ impl FlowEventStore for LocalFileEventStore {
         let _guard = self.lock.lock().await;
         self.list_run_ids_inner().await
     }
+}
+
+fn checked_file_offset(current: u64, bytes_read: usize, path: &Path) -> Result<u64> {
+    let bytes_read = u64::try_from(bytes_read).map_err(|_| {
+        FlowError::Store(format!(
+            "event line length from {} exceeds the supported file offset",
+            path.display()
+        ))
+    })?;
+    current.checked_add(bytes_read).ok_or_else(|| {
+        FlowError::Store(format!(
+            "event log {} exceeds the supported file offset",
+            path.display()
+        ))
+    })
 }
 
 fn terminal_event_timestamp(events: &[FlowEventEnvelope]) -> Option<DateTime<Utc>> {

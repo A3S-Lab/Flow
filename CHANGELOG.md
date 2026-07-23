@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.4.3 - 2026-07-22
+
+- Recover a local JSONL history after a process dies during its final append.
+  A complete final envelope that only lacks its newline is preserved, while an
+  unterminated malformed tail is ignored on read and truncated before the next
+  append. Corruption in a newline-terminated record still fails closed. Event
+  envelopes and their newline are now submitted as one buffered append before
+  flush and data sync.
+- Run `ScheduleSteps` siblings concurrently after all step identities and
+  attempts are durably recorded. Each outcome is committed as its sibling
+  settles, so completed work survives another sibling hanging or a process
+  interruption. Immediate retries fan out again, delayed retries remain
+  resumable as one durable sibling set, and dropping the drive future aborts
+  its in-process sibling tasks without weakening at-least-once restart
+  recovery. A retry whose deadline is due now runs immediately even when a
+  sibling has a later deadline; the future sibling remains suspended and is
+  neither executed early nor joined into the due attempt set.
+
 ## 0.4.2 - 2026-07-15
 
 - Redeliver a running step after engine restart when its side effect may have

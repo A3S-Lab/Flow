@@ -15,9 +15,11 @@ use a3s_flow::{
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde_json::json;
+use std::future::pending;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::sync::Barrier;
 use uuid::Uuid;
 
 fn spec() -> WorkflowSpec {
@@ -362,6 +364,341 @@ async fn schedule_steps_fans_out_multiple_durable_steps() {
     assert_eq!(snapshot.steps["load-orders"].status, StepStatus::Completed);
     assert_eq!(snapshot.steps["load-orders"].retry.max_attempts, 2);
     assert_eq!(snapshot.output.unwrap()["orders"][1]["id"], "o2");
+}
+
+struct ConcurrentBatchStepRuntime {
+    barrier: Barrier,
+    in_flight: AtomicUsize,
+    maximum_in_flight: AtomicUsize,
+}
+
+impl ConcurrentBatchStepRuntime {
+    fn new(step_count: usize) -> Self {
+        Self {
+            barrier: Barrier::new(step_count),
+            in_flight: AtomicUsize::new(0),
+            maximum_in_flight: AtomicUsize::new(0),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowRuntime for ConcurrentBatchStepRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let ctx = invocation.context();
+        if ctx.step_output("alpha").is_some() && ctx.step_output("beta").is_some() {
+            return Ok(ctx.complete(json!({ "done": true })));
+        }
+        Ok(ctx.schedule_steps(vec![
+            ctx.step("alpha", "barrier", json!({ "value": "alpha" })),
+            ctx.step("beta", "barrier", json!({ "value": "beta" })),
+        ]))
+    }
+
+    async fn run_step(&self, invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        let in_flight = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+        self.maximum_in_flight
+            .fetch_max(in_flight, Ordering::SeqCst);
+        self.barrier.wait().await;
+        self.in_flight.fetch_sub(1, Ordering::SeqCst);
+        Ok(invocation.input)
+    }
+}
+
+#[tokio::test]
+async fn schedule_steps_runs_durable_siblings_concurrently() {
+    let runtime = Arc::new(ConcurrentBatchStepRuntime::new(2));
+    let engine = FlowEngine::in_memory(runtime.clone());
+    let run_id = tokio::time::timeout(Duration::from_secs(1), engine.start(spec(), json!({})))
+        .await
+        .expect("both batch steps must enter the runtime without waiting for a sibling")
+        .unwrap();
+
+    assert_eq!(runtime.maximum_in_flight.load(Ordering::SeqCst), 2);
+    let history = engine.history(&run_id).await.unwrap();
+    let second_started = history
+        .iter()
+        .position(|event| {
+            matches!(
+                &event.event,
+                FlowEvent::StepStarted { step_id, .. } if step_id == "beta"
+            )
+        })
+        .unwrap();
+    let first_completed = history
+        .iter()
+        .position(|event| matches!(event.event, FlowEvent::StepCompleted { .. }))
+        .unwrap();
+    assert!(
+        second_started < first_completed,
+        "every sibling start must be durable before any batch completion"
+    );
+}
+
+struct HangingBatchSiblingRuntime;
+
+#[async_trait]
+impl FlowRuntime for HangingBatchSiblingRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let ctx = invocation.context();
+        Ok(ctx.schedule_steps(vec![
+            ctx.step("fast", "partialBatch", json!({})),
+            ctx.step("hanging", "partialBatch", json!({})),
+        ]))
+    }
+
+    async fn run_step(&self, invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        if invocation.step_id == "hanging" {
+            return pending().await;
+        }
+        Ok(json!({ "step": invocation.step_id }))
+    }
+}
+
+#[tokio::test]
+async fn completed_batch_sibling_is_durable_while_another_sibling_is_running() {
+    let engine = FlowEngine::in_memory(Arc::new(HangingBatchSiblingRuntime));
+    let worker = {
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            engine
+                .start_with_id("partial-concurrent-batch", spec(), json!({}))
+                .await
+        })
+    };
+
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if let Ok(snapshot) = engine.snapshot("partial-concurrent-batch").await {
+                if snapshot
+                    .steps
+                    .get("fast")
+                    .is_some_and(|step| step.status == StepStatus::Completed)
+                    && snapshot
+                        .steps
+                        .get("hanging")
+                        .is_some_and(|step| step.status == StepStatus::Running)
+                {
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("the fast sibling must commit without waiting for the hanging sibling");
+    worker.abort();
+    let _ = worker.await;
+
+    let snapshot = engine.snapshot("partial-concurrent-batch").await.unwrap();
+    assert_eq!(snapshot.steps["fast"].status, StepStatus::Completed);
+    assert_eq!(snapshot.steps["hanging"].status, StepStatus::Running);
+    let history = engine.history("partial-concurrent-batch").await.unwrap();
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| matches!(event.event, FlowEvent::StepStarted { .. }))
+            .count(),
+        2
+    );
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| matches!(event.event, FlowEvent::StepCompleted { .. }))
+            .count(),
+        1
+    );
+}
+
+struct DelayedConcurrentBatchRuntime {
+    barrier: Barrier,
+    alpha_attempts: AtomicUsize,
+    beta_attempts: AtomicUsize,
+}
+
+impl DelayedConcurrentBatchRuntime {
+    fn new() -> Self {
+        Self {
+            barrier: Barrier::new(2),
+            alpha_attempts: AtomicUsize::new(0),
+            beta_attempts: AtomicUsize::new(0),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowRuntime for DelayedConcurrentBatchRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let ctx = invocation.context();
+        if ctx.step_output("alpha").is_some() && ctx.step_output("beta").is_some() {
+            return Ok(ctx.complete(json!({ "done": true })));
+        }
+        let retry = RetryPolicy::fixed(2, Duration::from_millis(10));
+        Ok(ctx.schedule_steps(vec![
+            ctx.step_with_retry("alpha", "delayedBarrier", json!({}), retry),
+            ctx.step_with_retry("beta", "delayedBarrier", json!({}), retry),
+        ]))
+    }
+
+    async fn run_step(&self, invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        let attempts = match invocation.step_id.as_str() {
+            "alpha" => &self.alpha_attempts,
+            "beta" => &self.beta_attempts,
+            other => return Err(FlowError::Runtime(format!("unknown batch step {other}"))),
+        };
+        let attempt = attempts.fetch_add(1, Ordering::SeqCst) + 1;
+        self.barrier.wait().await;
+        if attempt == 1 {
+            Err(FlowError::Runtime(format!(
+                "{} failed once",
+                invocation.step_id
+            )))
+        } else {
+            Ok(json!({ "attempt": attempt }))
+        }
+    }
+}
+
+#[tokio::test]
+async fn delayed_batch_retries_resume_all_due_siblings_concurrently() {
+    let runtime = Arc::new(DelayedConcurrentBatchRuntime::new());
+    let engine = FlowEngine::in_memory(runtime.clone());
+    let run_id = engine.start(spec(), json!({})).await.unwrap();
+    let suspended = engine.snapshot(&run_id).await.unwrap();
+
+    assert_eq!(suspended.status, WorkflowRunStatus::Suspended);
+    assert_eq!(suspended.steps["alpha"].status, StepStatus::Pending);
+    assert_eq!(suspended.steps["beta"].status, StepStatus::Pending);
+    assert_eq!(runtime.alpha_attempts.load(Ordering::SeqCst), 1);
+    assert_eq!(runtime.beta_attempts.load(Ordering::SeqCst), 1);
+
+    let resumed = tokio::time::timeout(
+        Duration::from_secs(1),
+        engine.resume_due_retries(Utc::now() + ChronoDuration::seconds(1)),
+    )
+    .await
+    .expect("both due retries must re-enter the runtime together")
+    .unwrap();
+    assert_eq!(
+        resumed,
+        vec![
+            (run_id.clone(), "alpha".to_string()),
+            (run_id.clone(), "beta".to_string())
+        ]
+    );
+
+    let completed = engine.snapshot(&run_id).await.unwrap();
+    assert_eq!(completed.status, WorkflowRunStatus::Completed);
+    assert_eq!(completed.steps["alpha"].attempt, 2);
+    assert_eq!(completed.steps["beta"].attempt, 2);
+    assert_eq!(runtime.alpha_attempts.load(Ordering::SeqCst), 2);
+    assert_eq!(runtime.beta_attempts.load(Ordering::SeqCst), 2);
+}
+
+struct StaggeredDelayedBatchRuntime {
+    alpha_attempts: AtomicUsize,
+    beta_attempts: AtomicUsize,
+}
+
+impl StaggeredDelayedBatchRuntime {
+    fn new() -> Self {
+        Self {
+            alpha_attempts: AtomicUsize::new(0),
+            beta_attempts: AtomicUsize::new(0),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowRuntime for StaggeredDelayedBatchRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let ctx = invocation.context();
+        if ctx.step_output("alpha").is_some() && ctx.step_output("beta").is_some() {
+            return Ok(ctx.complete(json!({ "done": true })));
+        }
+        Ok(ctx.schedule_steps(vec![
+            ctx.step_with_retry(
+                "alpha",
+                "staggeredDelayed",
+                json!({}),
+                RetryPolicy::fixed(2, Duration::from_millis(10)),
+            ),
+            ctx.step_with_retry(
+                "beta",
+                "staggeredDelayed",
+                json!({}),
+                RetryPolicy::fixed(2, Duration::from_secs(60)),
+            ),
+        ]))
+    }
+
+    async fn run_step(&self, invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        let attempts = match invocation.step_id.as_str() {
+            "alpha" => &self.alpha_attempts,
+            "beta" => &self.beta_attempts,
+            other => return Err(FlowError::Runtime(format!("unknown batch step {other}"))),
+        };
+        let attempt = attempts.fetch_add(1, Ordering::SeqCst) + 1;
+        if attempt == 1 {
+            Err(FlowError::Runtime(format!(
+                "{} failed once",
+                invocation.step_id
+            )))
+        } else {
+            Ok(json!({ "attempt": attempt }))
+        }
+    }
+}
+
+#[tokio::test]
+async fn due_batch_retry_is_not_blocked_or_joined_by_a_future_sibling() {
+    let runtime = Arc::new(StaggeredDelayedBatchRuntime::new());
+    let engine = FlowEngine::in_memory(runtime.clone());
+    let run_id = engine.start(spec(), json!({})).await.unwrap();
+    let suspended = engine.snapshot(&run_id).await.unwrap();
+    let alpha_due = suspended.steps["alpha"].retry_after.unwrap();
+    let beta_due = suspended.steps["beta"].retry_after.unwrap();
+
+    assert!(alpha_due < beta_due);
+    assert_eq!(
+        engine.resume_due_retries(alpha_due).await.unwrap(),
+        vec![(run_id.clone(), "alpha".to_string())]
+    );
+
+    let partially_resumed = engine.snapshot(&run_id).await.unwrap();
+    assert_eq!(partially_resumed.status, WorkflowRunStatus::Suspended);
+    assert_eq!(
+        partially_resumed.steps["alpha"].status,
+        StepStatus::Completed
+    );
+    assert_eq!(partially_resumed.steps["alpha"].attempt, 2);
+    assert_eq!(partially_resumed.steps["beta"].status, StepStatus::Pending);
+    assert_eq!(partially_resumed.steps["beta"].attempt, 1);
+    assert_eq!(runtime.alpha_attempts.load(Ordering::SeqCst), 2);
+    assert_eq!(runtime.beta_attempts.load(Ordering::SeqCst), 1);
+
+    assert_eq!(
+        engine
+            .resume_due_retries(beta_due + ChronoDuration::seconds(1))
+            .await
+            .unwrap(),
+        vec![(run_id.clone(), "beta".to_string())]
+    );
+    let completed = engine.snapshot(&run_id).await.unwrap();
+    assert_eq!(completed.status, WorkflowRunStatus::Completed);
+    assert_eq!(runtime.beta_attempts.load(Ordering::SeqCst), 2);
 }
 
 struct DuplicateStepBatchRuntime;
@@ -912,6 +1249,96 @@ async fn local_file_store_rejects_append_to_invalid_log() {
 
     assert_invalid_transition(err, "first run event must be run_created");
     assert_eq!(tokio::fs::read_to_string(path).await.unwrap(), content);
+}
+
+#[tokio::test]
+async fn local_file_store_repairs_a_missing_final_delimiter_before_append() {
+    let dir = tempfile::tempdir().unwrap();
+    let run_id = "missing-final-delimiter";
+    let path = dir.path().join(format!("{run_id}.jsonl"));
+    let store = LocalFileEventStore::new(dir.path());
+    let first = store
+        .append_if_sequence(run_id, 0, run_created_event())
+        .await
+        .unwrap();
+
+    let mut bytes = tokio::fs::read(&path).await.unwrap();
+    assert_eq!(bytes.pop(), Some(b'\n'));
+    tokio::fs::write(&path, bytes).await.unwrap();
+
+    let resumed = LocalFileEventStore::new(dir.path());
+    resumed
+        .append_if_sequence(run_id, first.sequence, FlowEvent::RunStarted)
+        .await
+        .unwrap();
+
+    let events = resumed.list(run_id).await.unwrap();
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].sequence, 1);
+    assert_eq!(events[1].sequence, 2);
+    let repaired = tokio::fs::read(&path).await.unwrap();
+    assert!(repaired.ends_with(b"\n"));
+    assert_eq!(repaired.split(|byte| *byte == b'\n').count(), 3);
+}
+
+#[tokio::test]
+async fn local_file_store_discards_only_an_unterminated_torn_tail() {
+    let dir = tempfile::tempdir().unwrap();
+    let run_id = "unterminated-torn-tail";
+    let path = dir.path().join(format!("{run_id}.jsonl"));
+    let store = LocalFileEventStore::new(dir.path());
+    let first = store
+        .append_if_sequence(run_id, 0, run_created_event())
+        .await
+        .unwrap();
+
+    let mut bytes = tokio::fs::read(&path).await.unwrap();
+    bytes.extend_from_slice(br#"{"run_id":"unterminated"#);
+    tokio::fs::write(&path, bytes).await.unwrap();
+
+    let resumed = LocalFileEventStore::new(dir.path());
+    let recovered = resumed.list(run_id).await.unwrap();
+    assert_eq!(recovered.len(), 1);
+    resumed
+        .append_if_sequence(run_id, first.sequence, FlowEvent::RunStarted)
+        .await
+        .unwrap();
+
+    let events = resumed.list(run_id).await.unwrap();
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].sequence, 1);
+    assert_eq!(events[1].sequence, 2);
+    let repaired = tokio::fs::read_to_string(path).await.unwrap();
+    assert!(!repaired.contains(r#""run_id":"unterminated""#));
+    assert_eq!(repaired.lines().count(), 2);
+}
+
+#[tokio::test]
+async fn local_file_store_still_rejects_a_terminated_corrupt_tail() {
+    let dir = tempfile::tempdir().unwrap();
+    let run_id = "terminated-corrupt-tail";
+    let path = dir.path().join(format!("{run_id}.jsonl"));
+    let store = LocalFileEventStore::new(dir.path());
+    let first = store
+        .append_if_sequence(run_id, 0, run_created_event())
+        .await
+        .unwrap();
+
+    let mut bytes = tokio::fs::read(&path).await.unwrap();
+    bytes.extend_from_slice(b"not-json\n");
+    tokio::fs::write(&path, &bytes).await.unwrap();
+
+    let resumed = LocalFileEventStore::new(dir.path());
+    let error = resumed.list(run_id).await.unwrap_err();
+    assert!(error.to_string().contains("failed to decode event line 2"));
+    let append_error = resumed
+        .append_if_sequence(run_id, first.sequence, FlowEvent::RunStarted)
+        .await
+        .unwrap_err();
+    assert!(append_error
+        .to_string()
+        .contains("failed to decode event line 2"));
+    assert_eq!(tokio::fs::read(path).await.unwrap(), bytes);
 }
 
 #[tokio::test]

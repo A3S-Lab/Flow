@@ -1,6 +1,6 @@
 [package]
 name = "a3s-flow"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2021"
 authors = ["A3S Lab"]
 license = "MIT"
@@ -33,7 +33,7 @@ sqlx = { version = "0.8", optional = true, default-features = false, features = 
 thiserror = "1"
 tracing = "0.1"
 uuid = { version = "1", features = ["serde", "v4"] }
-tokio = { version = "1", features = ["fs", "io-util", "process", "sync", "time"] }
+tokio = { version = "1", features = ["fs", "io-util", "process", "rt", "sync", "time"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
