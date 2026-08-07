@@ -11,6 +11,7 @@ use serde_json::json;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::Notify;
 #[cfg(feature = "postgres")]
 use uuid::Uuid;
 
@@ -118,6 +119,41 @@ impl FlowRuntime for HookRuntime {
 
     async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
         unreachable!("hook runtime does not schedule steps")
+    }
+}
+
+struct DropCounter(Arc<AtomicUsize>);
+
+impl Drop for DropCounter {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+struct BlockingAfterWaitRuntime {
+    started: Notify,
+    dropped: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl FlowRuntime for BlockingAfterWaitRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let ctx = invocation.context();
+        if ctx.wait_completed("blocked") {
+            let _drop_counter = DropCounter(self.dropped.clone());
+            self.started.notify_one();
+            std::future::pending::<()>().await;
+            unreachable!("blocking runtime only completes when its future is dropped")
+        }
+
+        Ok(ctx.wait_until("blocked", Utc::now() + ChronoDuration::hours(1)))
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        unreachable!("blocking runtime does not schedule steps")
     }
 }
 
@@ -327,6 +363,31 @@ async fn in_memory_task_queue_is_fifo() {
 }
 
 #[tokio::test]
+async fn in_memory_task_queue_rotates_heartbeat_fence_and_rejects_stale_ack() {
+    let queue = InMemoryFlowTaskQueue::new();
+    queue
+        .enqueue(FlowTask::DriveRun {
+            run_id: "fenced".to_string(),
+        })
+        .await
+        .unwrap();
+
+    let lease = queue.lease().await.unwrap().unwrap();
+    let renewed_lease_id = queue.heartbeat(&lease.lease_id).await.unwrap();
+    assert_ne!(renewed_lease_id, lease.lease_id);
+    assert_eq!(queue.inflight_len().await.unwrap(), 1);
+
+    let err = queue.ack(&lease.lease_id).await.unwrap_err();
+    assert!(matches!(err, FlowError::LeaseLost(lease_id) if lease_id == lease.lease_id));
+    assert_eq!(queue.inflight_len().await.unwrap(), 1);
+
+    queue.ack(&renewed_lease_id).await.unwrap();
+    assert_eq!(queue.inflight_len().await.unwrap(), 0);
+    let err = queue.ack(&renewed_lease_id).await.unwrap_err();
+    assert!(matches!(err, FlowError::LeaseLost(lease_id) if lease_id == renewed_lease_id));
+}
+
+#[tokio::test]
 async fn local_file_task_queue_persists_pending_tasks_across_instances() {
     let dir = tempfile::tempdir().unwrap();
     let queue = LocalFileFlowTaskQueue::new(dir.path());
@@ -459,7 +520,70 @@ async fn local_file_task_queue_requeues_expired_inflight_tasks() {
     );
     assert_eq!(queue.dead_letter_len().await.unwrap(), 0);
 
-    queue.ack(&lease.lease_id).await.unwrap();
+    let err = queue.ack(&lease.lease_id).await.unwrap_err();
+    assert!(matches!(err, FlowError::LeaseLost(lease_id) if lease_id == lease.lease_id));
+}
+
+#[tokio::test]
+async fn local_file_task_queue_heartbeat_refreshes_age_and_fences_old_token() {
+    let dir = tempfile::tempdir().unwrap();
+    let queue = LocalFileFlowTaskQueue::new(dir.path());
+    queue
+        .enqueue(FlowTask::DriveRun {
+            run_id: "heartbeat".to_string(),
+        })
+        .await
+        .unwrap();
+
+    let lease = queue.lease().await.unwrap().unwrap();
+    let cutoff = Utc::now();
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    let renewed_lease_id = queue.heartbeat(&lease.lease_id).await.unwrap();
+    assert_ne!(renewed_lease_id, lease.lease_id);
+
+    assert_eq!(queue.requeue_inflight_older_than(cutoff).await.unwrap(), 0);
+    let err = queue.ack(&lease.lease_id).await.unwrap_err();
+    assert!(matches!(err, FlowError::LeaseLost(lease_id) if lease_id == lease.lease_id));
+    assert_eq!(queue.inflight_len().await.unwrap(), 1);
+
+    queue.ack(&renewed_lease_id).await.unwrap();
+    assert_eq!(queue.inflight_len().await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn worker_drops_task_future_after_heartbeat_detects_lease_loss() {
+    let runtime = Arc::new(BlockingAfterWaitRuntime {
+        started: Notify::new(),
+        dropped: Arc::new(AtomicUsize::new(0)),
+    });
+    let engine = FlowEngine::in_memory(runtime.clone());
+    let run_id = engine.start(spec(), json!({})).await.unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let queue = Arc::new(LocalFileFlowTaskQueue::new(dir.path()));
+    queue
+        .enqueue(FlowTask::ResumeWait {
+            run_id,
+            wait_id: "blocked".to_string(),
+        })
+        .await
+        .unwrap();
+    let worker = FlowWorker::new(engine, queue.clone())
+        .with_heartbeat_interval(Duration::from_millis(10))
+        .unwrap();
+
+    let worker_task = tokio::spawn(async move { worker.run_once().await });
+    runtime.started.notified().await;
+    assert_eq!(queue.requeue_inflight().await.unwrap(), 1);
+
+    let result = tokio::time::timeout(Duration::from_secs(1), worker_task)
+        .await
+        .expect("worker should observe lease loss")
+        .expect("worker task should not panic");
+    let err = result.unwrap_err();
+    assert!(matches!(err, FlowError::LeaseLost(_)));
+    assert_eq!(runtime.dropped.load(Ordering::SeqCst), 1);
+    assert_eq!(queue.inflight_len().await.unwrap(), 0);
+    assert_eq!(queue.len().await.unwrap(), 1);
 }
 
 #[tokio::test]
@@ -588,6 +712,12 @@ async fn postgres_task_queue_leases_requeues_and_dead_letters_when_url_is_config
 
     let second_lease = queue.lease().await.unwrap().unwrap();
     assert_eq!(second_lease.task, task);
+    let second_lease_id = queue.heartbeat(&second_lease.lease_id).await.unwrap();
+    assert_ne!(second_lease_id, second_lease.lease_id);
+
+    let err = queue.ack(&first_lease.lease_id).await.unwrap_err();
+    assert!(matches!(err, FlowError::LeaseLost(lease_id) if lease_id == first_lease.lease_id));
+    assert_eq!(queue.inflight_len().await.unwrap(), 1);
     assert_eq!(
         queue
             .dead_letter_inflight_older_than(
@@ -604,12 +734,51 @@ async fn postgres_task_queue_leases_requeues_and_dead_letters_when_url_is_config
 
     let dead = queue.dead_lettered_tasks().await.unwrap();
     assert_eq!(dead.len(), 1);
-    assert_eq!(dead[0].lease_id, second_lease.lease_id);
+    assert_eq!(dead[0].lease_id, second_lease_id);
     assert_eq!(dead[0].task, task);
     assert_eq!(dead[0].reason, "lease expired after worker failure");
 
-    queue.ack(&first_lease.lease_id).await.unwrap();
-    queue.ack(&second_lease.lease_id).await.unwrap();
+    let err = queue.ack(&second_lease_id).await.unwrap_err();
+    assert!(matches!(err, FlowError::LeaseLost(lease_id) if lease_id == second_lease_id));
+}
+
+#[cfg(feature = "postgres")]
+#[tokio::test]
+async fn postgres_task_queue_competing_workers_lease_distinct_tasks_when_url_is_configured() {
+    let Some(url) = postgres_url_from_env() else {
+        eprintln!("skipping postgres competing-worker test; set A3S_FLOW_POSTGRES_URL");
+        return;
+    };
+    let queue_name = format!("test-competing-workers-{}", Uuid::new_v4());
+    let first_queue = PostgresFlowTaskQueue::connect_with_queue(&url, &queue_name)
+        .await
+        .unwrap();
+    let second_queue = PostgresFlowTaskQueue::connect_with_queue(&url, &queue_name)
+        .await
+        .unwrap();
+    first_queue
+        .enqueue(FlowTask::DriveRun {
+            run_id: "first".to_string(),
+        })
+        .await
+        .unwrap();
+    first_queue
+        .enqueue(FlowTask::DriveRun {
+            run_id: "second".to_string(),
+        })
+        .await
+        .unwrap();
+
+    let (first, second) = tokio::join!(first_queue.lease(), second_queue.lease());
+    let first = first.unwrap().unwrap();
+    let second = second.unwrap().unwrap();
+    assert_ne!(first.lease_id, second.lease_id);
+    assert_ne!(first.task, second.task);
+    assert_eq!(first_queue.inflight_len().await.unwrap(), 2);
+
+    first_queue.ack(&first.lease_id).await.unwrap();
+    second_queue.ack(&second.lease_id).await.unwrap();
+    assert_eq!(first_queue.inflight_len().await.unwrap(), 0);
 }
 
 #[cfg(feature = "postgres")]

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Added the optional `boot` integration and `BootFlowTaskManager`. Flow
+  schedulers now target an enqueue-only dispatcher, while A3S Boot can own
+  processor registration, queue job state, worker lifecycle, and shutdown.
+- Replaced the SQLx storage path with `a3s-orm` executors, transactions, typed
+  row decoding, and checksummed migrations for SQLite and PostgreSQL event
+  stores and the PostgreSQL compatibility task queue. Custom PostgreSQL hosts
+  now inject `PostgresExecutor` through `from_executor(...)` instead of an SQLx
+  pool.
+- Added renewable task leases with rotating fencing tokens across the in-memory,
+  local-file, and PostgreSQL queues. Heartbeats refresh lease age, stale
+  acknowledgements now return `FlowError::LeaseLost`, and configured workers
+  drop in-progress handling futures when a heartbeat detects lease loss.
+- Added PostgreSQL competing-worker and stale-completion coverage to prove that
+  `FOR UPDATE SKIP LOCKED` leases distinct tasks and an expired worker cannot
+  acknowledge a task after it has been reclaimed.
+
 ## 0.4.3 - 2026-07-22
 
 - Recover a local JSONL history after a process dies during its final append.

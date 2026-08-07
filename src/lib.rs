@@ -47,9 +47,11 @@ pub use store::PostgresEventStore;
 #[cfg(feature = "sqlite")]
 pub use store::SqliteEventStore;
 pub use store::{FlowEventStore, InMemoryEventStore, LocalFileEventStore};
+#[cfg(feature = "boot")]
+pub use worker::BootFlowTaskManager;
 pub use worker::{
-    FlowTask, FlowTaskLease, FlowTaskOutcome, FlowTaskQueue, FlowWorker, InMemoryFlowTaskQueue,
-    LocalFileDeadLetteredTask, LocalFileFlowTaskQueue,
+    FlowTask, FlowTaskDispatcher, FlowTaskLease, FlowTaskOutcome, FlowTaskQueue, FlowWorker,
+    InMemoryFlowTaskQueue, LocalFileDeadLetteredTask, LocalFileFlowTaskQueue,
 };
 #[cfg(feature = "postgres")]
 pub use worker::{PostgresDeadLetteredTask, PostgresFlowTaskQueue};

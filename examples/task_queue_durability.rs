@@ -72,7 +72,8 @@ async fn main() -> a3s_flow::Result<()> {
 
     let recovered_queue = Arc::new(LocalFileFlowTaskQueue::new(&queue_root));
     let requeued = recovered_queue.requeue_inflight().await?;
-    let worker = FlowWorker::new(engine.clone(), recovered_queue.clone());
+    let worker = FlowWorker::new(engine.clone(), recovered_queue.clone())
+        .with_heartbeat_interval(std::time::Duration::from_secs(30))?;
     let outcomes = worker.run_until_idle().await?;
     let snapshot = engine.snapshot(&run_id).await?;
 

@@ -33,6 +33,9 @@ pub enum FlowError {
     #[error("active hook token not found: {0}")]
     HookTokenNotFound(String),
 
+    #[error("workflow task lease is no longer active: {0}")]
+    LeaseLost(String),
+
     #[error(
         "active hook token {token:?} is already used by run {existing_run_id} hook {existing_hook_id}"
     )]
@@ -47,6 +50,12 @@ pub enum FlowError {
 
     #[error("invalid state transition: {0}")]
     InvalidTransition(String),
+
+    #[error("invalid worker configuration: {0}")]
+    InvalidWorkerConfiguration(String),
+
+    #[error("task manager error: {0}")]
+    TaskManagement(String),
 
     #[error("event store error: {0}")]
     Store(String),

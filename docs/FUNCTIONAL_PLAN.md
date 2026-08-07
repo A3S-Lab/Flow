@@ -20,9 +20,9 @@ Workflow as a Service product surfaces.
 | Retry policies | `RetryPolicy`, `StepFailureAction`, `schedule_step_with_retry`, `step_with_retry`, `WorkflowContext::step_failed` | `examples/batch_steps.rs`, `examples/retry_backoff.rs`, `examples/recoverable_step_failure.rs`, `tests/engine.rs`, `tests/scheduler.rs` | Immediate retries stay in the drive loop; delayed retries suspend until due; exhausted failures fail the run by default or replay to workflow fallback logic when explicitly configured. |
 | Timers | `RuntimeCommand::WaitUntil`, `WorkflowContext::wait_until` | `examples/scheduler_worker.rs`, `examples/polling_loop.rs`, `tests/scheduler.rs` | Waits do not hold compute; hosts resume them directly or through scheduler work. |
 | External callbacks | `RuntimeCommand::CreateHook`, `WorkflowContext::create_hook_with_metadata`, `WorkflowContext::hook_disposed`, `HookMetadata`, `HookCallbackRoute`, `ActiveHookSnapshot`, `resume_hook`, `resume_hook_by_token`, `dispose_hook`, `dispose_hook_by_token`, `list_active_hooks` | `examples/hook_approval.rs`, `examples/hook_disposal.rs`, `tests/context.rs`, `tests/engine.rs`, `tests/worker.rs` | Active hook tokens are unique across active runs; typed metadata helpers standardize audit and callback routing fields without changing event storage; hosts can list outstanding callback hooks and decode metadata directly; disposal closes active tokens and lets replay take an alternate path. |
-| Workers | `FlowTask`, `FlowTaskQueue`, `FlowWorker` | `examples/scheduler_worker.rs`, `examples/task_queue_durability.rs`, `examples/postgres_task_queue_durability.rs`, `tests/worker.rs` | Queue leases are acknowledged after successful task handling. |
-| Scheduling | `FlowScheduler::next_wakeup`, `FlowScheduler::next_wakeup_delay`, `FlowScheduler::enqueue_due_work` | `examples/scheduler_worker.rs`, `tests/scheduler.rs` | Scheduler reports the next timed wake-up, converts due waits and due retries into queue tasks, and gives hosts a sleep-friendly delay value. |
-| Local and shared durability | `LocalFileEventStore`, `SqliteEventStore`, `PostgresEventStore`, `LocalFileFlowTaskQueue`, `PostgresFlowTaskQueue`, `LocalFileDeadLetteredTask`, `PostgresDeadLetteredTask` | `examples/local_file_durability.rs`, `examples/sqlite_durability.rs`, `examples/sqlite_worker.rs`, `examples/postgres_durability.rs`, `examples/task_queue_durability.rs`, `examples/postgres_task_queue_durability.rs`, `examples/local_retention.rs`, `tests/worker.rs`, `tests/engine.rs` | JSONL event histories, SQLite event rows, Postgres event rows, JSON task files, and Postgres task rows cover local and shared durability. Old terminal histories can be pruned by cutoff, stale inflight tasks can be requeued by lease age, and poison tasks can be dead-lettered. |
+| Task management | `FlowTaskDispatcher`, `BootFlowTaskManager`, `FlowTaskQueue`, `FlowWorker` | `tests/boot.rs`, `examples/scheduler_worker.rs`, `examples/task_queue_durability.rs`, `examples/postgres_task_queue_durability.rs`, `tests/worker.rs` | A3S Boot is the recommended application task manager and owns queue processors, job state, lifecycle, and shutdown. Flow-owned queues remain embedded/compatibility primitives; their leases heartbeat with rotating fencing tokens and reject stale completion after reclaim. |
+| Scheduling | `FlowScheduler::next_wakeup`, `FlowScheduler::next_wakeup_delay`, `FlowScheduler::enqueue_due_work` | `examples/scheduler_worker.rs`, `tests/scheduler.rs`, `tests/boot.rs` | Scheduler reports the next timed wake-up, converts due waits and due retries into tasks through the enqueue-only dispatcher boundary, and gives hosts a sleep-friendly delay value. |
+| Local and shared durability | `LocalFileEventStore`, `SqliteEventStore`, `PostgresEventStore`, `LocalFileFlowTaskQueue`, `PostgresFlowTaskQueue`, `LocalFileDeadLetteredTask`, `PostgresDeadLetteredTask` | `examples/local_file_durability.rs`, `examples/sqlite_durability.rs`, `examples/sqlite_worker.rs`, `examples/postgres_durability.rs`, `examples/task_queue_durability.rs`, `examples/postgres_task_queue_durability.rs`, `examples/local_retention.rs`, `tests/boot.rs`, `tests/worker.rs`, `tests/engine.rs` | SQL event stores and PostgreSQL compatibility queues use A3S ORM transactions, typed decoding, and checksummed migrations. JSONL event histories and JSON task files cover embedded durability; stale inflight compatibility tasks can be requeued or dead-lettered. |
 | Observability | `FlowEventObserver`, `FanoutFlowEventObserver`, `A3sFlowEventBridge`, `A3sFlowEvent`, `A3sEventBusFlowEventSink`, `InMemoryFlowEventObserver`, `LocalFileA3sFlowEventSink` | `examples/observer_bridge.rs`, `examples/observer_fanout.rs`, `examples/local_audit_log.rs`, `tests/engine.rs` | Observers mirror committed events after store append; fan-out observers feed multiple sinks; bridge records expose A3S event keys, safe metric labels, local JSONL audit records, and optional A3S Event publishing while stores remain authoritative. |
 | Native TypeScript runtime | `NativeTsRuntime`, `NativeTsRuntimePreflight`, `NativeRuntimeRequest`, `NativeRuntimeResponse` | `README.md`, `docs/NATIVE_TYPESCRIPT.md`, `examples/native_ts_greeting.rs`, `examples/native_ts_preflight.rs`, `examples/native-ts/greeting.ts`, `examples/native-ts/a3s-flow-runtime.d.ts`, `tests/native_ts_runtime.rs`, `tests/protocol.rs` | Rust owns the engine; TypeScript is validated, compiled, cached, and invoked as a native runtime artifact. Authoring types track the Rust protocol shape without claiming to be a standalone TypeScript SDK. |
 
@@ -85,13 +85,17 @@ test helpers.
    - Keep local queue lease timeout and dead-letter examples aligned with
      `task_queue_durability`.
 
-3. **Production store and queue adapters**
+3. **Production storage and task management**
    - Keep the SQLite single-node event store covered by replay, inspection, and
-     restart examples, including a local worker/scheduler host shape.
+     restart examples, including a Boot task-manager integration test.
    - Keep the Postgres event store covered by compile checks, guarded
-     integration tests, and restart examples for shared event history.
-   - Keep `PostgresFlowTaskQueue` covered by compile checks, guarded
-     integration tests, and restart examples for shared dispatch state.
+     integration tests, and restart examples for shared event history. Keep
+     SQLite and PostgreSQL implementations on canonical A3S ORM migrations.
+   - Keep `BootFlowTaskManager` aligned with the Boot queue processor and
+     application lifecycle APIs as the recommended host task manager.
+   - Keep the compatibility `PostgresFlowTaskQueue` covered by compile checks, guarded
+     integration tests, restart examples, competing-worker leases, heartbeat
+     renewal, and stale-completion fencing for shared dispatch state.
    - Add additional queue adapters only when a concrete deployment target needs
      a different backend.
 

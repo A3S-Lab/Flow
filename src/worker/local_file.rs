@@ -18,7 +18,9 @@ use super::{FlowTask, FlowTaskLease, FlowTaskQueue};
 /// Tasks are stored as one JSON file per pending item under `<root>/pending`.
 /// The queue serializes access inside the current process. It is intended for
 /// embedded hosts and local crash/restart durability of pending tasks; it does
-/// not provide cross-process locking.
+/// not provide cross-process locking. Heartbeats atomically rename inflight
+/// files, making the replacement file name a new fencing token and lease-age
+/// timestamp.
 #[derive(Debug, Clone)]
 pub struct LocalFileFlowTaskQueue {
     root: PathBuf,
@@ -273,12 +275,28 @@ impl FlowTaskQueue for LocalFileFlowTaskQueue {
         Ok(Some(FlowTaskLease { lease_id, task }))
     }
 
+    async fn heartbeat(&self, lease_id: &str) -> Result<String> {
+        let _guard = self.lock.lock().await;
+        let current_path = self.inflight_path(lease_id);
+        let renewed_lease_id = Self::queue_file_name(Utc::now(), Uuid::new_v4());
+        let renewed_path = self.inflight_path(&renewed_lease_id);
+        match tokio::fs::rename(current_path, renewed_path).await {
+            Ok(()) => Ok(renewed_lease_id),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                Err(FlowError::LeaseLost(lease_id.to_string()))
+            }
+            Err(err) => Err(FlowError::Io(err)),
+        }
+    }
+
     async fn ack(&self, lease_id: &str) -> Result<()> {
         let _guard = self.lock.lock().await;
         let path = self.inflight_path(lease_id);
         match tokio::fs::remove_file(&path).await {
             Ok(()) => Ok(()),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                Err(FlowError::LeaseLost(lease_id.to_string()))
+            }
             Err(err) => Err(FlowError::Io(err)),
         }
     }

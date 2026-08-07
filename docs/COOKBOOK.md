@@ -4,7 +4,55 @@ This cookbook shows how to assemble A3S Flow capabilities into host workflows.
 Use it with the runnable examples in `examples/` and the architecture notes in
 `docs/ARCHITECTURE.md`.
 
-## Local Durable Host
+## Recommended A3S Boot And ORM Host
+
+Use `a3s-orm` storage for authoritative workflow history and an `a3s-boot`
+queue for application task management. The Flow feature flags select the
+integration adapters; the host still depends directly on Boot to construct or
+inject its queue.
+
+```toml
+[dependencies]
+a3s-flow = { version = "0.4.3", features = ["boot", "sqlite"] }
+a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
+```
+
+```rust
+use a3s_boot::{ModuleRef, Queue};
+use a3s_flow::{
+    BootFlowTaskManager, FlowEngine, FlowScheduler, SqliteEventStore,
+};
+use std::sync::Arc;
+
+# async fn run(runtime: Arc<dyn a3s_flow::FlowRuntime>) -> Result<(), Box<dyn std::error::Error>> {
+let store = Arc::new(SqliteEventStore::connect("sqlite://.a3s/flow/flow.db").await?);
+let engine = FlowEngine::new(store, runtime);
+
+let queue = Arc::new(Queue::in_process("flow"));
+let tasks = Arc::new(BootFlowTaskManager::new(engine.clone(), queue.clone()));
+tasks.register()?;
+queue.start(ModuleRef::new()).await?;
+
+let scheduler = FlowScheduler::new(engine.clone(), tasks.clone());
+scheduler.enqueue_due_work(chrono::Utc::now()).await?;
+
+queue.shutdown().await?;
+# Ok(())
+# }
+```
+
+`BootFlowTaskManager` is intentionally enqueue-only from the scheduler's point
+of view. Boot owns processor registration, job inspection, failures, worker
+lifecycle, and shutdown. Replace `Queue::in_process` with a host-configured Boot
+backend when tasks themselves must survive a process restart. Applications
+using `QueueModule` should let the Boot application lifecycle start and stop
+the queue.
+
+Switch the store feature and constructor to `postgres` /
+`PostgresEventStore` for shared multi-process history. The task manager does not
+change because workflow persistence and task transport are separate concerns.
+
+## Embedded Flow-Owned Queue Host
 
 For an embedded local host, pair the local JSONL event store with the local task
 queue. Keep both under a host-owned state directory and call
@@ -29,7 +77,8 @@ queue
     .await?;
 
 let engine = FlowEngine::new(store, runtime);
-let worker = FlowWorker::new(engine.clone(), queue.clone());
+let worker = FlowWorker::new(engine.clone(), queue.clone())
+    .with_heartbeat_interval(std::time::Duration::from_secs(30))?;
 # Ok(())
 # }
 ```
@@ -61,8 +110,10 @@ let dead = queue.dead_lettered_tasks().await?;
 ```
 
 The local backends serialize access inside one process. They are useful for
-developer tools, desktop apps, and embedded single-process hosts. Use a database
-store and queue before running multiple writers against the same state.
+developer tools, desktop apps, existing FlowWorker integrations, and embedded
+single-process hosts. Prefer the Boot task manager when Boot already owns the
+application lifecycle. Use a database store and shared queue backend before
+running multiple writers against the same state.
 
 ## SQLite Durable Host
 
@@ -75,7 +126,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.4", features = ["sqlite"] }
+a3s-flow = { version = "0.4.3", features = ["sqlite"] }
 ```
 
 Then wire the SQLite event store into the same engine and worker shape:
@@ -93,17 +144,21 @@ let queue = Arc::new(LocalFileFlowTaskQueue::new(".a3s/flow/tasks"));
 queue.requeue_inflight().await?;
 
 let engine = FlowEngine::new(store, runtime);
-let worker = FlowWorker::new(engine.clone(), queue.clone());
+let worker = FlowWorker::new(engine.clone(), queue.clone())
+    .with_heartbeat_interval(std::time::Duration::from_secs(30))?;
 # Ok(())
 # }
 ```
 
-The store creates parent directories and the database when missing, enables WAL
-mode, persists one row per event envelope, and checks expected sequence inside
-each append transaction. Keep `LocalFileFlowTaskQueue` lease recovery in place
-for single-node hosts. Move to `PostgresEventStore` and
-`PostgresFlowTaskQueue` before running multi-process or distributed workers
-against shared state.
+The store delegates connection execution, typed decoding, immediate
+transactions, and checksummed migrations to `a3s-orm`. It creates parent
+directories and the database when missing, enables WAL mode, persists one row
+per event envelope, and checks expected sequence inside each append
+transaction. Keep `LocalFileFlowTaskQueue` lease recovery in place only when
+the host intentionally runs `FlowWorker`; Boot hosts should use
+`BootFlowTaskManager` with their selected Boot queue backend. Move to
+`PostgresEventStore` before running multiple Flow writers against shared event
+history.
 
 Run the companion example with:
 
@@ -112,18 +167,20 @@ cargo run --example sqlite_durability --features sqlite
 cargo run --example sqlite_worker --features sqlite
 ```
 
-## Postgres Durable Host
+## PostgreSQL Shared Store And Compatibility Queue
 
 Use `PostgresEventStore` when multiple Flow processes need to share workflow
-event history. The store creates the `flow_events` table and index when missing,
-persists one row per event envelope, and wraps expected-sequence appends in a
-transaction-scoped advisory lock for the run ID.
+event history. `a3s-orm` runs canonical checksummed migrations, persists one row
+per event envelope, and wraps expected-sequence appends in a
+transaction-scoped advisory lock for the run ID. New Boot hosts normally pair
+this store with `BootFlowTaskManager`. The following direct queue shape remains
+for deployments that already own a `FlowWorker` lifecycle.
 
 Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.4", features = ["postgres"] }
+a3s-flow = { version = "0.4.3", features = ["postgres"] }
 ```
 
 Then wire the Postgres event store and task queue into the same engine and
@@ -153,15 +210,21 @@ queue
     .await?;
 
 let engine = FlowEngine::new(store, runtime);
-let worker = FlowWorker::new(engine.clone(), queue.clone());
+let worker = FlowWorker::new(engine.clone(), queue.clone())
+    .with_heartbeat_interval(std::time::Duration::from_secs(30))?;
 # Ok(())
 # }
 ```
 
-`PostgresFlowTaskQueue` scopes tasks by `queue_name`, leases pending rows with
-`FOR UPDATE SKIP LOCKED`, acknowledges by lease id, and keeps stale inflight
-tasks recoverable through requeue or dead-letter operations. Use one queue name
-per host/tenant when several logical dispatch streams share the same database.
+The ORM-backed `PostgresFlowTaskQueue` scopes tasks by `queue_name`, leases
+pending rows with an atomic `FOR UPDATE SKIP LOCKED` CTE, heartbeats with
+rotating lease fencing tokens,
+acknowledges only the latest token, and keeps stale inflight tasks recoverable
+through requeue or dead-letter operations. Use one queue name per host/tenant
+when several logical dispatch streams share the same database. Keep the worker
+heartbeat interval below the reclaim cutoff, and reserve unconditional
+`requeue_inflight()` for exclusive startup recovery because it fences every
+active worker on that queue.
 
 Run the companion examples with:
 
@@ -600,7 +663,7 @@ feature and publish bridged records through an `EventBus`:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.4", features = ["a3s-event"] }
+a3s-flow = { version = "0.4.3", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 
@@ -676,7 +739,7 @@ host still owns:
 
 - event storage,
 - run creation,
-- scheduler and worker loops,
+- scheduler dispatch and Boot task-manager lifecycle,
 - hook callback routing,
 - observability,
 - deployment policy.
@@ -712,13 +775,17 @@ Before shipping a host integration:
   trigger.
 - Expose an operator/API cancellation path for runs that should become terminal
   before their next wait, hook, or retry resumes.
-- Requeue local inflight tasks on startup; for long-running hosts, apply
+- Use `BootFlowTaskManager` when A3S Boot owns the host lifecycle and queue
+  backend.
+- If the host intentionally owns a FlowWorker loop, requeue local inflight
+  tasks on startup; for long-running hosts, apply
   `requeue_inflight_older_than` and move poison tasks with
   `dead_letter_inflight_older_than`.
 - Use SQLite for single-node durable event storage when JSONL files are too
   coarse.
-- Use Postgres event storage and `PostgresFlowTaskQueue` before distributed
-  workers share event history and dispatch state.
+- Use PostgreSQL ORM event storage before multiple Flow processes share event
+  history. Configure a shared Boot queue backend for distributed task state;
+  retain `PostgresFlowTaskQueue` only for direct FlowWorker compatibility.
 - Attach an observer before adding dashboards or audit exports.
 - Use `LocalFileA3sFlowEventSink` for local JSONL audit trails before wiring a
   hosted event sink.

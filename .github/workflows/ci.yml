@@ -49,6 +49,9 @@ jobs:
       - name: Test SQLite and native TypeScript
         run: cargo test --all-targets --no-default-features --features sqlite,native-ts
 
+      - name: Test A3S Boot with ORM storage
+        run: cargo test --all-targets --no-default-features --features boot,sqlite
+
       - name: Test A3S Event integration
         run: cargo test --all-targets --no-default-features --features a3s-event
 
