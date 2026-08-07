@@ -1,6 +1,7 @@
 use a3s_flow::{
-    FlowEngine, FlowError, FlowRuntime, FlowScheduler, FlowWorker, InMemoryFlowTaskQueue,
-    RuntimeCommand, StepInvocation, WorkflowInvocation, WorkflowRunStatus, WorkflowSpec,
+    CancellationRequest, FlowEngine, FlowError, FlowRuntime, FlowScheduler, FlowWorker,
+    InMemoryFlowTaskQueue, RetryPolicy, RuntimeCommand, StepInvocation, WorkflowInvocation,
+    WorkflowRunStatus, WorkflowSpec,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
@@ -16,6 +17,19 @@ impl FlowRuntime for ExportRuntime {
         invocation: WorkflowInvocation,
     ) -> a3s_flow::Result<RuntimeCommand> {
         let ctx = invocation.context();
+        if ctx.cancellation_request().is_some() {
+            if !ctx.step_completed("cleanup-export") {
+                return Ok(ctx.schedule_step_with_retry(
+                    "cleanup-export",
+                    "cleanupExport",
+                    json!({
+                        "idempotencyKey": format!("{}:cleanup-export", ctx.run_id()),
+                    }),
+                    RetryPolicy::none(),
+                ));
+            }
+            return Ok(ctx.cancel());
+        }
         if ctx.wait_completed("export-window") {
             return Ok(ctx.complete(json!({ "exported": true })));
         }
@@ -29,8 +43,9 @@ impl FlowRuntime for ExportRuntime {
         Ok(ctx.wait_until("export-window", resume_at))
     }
 
-    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
-        unreachable!("export runtime does not schedule steps")
+    async fn run_step(&self, invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        assert_eq!(invocation.step_id, "cleanup-export");
+        Ok(json!({ "temporaryExportRemoved": true }))
     }
 }
 
@@ -41,7 +56,7 @@ async fn main() -> a3s_flow::Result<()> {
     let queue = Arc::new(InMemoryFlowTaskQueue::new());
     let scheduler = FlowScheduler::new(engine.clone(), queue.clone());
     let worker = FlowWorker::new(engine.clone(), queue);
-    let spec = WorkflowSpec::rust_embedded("examples.cancellation", "0.1.0", "examples", "main");
+    let spec = WorkflowSpec::rust_embedded("examples.cancellation", "0.2.0", "examples", "main");
 
     let run_id = engine
         .start_with_id(
@@ -54,7 +69,10 @@ async fn main() -> a3s_flow::Result<()> {
     println!("before_cancel={:?}", suspended.status);
 
     engine
-        .cancel(&run_id, Some("user requested cancellation".to_string()))
+        .request_cancellation(
+            &run_id,
+            CancellationRequest::new(Some("user requested cancellation".to_string())),
+        )
         .await?;
 
     let cancelled = engine.snapshot(&run_id).await?;
@@ -65,6 +83,7 @@ async fn main() -> a3s_flow::Result<()> {
 
     println!("after_cancel={:?}", cancelled.status);
     println!("reason={}", cancelled.error.as_deref().unwrap_or(""));
+    println!("terminal={:?}", cancelled.terminal_outcome);
     println!("due_waits_after_cancel={}", tick.due_waits.len());
     println!("worker_outcomes={}", outcomes.len());
 

@@ -1,6 +1,24 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 - 2026-08-07
+
+- Added cleanup-aware durable cancellation. `request_cancellation` records a
+  durable request, projects `Cancelling`, makes work opened before the request
+  non-actionable, and replays host-owned idempotent cleanup before `RuntimeCommand::Cancel`
+  commits the single terminal outcome. Immediate `force_cancel` and the
+  compatibility `cancel` method remain explicit cleanup-skipping controls.
+- Added durable progress updates and child-operation references through both
+  replay commands and host APIs. Stable identities reject drift and survive
+  process replacement in projected snapshots and Native TypeScript history.
+- Added `WorkflowTerminalOutcome` so generic failure, cancellation, timeout,
+  retry exhaustion, and explicit non-resumable host shutdown remain typed.
+- Added PostgreSQL whole-history retention on A3S ORM transactions. Durable
+  audit holds and connected parent-child runs prevent unsafe deletion; every
+  deletion leaves a SHA-256 tombstone and tombstoned run IDs cannot be reused.
+  Partial event-stream compaction remains intentionally unsupported.
+- Added a real PostgreSQL subprocess fault gate that kills a worker after an
+  idempotent side effect but before step completion, then proves lease expiry,
+  stale-token fencing, reconnect, same-attempt replay, and one logical effect.
 
 - Added the optional `boot` integration and `BootFlowTaskManager`. Flow
   schedulers now target an enqueue-only dispatcher, while A3S Boot can own

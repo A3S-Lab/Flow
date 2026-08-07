@@ -502,7 +502,13 @@ fn event_status(event: &FlowEvent) -> Option<&'static str> {
         FlowEvent::RunStarted => Some("running"),
         FlowEvent::RunCompleted { .. } => Some("completed"),
         FlowEvent::RunFailed { .. } => Some("failed"),
+        FlowEvent::RunCancellationRequested { .. } => Some("cancelling"),
         FlowEvent::RunCancelled { .. } => Some("cancelled"),
+        FlowEvent::RunTimedOut { .. } => Some("timed_out"),
+        FlowEvent::RunRetryExhausted { .. } => Some("retry_exhausted"),
+        FlowEvent::RunHostShutdown { .. } => Some("host_shutdown"),
+        FlowEvent::RunProgressRecorded { .. } => Some("recorded"),
+        FlowEvent::ChildOperationLinked { .. } => Some("linked"),
         FlowEvent::StepCreated { .. } => Some("pending"),
         FlowEvent::StepStarted { .. } => Some("running"),
         FlowEvent::StepCompleted { .. } => Some("completed"),
@@ -522,9 +528,18 @@ fn event_subject(event: &FlowEvent) -> Option<A3sFlowEventSubject> {
         | FlowEvent::StepStarted { step_id, .. }
         | FlowEvent::StepCompleted { step_id, .. }
         | FlowEvent::StepRetrying { step_id, .. }
-        | FlowEvent::StepFailed { step_id, .. } => Some(A3sFlowEventSubject {
+        | FlowEvent::StepFailed { step_id, .. }
+        | FlowEvent::RunRetryExhausted { step_id, .. } => Some(A3sFlowEventSubject {
             kind: "step".to_string(),
             id: step_id.clone(),
+        }),
+        FlowEvent::RunProgressRecorded { progress } => Some(A3sFlowEventSubject {
+            kind: "progress".to_string(),
+            id: progress.progress_id.clone(),
+        }),
+        FlowEvent::ChildOperationLinked { child } => Some(A3sFlowEventSubject {
+            kind: "child_operation".to_string(),
+            id: child.reference_id.clone(),
         }),
         FlowEvent::WaitCreated { wait_id, .. } | FlowEvent::WaitCompleted { wait_id } => {
             Some(A3sFlowEventSubject {
@@ -542,6 +557,8 @@ fn event_subject(event: &FlowEvent) -> Option<A3sFlowEventSubject> {
         | FlowEvent::RunStarted
         | FlowEvent::RunCompleted { .. }
         | FlowEvent::RunFailed { .. }
+        | FlowEvent::RunCancellationRequested { .. }
         | FlowEvent::RunCancelled { .. } => None,
+        FlowEvent::RunTimedOut { .. } | FlowEvent::RunHostShutdown { .. } => None,
     }
 }

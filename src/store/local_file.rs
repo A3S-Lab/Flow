@@ -363,7 +363,10 @@ fn terminal_event_timestamp(events: &[FlowEventEnvelope]) -> Option<DateTime<Utc
         .find_map(|envelope| match envelope.event {
             FlowEvent::RunCompleted { .. }
             | FlowEvent::RunFailed { .. }
-            | FlowEvent::RunCancelled { .. } => Some(envelope.timestamp),
+            | FlowEvent::RunCancelled { .. }
+            | FlowEvent::RunTimedOut { .. }
+            | FlowEvent::RunRetryExhausted { .. }
+            | FlowEvent::RunHostShutdown { .. } => Some(envelope.timestamp),
             _ => None,
         })
 }

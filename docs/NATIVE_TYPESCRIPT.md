@@ -125,6 +125,9 @@ The contract defines:
 - `StepInvocation<Input>`
 - `RuntimeCommand`
 - `RetryPolicy`
+- `CancellationRequest`
+- `WorkflowProgress`
+- `ChildOperationReference`
 - `FlowEvent`
 - `FlowEventEnvelope`
 - `StepDefinition<Input, Output>`
@@ -141,6 +144,12 @@ Important protocol details:
   `Option<DateTime<Utc>>`.
 - `schedule_step.retry` and batched `StepCommand.retry` may be omitted; Rust
   applies the default retry policy.
+- `record_progress` and `link_child_operation` use stable IDs. Replay should
+  inspect matching history events before returning either command again.
+- `cancel` is valid after `run_cancellation_requested`; cleanup-aware workflows
+  should run stable cleanup steps before returning it.
+- Terminal history distinguishes `run_timed_out`, `run_retry_exhausted`, and
+  `run_host_shutdown` from generic `run_failed`.
 
 The greeting source in
 [`examples/native-ts/greeting.ts`](../examples/native-ts/greeting.ts) shows the

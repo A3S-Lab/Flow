@@ -10,7 +10,7 @@ use a3s_flow::{
     InMemoryA3sFlowEventSink, InMemoryEventStore, InMemoryFlowEventObserver,
     LocalFileA3sFlowEventSink, LocalFileEventStore, RetryPolicy, RuntimeCommand, StepFailureAction,
     StepInvocation, StepStatus, WaitStatus, WorkflowInvocation, WorkflowRunStatus,
-    WorkflowRunSummary, WorkflowRunSuspension, WorkflowSpec,
+    WorkflowRunSummary, WorkflowRunSuspension, WorkflowSpec, WorkflowTerminalOutcome,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
@@ -2487,9 +2487,17 @@ async fn exhausted_step_failure_fails_run_by_default() {
         snapshot.steps["primary"].retry.on_exhausted,
         StepFailureAction::FailRun
     );
+    assert_eq!(
+        snapshot.terminal_outcome,
+        Some(WorkflowTerminalOutcome::RetryExhausted {
+            step_id: "primary".to_string(),
+            attempt: 1,
+            error: "runtime error: primary failed".to_string(),
+        })
+    );
     assert!(history
         .iter()
-        .any(|envelope| matches!(envelope.event, FlowEvent::RunFailed { .. })));
+        .any(|envelope| matches!(envelope.event, FlowEvent::RunRetryExhausted { .. })));
 }
 
 #[async_trait]

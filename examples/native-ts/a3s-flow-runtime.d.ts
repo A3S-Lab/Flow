@@ -28,9 +28,33 @@ export type RetryPolicy = {
   on_exhausted?: "fail_run" | "continue_workflow";
 };
 
+export type CancellationRequest = {
+  reason?: string | null;
+};
+
+export type WorkflowProgress = {
+  progress_id: string;
+  completed: number;
+  total?: number;
+  message?: string;
+  details?: Json;
+};
+
+export type ChildOperationReference = {
+  reference_id: string;
+  kind: string;
+  operation_id: string;
+  flow_run_id?: string;
+  metadata?: Json;
+};
+
 export type RuntimeCommand =
   | { type: "complete"; output: Json }
   | { type: "fail"; error: string }
+  | { type: "cancel" }
+  | { type: "timeout"; deadline: string; reason: string | null }
+  | { type: "record_progress"; progress: WorkflowProgress }
+  | { type: "link_child_operation"; child: ChildOperationReference }
   | {
       type: "schedule_step";
       step_id: string;
@@ -70,7 +94,18 @@ export type FlowEvent =
   | { type: "run_started" }
   | { type: "run_completed"; output: Json }
   | { type: "run_failed"; error: string }
+  | { type: "run_cancellation_requested"; request: CancellationRequest }
   | { type: "run_cancelled"; reason: string | null }
+  | { type: "run_timed_out"; deadline: string; reason: string | null }
+  | {
+      type: "run_retry_exhausted";
+      step_id: string;
+      attempt: number;
+      error: string;
+    }
+  | { type: "run_host_shutdown"; reason: string | null }
+  | { type: "run_progress_recorded"; progress: WorkflowProgress }
+  | { type: "child_operation_linked"; child: ChildOperationReference }
   | {
       type: "step_created";
       step_id: string;

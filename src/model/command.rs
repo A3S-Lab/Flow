@@ -5,6 +5,8 @@ use std::time::Duration;
 
 use crate::error::{FlowError, Result};
 
+use super::{ChildOperationReference, WorkflowProgress};
+
 /// JSON payload exchanged between the engine and runtimes.
 pub type JsonValue = Value;
 
@@ -177,6 +179,22 @@ pub enum RuntimeCommand {
     },
     Fail {
         error: String,
+    },
+    /// Finish a previously requested cleanup-aware cancellation.
+    Cancel,
+    /// Finish a run with a typed timeout outcome.
+    Timeout {
+        deadline: DateTime<Utc>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
+    /// Persist progress before replaying the workflow.
+    RecordProgress {
+        progress: WorkflowProgress,
+    },
+    /// Persist a parent-to-child operation reference before replaying.
+    LinkChildOperation {
+        child: ChildOperationReference,
     },
     ScheduleStep {
         step_id: String,

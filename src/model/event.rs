@@ -2,7 +2,10 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::{JsonValue, RetryPolicy, WorkflowSpec};
+use super::{
+    CancellationRequest, ChildOperationReference, JsonValue, RetryPolicy, WorkflowProgress,
+    WorkflowSpec,
+};
 
 /// Event persisted as the single source of truth for a workflow run.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -19,8 +22,29 @@ pub enum FlowEvent {
     RunFailed {
         error: String,
     },
+    RunCancellationRequested {
+        request: CancellationRequest,
+    },
     RunCancelled {
         reason: Option<String>,
+    },
+    RunTimedOut {
+        deadline: DateTime<Utc>,
+        reason: Option<String>,
+    },
+    RunRetryExhausted {
+        step_id: String,
+        attempt: u32,
+        error: String,
+    },
+    RunHostShutdown {
+        reason: Option<String>,
+    },
+    RunProgressRecorded {
+        progress: WorkflowProgress,
+    },
+    ChildOperationLinked {
+        child: ChildOperationReference,
     },
     StepCreated {
         step_id: String,
@@ -77,7 +101,13 @@ impl FlowEvent {
             Self::RunStarted => "flow.run.started",
             Self::RunCompleted { .. } => "flow.run.completed",
             Self::RunFailed { .. } => "flow.run.failed",
+            Self::RunCancellationRequested { .. } => "flow.run.cancellation.requested",
             Self::RunCancelled { .. } => "flow.run.cancelled",
+            Self::RunTimedOut { .. } => "flow.run.timed_out",
+            Self::RunRetryExhausted { .. } => "flow.run.retry_exhausted",
+            Self::RunHostShutdown { .. } => "flow.run.host_shutdown",
+            Self::RunProgressRecorded { .. } => "flow.run.progress.recorded",
+            Self::ChildOperationLinked { .. } => "flow.child.operation.linked",
             Self::StepCreated { .. } => "flow.step.created",
             Self::StepStarted { .. } => "flow.step.started",
             Self::StepCompleted { .. } => "flow.step.completed",

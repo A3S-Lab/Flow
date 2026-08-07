@@ -3,7 +3,8 @@ use serde::de::DeserializeOwned;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    FlowEvent, FlowEventEnvelope, HookMetadata, JsonValue, RetryPolicy, RuntimeCommand, StepCommand,
+    CancellationRequest, ChildOperationReference, FlowEvent, FlowEventEnvelope, HookMetadata,
+    JsonValue, RetryPolicy, RuntimeCommand, StepCommand, WorkflowProgress,
 };
 use crate::runtime::WorkflowInvocation;
 
@@ -39,6 +40,42 @@ impl<'a> WorkflowContext<'a> {
 
     pub fn history(&self) -> &[FlowEventEnvelope] {
         &self.invocation.history
+    }
+
+    /// Return the durable cleanup-aware cancellation request, when present.
+    pub fn cancellation_request(&self) -> Option<&CancellationRequest> {
+        self.history()
+            .iter()
+            .find_map(|envelope| match &envelope.event {
+                FlowEvent::RunCancellationRequested { request } => Some(request),
+                _ => None,
+            })
+    }
+
+    /// Return a durable progress update by its idempotency identity.
+    pub fn progress(&self, progress_id: &str) -> Option<&WorkflowProgress> {
+        self.history()
+            .iter()
+            .find_map(|envelope| match &envelope.event {
+                FlowEvent::RunProgressRecorded { progress }
+                    if progress.progress_id == progress_id =>
+                {
+                    Some(progress)
+                }
+                _ => None,
+            })
+    }
+
+    /// Return a durable child-operation reference by its parent-local id.
+    pub fn child_operation(&self, reference_id: &str) -> Option<&ChildOperationReference> {
+        self.history()
+            .iter()
+            .find_map(|envelope| match &envelope.event {
+                FlowEvent::ChildOperationLinked { child } if child.reference_id == reference_id => {
+                    Some(child)
+                }
+                _ => None,
+            })
     }
 
     pub fn step_output(&self, step_id: &str) -> Option<&JsonValue> {
@@ -129,6 +166,26 @@ impl<'a> WorkflowContext<'a> {
         RuntimeCommand::Fail {
             error: error.into(),
         }
+    }
+
+    /// Finish a previously requested cancellation after cleanup is durable.
+    pub fn cancel(&self) -> RuntimeCommand {
+        RuntimeCommand::Cancel
+    }
+
+    /// Finish a run with a typed timeout outcome.
+    pub fn timeout(&self, deadline: DateTime<Utc>, reason: Option<String>) -> RuntimeCommand {
+        RuntimeCommand::Timeout { deadline, reason }
+    }
+
+    /// Persist an idempotently identified progress update and replay.
+    pub fn record_progress(&self, progress: WorkflowProgress) -> RuntimeCommand {
+        RuntimeCommand::RecordProgress { progress }
+    }
+
+    /// Persist a child-operation reference and replay.
+    pub fn link_child_operation(&self, child: ChildOperationReference) -> RuntimeCommand {
+        RuntimeCommand::LinkChildOperation { child }
     }
 
     pub fn schedule_step(

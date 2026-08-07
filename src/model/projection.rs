@@ -3,8 +3,9 @@ use std::collections::BTreeMap;
 use crate::error::{FlowError, Result};
 
 use super::{
-    FlowEvent, FlowEventEnvelope, HookSnapshot, HookStatus, StepSnapshot, StepStatus, WaitSnapshot,
-    WaitStatus, WorkflowRunSnapshot, WorkflowRunStatus,
+    CancellationRequestSnapshot, FlowEvent, FlowEventEnvelope, HookSnapshot, HookStatus,
+    StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowRunSnapshot, WorkflowRunStatus,
+    WorkflowTerminalOutcome,
 };
 
 pub(crate) fn project_run(
@@ -32,8 +33,12 @@ pub(crate) fn project_run(
         steps: BTreeMap::new(),
         waits: BTreeMap::new(),
         hooks: BTreeMap::new(),
+        cancellation: None,
+        progress: Vec::new(),
+        child_operations: BTreeMap::new(),
         output: None,
         error: None,
+        terminal_outcome: None,
         last_sequence: first.sequence,
     };
 
@@ -75,17 +80,135 @@ pub(crate) fn project_run(
                 snapshot.status = WorkflowRunStatus::Running;
             }
             FlowEvent::RunCompleted { output } => {
+                if snapshot.status == WorkflowRunStatus::Cancelling {
+                    return Err(FlowError::InvalidTransition(
+                        "a cancelling run must finish as cancelled or failed".to_string(),
+                    ));
+                }
                 snapshot.status = WorkflowRunStatus::Completed;
                 snapshot.output = Some(output.clone());
                 snapshot.error = None;
+                snapshot.terminal_outcome = Some(WorkflowTerminalOutcome::Completed {
+                    output: output.clone(),
+                });
             }
             FlowEvent::RunFailed { error } => {
                 snapshot.status = WorkflowRunStatus::Failed;
                 snapshot.error = Some(error.clone());
+                snapshot.terminal_outcome = Some(WorkflowTerminalOutcome::Failed {
+                    error: error.clone(),
+                });
+            }
+            FlowEvent::RunCancellationRequested { request } => {
+                if snapshot.cancellation.is_some() {
+                    return Err(FlowError::InvalidTransition(
+                        "run_cancellation_requested must occur at most once".to_string(),
+                    ));
+                }
+                snapshot.status = WorkflowRunStatus::Cancelling;
+                snapshot.cancellation = Some(CancellationRequestSnapshot {
+                    request: request.clone(),
+                    requested_at: envelope.timestamp,
+                    sequence: envelope.sequence,
+                });
+
+                // Work that was open before the request is no longer actionable.
+                // Cleanup code must use distinct stable step/wait/hook identities.
+                for step in snapshot.steps.values_mut() {
+                    if matches!(step.status, StepStatus::Pending | StepStatus::Running) {
+                        step.status = StepStatus::Cancelled;
+                        step.retry_after = None;
+                    }
+                }
+                for wait in snapshot.waits.values_mut() {
+                    if wait.status == WaitStatus::Waiting {
+                        wait.status = WaitStatus::Cancelled;
+                    }
+                }
+                for hook in snapshot.hooks.values_mut() {
+                    if hook.status == HookStatus::Active {
+                        hook.status = HookStatus::Cancelled;
+                    }
+                }
             }
             FlowEvent::RunCancelled { reason } => {
                 snapshot.status = WorkflowRunStatus::Cancelled;
                 snapshot.error = reason.clone();
+                snapshot.terminal_outcome = Some(WorkflowTerminalOutcome::Cancelled {
+                    reason: reason.clone(),
+                });
+            }
+            FlowEvent::RunTimedOut { deadline, reason } => {
+                snapshot.status = WorkflowRunStatus::Failed;
+                snapshot.error = Some(
+                    reason
+                        .clone()
+                        .unwrap_or_else(|| format!("workflow timed out at {deadline}")),
+                );
+                snapshot.terminal_outcome = Some(WorkflowTerminalOutcome::TimedOut {
+                    deadline: *deadline,
+                    reason: reason.clone(),
+                });
+            }
+            FlowEvent::RunRetryExhausted {
+                step_id,
+                attempt,
+                error,
+            } => {
+                let step = snapshot.steps.get(step_id).ok_or_else(|| {
+                    FlowError::InvalidTransition(format!(
+                        "run_retry_exhausted references unknown step {step_id}"
+                    ))
+                })?;
+                if step.status != StepStatus::Failed || step.attempt != *attempt {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "run_retry_exhausted does not match failed step {step_id} attempt {attempt}"
+                    )));
+                }
+                snapshot.status = WorkflowRunStatus::Failed;
+                snapshot.error = Some(error.clone());
+                snapshot.terminal_outcome = Some(WorkflowTerminalOutcome::RetryExhausted {
+                    step_id: step_id.clone(),
+                    attempt: *attempt,
+                    error: error.clone(),
+                });
+            }
+            FlowEvent::RunHostShutdown { reason } => {
+                snapshot.status = WorkflowRunStatus::Failed;
+                snapshot.error = Some(
+                    reason
+                        .clone()
+                        .unwrap_or_else(|| "workflow terminated by host shutdown".to_string()),
+                );
+                snapshot.terminal_outcome = Some(WorkflowTerminalOutcome::HostShutdown {
+                    reason: reason.clone(),
+                });
+            }
+            FlowEvent::RunProgressRecorded { progress } => {
+                progress.validate()?;
+                if snapshot
+                    .progress
+                    .iter()
+                    .any(|existing| existing.progress_id == progress.progress_id)
+                {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "run_progress_recorded duplicates progress {}",
+                        progress.progress_id
+                    )));
+                }
+                snapshot.progress.push(progress.clone());
+            }
+            FlowEvent::ChildOperationLinked { child } => {
+                child.validate()?;
+                if snapshot.child_operations.contains_key(&child.reference_id) {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "child_operation_linked duplicates reference {}",
+                        child.reference_id
+                    )));
+                }
+                snapshot
+                    .child_operations
+                    .insert(child.reference_id.clone(), child.clone());
             }
             FlowEvent::StepCreated {
                 step_id,

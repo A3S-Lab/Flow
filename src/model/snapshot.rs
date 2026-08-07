@@ -5,7 +5,10 @@ use std::collections::BTreeMap;
 
 use crate::error::{FlowError, Result};
 
-use super::{JsonValue, RetryPolicy, WorkflowSpec};
+use super::{
+    CancellationRequestSnapshot, ChildOperationReference, JsonValue, RetryPolicy, WorkflowProgress,
+    WorkflowSpec, WorkflowTerminalOutcome,
+};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -13,6 +16,7 @@ pub enum WorkflowRunStatus {
     Pending,
     Running,
     Suspended,
+    Cancelling,
     Completed,
     Failed,
     Cancelled,
@@ -31,6 +35,7 @@ pub enum StepStatus {
     Running,
     Completed,
     Failed,
+    Cancelled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -65,6 +70,7 @@ impl StepSnapshot {
 pub enum WaitStatus {
     Waiting,
     Completed,
+    Cancelled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -80,6 +86,7 @@ pub enum HookStatus {
     Active,
     Received,
     Disposed,
+    Cancelled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -132,11 +139,13 @@ impl ActiveHookSnapshot {
 
 /// Aggregated run counts for host dashboards and health probes.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
 pub struct WorkflowRunSummary {
     pub total_runs: usize,
     pub pending_runs: usize,
     pub running_runs: usize,
     pub suspended_runs: usize,
+    pub cancelling_runs: usize,
     pub completed_runs: usize,
     pub failed_runs: usize,
     pub cancelled_runs: usize,
@@ -162,6 +171,7 @@ impl WorkflowRunSummary {
             WorkflowRunStatus::Pending => self.pending_runs += 1,
             WorkflowRunStatus::Running => self.running_runs += 1,
             WorkflowRunStatus::Suspended => self.suspended_runs += 1,
+            WorkflowRunStatus::Cancelling => self.cancelling_runs += 1,
             WorkflowRunStatus::Completed => self.completed_runs += 1,
             WorkflowRunStatus::Failed => self.failed_runs += 1,
             WorkflowRunStatus::Cancelled => self.cancelled_runs += 1,
@@ -263,8 +273,16 @@ pub struct WorkflowRunSnapshot {
     pub steps: BTreeMap<String, StepSnapshot>,
     pub waits: BTreeMap<String, WaitSnapshot>,
     pub hooks: BTreeMap<String, HookSnapshot>,
+    #[serde(default)]
+    pub cancellation: Option<CancellationRequestSnapshot>,
+    #[serde(default)]
+    pub progress: Vec<WorkflowProgress>,
+    #[serde(default)]
+    pub child_operations: BTreeMap<String, ChildOperationReference>,
     pub output: Option<JsonValue>,
     pub error: Option<String>,
+    #[serde(default)]
+    pub terminal_outcome: Option<WorkflowTerminalOutcome>,
     pub last_sequence: u64,
 }
 
@@ -310,6 +328,23 @@ impl WorkflowRunSnapshot {
         self.hooks
             .get(hook_id)
             .and_then(|hook| hook.payload.as_ref())
+    }
+
+    /// Return a durable progress update by its idempotency identity.
+    pub fn progress(&self, progress_id: &str) -> Option<&WorkflowProgress> {
+        self.progress
+            .iter()
+            .find(|progress| progress.progress_id == progress_id)
+    }
+
+    /// Return the most recently persisted progress update.
+    pub fn latest_progress(&self) -> Option<&WorkflowProgress> {
+        self.progress.last()
+    }
+
+    /// Return a durable child-operation reference by its parent-local id.
+    pub fn child_operation(&self, reference_id: &str) -> Option<&ChildOperationReference> {
+        self.child_operations.get(reference_id)
     }
 
     /// Decode persisted hook metadata into a host-defined serde type.
