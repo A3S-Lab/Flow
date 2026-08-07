@@ -5,8 +5,8 @@ use uuid::Uuid;
 use crate::error::{FlowError, Result};
 use crate::model::{
     project_run, ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookStatus, RuntimeCommand,
-    StepStatus, WaitStatus, WorkflowRunSnapshot, WorkflowRunStatus, WorkflowRunSummary,
-    WorkflowRunSuspension, WorkflowSpec,
+    ScheduledWakeup, ScheduledWakeupKind, StepStatus, WaitStatus, WorkflowRunSnapshot,
+    WorkflowRunStatus, WorkflowRunSummary, WorkflowRunSuspension, WorkflowSpec,
 };
 use crate::observe::{FlowEventObserver, NoopFlowEventObserver};
 use crate::runtime::{FlowRuntime, WorkflowInvocation};
@@ -389,18 +389,13 @@ impl FlowEngine {
     /// Scheduler integrations can use this to inspect due timers before
     /// deciding how aggressively to drive them.
     pub async fn list_due_waits(&self, now: DateTime<Utc>) -> Result<Vec<(String, String)>> {
-        let mut due = Vec::new();
-        for run_id in self.store.list_run_ids().await? {
-            let snapshot = self.snapshot(&run_id).await?;
-            if snapshot.status.is_terminal() {
-                continue;
-            }
-            for wait in snapshot.waits.values() {
-                if wait.status == WaitStatus::Waiting && wait.resume_at <= now {
-                    due.push((run_id.clone(), wait.wait_id.clone()));
-                }
-            }
-        }
+        let mut due = self
+            .list_due_wakeups(now)
+            .await?
+            .into_iter()
+            .filter(|wakeup| wakeup.kind == ScheduledWakeupKind::Wait)
+            .map(|wakeup| (wakeup.run_id, wakeup.subject_id))
+            .collect::<Vec<_>>();
         due.sort();
         Ok(due)
     }
@@ -421,18 +416,28 @@ impl FlowEngine {
 
     /// List pending step retries whose `retry_after` is at or before `now`.
     pub async fn list_due_retries(&self, now: DateTime<Utc>) -> Result<Vec<(String, String)>> {
-        let mut due = Vec::new();
-        for run_id in self.store.list_run_ids().await? {
-            let snapshot = self.snapshot(&run_id).await?;
-            if snapshot.status.is_terminal() {
-                continue;
-            }
-            for (step_id, _) in snapshot.due_retries(now) {
-                due.push((run_id.clone(), step_id));
-            }
-        }
+        let mut due = self
+            .list_due_wakeups(now)
+            .await?
+            .into_iter()
+            .filter(|wakeup| wakeup.kind == ScheduledWakeupKind::Retry)
+            .map(|wakeup| (wakeup.run_id, wakeup.subject_id))
+            .collect::<Vec<_>>();
         due.sort();
         Ok(due)
+    }
+
+    /// List all due wait timers and delayed retries through the store boundary.
+    pub async fn list_due_wakeups(&self, now: DateTime<Utc>) -> Result<Vec<ScheduledWakeup>> {
+        let mut wakeups = self.store.list_due_wakeups(now).await?;
+        wakeups.sort_by(|left, right| {
+            (left.kind, left.run_id.as_str(), left.subject_id.as_str()).cmp(&(
+                right.kind,
+                right.run_id.as_str(),
+                right.subject_id.as_str(),
+            ))
+        });
+        Ok(wakeups)
     }
 
     /// Drive every run with a due step retry.
@@ -541,6 +546,28 @@ impl FlowEngine {
     /// instead of polling at a fixed interval. Active hooks are intentionally
     /// ignored because they do not have a scheduled wake-up time.
     pub async fn next_wakeup(&self, now: DateTime<Utc>) -> Result<Option<WorkflowRunSuspension>> {
+        for _ in 0..2 {
+            let Some(wakeup) = self.store.next_scheduled_wakeup().await? else {
+                return Ok(None);
+            };
+            match self.snapshot(&wakeup.run_id).await {
+                Ok(snapshot) => {
+                    if let Some(suspension) = resolve_scheduled_wakeup(&snapshot, &wakeup, now) {
+                        return Ok(Some(suspension));
+                    }
+                }
+                Err(FlowError::RunNotFound(_)) => {}
+                Err(error) => return Err(error),
+            }
+        }
+
+        self.next_wakeup_by_replay(now).await
+    }
+
+    async fn next_wakeup_by_replay(
+        &self,
+        now: DateTime<Utc>,
+    ) -> Result<Option<WorkflowRunSuspension>> {
         let mut wakeups = self.list_open_suspensions(now).await?;
         wakeups.retain(|suspension| suspension.scheduled_at().is_some());
         wakeups.sort_by(|left, right| {
@@ -917,5 +944,39 @@ impl FlowEngine {
             });
         }
         Ok(())
+    }
+}
+
+fn resolve_scheduled_wakeup(
+    snapshot: &WorkflowRunSnapshot,
+    wakeup: &ScheduledWakeup,
+    now: DateTime<Utc>,
+) -> Option<WorkflowRunSuspension> {
+    if snapshot.run_id != wakeup.run_id || snapshot.status.is_terminal() {
+        return None;
+    }
+    match wakeup.kind {
+        ScheduledWakeupKind::Wait => {
+            let wait = snapshot.waits.get(&wakeup.subject_id)?;
+            if wait.status != WaitStatus::Waiting || wait.resume_at != wakeup.scheduled_at {
+                return None;
+            }
+            Some(WorkflowRunSuspension::Wait {
+                run_id: wakeup.run_id.clone(),
+                wait: wait.clone(),
+                due: wakeup.scheduled_at <= now,
+            })
+        }
+        ScheduledWakeupKind::Retry => {
+            let step = snapshot.steps.get(&wakeup.subject_id)?;
+            if step.status != StepStatus::Pending || step.retry_after != Some(wakeup.scheduled_at) {
+                return None;
+            }
+            Some(WorkflowRunSuspension::Retry {
+                run_id: wakeup.run_id.clone(),
+                step: step.clone(),
+                due: wakeup.scheduled_at <= now,
+            })
+        }
     }
 }

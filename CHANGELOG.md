@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.9.0 - 2026-08-07
+
+- Added public `ScheduledWakeup` and `ScheduledWakeupKind` records plus
+  store-level due and next-wakeup queries. Custom, in-memory, and local-file
+  stores retain replay-compatible defaults, while engine and scheduler paths
+  can delegate scheduling discovery to accelerated stores.
+- Added A3S ORM-managed `flow_scheduled_wakeups` projections for SQLite and
+  PostgreSQL. Due waits, delayed retries, and the earliest timed suspension now
+  use indexed, parameterized queries instead of replaying every workflow
+  history; one scheduler tick discovers waits and retries with a single store
+  query.
+- Added checksummed migration backfills and transactional event triggers for
+  wait, retry, cancellation, and terminal lifecycles. Fixed-width UTC
+  nanosecond keys preserve exact deadline ordering, and the PostgreSQL upgrade
+  migration locks legacy writers while reconciling the earlier active-hook
+  projection before installing the new trigger.
+- Added store-delegation coverage, SQLite lifecycle and upgrade tests, and real
+  PostgreSQL legacy-schema, direct-writer, nanosecond-boundary, cancellation,
+  and terminal-cleanup tests.
+
 ## 0.8.0 - 2026-08-07
 
 - Added A3S ORM-managed `flow_active_hooks` projections for SQLite and

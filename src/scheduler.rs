@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use crate::engine::FlowEngine;
 use crate::error::Result;
-use crate::model::WorkflowRunSuspension;
+use crate::model::{ScheduledWakeupKind, WorkflowRunSuspension};
 use crate::worker::{FlowTask, FlowTaskDispatcher};
 
 /// Result of one scheduler scan.
@@ -74,8 +74,17 @@ impl FlowScheduler {
     }
 
     pub async fn enqueue_due_work(&self, now: DateTime<Utc>) -> Result<FlowSchedulerTick> {
-        let due_waits = self.engine.list_due_waits(now).await?;
-        let due_retries = self.engine.list_due_retries(now).await?;
+        let due = self.engine.list_due_wakeups(now).await?;
+        let due_waits = due
+            .iter()
+            .filter(|wakeup| wakeup.kind == ScheduledWakeupKind::Wait)
+            .map(|wakeup| (wakeup.run_id.clone(), wakeup.subject_id.clone()))
+            .collect::<Vec<_>>();
+        let due_retries = due
+            .into_iter()
+            .filter(|wakeup| wakeup.kind == ScheduledWakeupKind::Retry)
+            .map(|wakeup| (wakeup.run_id, wakeup.subject_id))
+            .collect::<Vec<_>>();
         let mut enqueued_tasks = 0usize;
 
         if !due_waits.is_empty() {

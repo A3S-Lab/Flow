@@ -137,6 +137,36 @@ impl ActiveHookSnapshot {
     }
 }
 
+/// Kind of durable timer that can wake a suspended workflow run.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum ScheduledWakeupKind {
+    Wait,
+    Retry,
+}
+
+impl ScheduledWakeupKind {
+    #[cfg(any(feature = "postgres", feature = "sqlite"))]
+    pub(crate) fn from_database_code(code: i64) -> Result<Self> {
+        match code {
+            0 => Ok(Self::Wait),
+            2 => Ok(Self::Retry),
+            _ => Err(FlowError::Store(format!(
+                "invalid scheduled wakeup kind code {code}"
+            ))),
+        }
+    }
+}
+
+/// Minimal indexed record for a wait timer or delayed step retry.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ScheduledWakeup {
+    pub run_id: String,
+    pub kind: ScheduledWakeupKind,
+    pub subject_id: String,
+    pub scheduled_at: DateTime<Utc>,
+}
+
 /// Aggregated run counts for host dashboards and health probes.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]

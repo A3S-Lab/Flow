@@ -1,7 +1,13 @@
 use async_trait::async_trait;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+use chrono::SecondsFormat;
+use chrono::{DateTime, Utc};
 
 use crate::error::Result;
-use crate::model::{project_run, ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookStatus};
+use crate::model::{
+    project_run, ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookStatus, ScheduledWakeup,
+    ScheduledWakeupKind, StepStatus, WaitStatus,
+};
 
 mod local_file;
 mod memory;
@@ -44,6 +50,46 @@ pub trait FlowEventStore: Send + Sync {
 
     async fn list_run_ids(&self) -> Result<Vec<String>>;
 
+    /// List wait timers and delayed retries due at or before `now`.
+    ///
+    /// The default implementation replays every run for compatibility with
+    /// custom stores. SQL stores override it with an indexed projection.
+    async fn list_due_wakeups(&self, now: DateTime<Utc>) -> Result<Vec<ScheduledWakeup>> {
+        let mut wakeups = replay_scheduled_wakeups(self).await?;
+        wakeups.retain(|wakeup| wakeup.scheduled_at <= now);
+        wakeups.sort_by(|left, right| {
+            (left.kind, left.run_id.as_str(), left.subject_id.as_str()).cmp(&(
+                right.kind,
+                right.run_id.as_str(),
+                right.subject_id.as_str(),
+            ))
+        });
+        Ok(wakeups)
+    }
+
+    /// Return the earliest wait timer or delayed retry across active runs.
+    ///
+    /// Active hooks are excluded because they do not have a scheduled time.
+    async fn next_scheduled_wakeup(&self) -> Result<Option<ScheduledWakeup>> {
+        Ok(replay_scheduled_wakeups(self)
+            .await?
+            .into_iter()
+            .min_by(|left, right| {
+                (
+                    left.scheduled_at,
+                    left.run_id.as_str(),
+                    left.kind,
+                    left.subject_id.as_str(),
+                )
+                    .cmp(&(
+                        right.scheduled_at,
+                        right.run_id.as_str(),
+                        right.kind,
+                        right.subject_id.as_str(),
+                    ))
+            }))
+    }
+
     /// Find active hooks that own an external callback token.
     ///
     /// The default implementation replays every run for compatibility with
@@ -84,4 +130,65 @@ pub trait FlowEventStore: Send + Sync {
         });
         Ok(hooks)
     }
+}
+
+async fn replay_scheduled_wakeups<S>(store: &S) -> Result<Vec<ScheduledWakeup>>
+where
+    S: FlowEventStore + ?Sized,
+{
+    let mut wakeups = Vec::new();
+    for run_id in store.list_run_ids().await? {
+        let history = store.list(&run_id).await?;
+        let snapshot = project_run(&run_id, &history)?;
+        if snapshot.status.is_terminal() {
+            continue;
+        }
+        for wait in snapshot.waits.values() {
+            if wait.status == WaitStatus::Waiting {
+                wakeups.push(ScheduledWakeup {
+                    run_id: run_id.clone(),
+                    kind: ScheduledWakeupKind::Wait,
+                    subject_id: wait.wait_id.clone(),
+                    scheduled_at: wait.resume_at,
+                });
+            }
+        }
+        for step in snapshot.steps.values() {
+            if step.status == StepStatus::Pending {
+                if let Some(retry_after) = step.retry_after {
+                    wakeups.push(ScheduledWakeup {
+                        run_id: run_id.clone(),
+                        kind: ScheduledWakeupKind::Retry,
+                        subject_id: step.step_id.clone(),
+                        scheduled_at: retry_after,
+                    });
+                }
+            }
+        }
+    }
+    Ok(wakeups)
+}
+
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub(super) fn scheduled_wakeup_key(timestamp: DateTime<Utc>) -> String {
+    timestamp.to_rfc3339_opts(SecondsFormat::Nanos, true)
+}
+
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub(super) fn scheduled_wakeup_from_row(
+    (run_id, wakeup_kind, subject_id, scheduled_at_key): (String, i64, String, String),
+) -> Result<ScheduledWakeup> {
+    let scheduled_at = DateTime::parse_from_rfc3339(&scheduled_at_key)
+        .map_err(|error| {
+            crate::error::FlowError::Store(format!(
+                "invalid scheduled wakeup timestamp {scheduled_at_key:?}: {error}"
+            ))
+        })?
+        .with_timezone(&Utc);
+    Ok(ScheduledWakeup {
+        run_id,
+        kind: ScheduledWakeupKind::from_database_code(wakeup_kind)?,
+        subject_id,
+        scheduled_at,
+    })
 }

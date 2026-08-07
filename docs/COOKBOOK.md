@@ -13,7 +13,7 @@ inject its queue.
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.8.0", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.9.0", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
@@ -140,7 +140,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.8.0", features = ["sqlite"] }
+a3s-flow = { version = "0.9.0", features = ["sqlite"] }
 ```
 
 Then wire the SQLite event store into the same engine and worker shape:
@@ -170,6 +170,9 @@ directories and the database when missing, enables WAL mode, persists one row
 per event envelope, and checks expected sequence inside each append
 transaction. Its active-hook migration backfills open callbacks, then SQLite
 triggers maintain the indexed routing projection in the append transaction.
+The scheduled-wakeup migration likewise backfills open waits and delayed
+retries with nanosecond deadline keys; scheduler due and next-wakeup queries
+then use that index instead of replaying every history.
 The immediate transaction also prevents two connections from committing the
 same active token. Keep `LocalFileFlowTaskQueue` lease recovery in place only
 when the host intentionally runs `FlowWorker`; Boot hosts should use
@@ -197,11 +200,17 @@ rolling-upgrade event writers synchronized with that projection. New Boot hosts
 normally pair this store with `BootFlowTaskManager`. The following direct queue
 shape remains for deployments that already own a `FlowWorker` lifecycle.
 
+The same migration set backfills an indexed scheduled-wakeup projection for
+open waits and delayed retries. PostgreSQL range and earliest-row queries let a
+scheduler tick discover due work once and plan its next sleep without a global
+history scan. Upgrade migration locking prevents legacy event inserts from
+falling between projection backfill and trigger installation.
+
 Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.8.0", features = ["postgres"] }
+a3s-flow = { version = "0.9.0", features = ["postgres"] }
 ```
 
 Then wire the Postgres event store and task queue into the same engine and
@@ -419,7 +428,9 @@ if tick.has_due_work() {
 `next_wakeup_delay()` returns `None` when there are no open waits or delayed
 retries, `Some(Duration::ZERO)` for due or overdue work, and a positive delay
 for future work. Hosts that own their own clock can sleep for that delay before
-calling `enqueue_due_work()` again.
+calling `enqueue_due_work()` again. One scheduler tick discovers due waits and
+retries with a combined store query. SQL stores use their A3S ORM projection;
+other stores preserve the same behavior through event-history replay.
 
 See `examples/retry_backoff.rs` for a complete delayed retry flow.
 
@@ -694,7 +705,7 @@ feature and publish bridged records through an `EventBus`:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.8.0", features = ["a3s-event"] }
+a3s-flow = { version = "0.9.0", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 

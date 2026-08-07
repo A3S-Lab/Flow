@@ -23,10 +23,10 @@ pub use error::{FlowError, Result};
 pub use model::{
     ActiveHookSnapshot, CancellationRequest, CancellationRequestSnapshot, ChildOperationReference,
     FlowEvent, FlowEventEnvelope, HookCallbackRoute, HookMetadata, HookSnapshot, HookStatus,
-    JsonValue, RetryPolicy, RuntimeCommand, RuntimeKind, RuntimeSpec, StepCommand,
-    StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowProgress,
-    WorkflowRunSnapshot, WorkflowRunStatus, WorkflowRunSummary, WorkflowRunSuspension,
-    WorkflowSpec, WorkflowTerminalOutcome,
+    JsonValue, RetryPolicy, RuntimeCommand, RuntimeKind, RuntimeSpec, ScheduledWakeup,
+    ScheduledWakeupKind, StepCommand, StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot,
+    WaitStatus, WorkflowProgress, WorkflowRunSnapshot, WorkflowRunStatus, WorkflowRunSummary,
+    WorkflowRunSuspension, WorkflowSpec, WorkflowTerminalOutcome,
 };
 #[cfg(feature = "a3s-event")]
 pub use observe::A3sEventBusFlowEventSink;

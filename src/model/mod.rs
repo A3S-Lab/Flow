@@ -17,6 +17,7 @@ pub use operation::{
 };
 pub(crate) use projection::project_run;
 pub use snapshot::{
-    ActiveHookSnapshot, HookSnapshot, HookStatus, StepSnapshot, StepStatus, WaitSnapshot,
-    WaitStatus, WorkflowRunSnapshot, WorkflowRunStatus, WorkflowRunSummary, WorkflowRunSuspension,
+    ActiveHookSnapshot, HookSnapshot, HookStatus, ScheduledWakeup, ScheduledWakeupKind,
+    StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowRunSnapshot, WorkflowRunStatus,
+    WorkflowRunSummary, WorkflowRunSuspension,
 };
