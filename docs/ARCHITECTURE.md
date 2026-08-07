@@ -130,15 +130,17 @@ takes a transaction-scoped advisory lock per run before expected-sequence
 appends, so multiple workers can preserve per-run event order while sharing one
 database.
 
-PostgreSQL retention removes whole terminal streams only. A consistent A3S ORM
-transaction takes an exclusive retention guard while append transactions take
-the shared form, then locks existing streams in stable order and protects
-non-terminal runs, durable audit holds, and linked
-components that are not all eligible. Before deleting event rows it stores a
-tombstone with terminal identity and a SHA-256 digest of the complete history;
-the append path rejects tombstoned run IDs. Partial prefix compaction is not
-supported because replay and audit both depend on the original contiguous
-sequence beginning with `run_created`.
+SQLite and PostgreSQL retention remove whole terminal streams only. Both
+adapters evaluate one shared eligibility planner inside an A3S ORM transaction,
+protecting non-terminal runs, durable audit holds, and linked components that
+are not all eligible. SQLite uses an immediate transaction to serialize the
+scan with appends. PostgreSQL takes an exclusive retention guard while append
+transactions take the shared form, then locks existing streams in stable order.
+Before deleting event rows, each adapter stores a tombstone with terminal
+identity and a SHA-256 digest of the complete history; append paths reject
+tombstoned run IDs. Partial prefix compaction is not supported because replay
+and audit both depend on the original contiguous sequence beginning with
+`run_created`.
 
 Both SQL stores are adapters over `a3s-orm`. ORM executors own connection and
 pool behavior, typed decoding, and transaction completion. Flow owns the event

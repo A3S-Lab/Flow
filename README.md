@@ -219,13 +219,13 @@ append-only `FlowEventStore` contract:
 | `PostgresEventStore` | Multi-process hosts and distributed workers sharing event history |
 
 Local JSONL histories can prune old terminal runs while keeping suspended runs.
-PostgreSQL can prune complete terminal histories while preserving durable audit
-holds and linked run components; each deletion leaves a checksum tombstone and
-partial event-stream compaction is intentionally unsupported. SQLite and
-Postgres preserve the same event envelope shape while using database
-transactions for expected-sequence writes. Both SQL adapters use `a3s-orm` for
-connection execution, typed row decoding, transactions, and canonical
-checksummed migrations; Flow no longer owns a separate SQL driver path.
+SQLite and PostgreSQL can prune complete terminal histories while preserving
+durable audit holds and linked run components; each deletion leaves a checksum
+tombstone and partial event-stream compaction is intentionally unsupported.
+Both SQL stores preserve the same event envelope shape, use transactions for
+expected-sequence writes, and rely on `a3s-orm` for connection execution, typed
+row decoding, transactions, and canonical checksummed migrations. Flow no
+longer owns a separate SQL driver path.
 
 ### Workers, queues, and scheduling
 
@@ -301,7 +301,7 @@ which observability sinks receive committed events.
 
 ```toml
 [dependencies]
-a3s-flow = "0.5.0"
+a3s-flow = "0.6.0"
 async-trait = "0.1"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -589,6 +589,7 @@ cargo run --example cancellation
 cargo run --example run_inspection
 cargo run --example local_file_durability
 cargo run --example sqlite_durability --features sqlite
+cargo run --example sqlite_retention --features sqlite
 cargo run --example sqlite_worker --features sqlite
 cargo run --example postgres_durability --features postgres
 cargo run --example task_queue_durability
@@ -616,6 +617,7 @@ cargo run --example local_retention
 | `run_inspection` | `list_run_ids()`, `list_snapshots()`, `run_summary()`, `list_open_suspensions()`, `next_wakeup()`, `list_active_hooks()`, and `history()` over completed, suspended, cancelled, and failed runs |
 | `local_file_durability` | `LocalFileEventStore` JSONL durability across engine reconstruction |
 | `sqlite_durability` | `SqliteEventStore` durability across engine reconstruction; prints a feature hint unless run with `--features sqlite` |
+| `sqlite_retention` | Audit-safe SQLite whole-history retention with holds, terminal-run tombstones, and suspended-run protection |
 | `sqlite_worker` | `SqliteEventStore` plus `LocalFileFlowTaskQueue` for a single-node durable worker/scheduler host |
 | `postgres_durability` | `PostgresEventStore` durability across engine reconstruction; prints a feature or environment hint unless run with `--features postgres` and `A3S_FLOW_POSTGRES_URL` |
 | `task_queue_durability` | `LocalFileFlowTaskQueue` pending/inflight files, crash recovery, lease timeout handling, dead-letter records, and worker draining |
@@ -943,7 +945,7 @@ single SQLite database instead of one JSONL file per run:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.5.0", features = ["sqlite"] }
+a3s-flow = { version = "0.6.0", features = ["sqlite"] }
 ```
 
 ```rust
@@ -965,8 +967,32 @@ Run the durability example:
 
 ```sh
 cargo run --example sqlite_durability --features sqlite
+cargo run --example sqlite_retention --features sqlite
 cargo run --example sqlite_worker --features sqlite
 ```
+
+SQLite retention uses the same audit-safe policy and records as PostgreSQL:
+
+```rust
+use a3s_flow::FlowHistoryRetentionPolicy;
+use chrono::{Duration, Utc};
+
+store
+    .hold_history(&run_id, "legal-case-42", "legal review is open")
+    .await?;
+
+let report = store
+    .prune_terminal_history(FlowHistoryRetentionPolicy::new(
+        Utc::now() - Duration::days(30),
+    ))
+    .await?;
+```
+
+The ORM-managed immediate transaction serializes appends, hold changes, and
+retention. A scan deletes only complete eligible linked components, rolls back
+all deletions if any tombstone write fails, and prevents a deleted run ID from
+being reused. Existing 0.5 event databases receive the retention tables through
+the next checksummed migration without rewriting their event rows.
 
 ### Postgres event store
 
@@ -975,7 +1001,7 @@ event history through a database:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.5.0", features = ["postgres"] }
+a3s-flow = { version = "0.6.0", features = ["postgres"] }
 ```
 
 ```rust
@@ -996,7 +1022,8 @@ rolling upgrades. `connect(...)` creates a bounded non-TLS ORM pool for local or
 trusted transports; production hosts can pass a TLS-enabled, policy-configured
 `a3s_orm::PostgresExecutor` to `PostgresEventStore::from_executor(...)`.
 
-PostgreSQL retention is explicit and audit guarded:
+PostgreSQL retention uses the same public audit policy with multi-process
+advisory locking:
 
 ```rust
 use a3s_flow::FlowHistoryRetentionPolicy;
@@ -1043,7 +1070,7 @@ Enable `boot` and one durable storage feature for a host that uses A3S Boot:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.5.0", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.6.0", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
@@ -1240,7 +1267,7 @@ hosts that already use A3S Event as their event backbone:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.5.0", features = ["a3s-event"] }
+a3s-flow = { version = "0.6.0", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 
@@ -1293,11 +1320,11 @@ the Flow event store remains authoritative.
 | `FlowEventStore` | Append-only event persistence trait with expected-sequence writes |
 | `InMemoryEventStore` | Ephemeral event store for tests and examples |
 | `LocalFileEventStore` | JSONL-backed local durable event store with terminal-run retention cleanup |
-| `SqliteEventStore` | A3S ORM-backed single-node durable event store, available with the `sqlite` feature |
+| `SqliteEventStore` | A3S ORM-backed single-node durable event store with audit-safe whole-history retention, available with the `sqlite` feature |
 | `PostgresEventStore` | A3S ORM-backed shared durable event store, available with the `postgres` feature |
-| `FlowHistoryRetentionPolicy` | PostgreSQL whole-history cutoff and optional bounded run-ID scope |
-| `FlowHistoryHold` | Persistent audit guard that blocks PostgreSQL history deletion |
-| `FlowHistoryTombstone` | Checksum audit record retained after PostgreSQL history deletion |
+| `FlowHistoryRetentionPolicy` | SQLite/PostgreSQL whole-history cutoff and optional bounded run-ID scope |
+| `FlowHistoryHold` | Persistent audit guard that blocks SQL history deletion |
+| `FlowHistoryTombstone` | Checksum audit record retained after SQL history deletion |
 | `FlowEventObserver` | Receives committed event envelopes after store append |
 | `FanoutFlowEventObserver` | Forwards committed event envelopes to multiple observers |
 | `A3sFlowEventBridge` | Maps committed envelopes into Flow audit records for host sinks and A3S Event publishers |

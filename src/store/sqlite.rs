@@ -2,8 +2,8 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use a3s_orm::{
-    sql_query, Database, Executor, FromRow, Migrator, Query, SqliteDialect, SqliteExecutor,
-    SqliteTransaction, SqliteTransactionError,
+    sql_query, Database, Executor, FromRow, Migrator, Query, SqlQuery, SqliteDialect, SqliteError,
+    SqliteExecutor, SqliteRow, SqliteTransaction, SqliteTransactionError,
 };
 use async_trait::async_trait;
 use chrono::Utc;
@@ -12,12 +12,15 @@ use uuid::Uuid;
 use crate::error::{FlowError, Result};
 use crate::model::{FlowEvent, FlowEventEnvelope};
 
-use super::{sqlite_event_migrations, FlowEventStore};
+use super::{sqlite_migrations, FlowEventStore};
+
+mod retention;
 
 /// A3S ORM-backed SQLite event store for single-node durable hosts.
 ///
 /// The store keeps one row per [`FlowEventEnvelope`] and uses an ORM-managed
-/// immediate transaction for expected-sequence append safety.
+/// immediate transaction for expected-sequence append safety and audit-safe
+/// whole-history retention.
 #[derive(Clone)]
 pub struct SqliteEventStore {
     executor: SqliteExecutor,
@@ -53,7 +56,7 @@ impl SqliteEventStore {
 
     pub async fn from_executor(executor: SqliteExecutor) -> Result<Self> {
         Migrator::new(executor.clone())
-            .run(sqlite_event_migrations())
+            .run(sqlite_migrations())
             .await
             .map_err(|error| FlowError::Store(format!("SQLite Flow migration failed: {error}")))?;
         Ok(Self { executor })
@@ -74,6 +77,15 @@ impl SqliteEventStore {
             .executor
             .transaction(|transaction| {
                 Box::pin(async move {
+                    let linked_run_id = retention::linked_flow_run_id(&event).map(str::to_string);
+                    retention::ensure_sqlite_history_not_tombstoned(transaction, &run_id).await?;
+                    if let Some(linked_run_id) = linked_run_id.as_deref() {
+                        retention::ensure_sqlite_history_not_tombstoned(transaction, linked_run_id)
+                            .await?;
+                        if latest_sqlite_sequence(transaction, linked_run_id).await? == 0 {
+                            return Err(FlowError::RunNotFound(linked_run_id.to_string()));
+                        }
+                    }
                     let actual_sequence = latest_sqlite_sequence(transaction, &run_id).await?;
                     if let Some(expected_sequence) = expected_sequence {
                         if actual_sequence != expected_sequence {
@@ -150,21 +162,67 @@ impl FlowEventStore for SqliteEventStore {
     }
 }
 
-async fn latest_sqlite_sequence(transaction: &SqliteTransaction, run_id: &str) -> Result<u64> {
-    let query =
-        sql_query::<i64>("SELECT COALESCE(MAX(sequence), 0) FROM flow_events WHERE run_id = ")
-            .bind(run_id)
-            .compile(&SqliteDialect)
-            .map_err(sqlite_query_error)?;
-    let rows = transaction
+pub(super) async fn execute_sqlite<E>(executor: &E, query: SqlQuery<()>) -> Result<u64>
+where
+    E: Executor<Row = SqliteRow, Error = SqliteError>,
+{
+    let query = query.compile(&SqliteDialect).map_err(sqlite_query_error)?;
+    Ok(executor
+        .execute(&query)
+        .await
+        .map_err(sqlite_driver_error)?
+        .rows_affected)
+}
+
+pub(super) async fn fetch_all_sqlite<T, E>(executor: &E, query: SqlQuery<T>) -> Result<Vec<T>>
+where
+    T: FromRow + Send,
+    E: Executor<Row = SqliteRow, Error = SqliteError>,
+{
+    let query = query.compile(&SqliteDialect).map_err(sqlite_query_error)?;
+    executor
         .fetch_all(&query)
         .await
         .map_err(sqlite_driver_error)?
-        .rows;
-    let row = rows
+        .rows
+        .iter()
+        .map(T::from_row)
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(sqlite_decode_error)
+}
+
+pub(super) async fn fetch_optional_sqlite<T, E>(
+    executor: &E,
+    query: SqlQuery<T>,
+) -> Result<Option<T>>
+where
+    T: FromRow + Send,
+    E: Executor<Row = SqliteRow, Error = SqliteError>,
+{
+    let mut rows = fetch_all_sqlite(executor, query).await?;
+    match rows.len() {
+        0 => Ok(None),
+        1 => Ok(rows.pop()),
+        actual => Err(FlowError::Store(format!(
+            "SQLite Flow query returned {actual} rows where at most one was expected"
+        ))),
+    }
+}
+
+pub(super) async fn latest_sqlite_sequence(
+    transaction: &SqliteTransaction,
+    run_id: &str,
+) -> Result<u64> {
+    let rows = fetch_all_sqlite(
+        transaction,
+        sql_query::<i64>("SELECT COALESCE(MAX(sequence), 0) FROM flow_events WHERE run_id = ")
+            .bind(run_id),
+    )
+    .await?;
+    let sequence = rows
         .first()
+        .copied()
         .ok_or_else(|| FlowError::Store("SQLite sequence query returned no row".to_string()))?;
-    let sequence = i64::from_row(row).map_err(sqlite_decode_error)?;
     u64::try_from(sequence)
         .map_err(|error| FlowError::Store(format!("invalid SQLite sequence {sequence}: {error}")))
 }
@@ -201,7 +259,7 @@ async fn insert_sqlite_envelope(
     Ok(())
 }
 
-fn row_to_envelope(
+pub(super) fn row_to_envelope(
     (run_id, sequence, event_id, timestamp, event_json): (String, i64, String, String, String),
 ) -> Result<FlowEventEnvelope> {
     Ok(FlowEventEnvelope {
@@ -246,11 +304,11 @@ async fn ensure_sqlite_parent_dir(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn map_sqlite_transaction(
-    result: std::result::Result<FlowEventEnvelope, SqliteTransactionError<FlowError>>,
-) -> Result<FlowEventEnvelope> {
+pub(super) fn map_sqlite_transaction<T>(
+    result: std::result::Result<T, SqliteTransactionError<FlowError>>,
+) -> Result<T> {
     match result {
-        Ok(envelope) => Ok(envelope),
+        Ok(value) => Ok(value),
         Err(SqliteTransactionError::Operation(error)) => Err(error),
         Err(error) => Err(FlowError::Store(format!(
             "SQLite Flow transaction failed: {error}"

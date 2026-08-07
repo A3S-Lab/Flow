@@ -50,8 +50,8 @@ CREATE INDEX IF NOT EXISTS idx_flow_task_dead_letters_queue_time
 ON flow_task_dead_letters (queue_name, dead_lettered_at_nanos, dead_letter_id);
 "#;
 
-#[cfg(feature = "postgres")]
-const POSTGRES_RETENTION_SQL: &str = r#"
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+const RETENTION_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS flow_history_holds (
     run_id TEXT NOT NULL,
     hold_id TEXT NOT NULL,
@@ -71,12 +71,19 @@ CREATE TABLE IF NOT EXISTS flow_history_tombstones (
 "#;
 
 #[cfg(feature = "sqlite")]
-pub(crate) fn sqlite_event_migrations() -> Vec<Migration> {
-    vec![Migration::new(
-        "a3s-flow-0001-events",
-        "create Flow event history",
-        EVENTS_SQL,
-    )]
+pub(crate) fn sqlite_migrations() -> Vec<Migration> {
+    vec![
+        Migration::new(
+            "a3s-flow-0001-events",
+            "create Flow event history",
+            EVENTS_SQL,
+        ),
+        Migration::new(
+            "a3s-flow-0002-retention",
+            "create Flow history retention guards and tombstones",
+            RETENTION_SQL,
+        ),
+    ]
 }
 
 #[cfg(feature = "postgres")]
@@ -95,7 +102,7 @@ pub(crate) fn postgres_migrations() -> Vec<Migration> {
         Migration::new(
             "a3s-flow-0003-retention",
             "create Flow history retention guards and tombstones",
-            POSTGRES_RETENTION_SQL,
+            RETENTION_SQL,
         ),
     ]
 }
