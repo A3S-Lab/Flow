@@ -1,7 +1,9 @@
 #![cfg(feature = "postgres")]
 
 use a3s_flow::{FlowError, FlowEvent, FlowEventStore, PostgresEventStore, WorkflowSpec};
-use a3s_orm::{sql_query, Database, PostgresDialect, PostgresExecutor};
+use a3s_orm::{
+    sql_query, Database, DatabaseError, PostgresDialect, PostgresError, PostgresExecutor,
+};
 use chrono::Utc;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -52,7 +54,7 @@ async fn try_insert_raw_event(
     run_id: &str,
     sequence: i64,
     event: FlowEvent,
-) -> std::result::Result<(), String> {
+) -> std::result::Result<(), DatabaseError<PostgresError>> {
     Database::new(PostgresDialect, executor.clone())
         .execute(
             sql_query::<()>(
@@ -71,7 +73,6 @@ async fn try_insert_raw_event(
         )
         .await
         .map(|_| ())
-        .map_err(|error| error.to_string())
 }
 
 async fn active_hook_rows(
@@ -256,8 +257,18 @@ async fn postgres_active_hook_trigger_rejects_concurrent_legacy_writers() {
         .iter()
         .find_map(|result| result.as_ref().err())
         .unwrap();
-    assert!(error.contains("flow active hook token conflict"));
-    assert!(!error.contains(&token));
+    let diagnostic = format!("{error:?}");
+    assert!(!diagnostic.contains(&token));
+    match error {
+        DatabaseError::Execute(PostgresError::Database(source)) => {
+            let database_error = source
+                .as_db_error()
+                .expect("trigger rejection must carry a PostgreSQL database error");
+            assert_eq!(database_error.code().code(), "23505");
+            assert_eq!(database_error.message(), "flow active hook token conflict");
+        }
+        other => panic!("unexpected legacy-writer error: {other:?}"),
+    }
     assert_eq!(active_hook_rows(&first, &token).await.len(), 1);
 
     first
