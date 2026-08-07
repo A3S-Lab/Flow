@@ -36,19 +36,23 @@ clippy-non-pg:
     cargo clippy --all-targets -- -D warnings
     cargo clippy --all-targets --no-default-features -- -D warnings
     cargo clippy --all-targets --no-default-features --features sqlite,native-ts -- -D warnings
+    cargo clippy --all-targets --no-default-features --features boot,sqlite,native-ts -- -D warnings
 
 # Run tests across non-Postgres feature combinations
 test-non-pg:
     cargo test --all-targets
     cargo test --all-targets --no-default-features
+    cargo test --all-targets --no-default-features --features boot
     cargo test --all-targets --no-default-features --features sqlite
     cargo test --all-targets --no-default-features --features native-ts
     cargo test --all-targets --no-default-features --features sqlite,native-ts
+    cargo test --all-targets --no-default-features --features boot,sqlite,native-ts
 
 # Build docs with warnings denied for non-Postgres feature combinations
 doc-non-pg:
     RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
     RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --no-default-features --features sqlite,native-ts
+    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --no-default-features --features boot,sqlite,native-ts
 
 # Run executable examples that do not require Postgres
 examples-non-pg:

@@ -82,7 +82,8 @@ async fn main() -> a3s_flow::Result<()> {
     drop(lease);
 
     let requeued = queue.requeue_inflight().await?;
-    let worker = FlowWorker::new(engine.clone(), queue.clone());
+    let worker = FlowWorker::new(engine.clone(), queue.clone())
+        .with_heartbeat_interval(std::time::Duration::from_secs(30))?;
     let outcomes = worker.run_until_idle().await?;
     let snapshot = engine.snapshot(&run_id).await?;
 

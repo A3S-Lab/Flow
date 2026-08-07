@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::engine::FlowEngine;
 use crate::error::Result;
 use crate::model::WorkflowRunSuspension;
-use crate::worker::{FlowTask, FlowTaskQueue};
+use crate::worker::{FlowTask, FlowTaskDispatcher};
 
 /// Result of one scheduler scan.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -26,20 +26,26 @@ impl FlowSchedulerTick {
 #[derive(Clone)]
 pub struct FlowScheduler {
     engine: FlowEngine,
-    queue: Arc<dyn FlowTaskQueue>,
+    dispatcher: Arc<dyn FlowTaskDispatcher>,
 }
 
 impl FlowScheduler {
-    pub fn new(engine: FlowEngine, queue: Arc<dyn FlowTaskQueue>) -> Self {
-        Self { engine, queue }
+    pub fn new(engine: FlowEngine, dispatcher: Arc<dyn FlowTaskDispatcher>) -> Self {
+        Self { engine, dispatcher }
     }
 
     pub fn engine(&self) -> &FlowEngine {
         &self.engine
     }
 
-    pub fn queue(&self) -> Arc<dyn FlowTaskQueue> {
-        Arc::clone(&self.queue)
+    pub fn dispatcher(&self) -> Arc<dyn FlowTaskDispatcher> {
+        Arc::clone(&self.dispatcher)
+    }
+
+    /// Backward-compatible name for [`Self::dispatcher`].
+    #[deprecated(since = "0.4.4", note = "use dispatcher()")]
+    pub fn queue(&self) -> Arc<dyn FlowTaskDispatcher> {
+        self.dispatcher()
     }
 
     /// Return the earliest wait or delayed retry that can wake the scheduler.
@@ -73,12 +79,14 @@ impl FlowScheduler {
         let mut enqueued_tasks = 0usize;
 
         if !due_waits.is_empty() {
-            self.queue.enqueue(FlowTask::ResumeDueWaits { now }).await?;
+            self.dispatcher
+                .dispatch(FlowTask::ResumeDueWaits { now })
+                .await?;
             enqueued_tasks += 1;
         }
         if !due_retries.is_empty() {
-            self.queue
-                .enqueue(FlowTask::ResumeDueRetries { now })
+            self.dispatcher
+                .dispatch(FlowTask::ResumeDueRetries { now })
                 .await?;
             enqueued_tasks += 1;
         }

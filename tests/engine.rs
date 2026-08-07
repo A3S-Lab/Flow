@@ -1206,6 +1206,28 @@ async fn sqlite_store_creates_parent_directory_on_connect() {
     assert_eq!(store.list("parent-dir-run").await.unwrap().len(), 1);
 }
 
+#[cfg(feature = "sqlite")]
+#[tokio::test]
+async fn sqlite_store_accepts_memory_and_short_form_urls() {
+    let memory = SqliteEventStore::connect("sqlite::memory:").await.unwrap();
+    memory
+        .append_if_sequence("memory-run", 0, run_created_event())
+        .await
+        .unwrap();
+    assert_eq!(memory.list("memory-run").await.unwrap().len(), 1);
+
+    let directory = tempfile::tempdir().unwrap();
+    let database_path = directory.path().join("short-form.db");
+    let store = SqliteEventStore::connect(format!("sqlite:{}", database_path.display()))
+        .await
+        .unwrap();
+    store
+        .append_if_sequence("short-form-run", 0, run_created_event())
+        .await
+        .unwrap();
+    assert!(database_path.is_file());
+}
+
 #[tokio::test]
 async fn local_file_store_preserves_log_order_for_projection_validation() {
     let dir = tempfile::tempdir().unwrap();

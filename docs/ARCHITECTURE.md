@@ -29,11 +29,12 @@ Durable engine layer
           |
           v
 Event store layer
-  append-only FlowEventStore, projections, durable backends
+  append-only FlowEventStore, projections, JSONL or A3S ORM SQL adapters
           |
           v
 Dispatch layer
-  FlowTask, FlowWorker, FlowScheduler, local and Postgres durable task queues
+  FlowTaskDispatcher, FlowScheduler, A3S Boot task manager
+  FlowWorker and Flow-owned queues for embedded/compatibility hosts
 ```
 
 ## Durable Execution Model
@@ -107,18 +108,49 @@ takes a transaction-scoped advisory lock per run before expected-sequence
 appends, so multiple workers can preserve per-run event order while sharing one
 database.
 
+Both SQL stores are adapters over `a3s-orm`. ORM executors own connection and
+pool behavior, typed decoding, and transaction completion. Flow owns the event
+schema and supplies canonical checksummed migrations to the ORM migrator. The
+PostgreSQL append lock retains the earlier `(hashtext(run_id), 0)` key shape so
+old and new Flow processes can safely overlap during a rolling upgrade.
+
 Inspection APIs stay on this boundary: `history()` returns committed envelopes,
 while `snapshot()`, `list_snapshots()`, `run_summary()`,
 `list_open_suspensions()`, `next_wakeup()`, and `list_active_hooks()` project
 those envelopes for dashboards, scheduler hosts, callback routers, and
 debugging without becoming the durable state.
 
-## Dispatch And Leasing
+## Dispatch And Task Management
+
+`FlowScheduler` targets the enqueue-only `FlowTaskDispatcher` boundary. The
+recommended application integration is `BootFlowTaskManager`: it registers a
+Flow processor on an `a3s-boot` queue and converts Boot jobs back into
+`FlowTask` values. Boot owns queue backend selection, job state, processor
+workers, lease configuration, failure records, startup, and shutdown. Flow owns
+workflow task serialization and execution against `FlowEngine`.
+
+This keeps storage and task management independent: an ORM-backed engine can
+dispatch through any configured Boot queue backend, and Boot does not become
+the source of truth for workflow history. The event store remains authoritative
+if a job is retried or redelivered.
 
 `FlowTaskQueue` separates dispatch durability from workflow event durability.
 Workers lease a task, handle it against `FlowEngine`, and acknowledge the lease
 only after successful handling. If handling fails, the task remains inflight so
-the host can requeue or dead-letter it according to its lease policy.
+the host can requeue or dead-letter it according to its lease policy. These
+Flow-owned queues remain useful for embedded hosts and compatibility with
+existing worker deployments; new Boot hosts should dispatch through
+`BootFlowTaskManager` instead of building a second application lifecycle around
+`FlowWorker`.
+
+Lease IDs are fencing tokens. Every successful `heartbeat()` atomically refreshes
+lease age and replaces the token; only the latest token can heartbeat or
+acknowledge the task. `FlowWorker` can heartbeat while handling long-running
+tasks. A lost heartbeat drops the handling future, while a stale acknowledgement
+returns `FlowError::LeaseLost` instead of being mistaken for completion. Workflow
+steps still have documented at-least-once side-effect semantics: fencing guards
+queue ownership, while committed event history and idempotency keys remain the
+authority for replay.
 
 `FlowScheduler` stays on the projected-state side of the boundary. It reports
 the next timed wake-up for hosts that want to sleep between ticks, then scans
@@ -130,10 +162,14 @@ It serializes access inside one process and is intended for local
 crash/restart recovery.
 
 `PostgresFlowTaskQueue` stores pending, inflight, and dead-letter records in
-Postgres tables scoped by `queue_name`. Leasing uses `FOR UPDATE SKIP LOCKED`,
-so multiple workers can lease concurrently without taking the same task.
+Postgres tables scoped by `queue_name`. It is implemented on `a3s-orm` and uses
+the same canonical migration set as the PostgreSQL event store. Leasing uses an
+atomic `FOR UPDATE SKIP LOCKED` CTE, so multiple workers can lease concurrently
+without taking the same task.
 Requeue and dead-letter operations use `leased_at_nanos` cutoffs to implement
-host-defined visibility timeout policies.
+host-defined visibility timeout policies. Heartbeat, reclaim, dead-letter, and
+acknowledgement statements contend on the same task row, so exactly one current
+lease transition wins.
 
 ## Observability Boundary
 

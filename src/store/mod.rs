@@ -5,6 +5,8 @@ use crate::model::{FlowEvent, FlowEventEnvelope};
 
 mod local_file;
 mod memory;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+mod migrations;
 #[cfg(feature = "postgres")]
 mod postgres;
 #[cfg(feature = "sqlite")]
@@ -12,6 +14,10 @@ mod sqlite;
 
 pub use local_file::LocalFileEventStore;
 pub use memory::InMemoryEventStore;
+#[cfg(feature = "postgres")]
+pub(crate) use migrations::postgres_migrations;
+#[cfg(feature = "sqlite")]
+pub(crate) use migrations::sqlite_event_migrations;
 #[cfg(feature = "postgres")]
 pub use postgres::PostgresEventStore;
 #[cfg(feature = "sqlite")]

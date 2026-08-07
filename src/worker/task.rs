@@ -64,6 +64,10 @@ impl FlowTaskOutcome {
 }
 
 /// Leased task returned by a queue worker before acknowledgement.
+///
+/// [`super::FlowTaskQueue::heartbeat`] replaces `lease_id` with a new fencing
+/// token. Callers that renew leases manually must acknowledge with the latest
+/// returned token.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FlowTaskLease {
     pub lease_id: String,
