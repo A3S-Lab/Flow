@@ -6,13 +6,15 @@ use a3s_orm::{
     SqliteExecutor, SqliteRow, SqliteTransaction, SqliteTransactionError,
 };
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
-use crate::model::{ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookSnapshot, HookStatus};
+use crate::model::{
+    ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookSnapshot, HookStatus, ScheduledWakeup,
+};
 
-use super::{sqlite_migrations, FlowEventStore};
+use super::{scheduled_wakeup_from_row, scheduled_wakeup_key, sqlite_migrations, FlowEventStore};
 
 mod retention;
 
@@ -163,6 +165,42 @@ impl FlowEventStore for SqliteEventStore {
             .await
             .map_err(sqlite_orm_error)?
             .rows)
+    }
+
+    async fn list_due_wakeups(&self, now: DateTime<Utc>) -> Result<Vec<ScheduledWakeup>> {
+        let database = Database::new(SqliteDialect, self.executor.clone());
+        database
+            .fetch_all_as(
+                sql_query::<(String, i64, String, String)>(
+                    "SELECT run_id, wakeup_kind, subject_id, scheduled_at_key \
+                     FROM flow_scheduled_wakeups WHERE scheduled_at_key <= ",
+                )
+                .bind(scheduled_wakeup_key(now))
+                .append(" ORDER BY wakeup_kind, run_id, subject_id"),
+            )
+            .await
+            .map_err(sqlite_orm_error)?
+            .rows
+            .into_iter()
+            .map(scheduled_wakeup_from_row)
+            .collect()
+    }
+
+    async fn next_scheduled_wakeup(&self) -> Result<Option<ScheduledWakeup>> {
+        let database = Database::new(SqliteDialect, self.executor.clone());
+        database
+            .fetch_all_as(sql_query::<(String, i64, String, String)>(
+                "SELECT run_id, wakeup_kind, subject_id, scheduled_at_key \
+                 FROM flow_scheduled_wakeups \
+                 ORDER BY scheduled_at_key, run_id, wakeup_kind, subject_id LIMIT 1",
+            ))
+            .await
+            .map_err(sqlite_orm_error)?
+            .rows
+            .into_iter()
+            .next()
+            .map(scheduled_wakeup_from_row)
+            .transpose()
     }
 
     async fn find_active_hooks_by_token(&self, token: &str) -> Result<Vec<ActiveHookSnapshot>> {

@@ -110,6 +110,14 @@ for programmatic routing, while `Display` and `Debug` diagnostics redact it.
 In-memory, local-file, and custom stores default to replay; the SQLite and
 PostgreSQL adapters answer from an A3S ORM-managed indexed projection.
 
+Scheduled discovery follows the same compatible store boundary.
+`FlowEventStore::list_due_wakeups()` and `next_scheduled_wakeup()` replay all
+histories by default, while SQLite and PostgreSQL answer from an indexed
+`flow_scheduled_wakeups` projection. `FlowEngine::next_wakeup()` validates the
+single indexed candidate against that run's authoritative history; if a
+concurrent or stale candidate cannot be resolved after a retry, it falls back
+to full replay rather than trusting derived state.
+
 ## Event Sourcing
 
 `FlowEventStore` is append-only. `WorkflowRunSnapshot` is a projection, not the
@@ -151,6 +159,16 @@ length is not bounded by a B-tree index entry. Hook tokens remain bearer
 credentials in both history and this projection, so database access is part of
 the callback security boundary.
 
+Separate SQL migrations materialize open wait timers and delayed retries into
+`flow_scheduled_wakeups`. Fixed-width UTC nanosecond timestamp keys preserve
+lexicographic deadline ordering for indexed range and earliest-row queries.
+Lifecycle triggers insert, replace, or remove projection rows for waits,
+retries, cancellation, and terminal outcomes in the event append transaction.
+The PostgreSQL migration locks `flow_events` against concurrent inserts while
+it reconciles the earlier active-hook projection, backfills scheduled work,
+and installs the new trigger, closing the rolling-upgrade gap between backfill
+and trigger installation.
+
 Local JSONL, SQLite, and PostgreSQL retention remove whole terminal streams
 only. All three evaluate one shared eligibility planner, protecting
 non-terminal or recent runs and linked components that are not entirely
@@ -172,14 +190,16 @@ schema and supplies canonical checksummed migrations to the ORM migrator. The
 PostgreSQL append lock retains the earlier `(hashtext(run_id), 0)` key shape so
 old and new Flow processes can safely overlap during a rolling upgrade. Active
 hook lookup uses parameterized ORM queries rather than loading every event
-stream into the application.
+stream into the application. Scheduled due and next-wakeup discovery uses the
+same ORM query boundary and never scans all SQL histories.
 
 Inspection APIs stay on this boundary: `history()` returns committed envelopes,
 while `snapshot()`, `list_snapshots()`, `run_summary()`,
 `list_open_suspensions()`, and `next_wakeup()` project envelopes for dashboards,
-scheduler hosts, and debugging. `list_active_hooks()` delegates to the store so
-SQL adapters can use their materialized callback index without making that
-projection authoritative.
+scheduler hosts, and debugging. `list_active_hooks()` and
+`list_due_wakeups()` delegate to the store so SQL adapters can use their
+materialized callback and scheduler indexes without making either projection
+authoritative.
 
 ## Dispatch And Task Management
 
@@ -224,7 +244,8 @@ authority for replay.
 
 `FlowScheduler` stays on the projected-state side of the boundary. It reports
 the next timed wake-up for hosts that want to sleep between ticks, then scans
-for due waits and delayed retries and enqueues coarse tasks such as
+for due waits and delayed retries with one combined store query and enqueues
+coarse tasks such as
 `ResumeDueWaits { now }` or `ResumeDueRetries { now }`.
 
 `LocalFileFlowTaskQueue` stores one JSON task file per pending or inflight task.

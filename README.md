@@ -46,7 +46,8 @@ The crate owns the workflow durability layer:
 - `WorkflowContext` exposes replay-safe helpers for workflow code.
 - `FlowEventStore` persists append-only workflow history.
 - `a3s-orm` powers the optional SQLite and PostgreSQL stores, checksummed
-  migrations, indexed callback projections, and transactional task tables.
+  migrations, indexed callback and scheduled-wakeup projections, and
+  transactional task tables.
 - `BootFlowTaskManager` connects scheduler dispatch to an `a3s-boot` queue with
   typed retry, timeout, retention, stalled-job, and logical deduplication
   policy, while `FlowWorker` remains available for embedded and compatibility
@@ -164,8 +165,11 @@ Common patterns include:
 - Waiting for an SLA deadline or human response timeout.
 - Sleeping between agent/tool iterations without keeping a task alive.
 
-`next_wakeup()` and `FlowScheduler::next_wakeup_delay()` let hosts sleep until
-the earliest known timer or delayed retry needs attention.
+`list_due_wakeups()`, `next_wakeup()`, and
+`FlowScheduler::next_wakeup_delay()` let hosts discover due work or sleep until
+the earliest known timer or delayed retry needs attention. SQL stores answer
+these scheduler queries from a transactionally maintained A3S ORM projection;
+in-memory, local-file, and custom stores keep replay-compatible defaults.
 
 ### External callbacks and human-in-the-loop work
 
@@ -203,6 +207,7 @@ The engine exposes host-facing control-plane APIs:
 - `list_run_ids()` and `list_snapshots()` for dashboards.
 - `run_summary()` for status and actionable-work counts.
 - `list_open_suspensions()` for waits, active hooks, and delayed retries.
+- `list_due_wakeups()` for one combined due-wait and delayed-retry query.
 - `next_wakeup()` for scheduler planning.
 - `list_active_hooks()` for callback routing.
 
@@ -231,7 +236,8 @@ unsupported.
 Both SQL stores preserve the same event envelope shape, use transactions for
 expected-sequence writes, and rely on `a3s-orm` for connection execution, typed
 row decoding, transactions, canonical checksummed migrations, and an indexed
-active-hook projection. Flow no longer owns a separate SQL driver path.
+active-hook and scheduled-wakeup projection. Flow no longer owns a separate SQL
+driver path.
 
 ### Workers, queues, and scheduling
 
@@ -307,7 +313,7 @@ which observability sinks receive committed events.
 
 ```toml
 [dependencies]
-a3s-flow = "0.8.0"
+a3s-flow = "0.9.0"
 async-trait = "0.1"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -653,7 +659,7 @@ Use these docs when moving from API exploration to a host integration:
 | Feature | How it works |
 |---------|--------------|
 | **Event-sourced runs** | Every workflow mutation is stored as a typed event envelope |
-| **Run inspection** | Hosts can list runs, project snapshots, summarize status counts, inspect open suspensions, discover the next scheduler wake-up, inspect active hooks, and read raw histories |
+| **Run inspection** | Hosts can list runs, project snapshots, summarize status counts, inspect open suspensions, discover due and next scheduler wake-ups, inspect active hooks, and read raw histories |
 | **Replay-first execution** | Workflow decisions are derived from persisted history |
 | **Replay validation** | Reused step, wait, and hook IDs must match the definition already recorded in history |
 | **Durable steps** | Side-effecting step outputs are persisted before replay continues |
@@ -667,9 +673,9 @@ Use these docs when moving from API exploration to a host integration:
 | **Retries** | Failed steps can retry immediately or after a durable delay |
 | **Recoverable step failures** | Exhausted step failures can either fail the run or replay to workflow fallback logic |
 | **Workers** | Queued tasks let a host drive runs outside the request path |
-| **Schedulers** | Due waits and delayed retries can be scanned and enqueued |
+| **Schedulers** | Due waits and delayed retries are discovered together and enqueued without global SQL history scans |
 | **Observers** | Committed events can be mirrored into logs, metrics, or audit sinks |
-| **A3S ORM storage** | Optional SQLite and PostgreSQL stores use `a3s-orm` transactions, typed decoding, checksummed migrations, and indexed active-hook routing |
+| **A3S ORM storage** | Optional SQLite and PostgreSQL stores use `a3s-orm` transactions, typed decoding, checksummed migrations, indexed active-hook routing, and indexed scheduled wake-ups |
 | **A3S Boot task management** | Boot queues own processor registration, job state, worker lifecycle, retry, timeout, cleanup, logical deduplication, and shutdown through `BootFlowTaskManager` and `BootFlowTaskPolicy` |
 | **Pluggable stores** | Use in-memory storage for tests, JSONL storage for local file durability, SQLite for single-node durable hosts, or PostgreSQL for shared database history |
 | **Compatibility queues** | Embedded hosts can still use Flow's in-memory, JSON-file, or PostgreSQL lease queues directly |
@@ -907,8 +913,9 @@ access must be protected accordingly even though diagnostics redact them.
 | `PostgresEventStore` | Multi-process hosts and distributed workers that share workflow history | Postgres database, gated by the `postgres` feature |
 
 The SQL stores are implemented on `a3s-orm`. Opening a store runs Flow's
-canonical checksummed migrations, including the backfilled active-hook index,
-before the store becomes available. Hosts can use the convenience
+canonical checksummed migrations, including backfilled active-hook and
+scheduled-wakeup indexes, before the store becomes available. Hosts can use the
+convenience
 `connect(...)` methods, or construct an ORM executor and pass it to
 `from_executor(...)` when they need custom pool, TLS, or connection controls.
 
@@ -967,7 +974,7 @@ single SQLite database instead of one JSONL file per run:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.8.0", features = ["sqlite"] }
+a3s-flow = { version = "0.9.0", features = ["sqlite"] }
 ```
 
 ```rust
@@ -983,9 +990,11 @@ if needed, enable WAL mode, apply migrations, store one row per
 `FlowEventEnvelope`, and perform expected-sequence checks inside an immediate
 transaction. The same transaction checks the indexed active-token owner before
 `hook_created` is committed. SQLite triggers then materialize or remove the
-active-hook row as hook and run lifecycle events arrive. It uses a single
-connection for single-node durability. Use `PostgresEventStore` when multiple
-processes or distributed workers must share the same event history.
+active-hook row and scheduled wait/retry rows as lifecycle events arrive. Due
+and next-wakeup queries use the scheduled projection without replaying every
+run. It uses a single connection for single-node durability. Use
+`PostgresEventStore` when multiple processes or distributed workers must share
+the same event history.
 
 Run the durability example:
 
@@ -1016,9 +1025,10 @@ The ORM-managed immediate transaction serializes appends, hold changes, and
 retention. A scan deletes only complete eligible linked components, rolls back
 all deletions if any tombstone write fails, and prevents a deleted run ID from
 being reused. Existing event databases receive retention and active-hook
-projection tables through checksummed migrations without rewriting event rows.
-The projection migration evaluates existing hook lifecycle once to backfill
-open callbacks; subsequent event inserts maintain it transactionally.
+and scheduled-wakeup projection tables through checksummed migrations without
+rewriting event rows. The projection migrations evaluate existing hook, wait,
+retry, cancellation, and terminal lifecycles once; subsequent event inserts
+maintain the indexes transactionally with nanosecond deadline precision.
 
 ### Postgres event store
 
@@ -1027,7 +1037,7 @@ event history through a database:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.8.0", features = ["postgres"] }
+a3s-flow = { version = "0.9.0", features = ["postgres"] }
 ```
 
 ```rust
@@ -1053,6 +1063,13 @@ releases, preserving per-run event order during rolling upgrades. `connect(...)`
 creates a bounded non-TLS ORM pool for local or trusted transports; production
 hosts can pass a TLS-enabled, policy-configured `a3s_orm::PostgresExecutor` to
 `PostgresEventStore::from_executor(...)`.
+
+Wait timers and delayed retries are materialized into a separate scheduled
+wakeup projection with fixed-width UTC nanosecond keys. Range and earliest-row
+indexes answer due scans and `next_wakeup()` without loading every run history.
+The upgrade migration takes a table lock while reconciling the prior callback
+projection, backfilling scheduled work, and installing its event trigger, so a
+rolling legacy writer cannot fall between backfill and trigger installation.
 
 PostgreSQL retention uses the same public audit policy with multi-process
 advisory locking:
@@ -1094,7 +1111,9 @@ A3S_FLOW_POSTGRES_URL=postgres://user:pass@localhost:5432/a3s_flow \
 cover direct driving, wait/retry scanning, hook resume by ID/token, and hook
 disposal by ID/token. `FlowScheduler` depends on the enqueue-only
 `FlowTaskDispatcher` boundary, so it can dispatch to Boot without owning lease
-or worker lifecycle details.
+or worker lifecycle details. Each tick asks the store once for both due waits
+and delayed retries; SQL stores satisfy that request from their indexed
+scheduled-wakeup projection.
 
 ### A3S Boot task manager (recommended)
 
@@ -1102,7 +1121,7 @@ Enable `boot` and one durable storage feature for a host that uses A3S Boot:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.8.0", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.9.0", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
@@ -1315,7 +1334,7 @@ hosts that already use A3S Event as their event backbone:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.8.0", features = ["a3s-event"] }
+a3s-flow = { version = "0.9.0", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 
@@ -1354,6 +1373,8 @@ the Flow event store remains authoritative.
 | `FlowEvent` | Event-sourced run, step, wait, and hook mutation |
 | `FlowEventEnvelope` | Persisted event with run ID, sequence, event ID, and timestamp |
 | `ActiveHookSnapshot` | Host-facing active hook record with owning run ID and typed metadata decoding |
+| `ScheduledWakeup` | Minimal store-facing wait or delayed-retry deadline record |
+| `ScheduledWakeupKind` | Distinguishes indexed wait timers from delayed step retries |
 | `WorkflowRunSnapshot` | Projected run state with typed input, output, step output, and hook payload decoding helpers |
 | `WorkflowTerminalOutcome` | Typed completed, failed, cancelled, timed-out, retry-exhausted, or host-shutdown terminal result |
 | `WorkflowProgress` | Idempotently identified durable progress update |
@@ -1365,7 +1386,7 @@ the Flow event store remains authoritative.
 | `HookSnapshot` | Projected hook state with typed metadata and payload decoding |
 | `HookMetadata` | Typed helper for common hook audit, label, data, and callback-route metadata |
 | `HookCallbackRoute` | Typed HTTP method/path metadata for external hook callback routes |
-| `FlowEventStore` | Append-only event persistence trait with expected-sequence writes and overridable active-hook queries |
+| `FlowEventStore` | Append-only event persistence trait with expected-sequence writes and overridable active-hook and scheduled-wakeup queries |
 | `InMemoryEventStore` | Ephemeral event store for tests and examples |
 | `LocalFileEventStore` | JSONL-backed local durable event store with linked-component terminal retention cleanup |
 | `SqliteEventStore` | A3S ORM-backed single-node durable event store with audit-safe whole-history retention, available with the `sqlite` feature |
@@ -1437,7 +1458,8 @@ examples, and package/publish dry-runs.
 `just postgres-test` requires `A3S_FLOW_POSTGRES_URL` and never silently skips
 the real Postgres event-store and worker-queue tests. Pull requests run this
 gate against PostgreSQL 17, including active-token races and legacy-trigger
-coverage, in addition to the non-Postgres quality matrix.
+coverage plus scheduled-wakeup migration and lifecycle checks, in addition to
+the non-Postgres quality matrix.
 
 From the monorepo root:
 
@@ -1450,8 +1472,8 @@ just flow-test
 
 - Stabilize the Rust runtime, store, worker, and scheduler APIs.
 - Keep SQLite and PostgreSQL event stores aligned with replay, indexed callback
-  routing, durable operation metadata, whole-history retention, and host
-  examples.
+  routing, indexed scheduler wake-ups, durable operation metadata,
+  whole-history retention, and host examples.
 - Keep PostgreSQL worker gates aligned with lease fencing, dead-letter handling,
   process death, reconnect, and same-attempt replay.
 - Add additional production queue adapters as concrete deployment targets need

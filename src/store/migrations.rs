@@ -1,5 +1,12 @@
 use a3s_orm::Migration;
 
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+mod scheduled_wakeups;
+#[cfg(feature = "postgres")]
+use scheduled_wakeups::POSTGRES_SCHEDULED_WAKEUPS_SQL;
+#[cfg(feature = "sqlite")]
+use scheduled_wakeups::SQLITE_SCHEDULED_WAKEUPS_SQL;
+
 const EVENTS_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS flow_events (
     run_id TEXT NOT NULL,
@@ -357,6 +364,11 @@ pub(crate) fn sqlite_migrations() -> Vec<Migration> {
             "create the indexed active hook projection",
             SQLITE_ACTIVE_HOOKS_SQL,
         ),
+        Migration::new(
+            "a3s-flow-0004-scheduled-wakeups",
+            "create the indexed scheduled wakeup projection",
+            SQLITE_SCHEDULED_WAKEUPS_SQL,
+        ),
     ]
 }
 
@@ -382,6 +394,11 @@ pub(crate) fn postgres_migrations() -> Vec<Migration> {
             "a3s-flow-0004-active-hooks",
             "create the indexed active hook projection",
             POSTGRES_ACTIVE_HOOKS_SQL,
+        ),
+        Migration::new(
+            "a3s-flow-0005-scheduled-wakeups",
+            "reconcile active hooks and create the scheduled wakeup projection",
+            POSTGRES_SCHEDULED_WAKEUPS_SQL,
         ),
     ]
 }
