@@ -9,7 +9,6 @@ mod memory;
 mod migrations;
 #[cfg(feature = "postgres")]
 mod postgres;
-#[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod retention;
 #[cfg(feature = "sqlite")]
 mod sqlite;

@@ -218,10 +218,12 @@ append-only `FlowEventStore` contract:
 | `SqliteEventStore` | Single-node durable hosts that want one inspectable database |
 | `PostgresEventStore` | Multi-process hosts and distributed workers sharing event history |
 
-Local JSONL histories can prune old terminal runs while keeping suspended runs.
-SQLite and PostgreSQL can prune complete terminal histories while preserving
-durable audit holds and linked run components; each deletion leaves a checksum
-tombstone and partial event-stream compaction is intentionally unsupported.
+All built-in stores reject a child reference with `flow_run_id` unless that
+same-store Flow run already exists. Local JSONL histories prune only complete
+eligible linked components, so a running, suspended, or recent parent or child
+protects the entire component. SQLite and PostgreSQL add durable audit holds
+and checksum tombstones; partial event-stream compaction remains intentionally
+unsupported.
 Both SQL stores preserve the same event envelope shape, use transactions for
 expected-sequence writes, and rely on `a3s-orm` for connection execution, typed
 row decoding, transactions, and canonical checksummed migrations. Flow no
@@ -301,7 +303,7 @@ which observability sinks receive committed events.
 
 ```toml
 [dependencies]
-a3s-flow = "0.6.0"
+a3s-flow = "0.6.1"
 async-trait = "0.1"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -627,7 +629,7 @@ cargo run --example local_retention
 | `local_audit_log` | `LocalFileA3sFlowEventSink` JSONL audit logging through `A3sFlowEventBridge` |
 | `native_ts_greeting` | Rust `NativeTsRuntime` wiring for a TypeScript workflow source; exits successfully with a prerequisite message unless `A3S_FLOW_NATIVE_TS_COMPILER` points at a compiler |
 | `native_ts_preflight` | `NativeTsRuntime::preflight()` validation, artifact cache metadata, source hash reporting, and compiler prerequisite gating |
-| `local_retention` | `LocalFileEventStore::prune_terminal_runs_older_than()` cleanup for terminal local histories while suspended runs are retained |
+| `local_retention` | Linked-component JSONL cleanup that retains a terminal child until its parent is also terminal and eligible |
 
 ## Cookbook and Planning
 
@@ -652,7 +654,7 @@ Use these docs when moving from API exploration to a host integration:
 | **Batch step scheduling** | A runtime can durably start and concurrently fan out multiple steps from one replay command |
 | **Idempotent creation** | Stable run IDs make workflow start safe to retry |
 | **Cancellation and cleanup** | Durable cancellation requests replay host-owned idempotent cleanup before one terminal cancellation outcome; immediate force-cancel remains explicit |
-| **Durable operation state** | Idempotently identified progress updates and child-operation references survive host replacement |
+| **Durable operation state** | Idempotently identified progress updates and child-operation references survive host replacement; same-store child run IDs must already exist |
 | **Typed terminal outcomes** | Snapshots distinguish completion, failure, cancellation, timeout, retry exhaustion, and explicit non-resumable host shutdown |
 | **Timers** | Waits suspend runs without holding compute |
 | **Hooks** | External callbacks resume or dispose active runs by hook ID or public token |
@@ -925,8 +927,11 @@ database-backed store for multi-process or distributed writers.
 
 Long-lived local hosts should define a retention policy for completed, failed,
 or cancelled run histories. `LocalFileEventStore::prune_terminal_runs_older_than`
-removes only terminal JSONL files whose terminal event timestamp is older than
-the provided cutoff. Running and suspended runs are retained.
+uses the same linked-component eligibility planner as the SQL stores. It removes
+a component only when every connected history is terminal and older than the
+provided cutoff. A running, suspended, or recent parent or child protects every
+history in that component; corrupt histories and dangling references fail
+closed rather than causing an unsafe deletion.
 
 ```rust
 use chrono::{Duration as ChronoDuration, Utc};
@@ -945,7 +950,7 @@ single SQLite database instead of one JSONL file per run:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.6.0", features = ["sqlite"] }
+a3s-flow = { version = "0.6.1", features = ["sqlite"] }
 ```
 
 ```rust
@@ -1001,7 +1006,7 @@ event history through a database:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.6.0", features = ["postgres"] }
+a3s-flow = { version = "0.6.1", features = ["postgres"] }
 ```
 
 ```rust
@@ -1070,7 +1075,7 @@ Enable `boot` and one durable storage feature for a host that uses A3S Boot:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.6.0", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.6.1", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
@@ -1267,7 +1272,7 @@ hosts that already use A3S Event as their event backbone:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.6.0", features = ["a3s-event"] }
+a3s-flow = { version = "0.6.1", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 
@@ -1309,7 +1314,7 @@ the Flow event store remains authoritative.
 | `WorkflowRunSnapshot` | Projected run state with typed input, output, step output, and hook payload decoding helpers |
 | `WorkflowTerminalOutcome` | Typed completed, failed, cancelled, timed-out, retry-exhausted, or host-shutdown terminal result |
 | `WorkflowProgress` | Idempotently identified durable progress update |
-| `ChildOperationReference` | Durable parent-to-child operation identity, with optional same-store Flow run ID |
+| `ChildOperationReference` | Durable parent-to-child operation identity; an optional same-store Flow run ID must already exist when linked |
 | `CancellationRequest` | Durable reason passed into cleanup-aware cancellation replay |
 | `WorkflowRunSummary` | Aggregated status and actionable suspension counts for dashboards and health probes |
 | `WorkflowRunSuspension` | Projected open wait, hook, or delayed retry record with stable run/subject, due, and scheduled-at helpers |
@@ -1319,7 +1324,7 @@ the Flow event store remains authoritative.
 | `HookCallbackRoute` | Typed HTTP method/path metadata for external hook callback routes |
 | `FlowEventStore` | Append-only event persistence trait with expected-sequence writes |
 | `InMemoryEventStore` | Ephemeral event store for tests and examples |
-| `LocalFileEventStore` | JSONL-backed local durable event store with terminal-run retention cleanup |
+| `LocalFileEventStore` | JSONL-backed local durable event store with linked-component terminal retention cleanup |
 | `SqliteEventStore` | A3S ORM-backed single-node durable event store with audit-safe whole-history retention, available with the `sqlite` feature |
 | `PostgresEventStore` | A3S ORM-backed shared durable event store, available with the `postgres` feature |
 | `FlowHistoryRetentionPolicy` | SQLite/PostgreSQL whole-history cutoff and optional bounded run-ID scope |

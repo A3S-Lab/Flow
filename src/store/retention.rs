@@ -1,13 +1,15 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
 use crate::model::{project_run, FlowEvent, FlowEventEnvelope};
 
-/// Bounded policy for deleting complete terminal SQL histories.
+/// Bounded policy for deleting complete terminal histories.
 ///
 /// Flow never rewrites or partially compacts an event stream. A retention scan
 /// removes an entire terminal history only when it is older than
@@ -32,6 +34,7 @@ impl FlowHistoryRetentionPolicy {
     ///
     /// Linked histories outside this set remain protected and therefore also
     /// protect candidate histories connected to them.
+    #[cfg(any(feature = "postgres", feature = "sqlite"))]
     pub fn with_run_ids<I, S>(mut self, run_ids: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -49,6 +52,7 @@ impl FlowHistoryRetentionPolicy {
 }
 
 /// Persistent reason that prevents a run history from being pruned.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FlowHistoryHold {
     pub run_id: String,
@@ -58,6 +62,7 @@ pub struct FlowHistoryHold {
 }
 
 /// Minimal audit record retained after a complete event history is deleted.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FlowHistoryTombstone {
     pub run_id: String,
@@ -85,9 +90,9 @@ pub(crate) struct FlowHistoryRetentionPlan {
 
 /// Apply the backend-independent retention rules to one consistent history view.
 ///
-/// SQL adapters own transaction and deletion details, while this function is
-/// the single source of truth for terminal eligibility and linked-component
-/// protection.
+/// Storage adapters own locking, transaction, and deletion details, while this
+/// function is the single source of truth for terminal eligibility and
+/// linked-component protection.
 pub(crate) fn plan_history_retention(
     histories: &BTreeMap<String, Vec<FlowEventEnvelope>>,
     hold_run_ids: &BTreeSet<String>,
@@ -196,11 +201,13 @@ pub(crate) fn linked_flow_run_id(event: &FlowEvent) -> Option<&str> {
     }
 }
 
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub(crate) fn history_checksum(history: &[FlowEventEnvelope]) -> Result<String> {
     let digest = Sha256::digest(serde_json::to_vec(history)?);
     Ok(format!("{digest:x}"))
 }
 
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub(crate) fn validate_history_hold(run_id: &str, hold_id: &str, reason: &str) -> Result<()> {
     if run_id.trim().is_empty() || hold_id.trim().is_empty() || reason.trim().is_empty() {
         return Err(FlowError::InvalidTransition(

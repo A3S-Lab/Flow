@@ -19,6 +19,20 @@ fn workflow_spec() -> WorkflowSpec {
     )
 }
 
+async fn create_linked_child_run(store: &dyn FlowEventStore) {
+    store
+        .append_if_sequence(
+            "child-flow-run",
+            0,
+            FlowEvent::RunCreated {
+                spec: workflow_spec(),
+                input: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+}
+
 struct CleanupAwareRuntime {
     terminal: CleanupTerminal,
     cleanup_attempts: AtomicUsize,
@@ -117,7 +131,9 @@ async fn cleanup_aware_timeout_commits_one_typed_terminal_outcome_after_cleanup(
         deadline,
         Some("workflow deadline elapsed".into()),
     ));
-    let engine = FlowEngine::in_memory(runtime.clone());
+    let store = Arc::new(InMemoryEventStore::new());
+    create_linked_child_run(store.as_ref()).await;
+    let engine = FlowEngine::new(store, runtime.clone());
     let run_id = engine
         .start_with_id("cleanup-timeout", workflow_spec(), json!({}))
         .await
@@ -166,7 +182,9 @@ async fn cleanup_aware_timeout_commits_one_typed_terminal_outcome_after_cleanup(
 #[tokio::test]
 async fn cancellation_request_replays_cleanup_before_one_typed_terminal_outcome() {
     let runtime = Arc::new(CleanupAwareRuntime::default());
-    let engine = FlowEngine::in_memory(runtime.clone());
+    let store = Arc::new(InMemoryEventStore::new());
+    create_linked_child_run(store.as_ref()).await;
+    let engine = FlowEngine::new(store, runtime.clone());
     let run_id = engine
         .start_with_id("graceful-cancel", workflow_spec(), json!({}))
         .await
@@ -365,6 +383,7 @@ impl FlowEventStore for FailCleanupCompletionOnceStore {
 #[tokio::test]
 async fn replacement_engine_resumes_cleanup_with_one_logical_effect() {
     let store = Arc::new(FailCleanupCompletionOnceStore::new());
+    create_linked_child_run(store.as_ref()).await;
     let runtime = Arc::new(CleanupAwareRuntime::default());
     let engine = FlowEngine::new(store.clone(), runtime.clone());
     let run_id = engine

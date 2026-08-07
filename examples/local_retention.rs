@@ -1,6 +1,7 @@
 use a3s_flow::{
-    FlowEngine, FlowError, FlowRuntime, LocalFileEventStore, RuntimeCommand, StepInvocation,
-    WorkflowInvocation, WorkflowRunStatus, WorkflowSpec,
+    ChildOperationReference, FlowEngine, FlowError, FlowEventStore, FlowRuntime,
+    LocalFileEventStore, RuntimeCommand, StepInvocation, WorkflowInvocation, WorkflowRunStatus,
+    WorkflowSpec,
 };
 use async_trait::async_trait;
 use chrono::{Duration as ChronoDuration, Utc};
@@ -46,18 +47,42 @@ async fn main() -> a3s_flow::Result<()> {
         .start_with_id("finished-run", spec.clone(), json!({ "mode": "complete" }))
         .await?;
     engine
-        .start_with_id("waiting-run", spec, json!({ "mode": "wait" }))
+        .start_with_id("linked-child", spec.clone(), json!({ "mode": "complete" }))
+        .await?;
+    engine
+        .start_with_id("linked-parent", spec, json!({ "mode": "wait" }))
+        .await?;
+    engine
+        .link_child_operation(
+            "linked-parent",
+            ChildOperationReference::new("child", "flow.run", "linked-child")
+                .with_flow_run_id("linked-child"),
+        )
         .await?;
 
-    let removed = store
-        .prune_terminal_runs_older_than(Utc::now() + ChronoDuration::minutes(1))
+    let terminal_before = Utc::now() + ChronoDuration::minutes(1);
+    let first_removed = store
+        .prune_terminal_runs_older_than(terminal_before)
         .await?;
-    let waiting = engine.snapshot("waiting-run").await?;
+    let parent = engine.snapshot("linked-parent").await?;
 
-    println!("removed={removed:?}");
-    println!("waiting_status={:?}", waiting.status);
-    assert_eq!(removed, vec!["finished-run".to_string()]);
-    assert_eq!(waiting.status, WorkflowRunStatus::Suspended);
+    println!("first_removed={first_removed:?}");
+    println!("parent_status={:?}", parent.status);
+    assert_eq!(first_removed, vec!["finished-run".to_string()]);
+    assert_eq!(parent.status, WorkflowRunStatus::Suspended);
+    assert!(store.list("linked-child").await.is_ok());
+
+    engine
+        .cancel("linked-parent", Some("retention window closed".into()))
+        .await?;
+    let component_removed = store
+        .prune_terminal_runs_older_than(terminal_before)
+        .await?;
+    println!("component_removed={component_removed:?}");
+    assert_eq!(
+        component_removed,
+        vec!["linked-child".to_string(), "linked-parent".to_string()]
+    );
 
     let _ = tokio::fs::remove_dir_all(&root).await;
     Ok(())
