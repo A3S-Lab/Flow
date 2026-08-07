@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::fs::{File, OpenOptions};
@@ -10,7 +11,10 @@ use uuid::Uuid;
 use crate::error::{FlowError, Result};
 use crate::model::{project_run, FlowEvent, FlowEventEnvelope};
 
-use super::FlowEventStore;
+use super::{
+    retention::{linked_flow_run_id, plan_history_retention, FlowHistoryRetentionPolicy},
+    FlowEventStore,
+};
 
 /// JSONL-backed event store for local durable runs.
 ///
@@ -161,6 +165,7 @@ impl LocalFileEventStore {
 
     async fn append_inner(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope> {
         tokio::fs::create_dir_all(&self.root).await?;
+        self.ensure_linked_flow_run_exists(&event).await?;
 
         let LoadedEventLog {
             events,
@@ -187,6 +192,7 @@ impl LocalFileEventStore {
         event: FlowEvent,
     ) -> Result<FlowEventEnvelope> {
         tokio::fs::create_dir_all(&self.root).await?;
+        self.ensure_linked_flow_run_exists(&event).await?;
 
         let LoadedEventLog {
             events,
@@ -213,6 +219,17 @@ impl LocalFileEventStore {
         self.repair_tail(run_id, tail_repair).await?;
         self.write_envelope(&envelope).await?;
         Ok(envelope)
+    }
+
+    async fn ensure_linked_flow_run_exists(&self, event: &FlowEvent) -> Result<()> {
+        let Some(linked_run_id) = linked_flow_run_id(event) else {
+            return Ok(());
+        };
+        let events = self.list_inner(linked_run_id, false).await?;
+        if events.is_empty() {
+            return Err(FlowError::RunNotFound(linked_run_id.to_string()));
+        }
+        self.validate_existing_log(linked_run_id, &events)
     }
 
     async fn repair_tail(&self, run_id: &str, repair: TailRepair) -> Result<()> {
@@ -276,39 +293,43 @@ impl LocalFileEventStore {
         Ok(ids)
     }
 
-    /// Remove completed, failed, or cancelled local run histories whose terminal
-    /// event timestamp is strictly before `terminal_before`.
+    /// Remove complete linked components of terminal local run histories whose
+    /// terminal event timestamps are strictly before `terminal_before`.
     ///
-    /// Suspended and running runs are never removed by this helper. Corrupt
-    /// histories are returned as errors rather than deleted, so operators can
+    /// A running, suspended, or recent parent or child protects every history
+    /// linked to it. Corrupt histories and dangling child references are
+    /// returned as errors or retained rather than deleted, so operators can
     /// inspect them before cleanup.
     pub async fn prune_terminal_runs_older_than(
         &self,
         terminal_before: DateTime<Utc>,
     ) -> Result<Vec<String>> {
         let _guard = self.lock.lock().await;
-        let mut removed = Vec::new();
-
+        let mut histories = BTreeMap::new();
         for run_id in self.list_run_ids_inner().await? {
             let events = self.list_inner(&run_id, false).await?;
             self.validate_existing_log(&run_id, &events)?;
-            let Some(terminal_at) = terminal_event_timestamp(&events) else {
-                continue;
-            };
-            if terminal_at >= terminal_before {
-                continue;
-            }
+            histories.insert(run_id, events);
+        }
+        let mut plan = plan_history_retention(
+            &histories,
+            &BTreeSet::new(),
+            &FlowHistoryRetentionPolicy::new(terminal_before),
+            "local file",
+        )?;
 
-            let path = self.run_path(&run_id)?;
+        let mut removed = Vec::new();
+        for run_id in &plan.deletable_run_ids {
+            let path = self.run_path(run_id)?;
             match tokio::fs::remove_file(&path).await {
-                Ok(()) => removed.push(run_id),
+                Ok(()) => removed.push(run_id.clone()),
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
                 Err(err) => return Err(FlowError::Io(err)),
             }
         }
 
-        removed.sort();
-        Ok(removed)
+        plan.report.deleted_run_ids = removed;
+        Ok(plan.report.deleted_run_ids)
     }
 }
 
@@ -354,21 +375,6 @@ fn checked_file_offset(current: u64, bytes_read: usize, path: &Path) -> Result<u
             path.display()
         ))
     })
-}
-
-fn terminal_event_timestamp(events: &[FlowEventEnvelope]) -> Option<DateTime<Utc>> {
-    events
-        .iter()
-        .rev()
-        .find_map(|envelope| match envelope.event {
-            FlowEvent::RunCompleted { .. }
-            | FlowEvent::RunFailed { .. }
-            | FlowEvent::RunCancelled { .. }
-            | FlowEvent::RunTimedOut { .. }
-            | FlowEvent::RunRetryExhausted { .. }
-            | FlowEvent::RunHostShutdown { .. } => Some(envelope.timestamp),
-            _ => None,
-        })
 }
 
 fn is_safe_run_id(run_id: &str) -> bool {

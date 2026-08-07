@@ -87,6 +87,10 @@ and cleanup because it has the domain policy. Cleanup steps have the same
 physical at-least-once boundary as every other step; stable host idempotency
 keys provide logical at-most-once effects. Expected-sequence writes ensure a
 completion/cancellation race commits one terminal event.
+When a reference includes `flow_run_id`, every built-in store verifies that the
+same-store child history already exists before committing the link. This keeps
+parent-child retention graphs free of newly created dangling references across
+in-memory, JSONL, SQLite, and PostgreSQL adapters.
 
 The workflow function is deterministic because it derives its next decision from
 the input and event history. Side effects are isolated to steps and are only
@@ -128,18 +132,22 @@ durable hosts.
 `PostgresEventStore` stores the same envelopes in a shared Postgres table and
 takes a transaction-scoped advisory lock per run before expected-sequence
 appends, so multiple workers can preserve per-run event order while sharing one
-database.
+database. In-memory and local JSONL append paths enforce the same linked Flow
+run existence check as both database adapters.
 
-SQLite and PostgreSQL retention remove whole terminal streams only. Both
-adapters evaluate one shared eligibility planner inside an A3S ORM transaction,
-protecting non-terminal runs, durable audit holds, and linked components that
-are not all eligible. SQLite uses an immediate transaction to serialize the
-scan with appends. PostgreSQL takes an exclusive retention guard while append
-transactions take the shared form, then locks existing streams in stable order.
-Before deleting event rows, each adapter stores a tombstone with terminal
-identity and a SHA-256 digest of the complete history; append paths reject
-tombstoned run IDs. Partial prefix compaction is not supported because replay
-and audit both depend on the original contiguous sequence beginning with
+Local JSONL, SQLite, and PostgreSQL retention remove whole terminal streams
+only. All three evaluate one shared eligibility planner, protecting
+non-terminal or recent runs and linked components that are not entirely
+eligible. The local adapter evaluates one consistent view under its in-process
+store lock. SQLite and PostgreSQL additionally protect durable audit holds and
+run deletion inside A3S ORM transactions. SQLite uses an immediate transaction
+to serialize the scan with appends. PostgreSQL takes an exclusive retention
+guard while append transactions take the shared form, then locks existing
+streams in stable order.
+Before deleting SQL event rows, each database adapter stores a tombstone with
+terminal identity and a SHA-256 digest of the complete history; SQL append paths
+reject tombstoned run IDs. Partial prefix compaction is not supported because
+replay and audit both depend on the original contiguous sequence beginning with
 `run_created`.
 
 Both SQL stores are adapters over `a3s-orm`. ORM executors own connection and

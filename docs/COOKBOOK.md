@@ -13,7 +13,7 @@ inject its queue.
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.6.0", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.6.1", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
@@ -126,7 +126,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.6.0", features = ["sqlite"] }
+a3s-flow = { version = "0.6.1", features = ["sqlite"] }
 ```
 
 Then wire the SQLite event store into the same engine and worker shape:
@@ -181,7 +181,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.6.0", features = ["postgres"] }
+a3s-flow = { version = "0.6.1", features = ["postgres"] }
 ```
 
 Then wire the Postgres event store and task queue into the same engine and
@@ -664,7 +664,7 @@ feature and publish bridged records through an `EventBus`:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.6.0", features = ["a3s-event"] }
+a3s-flow = { version = "0.6.1", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 
@@ -783,11 +783,15 @@ let removed = store
     .await?;
 ```
 
-`LocalFileEventStore::prune_terminal_runs_older_than()` validates each run
-history before deleting it and removes only completed, failed, or cancelled
-histories whose terminal event timestamp is before the cutoff. Corrupt histories
-return an error instead of being deleted. See `examples/local_retention.rs` for
-a runnable cleanup example.
+`LocalFileEventStore::prune_terminal_runs_older_than()` validates every run and
+uses the shared retention planner before deleting anything. A connected
+parent-child component is removed only when every history is completed, failed,
+or cancelled and its terminal event timestamp is before the cutoff. A running,
+suspended, recent, or dangling member protects the eligible histories linked to
+it. Corrupt histories return an error instead of being deleted. Every built-in
+store also rejects a new `flow_run_id` child reference unless that run already
+exists in the same store. See `examples/local_retention.rs` for a runnable
+cleanup example.
 
 ## SQL Audit-Safe Retention
 

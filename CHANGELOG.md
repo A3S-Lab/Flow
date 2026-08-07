@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.1 - 2026-08-07
+
+- Made `InMemoryEventStore` and `LocalFileEventStore` reject a
+  `ChildOperationLinked.flow_run_id` unless that same-store Flow run already
+  exists, matching the SQLite and PostgreSQL append contract for both ordinary
+  and expected-sequence writes.
+- Extended the backend-independent retention planner to local JSONL history.
+  Local cleanup now preserves a terminal child while any connected parent or
+  child is non-terminal or recent, and removes the component only when every
+  linked history is eligible.
+- Added focused reference-integrity and linked local-retention regression tests
+  and expanded the runnable `local_retention` example.
+
 ## 0.6.0 - 2026-08-07
 
 - Added audit-safe whole-history retention to `SqliteEventStore`, including

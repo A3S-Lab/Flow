@@ -57,6 +57,7 @@ doc-non-pg:
 # Run executable examples that do not require Postgres
 examples-non-pg:
     cargo run --quiet --no-default-features --example sequential_steps
+    cargo run --quiet --no-default-features --example local_retention
     cargo run --quiet --no-default-features --example task_queue_durability
     cargo run --quiet --no-default-features --features sqlite --example sqlite_durability
     cargo run --quiet --no-default-features --features sqlite --example sqlite_retention
