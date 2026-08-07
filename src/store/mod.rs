@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 use crate::error::Result;
-use crate::model::{FlowEvent, FlowEventEnvelope};
+use crate::model::{project_run, ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookStatus};
 
 mod local_file;
 mod memory;
@@ -43,4 +43,45 @@ pub trait FlowEventStore: Send + Sync {
     async fn list(&self, run_id: &str) -> Result<Vec<FlowEventEnvelope>>;
 
     async fn list_run_ids(&self) -> Result<Vec<String>>;
+
+    /// Find active hooks that own an external callback token.
+    ///
+    /// The default implementation replays every run for compatibility with
+    /// custom stores. SQL stores override it with their indexed projection.
+    async fn find_active_hooks_by_token(&self, token: &str) -> Result<Vec<ActiveHookSnapshot>> {
+        Ok(self
+            .list_active_hooks()
+            .await?
+            .into_iter()
+            .filter(|active| active.hook.token == token)
+            .collect())
+    }
+
+    /// List active external callback hooks in stable run/hook order.
+    ///
+    /// The default implementation preserves the append-only store contract by
+    /// projecting histories. Durable SQL adapters provide a materialized path.
+    async fn list_active_hooks(&self) -> Result<Vec<ActiveHookSnapshot>> {
+        let mut hooks = Vec::new();
+        for run_id in self.list_run_ids().await? {
+            let history = self.list(&run_id).await?;
+            let snapshot = project_run(&run_id, &history)?;
+            if snapshot.status.is_terminal() {
+                continue;
+            }
+            for hook in snapshot.hooks.values() {
+                if hook.status == HookStatus::Active {
+                    hooks.push(ActiveHookSnapshot {
+                        run_id: run_id.clone(),
+                        hook: hook.clone(),
+                    });
+                }
+            }
+        }
+        hooks.sort_by(|left, right| {
+            (left.run_id.as_str(), left.hook.hook_id.as_str())
+                .cmp(&(right.run_id.as_str(), right.hook.hook_id.as_str()))
+        });
+        Ok(hooks)
+    }
 }
