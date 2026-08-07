@@ -13,7 +13,7 @@ inject its queue.
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.7.0", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.7.1", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
@@ -140,7 +140,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.7.0", features = ["sqlite"] }
+a3s-flow = { version = "0.7.1", features = ["sqlite"] }
 ```
 
 Then wire the SQLite event store into the same engine and worker shape:
@@ -195,7 +195,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.7.0", features = ["postgres"] }
+a3s-flow = { version = "0.7.1", features = ["postgres"] }
 ```
 
 Then wire the Postgres event store and task queue into the same engine and
@@ -521,7 +521,9 @@ if ctx.hook_disposed("approval") {
 Active hook tokens must be unique across non-terminal runs. Include enough
 metadata for audit and UI rendering, but keep secrets out of hook metadata
 because it is persisted in workflow history. Only active hooks can be resumed by
-token, so late callbacks after disposal return `HookTokenNotFound`.
+token, so late callbacks after disposal return `HookTokenNotFound`. Flow keeps
+the original bearer token inside typed lookup/conflict errors for programmatic
+handling, but their `Display` and `Debug` diagnostics always redact it.
 
 Webhook routers and approval dashboards can inspect outstanding hooks directly:
 
@@ -678,7 +680,7 @@ feature and publish bridged records through an `EventBus`:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.7.0", features = ["a3s-event"] }
+a3s-flow = { version = "0.7.1", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 

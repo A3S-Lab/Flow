@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.1 - 2026-08-07
+
+- Redacted callback bearer tokens from both `Display` and `Debug` diagnostics
+  for missing-token and active-token-conflict errors while retaining the
+  original values in typed `FlowError` variants for programmatic handling.
+- Redacted the defensive multiple-active-match error used when a corrupted or
+  custom event store violates hook-token uniqueness, and added regression tests
+  for missing, disposed, conflicting, and duplicate-token paths.
+
 ## 0.7.0 - 2026-08-07
 
 - Added `BootFlowTaskPolicy` and `BootFlowTaskDeduplication` so a Flow host can
