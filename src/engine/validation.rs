@@ -4,8 +4,8 @@ use std::collections::BTreeSet;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    HookSnapshot, RetryPolicy, StepCommand, StepSnapshot, WaitSnapshot, WorkflowRunSnapshot,
-    WorkflowSpec,
+    ChildOperationReference, HookSnapshot, RetryPolicy, StepCommand, StepSnapshot, WaitSnapshot,
+    WorkflowProgress, WorkflowRunSnapshot, WorkflowSpec,
 };
 
 pub(super) fn validate_run_id(run_id: &str) -> Result<()> {
@@ -145,6 +145,42 @@ pub(super) fn ensure_hook_command_matches(
                 "hook {} metadata differs: {}",
                 hook.hook_id,
                 replay_diff(&hook.metadata, metadata)
+            ),
+        });
+    }
+    Ok(())
+}
+
+pub(super) fn ensure_progress_matches(
+    run_id: &str,
+    existing: &WorkflowProgress,
+    replay: &WorkflowProgress,
+) -> Result<()> {
+    if existing != replay {
+        return Err(FlowError::NonDeterministic {
+            run_id: run_id.to_string(),
+            reason: format!(
+                "progress {} differs: {}",
+                existing.progress_id,
+                replay_diff(existing, replay)
+            ),
+        });
+    }
+    Ok(())
+}
+
+pub(super) fn ensure_child_operation_matches(
+    run_id: &str,
+    existing: &ChildOperationReference,
+    replay: &ChildOperationReference,
+) -> Result<()> {
+    if existing != replay {
+        return Err(FlowError::NonDeterministic {
+            run_id: run_id.to_string(),
+            reason: format!(
+                "child operation {} differs: {}",
+                existing.reference_id,
+                replay_diff(existing, replay)
             ),
         });
     }

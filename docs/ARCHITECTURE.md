@@ -60,11 +60,33 @@ The runtime returns exactly one command:
   `hook_payload()` or `hook_disposed()` and choose the next command.
 - `complete`: the engine persists `run_completed`.
 - `fail`: the engine persists `run_failed`.
+- `record_progress`: the engine persists an idempotently identified progress
+  update and replays.
+- `link_child_operation`: the engine persists a parent-to-child operation
+  reference and replays.
+- `cancel`: after a durable cancellation request and host cleanup, the engine
+  persists `run_cancelled`.
+- `timeout`: the engine persists a typed timeout terminal outcome.
 
-Cancellation is a host control-plane operation rather than a runtime command.
-`FlowEngine::cancel()` appends `flow.run.cancelled` with an optional reason and
-makes the projected run terminal, so later scheduler scans ignore its waits and
-delayed retries.
+Cleanup-aware cancellation has a host entrypoint and a runtime completion
+command. `FlowEngine::request_cancellation()` persists
+`flow.run.cancellation.requested`, projects `Cancelling`, and makes work opened
+before the request non-actionable. Replay code observes the request, schedules
+host-owned cleanup with new stable step IDs, propagates policy to durable child
+references when required, and returns `cancel` only after cleanup is durable.
+When the same cleanup path is enforcing a deadline, replay can return `timeout`
+instead, preserving a typed timeout terminal outcome after cleanup. The direct
+`terminate_for_timeout()` host API is an immediate policy control and skips
+cleanup, just like `force_cancel()`.
+`force_cancel()` and the compatibility `cancel()` method append a terminal event
+immediately and deliberately skip cleanup.
+
+Flow does not infer how to stop external child operations. The durable
+`ChildOperationReference` records identity, while the workflow owns propagation
+and cleanup because it has the domain policy. Cleanup steps have the same
+physical at-least-once boundary as every other step; stable host idempotency
+keys provide logical at-most-once effects. Expected-sequence writes ensure a
+completion/cancellation race commits one terminal event.
 
 The workflow function is deterministic because it derives its next decision from
 the input and event history. Side effects are isolated to steps and are only
@@ -107,6 +129,16 @@ durable hosts.
 takes a transaction-scoped advisory lock per run before expected-sequence
 appends, so multiple workers can preserve per-run event order while sharing one
 database.
+
+PostgreSQL retention removes whole terminal streams only. A consistent A3S ORM
+transaction takes an exclusive retention guard while append transactions take
+the shared form, then locks existing streams in stable order and protects
+non-terminal runs, durable audit holds, and linked
+components that are not all eligible. Before deleting event rows it stores a
+tombstone with terminal identity and a SHA-256 digest of the complete history;
+the append path rejects tombstoned run IDs. Partial prefix compaction is not
+supported because replay and audit both depend on the original contiguous
+sequence beginning with `run_created`.
 
 Both SQL stores are adapters over `a3s-orm`. ORM executors own connection and
 pool behavior, typed decoding, and transaction completion. Flow owns the event
@@ -170,6 +202,13 @@ Requeue and dead-letter operations use `leased_at_nanos` cutoffs to implement
 host-defined visibility timeout policies. Heartbeat, reclaim, dead-letter, and
 acknowledgement statements contend on the same task row, so exactly one current
 lease transition wins.
+
+The PostgreSQL process-death gate leases a real task in a subprocess, commits an
+idempotent side effect, pauses before `step_completed`, and kills that process.
+A newly connected queue and event store then expire the old lease, reject its
+stale token, redeliver the same step attempt, persist one completion, and drain
+the task. This complements the competing-worker and heartbeat tests with
+process-level replay evidence.
 
 ## Observability Boundary
 

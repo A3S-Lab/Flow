@@ -2,7 +2,7 @@ use std::fmt;
 
 use a3s_orm::{
     sql_query, Database, Executor, FromRow, Migrator, PostgresDialect, PostgresError,
-    PostgresExecutor, PostgresTransaction, PostgresTransactionError, Query,
+    PostgresExecutor, PostgresRow, PostgresTransaction, PostgresTransactionError, Query, SqlQuery,
 };
 use async_trait::async_trait;
 use chrono::Utc;
@@ -12,6 +12,8 @@ use crate::error::{FlowError, Result};
 use crate::model::{FlowEvent, FlowEventEnvelope};
 
 use super::{postgres_migrations, FlowEventStore};
+
+mod retention;
 
 /// A3S ORM-backed PostgreSQL event store for multi-process durable hosts.
 ///
@@ -68,7 +70,28 @@ impl PostgresEventStore {
             .executor
             .transaction(|transaction| {
                 Box::pin(async move {
-                    lock_postgres_run(transaction, &run_id).await?;
+                    retention::lock_postgres_retention_guard_shared(transaction).await?;
+                    let linked_run_id = retention::linked_flow_run_id(&event).map(str::to_string);
+                    let mut locked_run_ids = vec![run_id.as_str()];
+                    if let Some(linked_run_id) = linked_run_id.as_deref() {
+                        locked_run_ids.push(linked_run_id);
+                    }
+                    locked_run_ids.sort_unstable();
+                    locked_run_ids.dedup();
+                    for locked_run_id in locked_run_ids {
+                        lock_postgres_run(transaction, locked_run_id).await?;
+                    }
+                    retention::ensure_postgres_history_not_tombstoned(transaction, &run_id).await?;
+                    if let Some(linked_run_id) = linked_run_id.as_deref() {
+                        retention::ensure_postgres_history_not_tombstoned(
+                            transaction,
+                            linked_run_id,
+                        )
+                        .await?;
+                        if latest_postgres_sequence(transaction, linked_run_id).await? == 0 {
+                            return Err(FlowError::RunNotFound(linked_run_id.to_string()));
+                        }
+                    }
                     let actual_sequence = latest_postgres_sequence(transaction, &run_id).await?;
                     if let Some(expected_sequence) = expected_sequence {
                         if actual_sequence != expected_sequence {
@@ -145,12 +168,92 @@ impl FlowEventStore for PostgresEventStore {
     }
 }
 
+async fn execute_postgres<E>(executor: &E, query: SqlQuery<()>) -> Result<u64>
+where
+    E: Executor<Row = PostgresRow, Error = PostgresError>,
+{
+    let query = query
+        .compile(&PostgresDialect)
+        .map_err(postgres_query_error)?;
+    Ok(executor
+        .execute(&query)
+        .await
+        .map_err(postgres_driver_error)?
+        .rows_affected)
+}
+
+async fn fetch_all_postgres<T, E>(executor: &E, query: SqlQuery<T>) -> Result<Vec<T>>
+where
+    T: FromRow + Send,
+    E: Executor<Row = PostgresRow, Error = PostgresError>,
+{
+    let query = query
+        .compile(&PostgresDialect)
+        .map_err(postgres_query_error)?;
+    executor
+        .fetch_all(&query)
+        .await
+        .map_err(postgres_driver_error)?
+        .rows
+        .iter()
+        .map(T::from_row)
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(postgres_decode_error)
+}
+
+async fn fetch_optional_postgres<T, E>(executor: &E, query: SqlQuery<T>) -> Result<Option<T>>
+where
+    T: FromRow + Send,
+    E: Executor<Row = PostgresRow, Error = PostgresError>,
+{
+    let mut rows = fetch_all_postgres(executor, query).await?;
+    match rows.len() {
+        0 => Ok(None),
+        1 => Ok(rows.pop()),
+        actual => Err(FlowError::Store(format!(
+            "PostgreSQL Flow query returned {actual} rows where at most one was expected"
+        ))),
+    }
+}
+
 async fn lock_postgres_run(transaction: &PostgresTransaction, run_id: &str) -> Result<()> {
     // Keep this exact two-key shape for lock compatibility with sqlx-backed
     // Flow releases: hashtext(run_id) is the first key and zero is the second.
     let query = sql_query::<i64>("SELECT 1 FROM pg_advisory_xact_lock(hashtext(")
         .bind(run_id)
         .append("), 0)")
+        .compile(&PostgresDialect)
+        .map_err(postgres_query_error)?;
+    transaction
+        .fetch_all(&query)
+        .await
+        .map_err(postgres_driver_error)?;
+    Ok(())
+}
+
+async fn lock_postgres_retention_guard_shared(
+    transaction: &PostgresTransaction,
+    lock_id: &str,
+) -> Result<()> {
+    let query = sql_query::<i64>("SELECT 1 FROM pg_advisory_xact_lock_shared(hashtext(")
+        .bind(lock_id)
+        .append("), 1)")
+        .compile(&PostgresDialect)
+        .map_err(postgres_query_error)?;
+    transaction
+        .fetch_all(&query)
+        .await
+        .map_err(postgres_driver_error)?;
+    Ok(())
+}
+
+async fn lock_postgres_retention_guard_exclusive(
+    transaction: &PostgresTransaction,
+    lock_id: &str,
+) -> Result<()> {
+    let query = sql_query::<i64>("SELECT 1 FROM pg_advisory_xact_lock(hashtext(")
+        .bind(lock_id)
+        .append("), 1)")
         .compile(&PostgresDialect)
         .map_err(postgres_query_error)?;
     transaction
@@ -237,11 +340,11 @@ fn row_to_envelope(
     })
 }
 
-fn map_postgres_transaction(
-    result: std::result::Result<FlowEventEnvelope, PostgresTransactionError<FlowError>>,
-) -> Result<FlowEventEnvelope> {
+fn map_postgres_transaction<T>(
+    result: std::result::Result<T, PostgresTransactionError<FlowError>>,
+) -> Result<T> {
     match result {
-        Ok(envelope) => Ok(envelope),
+        Ok(value) => Ok(value),
         Err(PostgresTransactionError::Operation(error)) => Err(error),
         Err(error) => Err(FlowError::Store(format!(
             "PostgreSQL Flow transaction failed: {error}"

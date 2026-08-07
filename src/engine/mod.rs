@@ -1,22 +1,25 @@
-use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use chrono::{DateTime, Utc};
 use std::sync::Arc;
-use tokio::task::JoinSet;
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    project_run, ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookStatus, RetryPolicy,
-    RuntimeCommand, StepCommand, StepFailureAction, StepStatus, WaitStatus, WorkflowRunSnapshot,
-    WorkflowRunSummary, WorkflowRunSuspension, WorkflowSpec,
+    project_run, ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookStatus, RuntimeCommand,
+    StepStatus, WaitStatus, WorkflowRunSnapshot, WorkflowRunStatus, WorkflowRunSummary,
+    WorkflowRunSuspension, WorkflowSpec,
 };
 use crate::observe::{FlowEventObserver, NoopFlowEventObserver};
-use crate::runtime::{FlowRuntime, StepInvocation, WorkflowInvocation};
+use crate::runtime::{FlowRuntime, WorkflowInvocation};
 use crate::store::{FlowEventStore, InMemoryEventStore};
 
+mod operations;
+mod steps;
 mod validation;
+use steps::StepExecutionContext;
 use validation::{
-    ensure_hook_command_matches, ensure_same_start, ensure_step_batch_valid,
-    ensure_step_command_matches, ensure_wait_command_matches, is_event_conflict, validate_run_id,
+    ensure_child_operation_matches, ensure_hook_command_matches, ensure_progress_matches,
+    ensure_same_start, ensure_step_batch_valid, ensure_step_command_matches,
+    ensure_wait_command_matches, is_event_conflict, validate_run_id,
 };
 
 /// Builder for a [`FlowEngine`].
@@ -69,14 +72,6 @@ pub struct FlowEngine {
     runtime: Arc<dyn FlowRuntime>,
     observer: Arc<dyn FlowEventObserver>,
     max_replay_iterations: usize,
-}
-
-struct StepExecutionContext {
-    step_id: String,
-    step_name: String,
-    input: serde_json::Value,
-    retry: RetryPolicy,
-    now: DateTime<Utc>,
 }
 
 impl FlowEngine {
@@ -465,31 +460,6 @@ impl FlowEngine {
         Ok(due)
     }
 
-    pub async fn cancel(&self, run_id: &str, reason: Option<String>) -> Result<()> {
-        for _ in 0..self.max_replay_iterations {
-            let snapshot = self.snapshot(run_id).await?;
-            if snapshot.status.is_terminal() {
-                return Ok(());
-            }
-            match self
-                .record_event_at(
-                    run_id,
-                    snapshot.last_sequence,
-                    FlowEvent::RunCancelled {
-                        reason: reason.clone(),
-                    },
-                )
-                .await
-            {
-                Ok(_) => return Ok(()),
-                Err(err) if is_event_conflict(&err) => continue,
-                Err(err) => return Err(err),
-            }
-        }
-
-        Err(FlowError::ReplayLimitExceeded(self.max_replay_iterations))
-    }
-
     pub async fn snapshot(&self, run_id: &str) -> Result<WorkflowRunSnapshot> {
         let history = self.store.list(run_id).await?;
         project_run(run_id, &history)
@@ -664,6 +634,11 @@ impl FlowEngine {
 
             match command {
                 RuntimeCommand::Complete { output } => {
+                    if snapshot.status == WorkflowRunStatus::Cancelling {
+                        return Err(FlowError::InvalidTransition(format!(
+                            "workflow run {run_id} completed after cancellation was requested; cleanup-aware cancellation must return cancel or fail"
+                        )));
+                    }
                     match self
                         .record_event_at(
                             run_id,
@@ -693,6 +668,87 @@ impl FlowEngine {
                     }
                     return self.snapshot(run_id).await;
                 }
+                RuntimeCommand::Cancel => {
+                    let cancellation = snapshot.cancellation.as_ref().ok_or_else(|| {
+                        FlowError::InvalidTransition(format!(
+                            "workflow run {run_id} returned cancel without a durable cancellation request"
+                        ))
+                    })?;
+                    match self
+                        .record_event_at(
+                            run_id,
+                            snapshot.last_sequence,
+                            FlowEvent::RunCancelled {
+                                reason: cancellation.request.reason.clone(),
+                            },
+                        )
+                        .await
+                    {
+                        Ok(_) => {}
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                    return self.snapshot(run_id).await;
+                }
+                RuntimeCommand::Timeout { deadline, reason } => {
+                    match self
+                        .record_event_at(
+                            run_id,
+                            snapshot.last_sequence,
+                            FlowEvent::RunTimedOut { deadline, reason },
+                        )
+                        .await
+                    {
+                        Ok(_) => {}
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                    return self.snapshot(run_id).await;
+                }
+                RuntimeCommand::RecordProgress { progress } => {
+                    progress.validate()?;
+                    if let Some(existing) = snapshot.progress(&progress.progress_id) {
+                        ensure_progress_matches(run_id, existing, &progress)?;
+                        return Err(FlowError::InvalidTransition(format!(
+                            "workflow rescheduled progress {} without progress",
+                            progress.progress_id
+                        )));
+                    }
+                    match self
+                        .record_event_at(
+                            run_id,
+                            snapshot.last_sequence,
+                            FlowEvent::RunProgressRecorded { progress },
+                        )
+                        .await
+                    {
+                        Ok(_) => {}
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
+                RuntimeCommand::LinkChildOperation { child } => {
+                    child.validate()?;
+                    if let Some(existing) = snapshot.child_operation(&child.reference_id) {
+                        ensure_child_operation_matches(run_id, existing, &child)?;
+                        return Err(FlowError::InvalidTransition(format!(
+                            "workflow rescheduled child operation {} without progress",
+                            child.reference_id
+                        )));
+                    }
+                    match self
+                        .record_event_at(
+                            run_id,
+                            snapshot.last_sequence,
+                            FlowEvent::ChildOperationLinked { child },
+                        )
+                        .await
+                    {
+                        Ok(_) => {}
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
                 RuntimeCommand::ScheduleStep {
                     step_id,
                     step_name,
@@ -701,7 +757,10 @@ impl FlowEngine {
                 } => {
                     if let Some(step) = snapshot.steps.get(&step_id) {
                         ensure_step_command_matches(run_id, step, &step_name, &input, retry)?;
-                        if matches!(step.status, StepStatus::Completed | StepStatus::Failed) {
+                        if matches!(
+                            step.status,
+                            StepStatus::Completed | StepStatus::Failed | StepStatus::Cancelled
+                        ) {
                             return Err(FlowError::InvalidTransition(format!(
                                 "workflow rescheduled terminal step {step_id} without progress"
                             )));
@@ -741,7 +800,10 @@ impl FlowEngine {
                     }
                     if steps.iter().all(|step| {
                         snapshot.steps.get(&step.step_id).is_some_and(|existing| {
-                            matches!(existing.status, StepStatus::Completed | StepStatus::Failed)
+                            matches!(
+                                existing.status,
+                                StepStatus::Completed | StepStatus::Failed | StepStatus::Cancelled
+                            )
                         })
                     }) {
                         let step_ids = steps
@@ -763,10 +825,15 @@ impl FlowEngine {
                     match snapshot.waits.get(&wait_id) {
                         Some(wait) => {
                             ensure_wait_command_matches(run_id, wait, resume_at)?;
-                            if wait.status == WaitStatus::Completed {
-                                continue;
+                            match wait.status {
+                                WaitStatus::Completed => continue,
+                                WaitStatus::Waiting => return self.snapshot(run_id).await,
+                                WaitStatus::Cancelled => {
+                                    return Err(FlowError::InvalidTransition(format!(
+                                        "workflow rescheduled cancelled wait {wait_id}; cancellation cleanup must use a distinct stable identity"
+                                    )))
+                                }
                             }
-                            return self.snapshot(run_id).await;
                         }
                         None => {
                             match self
@@ -792,10 +859,15 @@ impl FlowEngine {
                 } => match snapshot.hooks.get(&hook_id) {
                     Some(hook) => {
                         ensure_hook_command_matches(run_id, hook, &token, &metadata)?;
-                        if matches!(hook.status, HookStatus::Received | HookStatus::Disposed) {
-                            continue;
+                        match hook.status {
+                            HookStatus::Received | HookStatus::Disposed => continue,
+                            HookStatus::Active => return self.snapshot(run_id).await,
+                            HookStatus::Cancelled => {
+                                return Err(FlowError::InvalidTransition(format!(
+                                    "workflow rescheduled cancelled hook {hook_id}; cancellation cleanup must use a distinct stable identity"
+                                )))
+                            }
                         }
-                        return self.snapshot(run_id).await;
                     }
                     None => {
                         self.ensure_hook_token_available(run_id, &hook_id, &token)
@@ -822,6 +894,24 @@ impl FlowEngine {
             }
         }
 
+        Err(FlowError::ReplayLimitExceeded(self.max_replay_iterations))
+    }
+
+    async fn terminate_run(&self, run_id: &str, event: FlowEvent) -> Result<()> {
+        for _ in 0..self.max_replay_iterations {
+            let snapshot = self.snapshot(run_id).await?;
+            if snapshot.status.is_terminal() {
+                return Ok(());
+            }
+            match self
+                .record_event_at(run_id, snapshot.last_sequence, event.clone())
+                .await
+            {
+                Ok(_) => return Ok(()),
+                Err(err) if is_event_conflict(&err) => continue,
+                Err(err) => return Err(err),
+            }
+        }
         Err(FlowError::ReplayLimitExceeded(self.max_replay_iterations))
     }
 
@@ -864,369 +954,6 @@ impl FlowEngine {
                 });
             }
         }
-        Ok(())
-    }
-
-    async fn execute_step(
-        &self,
-        run_id: &str,
-        snapshot: &WorkflowRunSnapshot,
-        context: StepExecutionContext,
-    ) -> Result<()> {
-        let StepExecutionContext {
-            step_id,
-            step_name,
-            input,
-            retry,
-            now,
-        } = context;
-        let mut expected_sequence = snapshot.last_sequence;
-        if let Some(step) = snapshot.steps.get(&step_id) {
-            ensure_step_command_matches(run_id, step, &step_name, &input, retry)?;
-            if matches!(step.status, StepStatus::Completed | StepStatus::Failed) {
-                return Ok(());
-            }
-            if step.status == StepStatus::Pending
-                && step
-                    .retry_after
-                    .is_some_and(|retry_after| retry_after > now)
-            {
-                return Ok(());
-            }
-        } else {
-            let envelope = self
-                .record_event_at(
-                    run_id,
-                    expected_sequence,
-                    FlowEvent::StepCreated {
-                        step_id: step_id.clone(),
-                        step_name: step_name.clone(),
-                        input: input.clone(),
-                        retry,
-                    },
-                )
-                .await?;
-            expected_sequence = envelope.sequence;
-        }
-
-        let max_attempts = retry.max_attempts.max(1);
-        let mut attempt = snapshot
-            .steps
-            .get(&step_id)
-            .map(|step| step.attempt)
-            .unwrap_or(0);
-        let mut redelivering_running_step = snapshot
-            .steps
-            .get(&step_id)
-            .is_some_and(|step| step.status == StepStatus::Running);
-
-        loop {
-            if redelivering_running_step {
-                // A process can die after the step side effect succeeds but before
-                // StepCompleted is durable. Redeliver the same attempt so an
-                // idempotent step can recover that ambiguous boundary.
-                redelivering_running_step = false;
-            } else {
-                attempt = attempt.checked_add(1).ok_or_else(|| {
-                    FlowError::InvalidTransition(format!("step attempt overflowed for {step_id}"))
-                })?;
-                let started = self
-                    .record_event_at(
-                        run_id,
-                        expected_sequence,
-                        FlowEvent::StepStarted {
-                            step_id: step_id.clone(),
-                            attempt,
-                        },
-                    )
-                    .await?;
-                expected_sequence = started.sequence;
-            }
-
-            let history = self.store.list(run_id).await?;
-            let invocation = StepInvocation {
-                run_id: run_id.to_string(),
-                step_id: step_id.clone(),
-                step_name: step_name.clone(),
-                input: input.clone(),
-                history,
-            };
-
-            match self.runtime.run_step(invocation).await {
-                Ok(output) => {
-                    self.record_event_at(
-                        run_id,
-                        expected_sequence,
-                        FlowEvent::StepCompleted { step_id, output },
-                    )
-                    .await?;
-                    return Ok(());
-                }
-                Err(err) if attempt < max_attempts => {
-                    let retry_after = if retry.delay_ms > 0 {
-                        Some(Utc::now() + ChronoDuration::milliseconds(retry.delay_ms as i64))
-                    } else {
-                        None
-                    };
-                    let retrying = self
-                        .record_event_at(
-                            run_id,
-                            expected_sequence,
-                            FlowEvent::StepRetrying {
-                                step_id: step_id.clone(),
-                                attempt,
-                                error: err.to_string(),
-                                retry_after,
-                            },
-                        )
-                        .await?;
-                    expected_sequence = retrying.sequence;
-                    if retry_after.is_some() {
-                        return Ok(());
-                    }
-                }
-                Err(err) => {
-                    let error = err.to_string();
-                    let failed = self
-                        .record_event_at(
-                            run_id,
-                            expected_sequence,
-                            FlowEvent::StepFailed {
-                                step_id: step_id.clone(),
-                                attempt,
-                                error: error.clone(),
-                            },
-                        )
-                        .await?;
-                    if retry.on_exhausted == StepFailureAction::ContinueWorkflow {
-                        return Ok(());
-                    }
-                    self.record_event_at(run_id, failed.sequence, FlowEvent::RunFailed { error })
-                        .await?;
-                    return Ok(());
-                }
-            }
-        }
-    }
-
-    async fn execute_step_batch(
-        &self,
-        run_id: &str,
-        snapshot: &WorkflowRunSnapshot,
-        steps: Vec<StepCommand>,
-        now: DateTime<Utc>,
-    ) -> Result<()> {
-        let mut expected_sequence = snapshot.last_sequence;
-
-        // Make every sibling identity durable before any side effect starts.
-        for step in &steps {
-            if snapshot.steps.contains_key(&step.step_id) {
-                continue;
-            }
-            let created = self
-                .record_event_at(
-                    run_id,
-                    expected_sequence,
-                    FlowEvent::StepCreated {
-                        step_id: step.step_id.clone(),
-                        step_name: step.step_name.clone(),
-                        input: step.input.clone(),
-                        retry: step.retry,
-                    },
-                )
-                .await?;
-            expected_sequence = created.sequence;
-        }
-
-        let mut active = Vec::new();
-        for step in steps {
-            let existing = snapshot.steps.get(&step.step_id);
-            let attempt = match existing.map(|existing| existing.status) {
-                Some(StepStatus::Completed | StepStatus::Failed) => continue,
-                Some(StepStatus::Running) => {
-                    existing.map(|existing| existing.attempt).ok_or_else(|| {
-                        FlowError::InvalidTransition(format!(
-                            "running batch step {} has no projected attempt",
-                            step.step_id
-                        ))
-                    })?
-                }
-                Some(StepStatus::Pending) => {
-                    if existing
-                        .and_then(|existing| existing.retry_after)
-                        .is_some_and(|retry_after| retry_after > now)
-                    {
-                        continue;
-                    }
-                    let attempt = existing
-                        .and_then(|existing| existing.attempt.checked_add(1))
-                        .ok_or_else(|| {
-                            FlowError::InvalidTransition(format!(
-                                "step attempt overflowed for {}",
-                                step.step_id
-                            ))
-                        })?;
-                    let started = self
-                        .record_event_at(
-                            run_id,
-                            expected_sequence,
-                            FlowEvent::StepStarted {
-                                step_id: step.step_id.clone(),
-                                attempt,
-                            },
-                        )
-                        .await?;
-                    expected_sequence = started.sequence;
-                    attempt
-                }
-                None => {
-                    let attempt = 1;
-                    let started = self
-                        .record_event_at(
-                            run_id,
-                            expected_sequence,
-                            FlowEvent::StepStarted {
-                                step_id: step.step_id.clone(),
-                                attempt,
-                            },
-                        )
-                        .await?;
-                    expected_sequence = started.sequence;
-                    attempt
-                }
-            };
-            active.push((step, attempt));
-        }
-
-        while !active.is_empty() {
-            let history = self.store.list(run_id).await?;
-            let mut tasks = JoinSet::new();
-            for (index, (step, _)) in active.iter().enumerate() {
-                let runtime = Arc::clone(&self.runtime);
-                let invocation = StepInvocation {
-                    run_id: run_id.to_string(),
-                    step_id: step.step_id.clone(),
-                    step_name: step.step_name.clone(),
-                    input: step.input.clone(),
-                    history: history.clone(),
-                };
-                tasks.spawn(async move { (index, runtime.run_step(invocation).await) });
-            }
-            let mut observed_outcomes = vec![false; active.len()];
-            let mut immediate_retries = Vec::new();
-            while let Some(joined) = tasks.join_next().await {
-                let (index, outcome) = joined.map_err(|error| {
-                    FlowError::Runtime(format!(
-                        "concurrent step task failed before returning an outcome: {error}"
-                    ))
-                })?;
-                if index >= observed_outcomes.len() || observed_outcomes[index] {
-                    return Err(FlowError::InvalidTransition(
-                        "concurrent step batch returned an invalid outcome index".to_string(),
-                    ));
-                }
-                observed_outcomes[index] = true;
-                let (step, attempt) = &active[index];
-                match outcome {
-                    Ok(output) => {
-                        let completed = self
-                            .record_event_at(
-                                run_id,
-                                expected_sequence,
-                                FlowEvent::StepCompleted {
-                                    step_id: step.step_id.clone(),
-                                    output,
-                                },
-                            )
-                            .await?;
-                        expected_sequence = completed.sequence;
-                    }
-                    Err(error) if *attempt < step.retry.max_attempts.max(1) => {
-                        let error = error.to_string();
-                        let retry_after = if step.retry.delay_ms > 0 {
-                            Some(
-                                Utc::now()
-                                    + ChronoDuration::milliseconds(step.retry.delay_ms as i64),
-                            )
-                        } else {
-                            None
-                        };
-                        let retrying = self
-                            .record_event_at(
-                                run_id,
-                                expected_sequence,
-                                FlowEvent::StepRetrying {
-                                    step_id: step.step_id.clone(),
-                                    attempt: *attempt,
-                                    error,
-                                    retry_after,
-                                },
-                            )
-                            .await?;
-                        expected_sequence = retrying.sequence;
-                        if retry_after.is_none() {
-                            immediate_retries.push((step.clone(), *attempt));
-                        }
-                    }
-                    Err(error) => {
-                        let error = error.to_string();
-                        let failed = self
-                            .record_event_at(
-                                run_id,
-                                expected_sequence,
-                                FlowEvent::StepFailed {
-                                    step_id: step.step_id.clone(),
-                                    attempt: *attempt,
-                                    error: error.clone(),
-                                },
-                            )
-                            .await?;
-                        expected_sequence = failed.sequence;
-                        if step.retry.on_exhausted == StepFailureAction::FailRun {
-                            self.record_event_at(
-                                run_id,
-                                expected_sequence,
-                                FlowEvent::RunFailed { error },
-                            )
-                            .await?;
-                            return Ok(());
-                        }
-                    }
-                }
-            }
-            if let Some(index) = observed_outcomes.iter().position(|observed| !observed) {
-                return Err(FlowError::Runtime(format!(
-                    "concurrent step batch omitted outcome index {index}"
-                )));
-            }
-            if immediate_retries.is_empty() {
-                return Ok(());
-            }
-
-            let mut next_active = Vec::with_capacity(immediate_retries.len());
-            for (step, attempt) in immediate_retries {
-                let attempt = attempt.checked_add(1).ok_or_else(|| {
-                    FlowError::InvalidTransition(format!(
-                        "step attempt overflowed for {}",
-                        step.step_id
-                    ))
-                })?;
-                let started = self
-                    .record_event_at(
-                        run_id,
-                        expected_sequence,
-                        FlowEvent::StepStarted {
-                            step_id: step.step_id.clone(),
-                            attempt,
-                        },
-                    )
-                    .await?;
-                expected_sequence = started.sequence;
-                next_active.push((step, attempt));
-            }
-            active = next_active;
-        }
-
         Ok(())
     }
 }

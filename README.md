@@ -102,6 +102,10 @@ Supported commands:
 |---------|------------|
 | `Complete` | Finish a run with durable JSON output |
 | `Fail` | Finish a run with a durable error |
+| `Cancel` | Finish a previously requested cleanup-aware cancellation |
+| `Timeout` | Finish a run with a typed deadline outcome |
+| `RecordProgress` | Persist one idempotently identified progress update, then replay |
+| `LinkChildOperation` | Persist a parent-to-child operation reference, then replay |
 | `ScheduleStep` | Execute one side-effecting step and persist its output or failure |
 | `ScheduleSteps` | Durably start and concurrently execute a stable batch of steps before replaying |
 | `WaitUntil` | Suspend a run until a timer is resumed |
@@ -187,7 +191,10 @@ The engine exposes host-facing control-plane APIs:
 - `start()` for generated run IDs.
 - `start_with_id()` for idempotent business IDs.
 - `drive()` for explicit re-drive.
-- `cancel()` for terminal operator cancellation with a reason.
+- `request_cancellation()` for durable cleanup-aware cancellation.
+- `force_cancel()`/`cancel()` for intentional immediate cancellation that skips cleanup.
+- `record_progress()` and `link_child_operation()` for host-reported durable operation state.
+- `terminate_for_timeout()` and `terminate_for_host_shutdown()` for explicit typed terminal policy.
 - `snapshot()` and `history()` for per-run state and raw audit events.
 - `list_run_ids()` and `list_snapshots()` for dashboards.
 - `run_summary()` for status and actionable-work counts.
@@ -212,7 +219,10 @@ append-only `FlowEventStore` contract:
 | `PostgresEventStore` | Multi-process hosts and distributed workers sharing event history |
 
 Local JSONL histories can prune old terminal runs while keeping suspended runs.
-SQLite and Postgres preserve the same event envelope shape while using database
+PostgreSQL can prune complete terminal histories while preserving durable audit
+holds and linked run components; each deletion leaves a checksum tombstone and
+partial event-stream compaction is intentionally unsupported. SQLite and
+Postgres preserve the same event envelope shape while using database
 transactions for expected-sequence writes. Both SQL adapters use `a3s-orm` for
 connection execution, typed row decoding, transactions, and canonical
 checksummed migrations; Flow no longer owns a separate SQL driver path.
@@ -291,7 +301,7 @@ which observability sinks receive committed events.
 
 ```toml
 [dependencies]
-a3s-flow = "0.4.3"
+a3s-flow = "0.5.0"
 async-trait = "0.1"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -400,15 +410,33 @@ let history = engine.history(&run_id).await?;
 
 ### Run cancellation
 
-Hosts can stop a non-terminal run with an operator-facing reason. Cancellation
-appends a terminal `flow.run.cancelled` event; due wait and retry scanners skip
-terminal histories, so cancelled runs are not resumed later by workers.
+Cleanup-aware cancellation is a two-phase durable lifecycle. The host appends
+`flow.run.cancellation.requested`; projection moves the run to `Cancelling` and
+deactivates waits, hooks, and retry/running steps that predate the request. The
+workflow observes `ctx.cancellation_request()`, performs concrete cleanup as
+ordinary durable steps with stable idempotency keys, then returns `ctx.cancel()`.
+Only then does Flow append the terminal `flow.run.cancelled` event.
 
 ```rust
+use a3s_flow::CancellationRequest;
+
 engine
-    .cancel(&run_id, Some("user requested cancellation".to_string()))
+    .request_cancellation(
+        &run_id,
+        CancellationRequest::new(Some("user requested cancellation".to_string())),
+    )
     .await?;
 ```
+
+Flow owns the durable request, replay, fencing, and single terminal outcome.
+The host workflow owns child-operation propagation and resource cleanup because
+only it knows which external effects may be stopped or deleted. Steps remain
+physical at-least-once; use `(run_id, stable_step_id)` or another durable domain
+key to make each cleanup action logically idempotent. `force_cancel()` and the
+backward-compatible `cancel()` method intentionally skip this cleanup path.
+For a cleanup-aware deadline, use the same request path and return
+`ctx.timeout(deadline, reason)` after cleanup. The direct
+`terminate_for_timeout()` API is immediate and also skips cleanup.
 
 ## TypeScript Workflows
 
@@ -621,7 +649,9 @@ Use these docs when moving from API exploration to a host integration:
 | **Durable steps** | Side-effecting step outputs are persisted before replay continues |
 | **Batch step scheduling** | A runtime can durably start and concurrently fan out multiple steps from one replay command |
 | **Idempotent creation** | Stable run IDs make workflow start safe to retry |
-| **Cancellation** | Hosts can append a terminal cancellation event so suspended work is not resumed later |
+| **Cancellation and cleanup** | Durable cancellation requests replay host-owned idempotent cleanup before one terminal cancellation outcome; immediate force-cancel remains explicit |
+| **Durable operation state** | Idempotently identified progress updates and child-operation references survive host replacement |
+| **Typed terminal outcomes** | Snapshots distinguish completion, failure, cancellation, timeout, retry exhaustion, and explicit non-resumable host shutdown |
 | **Timers** | Waits suspend runs without holding compute |
 | **Hooks** | External callbacks resume or dispose active runs by hook ID or public token |
 | **Retries** | Failed steps can retry immediately or after a durable delay |
@@ -651,16 +681,20 @@ do not leak into logs.
 |-----------------|-----------------|
 | `Complete` | Persist `flow.run.completed` and finish the run |
 | `Fail` | Persist `flow.run.failed` and finish the run |
+| `Cancel` | Persist `flow.run.cancelled` after a durable cancellation request and cleanup |
+| `Timeout` | Persist `flow.run.timed_out` with a deadline and optional reason |
+| `RecordProgress` | Persist `flow.run.progress.recorded`, then replay |
+| `LinkChildOperation` | Persist `flow.child.operation.linked`, then replay |
 | `ScheduleStep` | Persist step lifecycle events, run the step, then replay |
 | `ScheduleSteps` | Persist every sibling identity and attempt, run the stable batch concurrently, commit each outcome as it settles, then replay |
 | `WaitUntil` | Persist `flow.wait.created` and suspend |
 | `CreateHook` | Persist `flow.hook.created` and suspend until `hook_received` or `hook_disposed` is recorded |
 
 Events use A3S dot-separated keys such as `flow.run.created`,
-`flow.step.completed`, `flow.hook.received`, and `flow.hook.disposed`.
-`FlowEngine::cancel()` is a host control-plane operation rather than a workflow
-command. It persists `flow.run.cancelled`, stores the optional reason on the run
-snapshot error field, and makes scheduler scans ignore the run.
+`flow.run.cancellation.requested`, `flow.run.progress.recorded`,
+`flow.child.operation.linked`, and `flow.step.completed`. The host starts
+graceful cancellation through `request_cancellation()`; workflow replay finishes
+it through `RuntimeCommand::Cancel` after cleanup.
 
 ### Workflow context
 
@@ -909,7 +943,7 @@ single SQLite database instead of one JSONL file per run:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.4.3", features = ["sqlite"] }
+a3s-flow = { version = "0.5.0", features = ["sqlite"] }
 ```
 
 ```rust
@@ -941,7 +975,7 @@ event history through a database:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.4.3", features = ["postgres"] }
+a3s-flow = { version = "0.5.0", features = ["postgres"] }
 ```
 
 ```rust
@@ -961,6 +995,32 @@ compatible with earlier Flow releases, preserving per-run event order during
 rolling upgrades. `connect(...)` creates a bounded non-TLS ORM pool for local or
 trusted transports; production hosts can pass a TLS-enabled, policy-configured
 `a3s_orm::PostgresExecutor` to `PostgresEventStore::from_executor(...)`.
+
+PostgreSQL retention is explicit and audit guarded:
+
+```rust
+use a3s_flow::FlowHistoryRetentionPolicy;
+use chrono::{Duration, Utc};
+
+store
+    .hold_history(&run_id, "legal-case-42", "legal review is open")
+    .await?;
+
+let report = store
+    .prune_terminal_history(FlowHistoryRetentionPolicy::new(
+        Utc::now() - Duration::days(30),
+    ))
+    .await?;
+```
+
+The scan uses A3S ORM transactions and parameterized queries, locks event
+streams in stable order, and deletes only complete terminal linked components.
+Non-terminal histories, durable holds, and a terminal child referenced by a
+retained parent remain intact. Every deletion leaves a tombstone containing the
+terminal event identity and SHA-256 of the removed envelopes, preventing silent
+run-ID reuse. Export audit data and release its hold before pruning. Flow never
+rewrites a prefix into a synthetic snapshot: partial compaction would break the
+append-only replay and audit contract.
 
 Run the durability example:
 
@@ -983,7 +1043,7 @@ Enable `boot` and one durable storage feature for a host that uses A3S Boot:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.4.3", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.5.0", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
@@ -1180,7 +1240,7 @@ hosts that already use A3S Event as their event backbone:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.4.3", features = ["a3s-event"] }
+a3s-flow = { version = "0.5.0", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 
@@ -1220,6 +1280,10 @@ the Flow event store remains authoritative.
 | `FlowEventEnvelope` | Persisted event with run ID, sequence, event ID, and timestamp |
 | `ActiveHookSnapshot` | Host-facing active hook record with owning run ID and typed metadata decoding |
 | `WorkflowRunSnapshot` | Projected run state with typed input, output, step output, and hook payload decoding helpers |
+| `WorkflowTerminalOutcome` | Typed completed, failed, cancelled, timed-out, retry-exhausted, or host-shutdown terminal result |
+| `WorkflowProgress` | Idempotently identified durable progress update |
+| `ChildOperationReference` | Durable parent-to-child operation identity, with optional same-store Flow run ID |
+| `CancellationRequest` | Durable reason passed into cleanup-aware cancellation replay |
 | `WorkflowRunSummary` | Aggregated status and actionable suspension counts for dashboards and health probes |
 | `WorkflowRunSuspension` | Projected open wait, hook, or delayed retry record with stable run/subject, due, and scheduled-at helpers |
 | `StepSnapshot` | Projected step state with typed output decoding |
@@ -1231,6 +1295,9 @@ the Flow event store remains authoritative.
 | `LocalFileEventStore` | JSONL-backed local durable event store with terminal-run retention cleanup |
 | `SqliteEventStore` | A3S ORM-backed single-node durable event store, available with the `sqlite` feature |
 | `PostgresEventStore` | A3S ORM-backed shared durable event store, available with the `postgres` feature |
+| `FlowHistoryRetentionPolicy` | PostgreSQL whole-history cutoff and optional bounded run-ID scope |
+| `FlowHistoryHold` | Persistent audit guard that blocks PostgreSQL history deletion |
+| `FlowHistoryTombstone` | Checksum audit record retained after PostgreSQL history deletion |
 | `FlowEventObserver` | Receives committed event envelopes after store append |
 | `FanoutFlowEventObserver` | Forwards committed event envelopes to multiple observers |
 | `A3sFlowEventBridge` | Maps committed envelopes into Flow audit records for host sinks and A3S Event publishers |
@@ -1304,10 +1371,10 @@ just flow-test
 ## Roadmap
 
 - Stabilize the Rust runtime, store, worker, and scheduler APIs.
-- Keep the SQLite and Postgres event stores aligned with engine replay and host
-  examples.
-- Keep the Postgres task queue aligned with worker leasing, dead-letter
-  handling, and host examples.
+- Keep SQLite and PostgreSQL event stores aligned with replay, durable operation
+  metadata, whole-history retention, and host examples.
+- Keep PostgreSQL worker gates aligned with lease fencing, dead-letter handling,
+  process death, reconnect, and same-attempt replay.
 - Add additional production queue adapters as concrete deployment targets need
   them.
 - Keep the local audit sink aligned with Flow event keys and host examples.

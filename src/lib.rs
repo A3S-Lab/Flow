@@ -21,11 +21,12 @@ pub use context::WorkflowContext;
 pub use engine::{FlowEngine, FlowEngineBuilder};
 pub use error::{FlowError, Result};
 pub use model::{
-    ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookCallbackRoute, HookMetadata,
-    HookSnapshot, HookStatus, JsonValue, RetryPolicy, RuntimeCommand, RuntimeKind, RuntimeSpec,
-    StepCommand, StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus,
+    ActiveHookSnapshot, CancellationRequest, CancellationRequestSnapshot, ChildOperationReference,
+    FlowEvent, FlowEventEnvelope, HookCallbackRoute, HookMetadata, HookSnapshot, HookStatus,
+    JsonValue, RetryPolicy, RuntimeCommand, RuntimeKind, RuntimeSpec, StepCommand,
+    StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowProgress,
     WorkflowRunSnapshot, WorkflowRunStatus, WorkflowRunSummary, WorkflowRunSuspension,
-    WorkflowSpec,
+    WorkflowSpec, WorkflowTerminalOutcome,
 };
 #[cfg(feature = "a3s-event")]
 pub use observe::A3sEventBusFlowEventSink;
@@ -42,11 +43,14 @@ pub use runtime::{
     WorkflowInvocation,
 };
 pub use scheduler::{FlowScheduler, FlowSchedulerTick};
-#[cfg(feature = "postgres")]
-pub use store::PostgresEventStore;
 #[cfg(feature = "sqlite")]
 pub use store::SqliteEventStore;
 pub use store::{FlowEventStore, InMemoryEventStore, LocalFileEventStore};
+#[cfg(feature = "postgres")]
+pub use store::{
+    FlowHistoryHold, FlowHistoryRetentionPolicy, FlowHistoryRetentionReport, FlowHistoryTombstone,
+    PostgresEventStore,
+};
 #[cfg(feature = "boot")]
 pub use worker::BootFlowTaskManager;
 pub use worker::{

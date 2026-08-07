@@ -13,7 +13,7 @@ inject its queue.
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.4.3", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.5.0", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
@@ -126,7 +126,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.4.3", features = ["sqlite"] }
+a3s-flow = { version = "0.5.0", features = ["sqlite"] }
 ```
 
 Then wire the SQLite event store into the same engine and worker shape:
@@ -180,7 +180,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.4.3", features = ["postgres"] }
+a3s-flow = { version = "0.5.0", features = ["postgres"] }
 ```
 
 Then wire the Postgres event store and task queue into the same engine and
@@ -663,7 +663,7 @@ feature and publish bridged records through an `EventBus`:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.4.3", features = ["a3s-event"] }
+a3s-flow = { version = "0.5.0", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 
@@ -688,24 +688,84 @@ The sink publishes category `flow`, provider-built subjects such as
 `A3sFlowEvent` as payload. Publish failures are best-effort and visible through
 `last_error()`.
 
-## Cancellation
+## Cancellation And Host-Owned Cleanup
 
-Use `FlowEngine::cancel()` when an operator, API caller, or host policy decides
-that a non-terminal run should stop. Cancellation appends a terminal
-`flow.run.cancelled` event with an optional reason. The projected snapshot moves
-to `WorkflowRunStatus::Cancelled`, and scheduler scans skip cancelled histories
-when looking for due waits or delayed retries.
+Use `FlowEngine::request_cancellation()` when cleanup or child propagation is
+required. The durable request projects `WorkflowRunStatus::Cancelling` and
+deactivates waits, hooks, running steps, and delayed retries created before the
+request. Workflow replay then takes a cancellation branch:
 
 ```rust
+if ctx.cancellation_request().is_some() {
+    if !ctx.step_completed("cleanup-runtime") {
+        return Ok(ctx.schedule_step_with_retry(
+            "cleanup-runtime",
+            "removeRuntime",
+            json!({
+                "idempotencyKey": format!("{}:cleanup-runtime", ctx.run_id()),
+            }),
+            RetryPolicy::none(),
+        ));
+    }
+    return Ok(ctx.cancel());
+}
+```
+
+The host initiates it with a stable reason:
+
+```rust
+use a3s_flow::CancellationRequest;
+
 engine
-    .cancel(&run_id, Some("operator cancelled".to_string()))
+    .request_cancellation(
+        &run_id,
+        CancellationRequest::new(Some("operator cancelled".to_string())),
+    )
     .await?;
 ```
 
-Cancellation does not delete history. Pair it with the same retention policy as
-completed and failed runs once the audit window has passed. See
-`examples/cancellation.rs` for a runnable flow that cancels a suspended run and
-verifies that no due work is enqueued afterward.
+Flow owns persistence, replay, stale-completion rejection, and the single
+terminal event. The workflow owns concrete cleanup and cancellation propagation
+for `ChildOperationReference` values. A process may die after an external cleanup
+effect but before `step_completed`; the replacement worker redelivers the same
+attempt. Use a stable domain idempotency key so physical at-least-once execution
+has one logical effect.
+
+The same two-phase path can enforce a deadline. After cleanup, return
+`ctx.timeout(deadline, reason)` instead of `ctx.cancel()` to persist a typed
+timeout outcome. `terminate_for_timeout()` is the immediate host-policy API and
+skips cleanup; use it only when that behavior is intentional.
+
+Use `force_cancel()` only when policy explicitly allows skipping cleanup. The
+older `cancel()` API has the same immediate behavior for compatibility. Neither
+method deletes history.
+
+## Durable Progress And Child References
+
+Workflow replay can persist operation checkpoints before scheduling its next
+side effect:
+
+```rust
+if ctx.progress("upload-8").is_none() {
+    return Ok(ctx.record_progress(
+        WorkflowProgress::new("upload-8", 8)
+            .with_total(10)
+            .with_message("Uploaded chunks"),
+    ));
+}
+
+if ctx.child_operation("runtime").is_none() {
+    return Ok(ctx.link_child_operation(
+        ChildOperationReference::new("runtime", "runtime.unit", runtime_id),
+    ));
+}
+```
+
+Each progress ID and child reference ID is an idempotency identity: replaying an
+identical value is safe, while changing the value under the same ID reports
+non-determinism. Hosts may also call `record_progress()` and
+`link_child_operation()` directly while a run is non-terminal. Both values are
+projected on `WorkflowRunSnapshot` after restart.
 
 ## Local Retention
 
@@ -727,6 +787,34 @@ history before deleting it and removes only completed, failed, or cancelled
 histories whose terminal event timestamp is before the cutoff. Corrupt histories
 return an error instead of being deleted. See `examples/local_retention.rs` for
 a runnable cleanup example.
+
+## PostgreSQL Audit-Safe Retention
+
+Shared hosts use `FlowHistoryRetentionPolicy` to delete only complete terminal
+histories older than a cutoff. Place a durable hold before an audit export or
+legal workflow begins:
+
+```rust
+store
+    .hold_history(&run_id, "audit-export", "export has not been acknowledged")
+    .await?;
+
+let report = store
+    .prune_terminal_history(FlowHistoryRetentionPolicy::new(
+        Utc::now() - ChronoDuration::days(30),
+    ))
+    .await?;
+
+store.release_history_hold(&run_id, "audit-export").await?;
+```
+
+The A3S ORM transaction preserves active/recent runs, held histories, and a
+linked Flow run whenever its connected parent/child component is not entirely
+eligible. A successful deletion leaves `FlowHistoryTombstone` with terminal
+identity and a SHA-256 history digest; future appends cannot silently recreate
+that run ID. Use `with_run_ids(...)` to bound a maintenance scan. Flow does not
+partially compact streams: export what audit policy requires, release holds,
+then delete the complete terminal component.
 
 ## Native TypeScript Runtime
 
@@ -773,8 +861,9 @@ Before shipping a host integration:
 - Use `FlowScheduler::next_wakeup_delay()` to choose the next scheduler sleep
   deadline when the host is not already using an external clock or queue
   trigger.
-- Expose an operator/API cancellation path for runs that should become terminal
-  before their next wait, hook, or retry resumes.
+- Expose a cleanup-aware cancellation path and give every cleanup step a stable
+  host idempotency key. Reserve force cancellation for explicit emergency
+  policy.
 - Use `BootFlowTaskManager` when A3S Boot owns the host lifecycle and queue
   backend.
 - If the host intentionally owns a FlowWorker loop, requeue local inflight
@@ -790,6 +879,7 @@ Before shipping a host integration:
 - Use `LocalFileA3sFlowEventSink` for local JSONL audit trails before wiring a
   hosted event sink.
 - Define cleanup policy for completed event histories and task directories; for
-  `LocalFileEventStore`, prune only old terminal histories.
+  `LocalFileEventStore`, prune only old terminal histories. For PostgreSQL,
+  hold required audit records and review retention reports/tombstones.
 - Document which fields are safe to persist in inputs, hook metadata, and step
   outputs.

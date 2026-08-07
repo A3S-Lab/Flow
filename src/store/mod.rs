@@ -9,6 +9,8 @@ mod memory;
 mod migrations;
 #[cfg(feature = "postgres")]
 mod postgres;
+#[cfg(feature = "postgres")]
+mod retention;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
@@ -20,6 +22,10 @@ pub(crate) use migrations::postgres_migrations;
 pub(crate) use migrations::sqlite_event_migrations;
 #[cfg(feature = "postgres")]
 pub use postgres::PostgresEventStore;
+#[cfg(feature = "postgres")]
+pub use retention::{
+    FlowHistoryHold, FlowHistoryRetentionPolicy, FlowHistoryRetentionReport, FlowHistoryTombstone,
+};
 #[cfg(feature = "sqlite")]
 pub use sqlite::SqliteEventStore;
 
