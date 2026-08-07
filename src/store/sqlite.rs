@@ -10,7 +10,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
-use crate::model::{FlowEvent, FlowEventEnvelope};
+use crate::model::{ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookSnapshot, HookStatus};
 
 use super::{sqlite_migrations, FlowEventStore};
 
@@ -96,6 +96,10 @@ impl SqliteEventStore {
                             });
                         }
                     }
+                    if let FlowEvent::HookCreated { hook_id, token, .. } = &event {
+                        ensure_sqlite_active_hook_available(transaction, &run_id, hook_id, token)
+                            .await?;
+                    }
 
                     let envelope = FlowEventEnvelope {
                         run_id,
@@ -159,6 +163,40 @@ impl FlowEventStore for SqliteEventStore {
             .await
             .map_err(sqlite_orm_error)?
             .rows)
+    }
+
+    async fn find_active_hooks_by_token(&self, token: &str) -> Result<Vec<ActiveHookSnapshot>> {
+        let database = Database::new(SqliteDialect, self.executor.clone());
+        database
+            .fetch_all_as(
+                sql_query::<(String, String, String, String)>(
+                    "SELECT run_id, hook_id, token, metadata_json \
+                     FROM flow_active_hooks WHERE token = ",
+                )
+                .bind(token)
+                .append(" ORDER BY run_id, hook_id"),
+            )
+            .await
+            .map_err(sqlite_orm_error)?
+            .rows
+            .into_iter()
+            .map(active_hook_from_row)
+            .collect()
+    }
+
+    async fn list_active_hooks(&self) -> Result<Vec<ActiveHookSnapshot>> {
+        let database = Database::new(SqliteDialect, self.executor.clone());
+        database
+            .fetch_all_as(sql_query::<(String, String, String, String)>(
+                "SELECT run_id, hook_id, token, metadata_json \
+                 FROM flow_active_hooks ORDER BY run_id, hook_id",
+            ))
+            .await
+            .map_err(sqlite_orm_error)?
+            .rows
+            .into_iter()
+            .map(active_hook_from_row)
+            .collect()
     }
 }
 
@@ -227,6 +265,50 @@ pub(super) async fn latest_sqlite_sequence(
         .map_err(|error| FlowError::Store(format!("invalid SQLite sequence {sequence}: {error}")))
 }
 
+async fn ensure_sqlite_active_hook_available(
+    transaction: &SqliteTransaction,
+    run_id: &str,
+    hook_id: &str,
+    token: &str,
+) -> Result<()> {
+    let owners = fetch_all_sqlite::<(String, String), _>(
+        transaction,
+        sql_query::<(String, String)>(
+            "SELECT run_id, hook_id FROM flow_active_hooks WHERE token = ",
+        )
+        .bind(token),
+    )
+    .await?;
+    if let Some((existing_run_id, existing_hook_id)) = owners.into_iter().next() {
+        if existing_run_id == run_id && existing_hook_id == hook_id {
+            return Ok(());
+        }
+        return Err(FlowError::HookTokenConflict {
+            token: token.to_string(),
+            existing_run_id,
+            existing_hook_id,
+        });
+    }
+
+    let existing_tokens = fetch_all_sqlite::<String, _>(
+        transaction,
+        sql_query::<String>("SELECT token FROM flow_active_hooks WHERE run_id = ")
+            .bind(run_id)
+            .append(" AND hook_id = ")
+            .bind(hook_id),
+    )
+    .await?;
+    if existing_tokens
+        .first()
+        .is_some_and(|existing_token| existing_token != token)
+    {
+        return Err(FlowError::InvalidTransition(format!(
+            "active hook {hook_id} for run {run_id} already uses a different token (value redacted)"
+        )));
+    }
+    Ok(())
+}
+
 async fn insert_sqlite_envelope(
     transaction: &SqliteTransaction,
     envelope: &FlowEventEnvelope,
@@ -276,6 +358,21 @@ pub(super) fn row_to_envelope(
             ))
         })?,
         event: serde_json::from_str(&event_json)?,
+    })
+}
+
+fn active_hook_from_row(
+    (run_id, hook_id, token, metadata_json): (String, String, String, String),
+) -> Result<ActiveHookSnapshot> {
+    Ok(ActiveHookSnapshot {
+        run_id,
+        hook: HookSnapshot {
+            hook_id,
+            token,
+            status: HookStatus::Active,
+            metadata: serde_json::from_str(&metadata_json)?,
+            payload: None,
+        },
     })
 }
 

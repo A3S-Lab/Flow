@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.8.0 - 2026-08-07
+
+- Added A3S ORM-managed `flow_active_hooks` projections for SQLite and
+  PostgreSQL. Callback-token lookup and active-hook listing now use indexed,
+  parameterized store queries instead of replaying every workflow history.
+- Added checksummed migrations that backfill active hooks from existing event
+  histories and database triggers that keep the projection synchronized for
+  current and rolling-upgrade writers while the append-only event stream
+  remains authoritative.
+- Enforced active callback-token uniqueness inside database transactions.
+  SQLite immediate transactions and PostgreSQL token-scoped advisory locks now
+  return typed `HookTokenConflict` errors under concurrent writers; defensive
+  triggers reject legacy-writer races without leaking the bearer token.
+- Added SQLite migration, scalar-metadata, lifecycle, and two-connection race
+  tests, a store-query delegation test, and real PostgreSQL concurrency and
+  legacy-trigger coverage, including large bearer tokens through a PostgreSQL
+  equality hash index.
+
 ## 0.7.1 - 2026-08-07
 
 - Redacted callback bearer tokens from both `Display` and `Debug` diagnostics

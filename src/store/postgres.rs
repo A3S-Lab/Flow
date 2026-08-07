@@ -9,7 +9,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
-use crate::model::{FlowEvent, FlowEventEnvelope};
+use crate::model::{ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookSnapshot, HookStatus};
 
 use super::{postgres_migrations, FlowEventStore};
 
@@ -102,6 +102,10 @@ impl PostgresEventStore {
                             });
                         }
                     }
+                    if let FlowEvent::HookCreated { hook_id, token, .. } = &event {
+                        ensure_postgres_active_hook_available(transaction, &run_id, hook_id, token)
+                            .await?;
+                    }
 
                     let envelope = FlowEventEnvelope {
                         run_id,
@@ -165,6 +169,40 @@ impl FlowEventStore for PostgresEventStore {
             .await
             .map_err(postgres_orm_error)?
             .rows)
+    }
+
+    async fn find_active_hooks_by_token(&self, token: &str) -> Result<Vec<ActiveHookSnapshot>> {
+        let database = Database::new(PostgresDialect, self.executor.clone());
+        database
+            .fetch_all_as(
+                sql_query::<(String, String, String, String)>(
+                    "SELECT run_id, hook_id, token, metadata_json \
+                     FROM flow_active_hooks WHERE token = ",
+                )
+                .bind(token)
+                .append(" ORDER BY run_id, hook_id"),
+            )
+            .await
+            .map_err(postgres_orm_error)?
+            .rows
+            .into_iter()
+            .map(active_hook_from_row)
+            .collect()
+    }
+
+    async fn list_active_hooks(&self) -> Result<Vec<ActiveHookSnapshot>> {
+        let database = Database::new(PostgresDialect, self.executor.clone());
+        database
+            .fetch_all_as(sql_query::<(String, String, String, String)>(
+                "SELECT run_id, hook_id, token, metadata_json \
+                 FROM flow_active_hooks ORDER BY run_id, hook_id",
+            ))
+            .await
+            .map_err(postgres_orm_error)?
+            .rows
+            .into_iter()
+            .map(active_hook_from_row)
+            .collect()
     }
 }
 
@@ -231,6 +269,24 @@ async fn lock_postgres_run(transaction: &PostgresTransaction, run_id: &str) -> R
     Ok(())
 }
 
+async fn lock_postgres_active_hook_token(
+    transaction: &PostgresTransaction,
+    token: &str,
+) -> Result<()> {
+    // Token creation uses a distinct advisory-lock namespace so concurrent
+    // writers serialize only when they compete for the same callback token.
+    let query = sql_query::<i64>("SELECT 1 FROM pg_advisory_xact_lock(hashtext(")
+        .bind(token)
+        .append("), 2)")
+        .compile(&PostgresDialect)
+        .map_err(postgres_query_error)?;
+    transaction
+        .fetch_all(&query)
+        .await
+        .map_err(postgres_driver_error)?;
+    Ok(())
+}
+
 async fn lock_postgres_retention_guard_shared(
     transaction: &PostgresTransaction,
     lock_id: &str,
@@ -286,6 +342,51 @@ async fn latest_postgres_sequence(transaction: &PostgresTransaction, run_id: &st
     })
 }
 
+async fn ensure_postgres_active_hook_available(
+    transaction: &PostgresTransaction,
+    run_id: &str,
+    hook_id: &str,
+    token: &str,
+) -> Result<()> {
+    lock_postgres_active_hook_token(transaction, token).await?;
+    let owners = fetch_all_postgres::<(String, String), _>(
+        transaction,
+        sql_query::<(String, String)>(
+            "SELECT run_id, hook_id FROM flow_active_hooks WHERE token = ",
+        )
+        .bind(token),
+    )
+    .await?;
+    if let Some((existing_run_id, existing_hook_id)) = owners.into_iter().next() {
+        if existing_run_id == run_id && existing_hook_id == hook_id {
+            return Ok(());
+        }
+        return Err(FlowError::HookTokenConflict {
+            token: token.to_string(),
+            existing_run_id,
+            existing_hook_id,
+        });
+    }
+
+    let existing_tokens = fetch_all_postgres::<String, _>(
+        transaction,
+        sql_query::<String>("SELECT token FROM flow_active_hooks WHERE run_id = ")
+            .bind(run_id)
+            .append(" AND hook_id = ")
+            .bind(hook_id),
+    )
+    .await?;
+    if existing_tokens
+        .first()
+        .is_some_and(|existing_token| existing_token != token)
+    {
+        return Err(FlowError::InvalidTransition(format!(
+            "active hook {hook_id} for run {run_id} already uses a different token (value redacted)"
+        )));
+    }
+    Ok(())
+}
+
 async fn insert_postgres_envelope(
     transaction: &PostgresTransaction,
     envelope: &FlowEventEnvelope,
@@ -337,6 +438,21 @@ fn row_to_envelope(
             ))
         })?,
         event: serde_json::from_str(&event_json)?,
+    })
+}
+
+fn active_hook_from_row(
+    (run_id, hook_id, token, metadata_json): (String, String, String, String),
+) -> Result<ActiveHookSnapshot> {
+    Ok(ActiveHookSnapshot {
+        run_id,
+        hook: HookSnapshot {
+            hook_id,
+            token,
+            status: HookStatus::Active,
+            metadata: serde_json::from_str(&metadata_json)?,
+            payload: None,
+        },
     })
 }
 

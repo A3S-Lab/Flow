@@ -106,6 +106,9 @@ rejected before `hook_created` is appended, so callback routing by token remains
 unambiguous. Disposed hooks are no longer active and cannot be resumed by token;
 late callbacks receive `HookTokenNotFound`. Typed errors retain the bearer value
 for programmatic routing, while `Display` and `Debug` diagnostics redact it.
+`FlowEventStore` exposes overridable active-hook lookup and listing queries.
+In-memory, local-file, and custom stores default to replay; the SQLite and
+PostgreSQL adapters answer from an A3S ORM-managed indexed projection.
 
 ## Event Sourcing
 
@@ -136,6 +139,18 @@ appends, so multiple workers can preserve per-run event order while sharing one
 database. In-memory and local JSONL append paths enforce the same linked Flow
 run existence check as both database adapters.
 
+SQL migrations materialize `flow_active_hooks` from existing event history and
+install event-insert triggers for hook creation, receipt, disposal,
+cancellation, and terminal outcomes. The event stream remains authoritative;
+the projection contains only currently routable hooks. SQLite immediate
+transactions serialize token ownership checks. PostgreSQL adds a token-scoped
+advisory lock so competing new writers return a typed conflict, while the
+ownership projection and trigger also reject concurrent direct or rolling-upgrade
+writers. PostgreSQL uses an equality hash index for token lookup so bearer
+length is not bounded by a B-tree index entry. Hook tokens remain bearer
+credentials in both history and this projection, so database access is part of
+the callback security boundary.
+
 Local JSONL, SQLite, and PostgreSQL retention remove whole terminal streams
 only. All three evaluate one shared eligibility planner, protecting
 non-terminal or recent runs and linked components that are not entirely
@@ -155,13 +170,16 @@ Both SQL stores are adapters over `a3s-orm`. ORM executors own connection and
 pool behavior, typed decoding, and transaction completion. Flow owns the event
 schema and supplies canonical checksummed migrations to the ORM migrator. The
 PostgreSQL append lock retains the earlier `(hashtext(run_id), 0)` key shape so
-old and new Flow processes can safely overlap during a rolling upgrade.
+old and new Flow processes can safely overlap during a rolling upgrade. Active
+hook lookup uses parameterized ORM queries rather than loading every event
+stream into the application.
 
 Inspection APIs stay on this boundary: `history()` returns committed envelopes,
 while `snapshot()`, `list_snapshots()`, `run_summary()`,
-`list_open_suspensions()`, `next_wakeup()`, and `list_active_hooks()` project
-those envelopes for dashboards, scheduler hosts, callback routers, and
-debugging without becoming the durable state.
+`list_open_suspensions()`, and `next_wakeup()` project envelopes for dashboards,
+scheduler hosts, and debugging. `list_active_hooks()` delegates to the store so
+SQL adapters can use their materialized callback index without making that
+projection authoritative.
 
 ## Dispatch And Task Management
 

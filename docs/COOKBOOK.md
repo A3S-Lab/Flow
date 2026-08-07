@@ -13,7 +13,7 @@ inject its queue.
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.7.1", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.8.0", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
@@ -140,7 +140,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.7.1", features = ["sqlite"] }
+a3s-flow = { version = "0.8.0", features = ["sqlite"] }
 ```
 
 Then wire the SQLite event store into the same engine and worker shape:
@@ -168,8 +168,11 @@ The store delegates connection execution, typed decoding, immediate
 transactions, and checksummed migrations to `a3s-orm`. It creates parent
 directories and the database when missing, enables WAL mode, persists one row
 per event envelope, and checks expected sequence inside each append
-transaction. Keep `LocalFileFlowTaskQueue` lease recovery in place only when
-the host intentionally runs `FlowWorker`; Boot hosts should use
+transaction. Its active-hook migration backfills open callbacks, then SQLite
+triggers maintain the indexed routing projection in the append transaction.
+The immediate transaction also prevents two connections from committing the
+same active token. Keep `LocalFileFlowTaskQueue` lease recovery in place only
+when the host intentionally runs `FlowWorker`; Boot hosts should use
 `BootFlowTaskManager` with their selected Boot queue backend. Move to
 `PostgresEventStore` before running multiple Flow writers against shared event
 history.
@@ -187,15 +190,18 @@ cargo run --example sqlite_worker --features sqlite
 Use `PostgresEventStore` when multiple Flow processes need to share workflow
 event history. `a3s-orm` runs canonical checksummed migrations, persists one row
 per event envelope, and wraps expected-sequence appends in a
-transaction-scoped advisory lock for the run ID. New Boot hosts normally pair
-this store with `BootFlowTaskManager`. The following direct queue shape remains
-for deployments that already own a `FlowWorker` lifecycle.
+transaction-scoped advisory lock for the run ID. Active-hook lookup uses an
+indexed ORM projection; hook creation takes a second token-scoped lock so only
+one competing process commits ownership. A database trigger keeps direct and
+rolling-upgrade event writers synchronized with that projection. New Boot hosts
+normally pair this store with `BootFlowTaskManager`. The following direct queue
+shape remains for deployments that already own a `FlowWorker` lifecycle.
 
 Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.7.1", features = ["postgres"] }
+a3s-flow = { version = "0.8.0", features = ["postgres"] }
 ```
 
 Then wire the Postgres event store and task queue into the same engine and
@@ -546,6 +552,14 @@ contains an active hook from before cancellation. Use
 `WorkflowRunSnapshot::hook_metadata_as<T>()` when routers and dashboards need a
 typed metadata contract instead of raw JSON indexing.
 
+With `SqliteEventStore` or `PostgresEventStore`, token lookup and active-hook
+listing are parameterized queries against the ORM-managed `flow_active_hooks`
+projection; they do not replay every run. Other stores use the compatible
+history-replay default. The projection is transactionally derived from events
+and backfilled during migration, so event history remains the source of truth.
+Treat both tables as credential-bearing data because an active token authorizes
+its callback even though Flow redacts it from error diagnostics.
+
 ## Compensation
 
 A3S Flow does not have a special compensation command. Model compensation as
@@ -680,7 +694,7 @@ feature and publish bridged records through an `EventBus`:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.7.1", features = ["a3s-event"] }
+a3s-flow = { version = "0.8.0", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 

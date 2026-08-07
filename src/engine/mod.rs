@@ -337,18 +337,13 @@ impl FlowEngine {
         token: &str,
         payload: serde_json::Value,
     ) -> Result<(String, String)> {
-        let mut matches = Vec::new();
-        for run_id in self.store.list_run_ids().await? {
-            let snapshot = self.snapshot(&run_id).await?;
-            if snapshot.status.is_terminal() {
-                continue;
-            }
-            for hook in snapshot.hooks.values() {
-                if hook.status == HookStatus::Active && hook.token == token {
-                    matches.push((run_id.clone(), hook.hook_id.clone()));
-                }
-            }
-        }
+        let mut matches = self
+            .store
+            .find_active_hooks_by_token(token)
+            .await?
+            .into_iter()
+            .map(|active| (active.run_id, active.hook.hook_id))
+            .collect::<Vec<_>>();
 
         match matches.len() {
             0 => Err(FlowError::HookTokenNotFound(token.to_string())),
@@ -368,18 +363,13 @@ impl FlowEngine {
     /// This mirrors [`resume_hook_by_token`](Self::resume_hook_by_token) for
     /// callback routers that only know the public token.
     pub async fn dispose_hook_by_token(&self, token: &str) -> Result<(String, String)> {
-        let mut matches = Vec::new();
-        for run_id in self.store.list_run_ids().await? {
-            let snapshot = self.snapshot(&run_id).await?;
-            if snapshot.status.is_terminal() {
-                continue;
-            }
-            for hook in snapshot.hooks.values() {
-                if hook.status == HookStatus::Active && hook.token == token {
-                    matches.push((run_id.clone(), hook.hook_id.clone()));
-                }
-            }
-        }
+        let mut matches = self
+            .store
+            .find_active_hooks_by_token(token)
+            .await?
+            .into_iter()
+            .map(|active| (active.run_id, active.hook.hook_id))
+            .collect::<Vec<_>>();
 
         match matches.len() {
             0 => Err(FlowError::HookTokenNotFound(token.to_string())),
@@ -576,26 +566,7 @@ impl FlowEngine {
     /// tokens and their audit metadata without projecting every run manually.
     /// The result is sorted by run ID and hook ID for stable polling output.
     pub async fn list_active_hooks(&self) -> Result<Vec<ActiveHookSnapshot>> {
-        let mut hooks = Vec::new();
-        for run_id in self.store.list_run_ids().await? {
-            let snapshot = self.snapshot(&run_id).await?;
-            if snapshot.status.is_terminal() {
-                continue;
-            }
-            for hook in snapshot.hooks.values() {
-                if hook.status == HookStatus::Active {
-                    hooks.push(ActiveHookSnapshot {
-                        run_id: run_id.clone(),
-                        hook: hook.clone(),
-                    });
-                }
-            }
-        }
-        hooks.sort_by(|left, right| {
-            (left.run_id.as_str(), left.hook.hook_id.as_str())
-                .cmp(&(right.run_id.as_str(), right.hook.hook_id.as_str()))
-        });
-        Ok(hooks)
+        self.store.list_active_hooks().await
     }
 
     /// Replay and dispatch until the run reaches a terminal state or an open
@@ -935,24 +906,15 @@ impl FlowEngine {
         hook_id: &str,
         token: &str,
     ) -> Result<()> {
-        for existing_run_id in self.store.list_run_ids().await? {
-            let snapshot = self.snapshot(&existing_run_id).await?;
-            if snapshot.status.is_terminal() {
+        for active in self.store.find_active_hooks_by_token(token).await? {
+            if active.run_id == run_id && active.hook.hook_id == hook_id {
                 continue;
             }
-            for hook in snapshot.hooks.values() {
-                if hook.status != HookStatus::Active || hook.token != token {
-                    continue;
-                }
-                if existing_run_id == run_id && hook.hook_id == hook_id {
-                    continue;
-                }
-                return Err(FlowError::HookTokenConflict {
-                    token: token.to_string(),
-                    existing_run_id,
-                    existing_hook_id: hook.hook_id.clone(),
-                });
-            }
+            return Err(FlowError::HookTokenConflict {
+                token: token.to_string(),
+                existing_run_id: active.run_id,
+                existing_hook_id: active.hook.hook_id,
+            });
         }
         Ok(())
     }

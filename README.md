@@ -45,8 +45,8 @@ The crate owns the workflow durability layer:
 - `FlowRuntime` is the Rust trait implemented by the host workflow runtime.
 - `WorkflowContext` exposes replay-safe helpers for workflow code.
 - `FlowEventStore` persists append-only workflow history.
-- `a3s-orm` powers the optional SQLite and PostgreSQL stores and their
-  checksummed migrations.
+- `a3s-orm` powers the optional SQLite and PostgreSQL stores, checksummed
+  migrations, indexed callback projections, and transactional task tables.
 - `BootFlowTaskManager` connects scheduler dispatch to an `a3s-boot` queue with
   typed retry, timeout, retention, stalled-job, and logical deduplication
   policy, while `FlowWorker` remains available for embedded and compatibility
@@ -180,6 +180,8 @@ Hook capabilities include:
 - Dispose by run/hook ID or by public token when a request expires or is
   withdrawn.
 - Unique active hook tokens across non-terminal runs.
+- Indexed active-hook routing and transaction-level token ownership in the SQL
+  stores.
 - Late-callback rejection after disposal or terminal completion.
 - Typed `HookMetadata` and `HookCallbackRoute` helpers for audit records,
   dashboards, and callback routers.
@@ -228,8 +230,8 @@ and checksum tombstones; partial event-stream compaction remains intentionally
 unsupported.
 Both SQL stores preserve the same event envelope shape, use transactions for
 expected-sequence writes, and rely on `a3s-orm` for connection execution, typed
-row decoding, transactions, and canonical checksummed migrations. Flow no
-longer owns a separate SQL driver path.
+row decoding, transactions, canonical checksummed migrations, and an indexed
+active-hook projection. Flow no longer owns a separate SQL driver path.
 
 ### Workers, queues, and scheduling
 
@@ -305,7 +307,7 @@ which observability sinks receive committed events.
 
 ```toml
 [dependencies]
-a3s-flow = "0.7.1"
+a3s-flow = "0.8.0"
 async-trait = "0.1"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -667,7 +669,7 @@ Use these docs when moving from API exploration to a host integration:
 | **Workers** | Queued tasks let a host drive runs outside the request path |
 | **Schedulers** | Due waits and delayed retries can be scanned and enqueued |
 | **Observers** | Committed events can be mirrored into logs, metrics, or audit sinks |
-| **A3S ORM storage** | Optional SQLite and PostgreSQL stores use `a3s-orm` transactions, typed decoding, and checksummed migrations |
+| **A3S ORM storage** | Optional SQLite and PostgreSQL stores use `a3s-orm` transactions, typed decoding, checksummed migrations, and indexed active-hook routing |
 | **A3S Boot task management** | Boot queues own processor registration, job state, worker lifecycle, retry, timeout, cleanup, logical deduplication, and shutdown through `BootFlowTaskManager` and `BootFlowTaskPolicy` |
 | **Pluggable stores** | Use in-memory storage for tests, JSONL storage for local file durability, SQLite for single-node durable hosts, or PostgreSQL for shared database history |
 | **Compatibility queues** | Embedded hosts can still use Flow's in-memory, JSON-file, or PostgreSQL lease queues directly |
@@ -886,6 +888,15 @@ for active in engine.list_active_hooks().await? {
 }
 ```
 
+`SqliteEventStore` and `PostgresEventStore` satisfy these APIs from the
+ORM-managed `flow_active_hooks` projection. The migration backfills existing
+histories, and database triggers update the index in the same transaction as
+each event append. In-memory, local-file, and custom stores retain the default
+history-projection implementation. The event stream remains the source of
+truth; the SQL table is an indexed callback-routing projection. Hook tokens are
+bearer credentials already present in event history, so database and projection
+access must be protected accordingly even though diagnostics redact them.
+
 ## Storage
 
 | Store | Use case | Durability |
@@ -896,10 +907,10 @@ for active in engine.list_active_hooks().await? {
 | `PostgresEventStore` | Multi-process hosts and distributed workers that share workflow history | Postgres database, gated by the `postgres` feature |
 
 The SQL stores are implemented on `a3s-orm`. Opening a store runs Flow's
-canonical checksummed migrations before the store becomes available. Hosts can
-use the convenience `connect(...)` methods, or construct an ORM executor and
-pass it to `from_executor(...)` when they need custom pool, TLS, or connection
-controls.
+canonical checksummed migrations, including the backfilled active-hook index,
+before the store becomes available. Hosts can use the convenience
+`connect(...)` methods, or construct an ORM executor and pass it to
+`from_executor(...)` when they need custom pool, TLS, or connection controls.
 
 ### Local file event store
 
@@ -956,7 +967,7 @@ single SQLite database instead of one JSONL file per run:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.7.1", features = ["sqlite"] }
+a3s-flow = { version = "0.8.0", features = ["sqlite"] }
 ```
 
 ```rust
@@ -970,9 +981,11 @@ let engine = FlowEngine::new(store, runtime);
 `SqliteEventStore` uses `a3s-orm` to create parent directories and the database
 if needed, enable WAL mode, apply migrations, store one row per
 `FlowEventEnvelope`, and perform expected-sequence checks inside an immediate
-transaction. It uses a single connection for single-node durability. Use
-`PostgresEventStore` when multiple processes or distributed workers must share
-the same event history.
+transaction. The same transaction checks the indexed active-token owner before
+`hook_created` is committed. SQLite triggers then materialize or remove the
+active-hook row as hook and run lifecycle events arrive. It uses a single
+connection for single-node durability. Use `PostgresEventStore` when multiple
+processes or distributed workers must share the same event history.
 
 Run the durability example:
 
@@ -1002,8 +1015,10 @@ let report = store
 The ORM-managed immediate transaction serializes appends, hold changes, and
 retention. A scan deletes only complete eligible linked components, rolls back
 all deletions if any tombstone write fails, and prevents a deleted run ID from
-being reused. Existing 0.5 event databases receive the retention tables through
-the next checksummed migration without rewriting their event rows.
+being reused. Existing event databases receive retention and active-hook
+projection tables through checksummed migrations without rewriting event rows.
+The projection migration evaluates existing hook lifecycle once to backfill
+open callbacks; subsequent event inserts maintain it transactionally.
 
 ### Postgres event store
 
@@ -1012,7 +1027,7 @@ event history through a database:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.7.1", features = ["postgres"] }
+a3s-flow = { version = "0.8.0", features = ["postgres"] }
 ```
 
 ```rust
@@ -1027,11 +1042,17 @@ let engine = FlowEngine::new(store, runtime);
 
 `PostgresEventStore` applies the same canonical migrations through `a3s-orm`,
 stores one row per `FlowEventEnvelope`, and wraps expected-sequence appends in a
-transaction-scoped advisory lock for the run ID. The advisory-lock key remains
-compatible with earlier Flow releases, preserving per-run event order during
-rolling upgrades. `connect(...)` creates a bounded non-TLS ORM pool for local or
-trusted transports; production hosts can pass a TLS-enabled, policy-configured
-`a3s_orm::PostgresExecutor` to `PostgresEventStore::from_executor(...)`.
+transaction-scoped advisory lock for the run ID. Hook creation additionally
+takes a token-scoped advisory lock, checks the indexed owner, and returns a
+typed conflict before committing a duplicate. A database trigger keeps the
+projection correct for direct and rolling-upgrade event writers and rejects a
+concurrent legacy-writer collision. The equality-only token index uses the
+PostgreSQL hash access method, so long bearer values do not hit a B-tree entry
+size limit. The run advisory-lock key remains compatible with earlier Flow
+releases, preserving per-run event order during rolling upgrades. `connect(...)`
+creates a bounded non-TLS ORM pool for local or trusted transports; production
+hosts can pass a TLS-enabled, policy-configured `a3s_orm::PostgresExecutor` to
+`PostgresEventStore::from_executor(...)`.
 
 PostgreSQL retention uses the same public audit policy with multi-process
 advisory locking:
@@ -1081,7 +1102,7 @@ Enable `boot` and one durable storage feature for a host that uses A3S Boot:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.7.1", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.8.0", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
@@ -1294,7 +1315,7 @@ hosts that already use A3S Event as their event backbone:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.7.1", features = ["a3s-event"] }
+a3s-flow = { version = "0.8.0", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 
@@ -1344,7 +1365,7 @@ the Flow event store remains authoritative.
 | `HookSnapshot` | Projected hook state with typed metadata and payload decoding |
 | `HookMetadata` | Typed helper for common hook audit, label, data, and callback-route metadata |
 | `HookCallbackRoute` | Typed HTTP method/path metadata for external hook callback routes |
-| `FlowEventStore` | Append-only event persistence trait with expected-sequence writes |
+| `FlowEventStore` | Append-only event persistence trait with expected-sequence writes and overridable active-hook queries |
 | `InMemoryEventStore` | Ephemeral event store for tests and examples |
 | `LocalFileEventStore` | JSONL-backed local durable event store with linked-component terminal retention cleanup |
 | `SqliteEventStore` | A3S ORM-backed single-node durable event store with audit-safe whole-history retention, available with the `sqlite` feature |
@@ -1415,7 +1436,8 @@ examples, and package/publish dry-runs.
 
 `just postgres-test` requires `A3S_FLOW_POSTGRES_URL` and never silently skips
 the real Postgres event-store and worker-queue tests. Pull requests run this
-gate against PostgreSQL 17 in addition to the non-Postgres quality matrix.
+gate against PostgreSQL 17, including active-token races and legacy-trigger
+coverage, in addition to the non-Postgres quality matrix.
 
 From the monorepo root:
 
@@ -1427,8 +1449,9 @@ just flow-test
 ## Roadmap
 
 - Stabilize the Rust runtime, store, worker, and scheduler APIs.
-- Keep SQLite and PostgreSQL event stores aligned with replay, durable operation
-  metadata, whole-history retention, and host examples.
+- Keep SQLite and PostgreSQL event stores aligned with replay, indexed callback
+  routing, durable operation metadata, whole-history retention, and host
+  examples.
 - Keep PostgreSQL worker gates aligned with lease fencing, dead-letter handling,
   process death, reconnect, and same-attempt replay.
 - Add additional production queue adapters as concrete deployment targets need
