@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.0 - 2026-08-07
+
+- Added audit-safe whole-history retention to `SqliteEventStore`, including
+  durable holds, explicit run scopes, parent-child component protection,
+  SHA-256 tombstones, run-ID reuse prevention, and atomic rollback when a
+  retention write fails.
+- Added an upgrade-safe A3S ORM migration for existing SQLite event databases
+  and moved retention eligibility into one backend-independent planner shared
+  by SQLite and PostgreSQL.
+- Added SQLite retention tests for restart persistence, cutoff and scope
+  behavior, migration from the 0.5 schema, and transaction rollback, plus a
+  runnable `sqlite_retention` example.
+
 ## 0.5.0 - 2026-08-07
 
 - Added cleanup-aware durable cancellation. `request_cancellation` records a

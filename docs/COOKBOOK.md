@@ -13,7 +13,7 @@ inject its queue.
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.5.0", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.6.0", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
@@ -126,7 +126,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.5.0", features = ["sqlite"] }
+a3s-flow = { version = "0.6.0", features = ["sqlite"] }
 ```
 
 Then wire the SQLite event store into the same engine and worker shape:
@@ -164,6 +164,7 @@ Run the companion example with:
 
 ```sh
 cargo run --example sqlite_durability --features sqlite
+cargo run --example sqlite_retention --features sqlite
 cargo run --example sqlite_worker --features sqlite
 ```
 
@@ -180,7 +181,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.5.0", features = ["postgres"] }
+a3s-flow = { version = "0.6.0", features = ["postgres"] }
 ```
 
 Then wire the Postgres event store and task queue into the same engine and
@@ -663,7 +664,7 @@ feature and publish bridged records through an `EventBus`:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.5.0", features = ["a3s-event"] }
+a3s-flow = { version = "0.6.0", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 
@@ -788,11 +789,11 @@ histories whose terminal event timestamp is before the cutoff. Corrupt histories
 return an error instead of being deleted. See `examples/local_retention.rs` for
 a runnable cleanup example.
 
-## PostgreSQL Audit-Safe Retention
+## SQL Audit-Safe Retention
 
-Shared hosts use `FlowHistoryRetentionPolicy` to delete only complete terminal
-histories older than a cutoff. Place a durable hold before an audit export or
-legal workflow begins:
+SQLite and PostgreSQL hosts use `FlowHistoryRetentionPolicy` to delete only
+complete terminal histories older than a cutoff. Place a durable hold before an
+audit export or legal workflow begins:
 
 ```rust
 store
@@ -810,11 +811,14 @@ store.release_history_hold(&run_id, "audit-export").await?;
 
 The A3S ORM transaction preserves active/recent runs, held histories, and a
 linked Flow run whenever its connected parent/child component is not entirely
-eligible. A successful deletion leaves `FlowHistoryTombstone` with terminal
-identity and a SHA-256 history digest; future appends cannot silently recreate
-that run ID. Use `with_run_ids(...)` to bound a maintenance scan. Flow does not
-partially compact streams: export what audit policy requires, release holds,
-then delete the complete terminal component.
+eligible. SQLite uses an immediate transaction to serialize retention with
+appends; PostgreSQL adds a database-wide retention guard and stable per-run
+advisory locks for multi-process hosts. A successful deletion leaves
+`FlowHistoryTombstone` with terminal identity and a SHA-256 history digest;
+future appends cannot silently recreate that run ID. Use `with_run_ids(...)` to
+bound a maintenance scan. Flow does not partially compact streams: export what
+audit policy requires, release holds, then delete the complete terminal
+component. See `examples/sqlite_retention.rs` for a runnable SQLite flow.
 
 ## Native TypeScript Runtime
 
@@ -879,7 +883,8 @@ Before shipping a host integration:
 - Use `LocalFileA3sFlowEventSink` for local JSONL audit trails before wiring a
   hosted event sink.
 - Define cleanup policy for completed event histories and task directories; for
-  `LocalFileEventStore`, prune only old terminal histories. For PostgreSQL,
-  hold required audit records and review retention reports/tombstones.
+  `LocalFileEventStore`, prune only old terminal histories. For SQLite or
+  PostgreSQL, hold required audit records and review retention
+  reports/tombstones.
 - Document which fields are safe to persist in inputs, hook metadata, and step
   outputs.

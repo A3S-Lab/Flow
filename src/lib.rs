@@ -43,13 +43,14 @@ pub use runtime::{
     WorkflowInvocation,
 };
 pub use scheduler::{FlowScheduler, FlowSchedulerTick};
+#[cfg(feature = "postgres")]
+pub use store::PostgresEventStore;
 #[cfg(feature = "sqlite")]
 pub use store::SqliteEventStore;
 pub use store::{FlowEventStore, InMemoryEventStore, LocalFileEventStore};
-#[cfg(feature = "postgres")]
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use store::{
     FlowHistoryHold, FlowHistoryRetentionPolicy, FlowHistoryRetentionReport, FlowHistoryTombstone,
-    PostgresEventStore,
 };
 #[cfg(feature = "boot")]
 pub use worker::BootFlowTaskManager;
