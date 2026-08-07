@@ -47,8 +47,10 @@ The crate owns the workflow durability layer:
 - `FlowEventStore` persists append-only workflow history.
 - `a3s-orm` powers the optional SQLite and PostgreSQL stores and their
   checksummed migrations.
-- `BootFlowTaskManager` connects scheduler dispatch to an `a3s-boot` queue,
-  while `FlowWorker` remains available for embedded and compatibility queues.
+- `BootFlowTaskManager` connects scheduler dispatch to an `a3s-boot` queue with
+  typed retry, timeout, retention, stalled-job, and logical deduplication
+  policy, while `FlowWorker` remains available for embedded and compatibility
+  queues.
 
 The public SDK surface is Rust.
 
@@ -303,7 +305,7 @@ which observability sinks receive committed events.
 
 ```toml
 [dependencies]
-a3s-flow = "0.6.1"
+a3s-flow = "0.7.0"
 async-trait = "0.1"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -602,6 +604,7 @@ cargo run --example local_audit_log
 cargo run --example native_ts_greeting
 cargo run --example native_ts_preflight
 cargo run --example local_retention
+cargo run --example boot_task_policy --features boot
 ```
 
 | Example | Demonstrates |
@@ -630,6 +633,7 @@ cargo run --example local_retention
 | `native_ts_greeting` | Rust `NativeTsRuntime` wiring for a TypeScript workflow source; exits successfully with a prerequisite message unless `A3S_FLOW_NATIVE_TS_COMPILER` points at a compiler |
 | `native_ts_preflight` | `NativeTsRuntime::preflight()` validation, artifact cache metadata, source hash reporting, and compiler prerequisite gating |
 | `local_retention` | Linked-component JSONL cleanup that retains a terminal child until its parent is also terminal and eligible |
+| `boot_task_policy` | Typed Boot retry, timeout, stalled-job, cleanup, and logical-target deduplication policy with duplicate due-scan coalescing |
 
 ## Cookbook and Planning
 
@@ -664,7 +668,7 @@ Use these docs when moving from API exploration to a host integration:
 | **Schedulers** | Due waits and delayed retries can be scanned and enqueued |
 | **Observers** | Committed events can be mirrored into logs, metrics, or audit sinks |
 | **A3S ORM storage** | Optional SQLite and PostgreSQL stores use `a3s-orm` transactions, typed decoding, and checksummed migrations |
-| **A3S Boot task management** | Boot queues own processor registration, job state, worker lifecycle, and shutdown through `BootFlowTaskManager` |
+| **A3S Boot task management** | Boot queues own processor registration, job state, worker lifecycle, retry, timeout, cleanup, logical deduplication, and shutdown through `BootFlowTaskManager` and `BootFlowTaskPolicy` |
 | **Pluggable stores** | Use in-memory storage for tests, JSONL storage for local file durability, SQLite for single-node durable hosts, or PostgreSQL for shared database history |
 | **Compatibility queues** | Embedded hosts can still use Flow's in-memory, JSON-file, or PostgreSQL lease queues directly |
 
@@ -950,7 +954,7 @@ single SQLite database instead of one JSONL file per run:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.6.1", features = ["sqlite"] }
+a3s-flow = { version = "0.7.0", features = ["sqlite"] }
 ```
 
 ```rust
@@ -1006,7 +1010,7 @@ event history through a database:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.6.1", features = ["postgres"] }
+a3s-flow = { version = "0.7.0", features = ["postgres"] }
 ```
 
 ```rust
@@ -1075,7 +1079,7 @@ Enable `boot` and one durable storage feature for a host that uses A3S Boot:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.6.1", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.7.0", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
@@ -1085,12 +1089,25 @@ job state, processor workers, lease configuration, failure records, startup,
 and shutdown; Flow owns task serialization and engine handling semantics.
 
 ```rust
-use a3s_boot::{ModuleRef, Queue};
-use a3s_flow::{BootFlowTaskManager, FlowScheduler};
+use a3s_boot::{ModuleRef, Queue, QueueRetryPolicy};
+use a3s_flow::{
+    BootFlowTaskDeduplication, BootFlowTaskManager, BootFlowTaskPolicy, FlowScheduler,
+};
 use std::sync::Arc;
+use std::time::Duration;
 
 let queue = Arc::new(Queue::in_process("flow"));
-let task_manager = Arc::new(BootFlowTaskManager::new(engine.clone(), queue.clone()));
+let policy = BootFlowTaskPolicy::new()
+    .with_retry_policy(QueueRetryPolicy::fixed(3, Duration::from_secs(1)))
+    .with_timeout(Duration::from_secs(30))
+    .with_max_stalled_count(2)
+    .remove_on_complete(true)
+    .with_deduplication(BootFlowTaskDeduplication::UntilTerminalOrTtl(
+        Duration::from_secs(300),
+    ));
+let task_manager = Arc::new(
+    BootFlowTaskManager::new(engine.clone(), queue.clone()).with_task_policy(policy)?,
+);
 task_manager.register()?;
 queue.start(ModuleRef::new()).await?;
 
@@ -1103,7 +1120,10 @@ queue.shutdown().await?;
 Applications assembled with `QueueModule` should let the Boot module lifecycle
 start and stop the same queue instead of calling `start` and `shutdown`
 directly. A custom Boot `QueueBackend` can replace the in-process backend
-without changing Flow.
+without changing Flow. The default task policy preserves the earlier behavior:
+no retries, timeout, cleanup, or deduplication. Use `job_options_for(...)` to
+inspect the generated `QueueJobOptions`, or `enqueue_with_options(...)` when one
+submission needs a caller-assigned job ID or another Boot-specific option.
 
 ### Embedded and compatibility queues
 
@@ -1272,7 +1292,7 @@ hosts that already use A3S Event as their event backbone:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.6.1", features = ["a3s-event"] }
+a3s-flow = { version = "0.7.0", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 
@@ -1350,6 +1370,8 @@ the Flow event store remains authoritative.
 | `PostgresFlowTaskQueue` | Postgres-backed shared durable task queue, available with the `postgres` feature |
 | `PostgresDeadLetteredTask` | Dead-letter record for stale Postgres inflight queue tasks |
 | `BootFlowTaskManager` | A3S Boot queue processor and dispatcher integration, available with the `boot` feature |
+| `BootFlowTaskPolicy` | Scheduler-wide Boot retry, timeout, stalled-job, terminal-record cleanup, and logical deduplication policy |
+| `BootFlowTaskDeduplication` | Disabled, terminal-lifetime, or terminal/TTL logical Flow task deduplication mode |
 | `FlowWorker` | Handles queued tasks against a `FlowEngine` |
 | `FlowScheduler` | Reports the next scheduler wake-up, scans due waits and retries, then dispatches tasks through `FlowTaskDispatcher` |
 | `NativeTsRuntime` | Optional runtime adapter that compiles TypeScript workflow source into native artifacts |

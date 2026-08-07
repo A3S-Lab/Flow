@@ -3,12 +3,13 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use a3s_boot::{ModuleRef, Queue, QueueOptions};
+use a3s_boot::{ModuleRef, Queue, QueueJobOptions, QueueOptions, QueueRetryPolicy};
 #[cfg(feature = "sqlite")]
 use a3s_flow::SqliteEventStore;
 use a3s_flow::{
-    BootFlowTaskManager, FlowEngine, FlowError, FlowRuntime, FlowScheduler, RuntimeCommand,
-    StepInvocation, WorkflowInvocation, WorkflowRunStatus, WorkflowSpec,
+    BootFlowTaskDeduplication, BootFlowTaskManager, BootFlowTaskPolicy, FlowEngine, FlowError,
+    FlowRuntime, FlowScheduler, FlowTask, RuntimeCommand, StepInvocation, WorkflowInvocation,
+    WorkflowRunStatus, WorkflowSpec,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
@@ -133,6 +134,148 @@ fn boot_task_manager_rejects_an_empty_job_name() {
         error,
         FlowError::InvalidWorkerConfiguration(message) if message.contains("job name")
     ));
+}
+
+#[test]
+fn boot_task_policy_maps_typed_options_and_scan_targets() {
+    let engine = FlowEngine::in_memory(Arc::new(SleepRuntime));
+    let queue = Arc::new(Queue::in_process("flow-policy-tests"));
+    let policy = BootFlowTaskPolicy::new()
+        .with_retry_policy(QueueRetryPolicy::fixed(2, Duration::from_millis(25)))
+        .with_timeout(Duration::from_secs(30))
+        .with_max_stalled_count(4)
+        .remove_on_complete(true)
+        .remove_on_fail(true)
+        .with_deduplication(BootFlowTaskDeduplication::UntilTerminalOrTtl(
+            Duration::from_secs(60),
+        ));
+    let manager = BootFlowTaskManager::new(engine, queue)
+        .with_task_policy(policy.clone())
+        .unwrap();
+    assert_eq!(manager.task_policy(), &policy);
+
+    let first_scan = FlowTask::ResumeDueWaits { now: Utc::now() };
+    let later_scan = FlowTask::ResumeDueWaits {
+        now: Utc::now() + ChronoDuration::seconds(1),
+    };
+    let retry_scan = FlowTask::ResumeDueRetries { now: Utc::now() };
+    let first_options = manager.job_options_for(&first_scan);
+    let later_options = manager.job_options_for(&later_scan);
+    let retry_options = manager.job_options_for(&retry_scan);
+
+    assert_eq!(first_options.retry_policy, policy.retry_policy().clone());
+    assert_eq!(first_options.timeout, Some(Duration::from_secs(30)));
+    assert_eq!(first_options.max_stalled_count, 4);
+    assert!(first_options.remove_on_complete);
+    assert!(first_options.remove_on_fail);
+    let first_deduplication = first_options.deduplication.unwrap();
+    let later_deduplication = later_options.deduplication.unwrap();
+    let retry_deduplication = retry_options.deduplication.unwrap();
+    assert_eq!(first_deduplication.id, later_deduplication.id);
+    assert_ne!(first_deduplication.id, retry_deduplication.id);
+    assert_eq!(first_deduplication.ttl, Some(Duration::from_secs(60)));
+    assert!(first_deduplication.keep_last_if_active);
+}
+
+#[test]
+fn boot_task_deduplication_redacts_tokens_and_preserves_target_semantics() {
+    let engine = FlowEngine::in_memory(Arc::new(SleepRuntime));
+    let queue = Arc::new(Queue::in_process("flow-deduplication-tests"));
+    let manager = BootFlowTaskManager::new(engine, queue)
+        .with_task_policy(
+            BootFlowTaskPolicy::new().with_deduplication(BootFlowTaskDeduplication::UntilTerminal),
+        )
+        .unwrap();
+
+    let token = "public-callback-token-that-must-stay-secret";
+    let first_resume = manager.job_options_for(&FlowTask::ResumeHookByToken {
+        token: token.to_string(),
+        payload: json!({ "decision": "approve" }),
+    });
+    let duplicate_resume = manager.job_options_for(&FlowTask::ResumeHookByToken {
+        token: token.to_string(),
+        payload: json!({ "decision": "reject" }),
+    });
+    let dispose = manager.job_options_for(&FlowTask::DisposeHookByToken {
+        token: token.to_string(),
+    });
+    let drive = manager.job_options_for(&FlowTask::DriveRun {
+        run_id: "run-1".to_string(),
+    });
+    let wait = manager.job_options_for(&FlowTask::ResumeWait {
+        run_id: "run-1".to_string(),
+        wait_id: "wait-1".to_string(),
+    });
+
+    let first_resume = first_resume.deduplication.unwrap();
+    let duplicate_resume = duplicate_resume.deduplication.unwrap();
+    let dispose = dispose.deduplication.unwrap();
+    let drive = drive.deduplication.unwrap();
+    let wait = wait.deduplication.unwrap();
+    assert_eq!(first_resume.id, duplicate_resume.id);
+    assert_ne!(first_resume.id, dispose.id);
+    assert!(!first_resume.id.contains(token));
+    assert!(first_resume
+        .id
+        .starts_with("a3s-flow:resume_hook_by_token:"));
+    assert!(drive.keep_last_if_active);
+    assert!(!wait.keep_last_if_active);
+}
+
+#[test]
+fn boot_task_manager_rejects_a_zero_deduplication_ttl() {
+    let engine = FlowEngine::in_memory(Arc::new(SleepRuntime));
+    let queue = Arc::new(Queue::in_process("flow-policy-tests"));
+    let result = BootFlowTaskManager::new(engine, queue).with_task_policy(
+        BootFlowTaskPolicy::new().with_deduplication(
+            BootFlowTaskDeduplication::UntilTerminalOrTtl(Duration::ZERO),
+        ),
+    );
+    let error = match result {
+        Ok(_) => panic!("zero deduplication TTL should fail"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        error,
+        FlowError::InvalidWorkerConfiguration(message)
+            if message.contains("deduplication TTL")
+    ));
+}
+
+#[tokio::test]
+async fn boot_task_manager_deduplicates_scans_and_accepts_explicit_job_options() {
+    let engine = FlowEngine::in_memory(Arc::new(SleepRuntime));
+    let queue = Arc::new(Queue::in_process("flow-options-tests"));
+    let manager = BootFlowTaskManager::new(engine, queue.clone())
+        .with_task_policy(
+            BootFlowTaskPolicy::new().with_deduplication(BootFlowTaskDeduplication::UntilTerminal),
+        )
+        .unwrap();
+
+    let first = manager
+        .enqueue_with_receipt(FlowTask::ResumeDueWaits { now: Utc::now() })
+        .await
+        .unwrap();
+    let duplicate = manager
+        .enqueue_with_receipt(FlowTask::ResumeDueWaits {
+            now: Utc::now() + ChronoDuration::seconds(1),
+        })
+        .await
+        .unwrap();
+    assert_eq!(first.id, duplicate.id);
+    assert_eq!(queue.stats().unwrap().pending, 1);
+
+    let explicit = manager
+        .enqueue_with_options(
+            FlowTask::DriveRun {
+                run_id: "explicit-run".to_string(),
+            },
+            QueueJobOptions::new().with_job_id("flow-explicit-job"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(explicit.id, "flow-explicit-job");
+    assert_eq!(queue.stats().unwrap().pending, 2);
 }
 
 #[cfg(feature = "sqlite")]
