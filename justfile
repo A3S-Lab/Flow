@@ -59,6 +59,7 @@ examples-non-pg:
     cargo run --quiet --no-default-features --example sequential_steps
     cargo run --quiet --no-default-features --example local_retention
     cargo run --quiet --no-default-features --example task_queue_durability
+    cargo run --quiet --no-default-features --features boot --example boot_task_policy
     cargo run --quiet --no-default-features --features sqlite --example sqlite_durability
     cargo run --quiet --no-default-features --features sqlite --example sqlite_retention
     cargo run --quiet --no-default-features --features sqlite --example sqlite_worker

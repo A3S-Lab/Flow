@@ -171,6 +171,15 @@ Flow processor on an `a3s-boot` queue and converts Boot jobs back into
 workers, lease configuration, failure records, startup, and shutdown. Flow owns
 workflow task serialization and execution against `FlowEngine`.
 
+`BootFlowTaskPolicy` maps Flow-level retry, execution timeout, stalled-job
+tolerance, terminal-record cleanup, and logical-target deduplication onto Boot's
+typed `QueueJobOptions`. Deduplication keys include the configured Boot job name
+and stable Flow target identity, but exclude scan timestamps and hook payloads;
+callback tokens are represented only by a SHA-256 digest. Drive and due-scan
+tasks keep the latest duplicate while an owner is active so a concurrent state
+change receives a successor pass. Hosts that need a caller-assigned job ID or
+another one-off Boot option use `enqueue_with_options(...)`.
+
 This keeps storage and task management independent: an ORM-backed engine can
 dispatch through any configured Boot queue backend, and Boot does not become
 the source of truth for workflow history. The event store remains authoritative

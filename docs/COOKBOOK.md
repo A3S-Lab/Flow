@@ -13,23 +13,35 @@ inject its queue.
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.6.1", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.7.0", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
 ```rust
-use a3s_boot::{ModuleRef, Queue};
+use a3s_boot::{ModuleRef, Queue, QueueRetryPolicy};
 use a3s_flow::{
-    BootFlowTaskManager, FlowEngine, FlowScheduler, SqliteEventStore,
+    BootFlowTaskDeduplication, BootFlowTaskManager, BootFlowTaskPolicy, FlowEngine,
+    FlowScheduler, SqliteEventStore,
 };
 use std::sync::Arc;
+use std::time::Duration;
 
 # async fn run(runtime: Arc<dyn a3s_flow::FlowRuntime>) -> Result<(), Box<dyn std::error::Error>> {
 let store = Arc::new(SqliteEventStore::connect("sqlite://.a3s/flow/flow.db").await?);
 let engine = FlowEngine::new(store, runtime);
 
 let queue = Arc::new(Queue::in_process("flow"));
-let tasks = Arc::new(BootFlowTaskManager::new(engine.clone(), queue.clone()));
+let policy = BootFlowTaskPolicy::new()
+    .with_retry_policy(QueueRetryPolicy::fixed(3, Duration::from_secs(1)))
+    .with_timeout(Duration::from_secs(30))
+    .with_max_stalled_count(2)
+    .remove_on_complete(true)
+    .with_deduplication(BootFlowTaskDeduplication::UntilTerminalOrTtl(
+        Duration::from_secs(300),
+    ));
+let tasks = Arc::new(
+    BootFlowTaskManager::new(engine.clone(), queue.clone()).with_task_policy(policy)?,
+);
 tasks.register()?;
 queue.start(ModuleRef::new()).await?;
 
@@ -46,7 +58,9 @@ of view. Boot owns processor registration, job inspection, failures, worker
 lifecycle, and shutdown. Replace `Queue::in_process` with a host-configured Boot
 backend when tasks themselves must survive a process restart. Applications
 using `QueueModule` should let the Boot application lifecycle start and stop
-the queue.
+the queue. Policy defaults preserve the earlier no-retry, no-timeout,
+retain-records, no-deduplication behavior. Use `enqueue_with_options(...)` for
+one-off Boot options such as a caller-assigned job ID.
 
 Switch the store feature and constructor to `postgres` /
 `PostgresEventStore` for shared multi-process history. The task manager does not
@@ -126,7 +140,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.6.1", features = ["sqlite"] }
+a3s-flow = { version = "0.7.0", features = ["sqlite"] }
 ```
 
 Then wire the SQLite event store into the same engine and worker shape:
@@ -181,7 +195,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.6.1", features = ["postgres"] }
+a3s-flow = { version = "0.7.0", features = ["postgres"] }
 ```
 
 Then wire the Postgres event store and task queue into the same engine and
@@ -664,7 +678,7 @@ feature and publish bridged records through an `EventBus`:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.6.1", features = ["a3s-event"] }
+a3s-flow = { version = "0.7.0", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 

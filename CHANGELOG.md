@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.0 - 2026-08-07
+
+- Added `BootFlowTaskPolicy` and `BootFlowTaskDeduplication` so a Flow host can
+  map typed retry, execution timeout, stalled-job tolerance, terminal-record
+  cleanup, and logical-target deduplication settings onto every scheduler job.
+- Added `BootFlowTaskManager::job_options_for(...)` and
+  `enqueue_with_options(...)`. Hosts can inspect the generated Boot options or
+  submit the complete `QueueJobOptions` surface, including a caller-assigned job
+  ID, without weakening the scheduler-wide policy boundary.
+- Logical deduplication IDs now ignore volatile scan timestamps and hook
+  payloads, hash callback tokens instead of exposing them in queue metadata,
+  and retain the latest drive or due-scan request while a matching job is
+  active.
+- Added policy, deduplication, explicit-job-ID, and token-redaction regression
+  coverage plus a runnable `boot_task_policy` example.
+
 ## 0.6.1 - 2026-08-07
 
 - Made `InMemoryEventStore` and `LocalFileEventStore` reject a

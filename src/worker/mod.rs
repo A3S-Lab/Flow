@@ -9,7 +9,7 @@ mod runner;
 mod task;
 
 #[cfg(feature = "boot")]
-pub use boot::BootFlowTaskManager;
+pub use boot::{BootFlowTaskDeduplication, BootFlowTaskManager, BootFlowTaskPolicy};
 pub use local_file::{LocalFileDeadLetteredTask, LocalFileFlowTaskQueue};
 pub use memory::InMemoryFlowTaskQueue;
 #[cfg(feature = "postgres")]
