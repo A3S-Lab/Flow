@@ -104,7 +104,8 @@ replay error instead of silently accepting the changed definition.
 Active hook tokens are unique across non-terminal runs. A duplicate token is
 rejected before `hook_created` is appended, so callback routing by token remains
 unambiguous. Disposed hooks are no longer active and cannot be resumed by token;
-late callbacks receive `HookTokenNotFound`.
+late callbacks receive `HookTokenNotFound`. Typed errors retain the bearer value
+for programmatic routing, while `Display` and `Debug` diagnostics redact it.
 
 ## Event Sourcing
 

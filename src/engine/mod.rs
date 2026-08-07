@@ -357,9 +357,9 @@ impl FlowEngine {
                 self.resume_hook(&run_id, &hook_id, payload).await?;
                 Ok((run_id, hook_id))
             }
-            _ => Err(FlowError::InvalidTransition(format!(
-                "hook token {token:?} is active in multiple runs"
-            ))),
+            _ => Err(FlowError::InvalidTransition(
+                "hook token is active in multiple runs (value redacted)".to_string(),
+            )),
         }
     }
 
@@ -388,9 +388,9 @@ impl FlowEngine {
                 self.dispose_hook(&run_id, &hook_id).await?;
                 Ok((run_id, hook_id))
             }
-            _ => Err(FlowError::InvalidTransition(format!(
-                "hook token {token:?} is active in multiple runs"
-            ))),
+            _ => Err(FlowError::InvalidTransition(
+                "hook token is active in multiple runs (value redacted)".to_string(),
+            )),
         }
     }
 

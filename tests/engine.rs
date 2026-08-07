@@ -83,6 +83,24 @@ fn assert_invalid_transition(err: FlowError, expected_message: &str) {
     );
 }
 
+fn assert_secret_redacted(err: &FlowError, secret: &str) {
+    let display = err.to_string();
+    let debug = format!("{err:?}");
+    assert!(
+        !display.contains(secret),
+        "Display leaked secret: {display}"
+    );
+    assert!(!debug.contains(secret), "Debug leaked secret: {debug}");
+    assert!(
+        display.contains("redacted"),
+        "Display was not explicit: {display}"
+    );
+    assert!(
+        debug.contains("redacted"),
+        "Debug was not explicit: {debug}"
+    );
+}
+
 #[test]
 fn retry_policy_serializes_failure_action_only_when_non_default() {
     let default_policy = RetryPolicy::none();
@@ -1826,9 +1844,10 @@ async fn rejects_duplicate_active_hook_tokens_across_runs() {
         .start_with_id("second-hook-run", spec(), json!({}))
         .await
         .unwrap_err();
+    assert_secret_redacted(&err, "shared-approval-token");
     assert!(
         matches!(
-            err,
+            &err,
             FlowError::HookTokenConflict {
                 token,
                 existing_run_id,
@@ -1935,7 +1954,8 @@ async fn dispose_hook_by_token_closes_token_and_rejects_late_callback() {
         .resume_hook_by_token("approval-token", json!({ "approved": true }))
         .await
         .unwrap_err();
-    assert!(matches!(err, FlowError::HookTokenNotFound(token) if token == "approval-token"));
+    assert_secret_redacted(&err, "approval-token");
+    assert!(matches!(&err, FlowError::HookTokenNotFound(token) if token == "approval-token"));
 }
 
 #[tokio::test]
@@ -2342,7 +2362,39 @@ async fn resume_hook_by_token_reports_missing_active_token() {
         .await
         .unwrap_err();
 
-    assert!(matches!(err, FlowError::HookTokenNotFound(token) if token == "missing-token"));
+    assert_secret_redacted(&err, "missing-token");
+    assert!(matches!(&err, FlowError::HookTokenNotFound(token) if token == "missing-token"));
+}
+
+#[tokio::test]
+async fn duplicate_active_hook_lookup_redacts_the_corrupt_token() {
+    let store = Arc::new(InMemoryEventStore::new());
+    for run_id in ["duplicate-hook-a", "duplicate-hook-b"] {
+        store.append(run_id, run_created_event()).await.unwrap();
+        store.append(run_id, FlowEvent::RunStarted).await.unwrap();
+        store
+            .append(
+                run_id,
+                FlowEvent::HookCreated {
+                    hook_id: "approval".to_string(),
+                    token: "corrupt-shared-token".to_string(),
+                    metadata: json!({}),
+                },
+            )
+            .await
+            .unwrap();
+    }
+    let engine = FlowEngine::new(store, Arc::new(WaitHookRuntime));
+
+    let err = engine
+        .resume_hook_by_token("corrupt-shared-token", json!({}))
+        .await
+        .unwrap_err();
+
+    assert_secret_redacted(&err, "corrupt-shared-token");
+    assert!(
+        matches!(&err, FlowError::InvalidTransition(message) if message.contains("multiple runs"))
+    );
 }
 
 #[tokio::test]
