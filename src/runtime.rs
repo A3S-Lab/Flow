@@ -27,7 +27,7 @@ mod native_ts;
 
 #[cfg(feature = "native-ts")]
 use native_ts::{
-    artifact_binary_path, ArtifactCache, ArtifactCacheState, CompilerIdentityCache,
+    artifact_binary_path, ArtifactCache, ArtifactCacheState, CompilerIdentityCache, SourceSnapshot,
     TemporaryCacheEntryGuard,
 };
 
@@ -148,6 +148,7 @@ struct NativeArtifact {
     cache_key: String,
     binary: PathBuf,
     source_hash: String,
+    source_snapshot: SourceSnapshot,
 }
 
 #[cfg(feature = "native-ts")]
@@ -283,7 +284,7 @@ impl NativeTsRuntime {
         let working_dir = absolute_from_current_dir(&self.config.working_dir)?;
         let entrypoint = resolve_against(&working_dir, &spec.runtime.entrypoint);
         let cache_dir = absolute_from_current_dir(&self.config.cache_dir)?;
-        let source = tokio::fs::read(&entrypoint).await?;
+        let (source, source_snapshot) = SourceSnapshot::read(&entrypoint).await?;
         // Keep the protocol-visible source hash portable, but scope the local
         // native executable cache to every compile-environment input that can
         // make identical workflow source produce an incompatible artifact.
@@ -306,6 +307,7 @@ impl NativeTsRuntime {
             cache_entry,
             cache_key: artifact_hash,
             source_hash,
+            source_snapshot,
         })
     }
 
@@ -382,6 +384,25 @@ impl NativeTsRuntime {
                 "native TypeScript compile failed: {}",
                 String::from_utf8_lossy(&output.stderr)
             )));
+        }
+
+        match artifact
+            .source_snapshot
+            .still_matches(&artifact.entrypoint)
+            .await
+        {
+            Ok(true) => {}
+            Ok(false) => {
+                temporary_entry.remove().await;
+                return Err(FlowError::Runtime(format!(
+                    "native TypeScript source {} changed while it was being compiled; refusing to publish the artifact",
+                    artifact.entrypoint.display()
+                )));
+            }
+            Err(error) => {
+                temporary_entry.remove().await;
+                return Err(error);
+            }
         }
 
         if let Err(error) = self
