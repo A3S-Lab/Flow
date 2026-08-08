@@ -13,7 +13,7 @@ inject its queue.
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.3", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.11.0", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
@@ -65,6 +65,83 @@ one-off Boot options such as a caller-assigned job ID.
 Switch the store feature and constructor to `postgres` /
 `PostgresEventStore` for shared multi-process history. The task manager does not
 change because workflow persistence and task transport are separate concerns.
+
+## Version-Safe Worker Rollouts
+
+Pin every new run to the deployed code that can replay it. Configure the engine
+with the same current identity before starting the run:
+
+```rust
+use a3s_flow::{
+    FlowEngine, RuntimeBuildCompatibility, RuntimeBuildId, WorkflowSpec,
+};
+
+# fn build(
+#     runtime: std::sync::Arc<dyn a3s_flow::FlowRuntime>,
+#     store: std::sync::Arc<dyn a3s_flow::FlowEventStore>,
+# ) -> a3s_flow::Result<(FlowEngine, WorkflowSpec)> {
+let build_id = RuntimeBuildId::new("orders-2026.08.09-sha51e73a2")?;
+let engine = FlowEngine::builder(runtime)
+    .with_store(store)
+    .with_runtime_build_compatibility(RuntimeBuildCompatibility::new(build_id.clone()))
+    .build();
+let spec = WorkflowSpec::rust_embedded("orders.fulfill", "2", "orders", "main")
+    .with_runtime_build(build_id);
+# Ok((engine, spec))
+# }
+```
+
+An unconfigured engine can still replay old unpinned histories, but it rejects
+pinned histories. Once configured, the engine rejects unpinned histories by
+default. Use `accept_unpinned()` only while a named migration is draining old
+runs, then remove it:
+
+```rust
+let compatibility = RuntimeBuildCompatibility::new(build_v2.clone())
+    .with_compatible_build(build_v1.clone())
+    .accept_unpinned();
+```
+
+`with_compatible_build(build_v1)` is safe only if the v2 worker still contains
+the exact code and dependencies needed to replay v1 histories. It is not a
+declaration that two semantic versions merely look similar.
+
+During a rolling upgrade, give each build a concrete Boot task manager or queue
+and register exact routes:
+
+```rust
+use a3s_flow::{FlowScheduler, RuntimeBuildTaskRouter};
+use std::sync::Arc;
+
+# fn route(
+#     build_v1: a3s_flow::RuntimeBuildId,
+#     build_v2: a3s_flow::RuntimeBuildId,
+#     tasks_v1: Arc<dyn a3s_flow::FlowTaskDispatcher>,
+#     tasks_v2: Arc<dyn a3s_flow::FlowTaskDispatcher>,
+#     control_engine: a3s_flow::FlowEngine,
+# ) -> a3s_flow::Result<FlowScheduler> {
+let routes = RuntimeBuildTaskRouter::new()
+    .with_route(build_v1, tasks_v1)?
+    .with_route(build_v2, tasks_v2)?;
+let scheduler = FlowScheduler::new(control_engine, Arc::new(routes));
+# Ok(scheduler)
+# }
+```
+
+The scheduler resolves each due run's persisted build and preflights every
+route before enqueueing any task. Ordinary queues reject pinned dispatch, and
+an incompatible worker leaves a failed lease unacknowledged so it can be
+requeued to a compatible worker. Keep the old route running until no active
+history requires it. If legacy unpinned runs must share the rollout, register a
+separate `with_unpinned_route(...)` instead of using a pinned queue as a
+fallback.
+
+Callback tasks addressed only by public token cannot select a build because
+the queue payload does not yet contain the owning run. Resolve the active token
+to its stable run and hook IDs first, create `ResumeHook` or `DisposeHook`, and
+use `RuntimeBuildTaskRouter::dispatch_for_run(...)`. The compatibility-wide
+`ResumeDueWaits` and `ResumeDueRetries` tasks are likewise unsuitable for a
+mixed-build fleet; use `FlowScheduler`'s targeted tasks.
 
 ## Embedded Flow-Owned Queue Host
 
@@ -140,7 +217,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.3", features = ["sqlite"] }
+a3s-flow = { version = "0.11.0", features = ["sqlite"] }
 ```
 
 Then wire the SQLite event store into the same engine and worker shape:
@@ -210,7 +287,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.3", features = ["postgres"] }
+a3s-flow = { version = "0.11.0", features = ["postgres"] }
 ```
 
 Then wire the Postgres event store and task queue into the same engine and
@@ -735,7 +812,7 @@ feature and publish bridged records through an `EventBus`:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.3", features = ["a3s-event"] }
+a3s-flow = { version = "0.11.0", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 
@@ -945,6 +1022,9 @@ Before shipping a host integration:
   policy.
 - Use `BootFlowTaskManager` when A3S Boot owns the host lifecycle and queue
   backend.
+- Pin new histories to a runtime build, advertise only builds whose replay code
+  is actually present, and keep exact routes alive until their active histories
+  drain. Treat `accept_unpinned()` as a bounded migration switch.
 - If the host intentionally owns a FlowWorker loop, requeue local inflight
   tasks on startup; for long-running hosts, apply
   `requeue_inflight_older_than` and move poison tasks with

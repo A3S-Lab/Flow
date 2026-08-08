@@ -5,6 +5,7 @@ mod memory;
 #[cfg(feature = "postgres")]
 mod postgres;
 mod queue;
+mod routing;
 mod runner;
 mod task;
 
@@ -15,6 +16,7 @@ pub use memory::InMemoryFlowTaskQueue;
 #[cfg(feature = "postgres")]
 pub use postgres::{PostgresDeadLetteredTask, PostgresFlowTaskQueue};
 pub use queue::{FlowTaskDispatcher, FlowTaskQueue};
+pub use routing::RuntimeBuildTaskRouter;
 pub use runner::FlowWorker;
 pub use task::{FlowTask, FlowTaskLease, FlowTaskOutcome};
 

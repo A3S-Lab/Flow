@@ -2,6 +2,8 @@ use std::fmt;
 
 use thiserror::Error;
 
+use crate::runtime_build::RuntimeBuildId;
+
 /// Crate-local result type.
 pub type Result<T> = std::result::Result<T, FlowError>;
 
@@ -19,6 +21,23 @@ pub enum FlowError {
 
     #[error("workflow run {run_id} conflicts with existing run: {reason}")]
     RunConflict { run_id: String, reason: String },
+
+    #[error("invalid runtime build identity: {0}")]
+    InvalidRuntimeBuildId(String),
+
+    #[error(
+        "workflow run {run_id} requires runtime build {required_build_id:?}, but the configured current build is {current_build_id:?}"
+    )]
+    RuntimeBuildUnavailable {
+        run_id: String,
+        required_build_id: Option<RuntimeBuildId>,
+        current_build_id: Option<RuntimeBuildId>,
+    },
+
+    #[error("no Flow task route is registered for runtime build {required_build_id:?}")]
+    RuntimeBuildRouteNotFound {
+        required_build_id: Option<RuntimeBuildId>,
+    },
 
     #[error("non-deterministic workflow replay for run {run_id}: {reason}")]
     NonDeterministic { run_id: String, reason: String },
@@ -105,6 +124,24 @@ impl fmt::Debug for FlowError {
                 .debug_struct("RunConflict")
                 .field("run_id", run_id)
                 .field("reason", reason)
+                .finish(),
+            Self::InvalidRuntimeBuildId(reason) => formatter
+                .debug_tuple("InvalidRuntimeBuildId")
+                .field(reason)
+                .finish(),
+            Self::RuntimeBuildUnavailable {
+                run_id,
+                required_build_id,
+                current_build_id,
+            } => formatter
+                .debug_struct("RuntimeBuildUnavailable")
+                .field("run_id", run_id)
+                .field("required_build_id", required_build_id)
+                .field("current_build_id", current_build_id)
+                .finish(),
+            Self::RuntimeBuildRouteNotFound { required_build_id } => formatter
+                .debug_struct("RuntimeBuildRouteNotFound")
+                .field("required_build_id", required_build_id)
                 .finish(),
             Self::NonDeterministic { run_id, reason } => formatter
                 .debug_struct("NonDeterministic")

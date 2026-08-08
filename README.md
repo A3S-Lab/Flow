@@ -45,6 +45,9 @@ The crate owns the workflow durability layer:
 - `FlowRuntime` is the Rust trait implemented by the host workflow runtime.
 - `WorkflowContext` exposes replay-safe helpers for workflow code.
 - `FlowEventStore` persists append-only workflow history.
+- `RuntimeBuildId` pins each new history to deployable replay code, while
+  build-aware dispatch keeps rolling upgrades from sending it to an
+  incompatible worker.
 - `a3s-orm` powers the optional SQLite and PostgreSQL stores, checksummed
   migrations, indexed callback and scheduled-wakeup projections, and
   transactional task tables.
@@ -124,6 +127,30 @@ Replay must also make progress. Rescheduling one already completed or failed
 step, or a batch made entirely of terminal steps, is rejected immediately.
 This prevents a faulty runtime from replaying unchanged history until the
 iteration limit while preserving partial batch replay for unfinished steps.
+
+### Runtime build fencing and safe rollouts
+
+`WorkflowSpec::with_runtime_build(...)` persists an opaque `RuntimeBuildId`
+with the run. A configured engine admits only its current build and older
+builds that the host explicitly declares compatible. It rejects legacy
+unpinned histories by default; `accept_unpinned()` is available only for a
+bounded migration. An engine without build configuration preserves legacy
+behavior for unpinned histories but cannot execute pinned work.
+
+Admission happens before workflow replay or any event write that would trigger
+it. An incompatible worker returns typed `RuntimeBuildUnavailable`, appends no
+history, and leaves a leased task unacknowledged for a compatible replacement.
+The scheduler resolves the persisted build for every due run and preflights all
+routes before its first enqueue. `RuntimeBuildTaskRouter` selects exact build
+queues, ordinary queues reject pinned dispatch, and `BootFlowTaskManager`
+advertises the compatibility set of its engine.
+
+Build identities must change whenever the deployed workflow code or any input
+needed for deterministic replay changes. During a rolling upgrade, keep the
+old route alive until its pinned histories are terminal, or declare an older
+build compatible only when the worker still contains exactly compatible replay
+code. Public-token callback tasks do not expose a run ID; resolve the active
+hook first and route the resulting run/hook-identified task.
 
 ### Steps, tools, and side effects
 
@@ -259,6 +286,8 @@ dispatch for background execution.
 Dispatch capabilities include:
 
 - `FlowTask` as a serializable unit of workflow work.
+- `RuntimeBuildTaskRouter` for exact-build and explicit legacy routes during
+  rolling worker upgrades.
 - `BootFlowTaskManager` as the recommended host integration for `a3s-boot`
   processor registration, task state, queue lifecycle, and shutdown.
 - `FlowWorker` to lease, handle, and acknowledge tasks.
@@ -272,7 +301,8 @@ Dispatch capabilities include:
 - Lease recovery through `requeue_inflight()`.
 - Lease-age policies through `requeue_inflight_older_than(...)`.
 - Dead-letter handling for stale or poison tasks.
-- `FlowScheduler` to enqueue due waits and delayed retries.
+- `FlowScheduler` to preflight build routes and enqueue due waits and delayed
+  retries without partial enqueue when a route is missing.
 
 This lets hosts use Boot's configured queue backend for application task
 management, or keep a small embedded Flow worker loop, without changing
@@ -332,7 +362,7 @@ which observability sinks receive committed events.
 
 ```toml
 [dependencies]
-a3s-flow = "0.10.3"
+a3s-flow = "0.11.0"
 async-trait = "0.1"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -779,6 +809,7 @@ Use these docs when moving from API exploration to a host integration:
 | **Run inspection** | Hosts can list runs, project snapshots, summarize status counts, inspect open suspensions, discover due and next scheduler wake-ups, inspect active hooks, and read raw histories |
 | **Replay-first execution** | Workflow decisions are derived from persisted history |
 | **Replay validation** | Reused step, wait, and hook IDs must match the definition already recorded in history |
+| **Runtime build fencing** | Runs can pin exact replay code; incompatible workers fail before replay or mutation, and schedulers route due work by the persisted build |
 | **Durable steps** | Side-effecting step outputs are persisted before replay continues |
 | **Batch step scheduling** | A runtime can durably start and concurrently fan out multiple steps from one replay command |
 | **Idempotent creation** | Stable run IDs make workflow start safe to retry |
@@ -1115,7 +1146,7 @@ single SQLite database instead of one JSONL file per run:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.3", features = ["sqlite"] }
+a3s-flow = { version = "0.11.0", features = ["sqlite"] }
 ```
 
 ```rust
@@ -1178,7 +1209,7 @@ event history through a database:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.3", features = ["postgres"] }
+a3s-flow = { version = "0.11.0", features = ["postgres"] }
 ```
 
 ```rust
@@ -1262,7 +1293,7 @@ Enable `boot` and one durable storage feature for a host that uses A3S Boot:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.3", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.11.0", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
@@ -1419,6 +1450,40 @@ due retry siblings in one run share that task, while the legacy global
 `ResumeDueWaits` and `ResumeDueRetries` variants remain available for existing
 queue payloads.
 
+For versioned deployments, pin each new run and configure the worker before
+starting it:
+
+```rust
+use a3s_flow::{
+    FlowEngine, RuntimeBuildCompatibility, RuntimeBuildId, WorkflowSpec,
+};
+
+let build = RuntimeBuildId::new("orders-2026.08.09-sha51e73a2")?;
+let engine = FlowEngine::builder(runtime)
+    .with_store(store)
+    .with_runtime_build_compatibility(RuntimeBuildCompatibility::new(build.clone()))
+    .build();
+let spec = WorkflowSpec::rust_embedded("orders.fulfill", "2", "orders", "main")
+    .with_runtime_build(build);
+```
+
+When old and new workers coexist, register each task manager or queue under its
+exact identity and give the router to the scheduler:
+
+```rust
+use a3s_flow::RuntimeBuildTaskRouter;
+use std::sync::Arc;
+
+let routes = RuntimeBuildTaskRouter::new()
+    .with_route(build_v1, task_manager_v1)?
+    .with_route(build_v2, task_manager_v2)?;
+let scheduler = FlowScheduler::new(control_engine, Arc::new(routes));
+```
+
+Register an unpinned route only while draining legacy histories. Missing routes
+fail before a scheduler tick enqueues any run; transport failures after that
+preflight retain the dispatcher's normal at-least-once semantics.
+
 ## Observability
 
 Attach a `FlowEventObserver` when committed workflow events should be mirrored
@@ -1487,7 +1552,7 @@ hosts that already use A3S Event as their event backbone:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.3", features = ["a3s-event"] }
+a3s-flow = { version = "0.11.0", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 
@@ -1522,11 +1587,13 @@ the Flow event store remains authoritative.
 | `WorkflowContext` | Replay helper for history inspection, typed input/output decoding, and command creation |
 | `RuntimeCommand` | Command returned by workflow replay |
 | `StepCommand` | Durable step definition used by batched step scheduling |
-| `WorkflowSpec` | Durable workflow identity and runtime metadata |
+| `WorkflowSpec` | Durable workflow identity, runtime metadata, and optional exact runtime-build pin |
+| `RuntimeBuildId` | Validated opaque identity of deployed replay code |
+| `RuntimeBuildCompatibility` | Current and explicitly compatible build admission policy, with opt-in legacy migration |
 | `FlowEvent` | Event-sourced run, step, wait, and hook mutation |
 | `FlowEventEnvelope` | Persisted event with run ID, sequence, event ID, and timestamp |
 | `ActiveHookSnapshot` | Host-facing active hook record with owning run ID and typed metadata decoding |
-| `ScheduledWakeup` | Minimal store-facing wait or delayed-retry deadline record |
+| `ScheduledWakeup` | Minimal store-facing deadline record carrying the owning run's optional runtime-build route |
 | `ScheduledWakeupKind` | Distinguishes indexed wait timers from delayed step retries |
 | `WorkflowRunSnapshot` | Projected run state with typed input, output, step output, and hook payload decoding helpers |
 | `WorkflowTerminalOutcome` | Typed completed, failed, cancelled, timed-out, retry-exhausted, or host-shutdown terminal result |
@@ -1558,7 +1625,8 @@ the Flow event store remains authoritative.
 | `RetryPolicy` | Step retry attempts and delay |
 | `StepFailureAction` | Retry exhaustion behavior: fail the run or replay to workflow logic |
 | `FlowTask` | Serializable unit of queued workflow work, including targeted `ResumeScheduledRun` and compatibility-wide due tasks |
-| `FlowTaskDispatcher` | Enqueue-only scheduler and callback dispatch boundary |
+| `FlowTaskDispatcher` | Enqueue-only boundary with runtime-build route discovery and fail-closed pinned dispatch |
+| `RuntimeBuildTaskRouter` | Exact-build task router with a separate optional route for legacy unpinned histories |
 | `FlowTaskQueue` | Queue abstraction for workflow dispatch |
 | `FlowTaskLease` | Queue lease whose fencing token rotates on heartbeat and is acknowledged after successful handling |
 | `InMemoryFlowTaskQueue` | In-process FIFO task queue |
@@ -1566,11 +1634,11 @@ the Flow event store remains authoritative.
 | `LocalFileDeadLetteredTask` | Dead-letter record for stale local inflight queue tasks |
 | `PostgresFlowTaskQueue` | Postgres-backed shared durable task queue, available with the `postgres` feature |
 | `PostgresDeadLetteredTask` | Dead-letter record for stale Postgres inflight queue tasks |
-| `BootFlowTaskManager` | A3S Boot queue processor and dispatcher integration, available with the `boot` feature |
+| `BootFlowTaskManager` | A3S Boot queue processor and dispatcher integration that advertises its engine's build compatibility, available with the `boot` feature |
 | `BootFlowTaskPolicy` | Scheduler-wide Boot retry, timeout, stalled-job, terminal-record cleanup, and logical deduplication policy |
 | `BootFlowTaskDeduplication` | Disabled, terminal-lifetime, or terminal/TTL logical Flow task deduplication mode |
 | `FlowWorker` | Handles queued tasks against a `FlowEngine` |
-| `FlowScheduler` | Reports the next wake-up, discovers due waits and retries once, groups them by run, and dispatches targeted tasks through `FlowTaskDispatcher` |
+| `FlowScheduler` | Reports the next wake-up, discovers due work once, groups by run, preflights every required build route, and dispatches targeted tasks |
 | `NativeTsRuntime` | Optional runtime adapter that compiles TypeScript workflow source into native artifacts with cancellation-safe output limits and opt-in process timeouts |
 | `NativeTsRuntimeConfig` | Compiler binary, artifact cache directory, and working directory for `NativeTsRuntime` |
 | `NativeTsRuntimePreflight` | Public result of Native TypeScript validation and compile preflight, including entrypoint, artifact, source hash, and cache-hit metadata |
@@ -1629,6 +1697,8 @@ just flow-test
   whole-history retention, and host examples.
 - Keep PostgreSQL worker gates aligned with lease fencing, dead-letter handling,
   process death, reconnect, and same-attempt replay.
+- Keep runtime-build admission and exact-route rollout coverage aligned across
+  scheduler, Boot, and compatibility-worker integrations.
 - Add additional production queue adapters as concrete deployment targets need
   them.
 - Keep the local audit sink aligned with Flow event keys and host examples.

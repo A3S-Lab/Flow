@@ -4,6 +4,7 @@ use serde_json::Value;
 use std::time::Duration;
 
 use crate::error::{FlowError, Result};
+use crate::runtime_build::RuntimeBuildId;
 
 use super::{ChildOperationReference, WorkflowProgress};
 
@@ -52,6 +53,9 @@ pub struct WorkflowSpec {
     pub name: String,
     pub version: String,
     pub runtime: RuntimeSpec,
+    /// Exact deployed runtime build required to replay this run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_build_id: Option<RuntimeBuildId>,
 }
 
 impl WorkflowSpec {
@@ -65,6 +69,7 @@ impl WorkflowSpec {
             name: name.into(),
             version: version.into(),
             runtime: RuntimeSpec::native_ts(entrypoint, export_name),
+            runtime_build_id: None,
         }
     }
 
@@ -78,7 +83,14 @@ impl WorkflowSpec {
             name: name.into(),
             version: version.into(),
             runtime: RuntimeSpec::rust_embedded(entrypoint, export_name),
+            runtime_build_id: None,
         }
+    }
+
+    /// Pin new runs to the exact runtime build that can replay them.
+    pub fn with_runtime_build(mut self, runtime_build_id: RuntimeBuildId) -> Self {
+        self.runtime_build_id = Some(runtime_build_id);
+        self
     }
 
     pub fn validate(&self) -> Result<()> {

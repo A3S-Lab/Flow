@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -88,13 +88,33 @@ impl FlowScheduler {
             .collect::<Vec<_>>();
         let mut enqueued_tasks = 0usize;
 
-        let run_ids = due
-            .into_iter()
-            .map(|wakeup| wakeup.run_id)
-            .collect::<BTreeSet<_>>();
-        for run_id in run_ids {
+        let mut targets = BTreeMap::new();
+        for wakeup in due {
+            match targets.entry(wakeup.run_id) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(wakeup.runtime_build_id);
+                }
+                std::collections::btree_map::Entry::Occupied(entry)
+                    if entry.get() != &wakeup.runtime_build_id =>
+                {
+                    return Err(crate::FlowError::Store(format!(
+                        "scheduled wakeups for run {} disagree on runtime build identity",
+                        entry.key()
+                    )));
+                }
+                std::collections::btree_map::Entry::Occupied(_) => {}
+            }
+        }
+        for required_build_id in targets.values() {
             self.dispatcher
-                .dispatch(FlowTask::ResumeScheduledRun { run_id, now })
+                .ensure_runtime_build_route(required_build_id.as_ref())?;
+        }
+        for (run_id, required_build_id) in targets {
+            self.dispatcher
+                .dispatch_for_runtime_build(
+                    required_build_id.as_ref(),
+                    FlowTask::ResumeScheduledRun { run_id, now },
+                )
                 .await?;
             enqueued_tasks += 1;
         }

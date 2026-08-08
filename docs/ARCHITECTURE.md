@@ -25,7 +25,7 @@ Runtime adapter layer
           |
           v
 Durable engine layer
-  FlowEngine, replay loop, run inspection, retries, waits, hooks, scheduler
+  FlowEngine, replay loop, runtime-build admission, inspection, waits, scheduler
           |
           v
 Event store layer
@@ -33,7 +33,7 @@ Event store layer
           |
           v
 Dispatch layer
-  FlowTaskDispatcher, FlowScheduler, A3S Boot task manager
+  FlowTaskDispatcher, exact-build router, FlowScheduler, A3S Boot task manager
   FlowWorker and Flow-owned queues for embedded/compatibility hosts
 ```
 
@@ -215,6 +215,58 @@ scheduler hosts, and debugging. `list_active_hooks()` and
 materialized callback and scheduler indexes without making either projection
 authoritative.
 
+## Runtime Build Fencing And Routing
+
+Durable replay requires both compatible history and compatible executable
+code. `WorkflowSpec.runtime_build_id` therefore persists an optional typed
+`RuntimeBuildId` in `flow.run.created`. The identity is opaque to Flow: the host
+must change it whenever workflow code, linked runtime code, or another deployed
+input needed for deterministic replay changes. The field defaults to `None` so
+histories written before build pinning remain deserializable.
+
+Engine admission is deliberately fail closed:
+
+- An engine without `RuntimeBuildCompatibility` executes only unpinned legacy
+  histories. It cannot silently claim pinned work.
+- A configured engine always admits its current build and only older builds
+  listed explicitly with `with_compatible_build(...)`.
+- A configured engine rejects unpinned histories unless the host enables
+  `accept_unpinned()` for a bounded migration.
+
+Admission runs before workflow invocation and before writes that would cause
+replay. Incompatible execution returns `RuntimeBuildUnavailable` with the
+required and current identities, leaves history unchanged, and causes
+`FlowWorker` to retain the task lease without acknowledging it. Normal lease
+expiry or explicit requeue can then deliver the same task to a compatible
+worker. Immediate administrative terminal operations remain available because
+they intentionally do not invoke workflow code.
+
+The `ScheduledWakeup` query result carries the owning run's persisted build.
+Default stores derive it while replaying the snapshot; SQLite and PostgreSQL
+join the indexed wakeup row to the primary-keyed `run_created` event in the
+same query. `FlowScheduler` therefore resolves every affected run after one
+due-wakeup query without N additional history loads. It asks the dispatcher to
+preflight every target before the first enqueue, then sends each
+`ResumeScheduledRun` through its exact build route. This prevents a missing
+route from producing a partially enqueued tick; transport failures after
+preflight retain ordinary at-least-once dispatch semantics and cannot be made
+atomic across independent queue backends.
+
+`RuntimeBuildTaskRouter` owns an immutable map from exact build IDs to concrete
+dispatchers plus a separate optional unpinned route. A plain `FlowTaskQueue`
+accepts only unpinned dispatch, so pinned work cannot fall through to an
+arbitrary queue. `BootFlowTaskManager` derives route support from its engine's
+compatibility set. A host registers the same manager under each build it can
+actually replay; declaring compatibility is an operational assertion that the
+required code is still present, not a semantic-version comparison.
+
+Only tasks with an explicit run ID can be resolved through
+`dispatch_for_run(...)`. Public-token callbacks and compatibility-wide due
+scans are intentionally ambiguous at this boundary. A callback host first
+resolves the active token to stable run/hook identities, then dispatches the
+run-targeted task. Mixed-build deployments use targeted scheduler tasks and do
+not use the legacy global due-scan variants.
+
 ## Dispatch And Task Management
 
 `FlowScheduler` targets the enqueue-only `FlowTaskDispatcher` boundary. The
@@ -223,6 +275,12 @@ Flow processor on an `a3s-boot` queue and converts Boot jobs back into
 `FlowTask` values. Boot owns queue backend selection, job state, processor
 workers, lease configuration, failure records, startup, and shutdown. Flow owns
 workflow task serialization and execution against `FlowEngine`.
+
+The dispatcher boundary also exposes runtime-build route preflight and targeted
+dispatch. Legacy dispatcher implementations keep accepting unpinned work, but
+pinned work fails unless the dispatcher explicitly advertises a compatible
+route. This default makes adoption backward compatible without making a
+versioned rollout permissive.
 
 `BootFlowTaskPolicy` maps Flow-level retry, execution timeout, stalled-job
 tolerance, terminal-record cleanup, and logical-target deduplication onto Boot's

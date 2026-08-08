@@ -29,6 +29,7 @@ impl FlowEngine {
             if snapshot.status.is_terminal() {
                 return Ok(snapshot);
             }
+            self.ensure_runtime_build_available(run_id, &snapshot.spec)?;
             if let Some(existing) = &snapshot.cancellation {
                 if existing.request != request {
                     return Err(FlowError::RunConflict {

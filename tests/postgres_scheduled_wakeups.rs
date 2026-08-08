@@ -2,7 +2,7 @@
 
 use a3s_flow::{
     CancellationRequest, FlowEvent, FlowEventStore, PostgresEventStore, RetryPolicy,
-    ScheduledWakeupKind, WorkflowSpec,
+    RuntimeBuildId, ScheduledWakeupKind, WorkflowSpec,
 };
 use a3s_orm::{sql_query, Database, PostgresDialect, PostgresExecutor};
 use chrono::{DateTime, Utc};
@@ -58,6 +58,58 @@ async fn create_run(store: &PostgresEventStore, run_id: &str) {
         .await
         .unwrap();
     store.append(run_id, FlowEvent::RunStarted).await.unwrap();
+}
+
+#[tokio::test]
+async fn postgres_indexed_wakeups_include_the_persisted_runtime_build() {
+    let Some(postgres_url) = postgres_url_from_env() else {
+        return;
+    };
+    let store = PostgresEventStore::connect(&postgres_url).await.unwrap();
+    let run_id = format!("postgres-build-routed-wakeup-{}", Uuid::new_v4());
+    let build_id = RuntimeBuildId::new("worker-v2").unwrap();
+    store
+        .append_if_sequence(
+            &run_id,
+            0,
+            FlowEvent::RunCreated {
+                spec: spec().with_runtime_build(build_id.clone()),
+                input: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+    store.append(&run_id, FlowEvent::RunStarted).await.unwrap();
+    let wait_at = timestamp("2200-08-07T00:00:01Z");
+    store
+        .append(
+            &run_id,
+            FlowEvent::WaitCreated {
+                wait_id: "timer".into(),
+                resume_at: wait_at,
+            },
+        )
+        .await
+        .unwrap();
+
+    let due = store
+        .list_due_wakeups(wait_at)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|wakeup| wakeup.run_id == run_id)
+        .unwrap();
+    assert_eq!(due.runtime_build_id.as_ref(), Some(&build_id));
+
+    store
+        .append(
+            &run_id,
+            FlowEvent::WaitCompleted {
+                wait_id: "timer".into(),
+            },
+        )
+        .await
+        .unwrap();
 }
 
 async fn insert_raw_event(

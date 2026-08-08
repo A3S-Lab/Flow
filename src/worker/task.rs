@@ -42,6 +42,26 @@ pub enum FlowTask {
     },
 }
 
+impl FlowTask {
+    /// Return the single run targeted by this task, when one is explicit.
+    ///
+    /// Public-token callbacks and compatibility-wide due scans require host
+    /// resolution before they can participate in exact runtime-build routing.
+    pub fn target_run_id(&self) -> Option<&str> {
+        match self {
+            Self::DriveRun { run_id }
+            | Self::ResumeWait { run_id, .. }
+            | Self::ResumeHook { run_id, .. }
+            | Self::DisposeHook { run_id, .. }
+            | Self::ResumeScheduledRun { run_id, .. } => Some(run_id),
+            Self::ResumeHookByToken { .. }
+            | Self::DisposeHookByToken { .. }
+            | Self::ResumeDueWaits { .. }
+            | Self::ResumeDueRetries { .. } => None,
+        }
+    }
+}
+
 /// Result of handling one queued [`FlowTask`].
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FlowTaskOutcome {

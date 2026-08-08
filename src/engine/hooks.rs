@@ -34,6 +34,7 @@ impl FlowEngine {
                     if snapshot.status.is_terminal() {
                         return Err(FlowError::RunTerminal(run_id.to_string()));
                     }
+                    self.ensure_runtime_build_available(run_id, &snapshot.spec)?;
                     match self
                         .record_event_at(
                             run_id,
@@ -61,6 +62,7 @@ impl FlowEngine {
                     if snapshot.status.is_terminal() {
                         return Ok(());
                     }
+                    self.ensure_runtime_build_available(run_id, &snapshot.spec)?;
                 }
                 HookStatus::Disposed => {
                     return Err(hook_conflict(run_id, hook_id, "was already disposed"));
@@ -103,6 +105,7 @@ impl FlowEngine {
                     if snapshot.status.is_terminal() {
                         return Err(FlowError::RunTerminal(run_id.to_string()));
                     }
+                    self.ensure_runtime_build_available(run_id, &snapshot.spec)?;
                     match self
                         .record_event_at(
                             run_id,
@@ -122,6 +125,7 @@ impl FlowEngine {
                     if snapshot.status.is_terminal() {
                         return Ok(());
                     }
+                    self.ensure_runtime_build_available(run_id, &snapshot.spec)?;
                 }
                 HookStatus::Received => {
                     return Err(hook_conflict(run_id, hook_id, "was already resumed"));

@@ -13,6 +13,7 @@ mod model;
 mod observe;
 mod protocol;
 mod runtime;
+mod runtime_build;
 mod scheduler;
 mod store;
 mod worker;
@@ -42,6 +43,7 @@ pub use runtime::{
     FlowRuntime, NativeTsRuntime, NativeTsRuntimeConfig, NativeTsRuntimePreflight, StepInvocation,
     WorkflowInvocation,
 };
+pub use runtime_build::{RuntimeBuildCompatibility, RuntimeBuildId};
 pub use scheduler::{FlowScheduler, FlowSchedulerTick};
 #[cfg(feature = "postgres")]
 pub use store::PostgresEventStore;
@@ -57,6 +59,7 @@ pub use worker::{BootFlowTaskDeduplication, BootFlowTaskManager, BootFlowTaskPol
 pub use worker::{
     FlowTask, FlowTaskDispatcher, FlowTaskLease, FlowTaskOutcome, FlowTaskQueue, FlowWorker,
     InMemoryFlowTaskQueue, LocalFileDeadLetteredTask, LocalFileFlowTaskQueue,
+    RuntimeBuildTaskRouter,
 };
 #[cfg(feature = "postgres")]
 pub use worker::{PostgresDeadLetteredTask, PostgresFlowTaskQueue};

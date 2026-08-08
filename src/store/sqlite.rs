@@ -171,12 +171,17 @@ impl FlowEventStore for SqliteEventStore {
         let database = Database::new(SqliteDialect, self.executor.clone());
         database
             .fetch_all_as(
-                sql_query::<(String, i64, String, String)>(
-                    "SELECT run_id, wakeup_kind, subject_id, scheduled_at_key \
-                     FROM flow_scheduled_wakeups WHERE scheduled_at_key <= ",
+                sql_query::<(String, i64, String, String, Option<String>)>(
+                    "SELECT wakeup.run_id, wakeup.wakeup_kind, wakeup.subject_id, \
+                     wakeup.scheduled_at_key, \
+                     json_extract(created.event_json, '$.spec.runtime_build_id') \
+                     FROM flow_scheduled_wakeups AS wakeup \
+                     JOIN flow_events AS created \
+                       ON created.run_id = wakeup.run_id AND created.sequence = 1 \
+                     WHERE wakeup.scheduled_at_key <= ",
                 )
                 .bind(scheduled_wakeup_key(now))
-                .append(" ORDER BY wakeup_kind, run_id, subject_id"),
+                .append(" ORDER BY wakeup.wakeup_kind, wakeup.run_id, wakeup.subject_id"),
             )
             .await
             .map_err(sqlite_orm_error)?
@@ -189,10 +194,15 @@ impl FlowEventStore for SqliteEventStore {
     async fn next_scheduled_wakeup(&self) -> Result<Option<ScheduledWakeup>> {
         let database = Database::new(SqliteDialect, self.executor.clone());
         database
-            .fetch_all_as(sql_query::<(String, i64, String, String)>(
-                "SELECT run_id, wakeup_kind, subject_id, scheduled_at_key \
-                 FROM flow_scheduled_wakeups \
-                 ORDER BY scheduled_at_key, run_id, wakeup_kind, subject_id LIMIT 1",
+            .fetch_all_as(sql_query::<(String, i64, String, String, Option<String>)>(
+                "SELECT wakeup.run_id, wakeup.wakeup_kind, wakeup.subject_id, \
+                 wakeup.scheduled_at_key, \
+                 json_extract(created.event_json, '$.spec.runtime_build_id') \
+                 FROM flow_scheduled_wakeups AS wakeup \
+                 JOIN flow_events AS created \
+                   ON created.run_id = wakeup.run_id AND created.sequence = 1 \
+                 ORDER BY wakeup.scheduled_at_key, wakeup.run_id, \
+                          wakeup.wakeup_kind, wakeup.subject_id LIMIT 1",
             ))
             .await
             .map_err(sqlite_orm_error)?

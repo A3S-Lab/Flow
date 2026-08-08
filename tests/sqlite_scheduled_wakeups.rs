@@ -1,8 +1,8 @@
 #![cfg(feature = "sqlite")]
 
 use a3s_flow::{
-    CancellationRequest, FlowEvent, FlowEventStore, RetryPolicy, ScheduledWakeupKind,
-    SqliteEventStore, WorkflowSpec,
+    CancellationRequest, FlowEvent, FlowEventStore, RetryPolicy, RuntimeBuildId,
+    ScheduledWakeupKind, SqliteEventStore, WorkflowSpec,
 };
 use a3s_orm::{sql_query, Database, Migration, Migrator, SqliteDialect, SqliteExecutor};
 use chrono::{DateTime, Utc};
@@ -52,6 +52,50 @@ async fn create_run(store: &SqliteEventStore, run_id: &str) {
         .await
         .unwrap();
     store.append(run_id, FlowEvent::RunStarted).await.unwrap();
+}
+
+#[tokio::test]
+async fn sqlite_indexed_wakeups_include_the_persisted_runtime_build() {
+    let store = SqliteEventStore::connect("sqlite::memory:").await.unwrap();
+    let run_id = "sqlite-build-routed-wakeup";
+    let build_id = RuntimeBuildId::new("worker-v2").unwrap();
+    store
+        .append_if_sequence(
+            run_id,
+            0,
+            FlowEvent::RunCreated {
+                spec: spec().with_runtime_build(build_id.clone()),
+                input: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+    store.append(run_id, FlowEvent::RunStarted).await.unwrap();
+    let wait_at = timestamp("2026-08-07T00:00:01Z");
+    store
+        .append(
+            run_id,
+            FlowEvent::WaitCreated {
+                wait_id: "timer".into(),
+                resume_at: wait_at,
+            },
+        )
+        .await
+        .unwrap();
+
+    let due = store.list_due_wakeups(wait_at).await.unwrap();
+    assert_eq!(due.len(), 1);
+    assert_eq!(due[0].runtime_build_id.as_ref(), Some(&build_id));
+    assert_eq!(
+        store
+            .next_scheduled_wakeup()
+            .await
+            .unwrap()
+            .unwrap()
+            .runtime_build_id
+            .as_ref(),
+        Some(&build_id)
+    );
 }
 
 async fn insert_raw_event(

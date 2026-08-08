@@ -8,6 +8,8 @@ use crate::model::{
     project_run, ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookStatus, ScheduledWakeup,
     ScheduledWakeupKind, StepStatus, WaitStatus, WorkflowRunSnapshot,
 };
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+use crate::runtime_build::RuntimeBuildId;
 
 mod local_file;
 mod memory;
@@ -160,6 +162,7 @@ pub(crate) fn scheduled_wakeups_for_snapshot(
                 kind: ScheduledWakeupKind::Wait,
                 subject_id: wait.wait_id.clone(),
                 scheduled_at: wait.resume_at,
+                runtime_build_id: snapshot.spec.runtime_build_id.clone(),
             });
         }
     }
@@ -171,6 +174,7 @@ pub(crate) fn scheduled_wakeups_for_snapshot(
                     kind: ScheduledWakeupKind::Retry,
                     subject_id: step.step_id.clone(),
                     scheduled_at: retry_after,
+                    runtime_build_id: snapshot.spec.runtime_build_id.clone(),
                 });
             }
         }
@@ -185,7 +189,13 @@ pub(super) fn scheduled_wakeup_key(timestamp: DateTime<Utc>) -> String {
 
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub(super) fn scheduled_wakeup_from_row(
-    (run_id, wakeup_kind, subject_id, scheduled_at_key): (String, i64, String, String),
+    (run_id, wakeup_kind, subject_id, scheduled_at_key, runtime_build_id): (
+        String,
+        i64,
+        String,
+        String,
+        Option<String>,
+    ),
 ) -> Result<ScheduledWakeup> {
     let scheduled_at = DateTime::parse_from_rfc3339(&scheduled_at_key)
         .map_err(|error| {
@@ -194,10 +204,19 @@ pub(super) fn scheduled_wakeup_from_row(
             ))
         })?
         .with_timezone(&Utc);
+    let runtime_build_id = runtime_build_id
+        .map(RuntimeBuildId::new)
+        .transpose()
+        .map_err(|error| {
+            crate::error::FlowError::Store(format!(
+                "invalid runtime build identity for scheduled wakeup {run_id}: {error}"
+            ))
+        })?;
     Ok(ScheduledWakeup {
         run_id,
         kind: ScheduledWakeupKind::from_database_code(wakeup_kind)?,
         subject_id,
         scheduled_at,
+        runtime_build_id,
     })
 }

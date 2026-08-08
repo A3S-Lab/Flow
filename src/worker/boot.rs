@@ -278,6 +278,10 @@ impl FlowTaskDispatcher for BootFlowTaskManager {
     async fn dispatch(&self, task: FlowTask) -> Result<()> {
         self.enqueue_with_receipt(task).await.map(|_| ())
     }
+
+    fn has_runtime_build_route(&self, required_build_id: Option<&crate::RuntimeBuildId>) -> bool {
+        self.engine.supports_runtime_build(required_build_id)
+    }
 }
 
 fn boot_error(error: BootError) -> FlowError {

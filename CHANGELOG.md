@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.11.0 - 2026-08-09
+
+- Added typed `RuntimeBuildId` pinning to `WorkflowSpec` and strict
+  `RuntimeBuildCompatibility` admission on every path that can replay workflow
+  code. Unconfigured engines accept only legacy unpinned histories; configured
+  engines require the current or an explicitly compatible build and reject
+  unpinned histories unless a bounded migration enables them.
+- Added exact-build task dispatch through `RuntimeBuildTaskRouter`. Scheduler
+  ticks resolve each run's persisted build, preflight every route before the
+  first enqueue, and fail closed on ordinary queues instead of sending pinned
+  work to an arbitrary worker. `BootFlowTaskManager` advertises the
+  compatibility set of its engine.
+- Preserved recovery semantics across bad routing: an incompatible worker
+  appends no history and does not acknowledge its lease, allowing a compatible
+  worker to reclaim and complete the same task. Added coverage for legacy
+  deserialization, admission, multi-build scheduling, missing-route atomic
+  preflight, direct target validation, Boot compatibility, and requeue
+  recovery.
+
 ## 0.10.16 - 2026-08-09
 
 - Made run/hook-identified resume and disposal safe for durable Outbox
