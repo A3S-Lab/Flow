@@ -74,17 +74,31 @@ Adjust both limits when a host intentionally permits larger protocol responses
 or compiler diagnostics:
 
 ```rust
+use std::time::Duration;
+
 let runtime = NativeTsRuntime::new(NativeTsRuntimeConfig::new(
     "/path/to/a3s-flow-native-compiler",
     ".a3s/flow/native-ts",
     ".",
 ))
-.with_output_limits(16 * 1024 * 1024, 512 * 1024);
+.with_output_limits(16 * 1024 * 1024, 512 * 1024)
+.with_compile_timeout(Duration::from_secs(120))
+.with_invocation_timeout(Duration::from_secs(30));
 ```
 
 The first limit applies to stdout and the second to stderr for both compilation
 and invocation. A response must fit in full because truncating JSON would make
 the runtime protocol ambiguous.
+
+Compilation and invocation timeouts are opt-in to preserve hosts that
+intentionally run long compilers or steps. The compile timeout applies to each
+cold compiler process; cache hits return without starting its timer. The
+invocation timeout applies independently to each workflow replay and step, and
+covers the complete stdin write, concurrent bounded stdout/stderr reads, and
+process exit. On timeout, Flow terminates and reaps the direct child. A timed-
+out cold compile also removes its unique partial cache artifact. An outer Boot
+job timeout, lease loss, host shutdown, or caller cancellation can still end
+the same operation sooner.
 
 The runnable example also accepts:
 

@@ -287,6 +287,7 @@ The TypeScript path provides:
 - Stable source hashes with compile-environment-isolated artifact caching.
 - Cancellation-safe compiler and runtime artifact process ownership.
 - Configurable, bounded compiler and runtime stdout/stderr capture.
+- Opt-in cold-compilation and per-invocation timeouts.
 - Runtime request/response protocol validation.
 - Compiler stderr surfaced as runtime errors.
 
@@ -606,13 +607,25 @@ bound. Hosts that need different protocol-payload or diagnostic limits can set
 them without changing `NativeTsRuntimeConfig`:
 
 ```rust
+use std::time::Duration;
+
 let runtime = NativeTsRuntime::new(NativeTsRuntimeConfig::new(
     "a3s-flow-native-compiler",
     ".a3s/flow/native-ts",
     ".",
 ))
-.with_output_limits(16 * 1024 * 1024, 512 * 1024);
+.with_output_limits(16 * 1024 * 1024, 512 * 1024)
+.with_compile_timeout(Duration::from_secs(120))
+.with_invocation_timeout(Duration::from_secs(30));
 ```
+
+Runtime-owned timeouts are opt-in so existing long-running compilers and steps
+remain compatible. A compile timeout applies only to a cold cache entry. An
+invocation timeout covers writing the full request to stdin, reading both
+bounded output pipes, and waiting for that workflow or step process to exit.
+Either timeout terminates and reaps the direct child; a timed-out cold compile
+also removes its partial temporary artifact. Boot job timeouts and caller
+cancellation remain independent outer limits.
 
 Hosts can preflight a workflow before accepting or starting a run. Preflight
 validates the `WorkflowSpec`, compiles the source when the artifact cache is
@@ -1493,7 +1506,7 @@ the Flow event store remains authoritative.
 | `BootFlowTaskDeduplication` | Disabled, terminal-lifetime, or terminal/TTL logical Flow task deduplication mode |
 | `FlowWorker` | Handles queued tasks against a `FlowEngine` |
 | `FlowScheduler` | Reports the next wake-up, discovers due waits and retries once, groups them by run, and dispatches targeted tasks through `FlowTaskDispatcher` |
-| `NativeTsRuntime` | Optional runtime adapter that compiles TypeScript workflow source into native artifacts with cancellation-safe, bounded child-process output capture |
+| `NativeTsRuntime` | Optional runtime adapter that compiles TypeScript workflow source into native artifacts with cancellation-safe output limits and opt-in process timeouts |
 | `NativeTsRuntimeConfig` | Compiler binary, artifact cache directory, and working directory for `NativeTsRuntime` |
 | `NativeTsRuntimePreflight` | Public result of Native TypeScript validation and compile preflight, including entrypoint, artifact, source hash, and cache-hit metadata |
 | `NativeRuntimeRequest` | Versioned JSON request envelope sent to a native runtime artifact |

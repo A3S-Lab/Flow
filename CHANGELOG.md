@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.11 - 2026-08-08
+
+- Added opt-in cold-compilation and per-invocation timeouts through
+  `NativeTsRuntime::with_compile_timeout` and
+  `NativeTsRuntime::with_invocation_timeout`. Timeout failures terminate and
+  reap the direct child, and cold-compile failures remove partial artifacts.
+- Made runtime request writes concurrent with stdout/stderr reads and process
+  waiting. The invocation timeout now covers the complete stdin request,
+  bounded output capture, and child exit, including artifacts that never read
+  enough stdin to let the host finish writing.
+
 ## 0.10.10 - 2026-08-08
 
 - Bounded stdout and stderr capture for Native TypeScript compiler and runtime
