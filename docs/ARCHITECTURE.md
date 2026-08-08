@@ -345,8 +345,11 @@ resolved entrypoint, artifact path, source hash, and cache-hit metadata before a
 run starts, and compile failures include compiler stderr in the returned runtime
 error. Relative host configuration is resolved before subprocess launch, and
 absolute entrypoint and artifact paths prevent child working directories from
-reapplying a prefix. This leaves deeper compiler integration incremental: a
-host can start with a process boundary and later link compiler crates directly.
+reapplying a prefix. Cold compiles target unique same-directory temporary files
+and reach the shared cache only through atomic rename, so concurrent preflight
+cannot expose a partially written executable. This leaves deeper compiler
+integration incremental: a host can start with a process boundary and later
+link compiler crates directly.
 
 ## Next Components
 
