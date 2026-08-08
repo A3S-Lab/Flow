@@ -49,8 +49,10 @@ The runtime returns exactly one command:
   retries persist `retry_after` and suspend until due retry scanning drives the
   run again. Retry deadlines use checked UTC arithmetic and invalid delays are
   rejected before step persistence or execution. Exhausted failures fail the
-  run by default; when the step retry policy uses
-  `continue_workflow_on_failure()`, the engine records
+  run by default. If a host stops between the durable final `step_failed` and
+  `run_retry_exhausted` events, the next drive completes that terminal
+  transition before invoking the workflow runtime. When the step retry policy
+  uses `continue_workflow_on_failure()`, the engine records
   `step_failed` and replays so workflow code can observe `step_failed(...)`.
 - `schedule_steps`: the engine validates a stable batch of unique step IDs, then
   applies the same durable step lifecycle to each step before replaying.

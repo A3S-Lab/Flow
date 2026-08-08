@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.4 - 2026-08-08
+
+- Recovered the crash boundary between a durable final `step_failed` event and
+  its run-level `run_retry_exhausted` event. The next drive now reconstructs
+  the terminal transition before invoking workflow code, without rerunning the
+  failed step or changing its attempt and error.
+- Preserved fail-run ordering when a cancellation request races with recovery
+  after the final step failure, and added fault-injection coverage for both
+  restart paths.
 ## 0.10.3 - 2026-08-08
 
 - Hardened event projection so persisted step attempts must advance exactly one

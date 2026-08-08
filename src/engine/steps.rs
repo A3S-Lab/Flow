@@ -5,7 +5,8 @@ use tokio::task::JoinSet;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    FlowEvent, RetryPolicy, StepCommand, StepFailureAction, StepStatus, WorkflowRunSnapshot,
+    FlowEvent, FlowEventEnvelope, RetryPolicy, StepCommand, StepFailureAction, StepStatus,
+    WorkflowRunSnapshot,
 };
 use crate::runtime::StepInvocation;
 
@@ -18,6 +19,38 @@ pub(super) struct StepExecutionContext {
     pub(super) input: serde_json::Value,
     pub(super) retry: RetryPolicy,
     pub(super) now: DateTime<Utc>,
+}
+
+/// Rebuild the run-level terminal event when a host stopped after durably
+/// recording the final step failure.
+pub(super) fn interrupted_retry_exhaustion_event(
+    snapshot: &WorkflowRunSnapshot,
+    history: &[FlowEventEnvelope],
+) -> Option<FlowEvent> {
+    if snapshot.status.is_terminal() {
+        return None;
+    }
+
+    history.iter().find_map(|envelope| {
+        let FlowEvent::StepFailed {
+            step_id,
+            attempt,
+            error,
+        } = &envelope.event
+        else {
+            return None;
+        };
+        let step = snapshot.steps.get(step_id)?;
+        (step.status == StepStatus::Failed
+            && step.retry.on_exhausted == StepFailureAction::FailRun
+            && step.attempt == *attempt
+            && step.error.as_deref() == Some(error.as_str()))
+        .then(|| FlowEvent::RunRetryExhausted {
+            step_id: step_id.clone(),
+            attempt: *attempt,
+            error: error.clone(),
+        })
+    })
 }
 
 impl FlowEngine {

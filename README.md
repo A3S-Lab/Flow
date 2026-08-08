@@ -787,8 +787,11 @@ step or invokes its side effect. Unrepresentable values from custom or
 serialized runtimes return `FlowError::InvalidTransition` instead of wrapping
 negative or panicking.
 By default, a step that exhausts its attempts records `flow.step.failed` and then
-fails the workflow run. When workflow code should choose a fallback or explicit
-compensation path, opt in to replay after exhaustion:
+fails the workflow run. If a host stops after that final step failure is durable
+but before `flow.run.retry_exhausted` is appended, the next drive reconstructs
+the terminal event from the persisted step identity, attempt, and error before
+invoking workflow code again. When workflow code should choose a fallback or
+explicit compensation path, opt in to replay after exhaustion:
 
 ```rust
 Ok(ctx.schedule_step_with_retry(
