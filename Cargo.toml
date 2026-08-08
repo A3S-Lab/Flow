@@ -1,6 +1,6 @@
 [package]
 name = "a3s-flow"
-version = "0.10.4"
+version = "0.10.5"
 edition = "2021"
 authors = ["A3S Lab"]
 license = "MIT"

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.5 - 2026-08-08
+
+- Prevented idempotent start recovery from appending `run_started` after a run
+  was cancelled, failed, or otherwise terminalized between the durable
+  `run_created` event and the original start write.
+- Added fault-injection coverage for a lost `run_started` write followed by
+  immediate cancellation and a later `start_with_id` retry, proving the
+  terminal history remains valid and the workflow runtime is not invoked.
+
 ## 0.10.4 - 2026-08-08
 
 - Recovered the crash boundary between a durable final `step_failed` event and

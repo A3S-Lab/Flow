@@ -397,6 +397,10 @@ async fn main() -> a3s_flow::Result<()> {
 Use `start_with_id()` when the caller already has a durable business identifier.
 Retrying the same run ID with the same spec and input returns the existing run;
 retrying it with different spec or input returns a conflict.
+If a host stops between `flow.run.created` and `flow.run.started`, retry fills
+in the start event only while the run is still pending. A cancellation or other
+terminal transition committed in that window remains terminal and is never
+extended with a late start event.
 
 ```rust
 let run_id = engine

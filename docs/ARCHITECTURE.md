@@ -130,6 +130,11 @@ entrypoints re-read history before deciding what to do next. A stale writer gets
 an explicit replay signal instead of silently extending a changed history. This
 gives A3S Flow:
 
+Start recovery fills a missing `run_started` event only when the projected run
+is still pending. If cancellation, timeout, or another terminal event won the
+sequence race after `run_created`, an idempotent start preserves that outcome
+instead of extending the terminal stream.
+
 - replay after process crashes,
 - idempotent re-drive across hosts,
 - audit-friendly event streams,
