@@ -23,7 +23,7 @@ jobs:
     name: CI Checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -70,6 +70,9 @@ jobs:
         run: cargo test --all-targets --no-default-features --features boot,sqlite
 
       - name: Package check
+        env:
+          # Avoid placing a nested packaged workspace inside rust-cache's target tree.
+          CARGO_TARGET_DIR: ${{ runner.temp }}/a3s-flow-package-target
         run: cargo package
 
   publish-crate:
@@ -77,7 +80,7 @@ jobs:
     needs: ci
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -118,7 +121,7 @@ jobs:
     needs: publish-crate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
