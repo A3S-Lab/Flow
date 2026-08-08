@@ -592,16 +592,28 @@ remains an executable file before consulting the artifact cache. This keeps
 child `current_dir` handling from applying a relative prefix twice and prevents
 an obsolete artifact from hiding a missing or replaced compiler.
 
-Compiler output is written to a unique temporary file in the artifact cache
-and atomically published only after compilation succeeds. Concurrent preflight
-calls can compile redundantly, but they cannot observe or execute another
-call's partially written output. Failed temporary outputs are removed, and
-competing publishers can leave only a complete artifact at the shared path.
+Every completed cache entry is a directory containing the executable and an
+integrity manifest bound to its cache key, byte length, and content fingerprint.
+The compiler writes into a unique temporary entry, and Flow atomically renames
+the entire directory into the shared cache only after validating the executable
+and writing its manifest. Concurrent preflight calls can compile redundantly,
+but they cannot observe a partial executable/manifest pair.
+
+Cache hits require a regular executable with execution permission and a valid,
+matching manifest. Changed contents, malformed or missing manifests, empty
+artifacts, and removed execution permissions are quarantined and recompiled
+before reuse. Stable file metadata memoizes successful validation, while
+fingerprints stream through bounded buffers when revalidation is required.
+Concurrent repair attempts converge on one complete cache entry.
+
+The manifest-backed layout uses a new cache identity. Releases before `0.10.13`
+created flat artifact files; they are not reused after upgrading and can be
+removed when reclaiming cache disk space after the first successful cold build.
 
 Compiler and runtime artifact processes are owned by the async operation that
 started them. Dropping a preflight or invocation future—for example after a
 Boot timeout, lease loss, or host shutdown—terminates its direct child, and a
-cancelled cold compile schedules removal of its partial temporary artifact.
+cancelled cold compile schedules removal of its partial temporary cache entry.
 The process contract does not create an operating-system process group, so a
 compiler or artifact that launches descendants remains responsible for
 terminating and reaping them.
@@ -630,7 +642,7 @@ remain compatible. A compile timeout applies only to a cold cache entry. An
 invocation timeout covers writing the full request to stdin, reading both
 bounded output pipes, and waiting for that workflow or step process to exit.
 Either timeout terminates and reaps the direct child; a timed-out cold compile
-also removes its partial temporary artifact. Boot job timeouts and caller
+also removes its partial temporary cache entry. Boot job timeouts and caller
 cancellation remain independent outer limits.
 
 Hosts can preflight a workflow before accepting or starting a run. Preflight
