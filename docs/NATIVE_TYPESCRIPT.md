@@ -41,6 +41,13 @@ relative directory component are resolved from the host process directory.
 The compiler and runtime receive absolute entrypoint and artifact paths, so
 their child working directory does not apply either prefix a second time.
 
+Compilation never writes directly to the final cache entry. Every cold
+preflight uses a unique temporary artifact in the same cache directory and
+publishes it with an atomic rename after the compiler succeeds. Concurrent
+preflights may both compile, but neither can report or execute a partial cache
+entry. Failed temporary files are removed, and a publish race leaves only a
+completed artifact at the shared path.
+
 The runnable example also accepts:
 
 ```sh
@@ -74,7 +81,8 @@ Preflight performs the same compile path used by workflow and step execution:
 - validates that the `WorkflowSpec` is a valid `native_ts` spec,
 - resolves the compiler, cache, working directory, and entrypoint paths once,
 - hashes the source and runtime identity fields into the artifact cache key,
-- compiles the source only when the artifact cache is cold,
+- compiles the source only when the artifact cache is cold and atomically
+  publishes the completed artifact,
 - returns `NativeTsRuntimePreflight` with entrypoint, artifact, source hash, and
   cache-hit metadata,
 - returns a runtime error containing compiler stderr when compilation fails.

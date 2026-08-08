@@ -579,6 +579,12 @@ relative compiler path containing a directory component is also resolved from
 the host process directory. This keeps child `current_dir` handling from
 applying a relative prefix twice.
 
+Compiler output is written to a unique temporary file in the artifact cache
+and atomically published only after compilation succeeds. Concurrent preflight
+calls can compile redundantly, but they cannot observe or execute another
+call's partially written output. Failed temporary outputs are removed, and
+competing publishers can leave only a complete artifact at the shared path.
+
 Hosts can preflight a workflow before accepting or starting a run. Preflight
 validates the `WorkflowSpec`, compiles the source when the artifact cache is
 cold, returns the resolved entrypoint, artifact path, source hash, and cache-hit

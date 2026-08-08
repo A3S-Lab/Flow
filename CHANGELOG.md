@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.7 - 2026-08-08
+
+- Prevented concurrent Native TypeScript preflights from treating a partially
+  written compiler output as a cache hit. Each compile now writes a unique
+  same-directory temporary artifact and atomically publishes it only after the
+  compiler succeeds.
+- Removed temporary compiler outputs after failures and publish races, and
+  added a slow-compiler regression proving concurrent preflight, cache reuse,
+  final artifact invocation, and cleanup behavior.
+
 ## 0.10.6 - 2026-08-08
 
 - Resolved relative Native TypeScript compiler, cache, and working-directory

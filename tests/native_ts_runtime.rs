@@ -9,6 +9,7 @@ mod native_ts_runtime {
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
     use std::sync::Arc;
+    use std::time::Duration;
 
     fn native_spec(entrypoint: &str) -> WorkflowSpec {
         WorkflowSpec::native_ts("native.workflow", "0.1.0", entrypoint, "main")
@@ -47,11 +48,41 @@ chmod +x "$4"
         write_executable(path, &content);
     }
 
+    fn write_slow_fake_compiler(path: &Path, compile_log: &Path, started_log: &Path) {
+        let content = format!(
+            r#"#!/bin/sh
+set -eu
+printf 'compile\n' >> {compile_log}
+if [ "$1" != "compile" ]; then
+  echo "expected compile command" >&2
+  exit 2
+fi
+if [ "$3" != "-o" ]; then
+  echo "expected -o" >&2
+  exit 2
+fi
+printf '#!/bin/sh\n' > "$4"
+printf 'started\n' >> {started_log}
+sleep 1
+cp "$2" "$4"
+chmod +x "$4"
+"#,
+            compile_log = shell_quote(compile_log),
+            started_log = shell_quote(started_log),
+        );
+        write_executable(path, &content);
+    }
+
     fn write_failing_compiler(path: &Path, compile_log: &Path) {
         let content = format!(
             r#"#!/bin/sh
 set -eu
 printf 'compile\n' >> {compile_log}
+if [ "$3" != "-o" ]; then
+  echo "expected -o" >&2
+  exit 2
+fi
+printf 'partial artifact\n' > "$4"
 echo "compile broke on purpose" >&2
 exit 9
 "#,
@@ -142,6 +173,16 @@ printf '{{"protocol":"a3s.flow.native_ts.v1","kind":"workflow","ok":false,"error
         serde_json::from_str(line).unwrap()
     }
 
+    async fn wait_for_file(path: &Path) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !path.is_file() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+
     #[tokio::test]
     async fn native_runtime_preflight_compiles_and_reports_artifact() {
         let dir = tempfile::tempdir().unwrap();
@@ -223,6 +264,58 @@ printf '{{"protocol":"a3s.flow.native_ts.v1","kind":"workflow","ok":false,"error
     }
 
     #[tokio::test]
+    async fn native_runtime_does_not_cache_a_partial_concurrent_compile() {
+        let dir = tempfile::tempdir().unwrap();
+        let compiler = dir.path().join("slow-compiler");
+        let compile_log = dir.path().join("compile.log");
+        let started_log = dir.path().join("started.log");
+        let entrypoint = dir.path().join("workflow.ts");
+        let request_log = dir.path().join("requests.jsonl");
+        let cache_dir = dir.path().join("cache");
+
+        write_slow_fake_compiler(&compiler, &compile_log, &started_log);
+        write_runtime_source(
+            &entrypoint,
+            &request_log,
+            "atomic-cache",
+            "a3s.flow.native_ts.v1",
+        );
+
+        let runtime = Arc::new(NativeTsRuntime::new(NativeTsRuntimeConfig::new(
+            &compiler,
+            &cache_dir,
+            dir.path(),
+        )));
+        let spec = native_spec("workflow.ts");
+        let first_runtime = Arc::clone(&runtime);
+        let first_spec = spec.clone();
+        let first = tokio::spawn(async move { first_runtime.preflight(&first_spec).await });
+
+        wait_for_file(&started_log).await;
+        let second = runtime.preflight(&spec).await.unwrap();
+        let first = first.await.unwrap().unwrap();
+
+        assert!(!first.cache_hit);
+        assert!(
+            !second.cache_hit,
+            "a partially written compiler output must not be visible as a cache hit"
+        );
+        assert_eq!(first.artifact, second.artifact);
+        assert_eq!(compile_count(&compile_log), 2);
+        assert_eq!(
+            fs::read_dir(&cache_dir).unwrap().count(),
+            1,
+            "only the atomically published artifact may remain in the cache"
+        );
+
+        let engine = FlowEngine::in_memory(runtime);
+        let run_id = engine.start(spec, json!({})).await.unwrap();
+        let snapshot = engine.snapshot(&run_id).await.unwrap();
+        assert_eq!(snapshot.output.unwrap()["marker"], "atomic-cache");
+        assert_eq!(compile_count(&compile_log), 2);
+    }
+
+    #[tokio::test]
     async fn native_runtime_preflight_surfaces_compile_stderr() {
         let dir = tempfile::tempdir().unwrap();
         let compiler = dir.path().join("failing-compiler");
@@ -247,6 +340,7 @@ printf '{{"protocol":"a3s.flow.native_ts.v1","kind":"workflow","ok":false,"error
             matches!(err, FlowError::Runtime(message) if message.contains("native TypeScript compile failed") && message.contains("compile broke on purpose"))
         );
         assert_eq!(compile_count(&compile_log), 1);
+        assert_eq!(fs::read_dir(&cache_dir).unwrap().count(), 0);
     }
 
     #[tokio::test]
