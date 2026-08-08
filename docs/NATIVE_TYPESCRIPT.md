@@ -34,6 +34,13 @@ let runtime = NativeTsRuntime::new(NativeTsRuntimeConfig::new(
 ));
 ```
 
+`working_dir` and `cache_dir` are resolved against the host process directory
+when they are relative. Workflow entrypoints are resolved from the resulting
+working directory. Bare compiler names use `PATH`; compiler paths containing a
+relative directory component are resolved from the host process directory.
+The compiler and runtime receive absolute entrypoint and artifact paths, so
+their child working directory does not apply either prefix a second time.
+
 The runnable example also accepts:
 
 ```sh
@@ -65,7 +72,7 @@ println!("cache_hit={}", preflight.cache_hit);
 Preflight performs the same compile path used by workflow and step execution:
 
 - validates that the `WorkflowSpec` is a valid `native_ts` spec,
-- resolves the entrypoint relative to the runtime working directory,
+- resolves the compiler, cache, working directory, and entrypoint paths once,
 - hashes the source and runtime identity fields into the artifact cache key,
 - compiles the source only when the artifact cache is cold,
 - returns `NativeTsRuntimePreflight` with entrypoint, artifact, source hash, and

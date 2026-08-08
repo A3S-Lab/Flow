@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.6 - 2026-08-08
+
+- Resolved relative Native TypeScript compiler, cache, and working-directory
+  paths against the host process directory before launching compiler or runtime
+  subprocesses. Entrypoints and artifacts are now passed as absolute paths, so
+  a relative runtime working directory cannot be applied twice by the child.
+- Added end-to-end regression coverage that preflights, caches, and invokes a
+  workflow with relative compiler, cache, and working-directory configuration.
+
 ## 0.10.5 - 2026-08-08
 
 - Prevented idempotent start recovery from appending `run_started` after a run

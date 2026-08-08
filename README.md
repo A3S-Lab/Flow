@@ -571,6 +571,14 @@ async fn main() -> a3s_flow::Result<()> {
 when needed, then invokes the cached artifact for workflow replay and step
 execution. Changing the source creates a new artifact cache key.
 
+Relative working and cache directories are resolved against the host process
+directory before a compiler or runtime subprocess starts. Workflow entrypoints
+are then resolved from the runtime working directory and passed to the compiler
+as absolute paths. A bare compiler name is discovered through `PATH`; a
+relative compiler path containing a directory component is also resolved from
+the host process directory. This keeps child `current_dir` handling from
+applying a relative prefix twice.
+
 Hosts can preflight a workflow before accepting or starting a run. Preflight
 validates the `WorkflowSpec`, compiles the source when the artifact cache is
 cold, returns the resolved entrypoint, artifact path, source hash, and cache-hit

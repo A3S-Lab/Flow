@@ -79,8 +79,14 @@ pub trait FlowRuntime: Send + Sync {
 /// Configuration for the native TypeScript runtime adapter.
 #[derive(Debug, Clone)]
 pub struct NativeTsRuntimeConfig {
+    /// Compiler executable. Bare names use `PATH`; relative paths with a
+    /// directory component are resolved against the host process directory.
     pub compiler_binary: PathBuf,
+    /// Artifact cache directory. Relative paths are resolved against the host
+    /// process directory before the compiler changes its working directory.
     pub cache_dir: PathBuf,
+    /// Runtime working directory. Relative paths are resolved against the host
+    /// process directory, and workflow entrypoints are resolved from it.
     pub working_dir: PathBuf,
 }
 
@@ -118,6 +124,8 @@ pub struct NativeTsRuntime {
 #[cfg(feature = "native-ts")]
 #[derive(Debug, Clone)]
 struct NativeArtifact {
+    compiler_binary: PathBuf,
+    working_dir: PathBuf,
     entrypoint: PathBuf,
     binary: PathBuf,
     source_hash: String,
@@ -147,7 +155,13 @@ impl NativeTsRuntime {
 
     #[cfg(feature = "native-ts")]
     pub async fn preflight(&self, spec: &WorkflowSpec) -> Result<NativeTsRuntimePreflight> {
-        self.compile_if_needed(spec).await
+        let (artifact, cache_hit) = self.compile_if_needed(spec).await?;
+        Ok(NativeTsRuntimePreflight {
+            entrypoint: artifact.entrypoint,
+            artifact: artifact.binary,
+            source_hash: artifact.source_hash,
+            cache_hit,
+        })
     }
 
     #[cfg(not(feature = "native-ts"))]
@@ -160,7 +174,10 @@ impl NativeTsRuntime {
     #[cfg(feature = "native-ts")]
     async fn artifact_for(&self, spec: &WorkflowSpec) -> Result<NativeArtifact> {
         validate_native_ts_spec(spec)?;
-        let entrypoint = resolve_against(&self.config.working_dir, &spec.runtime.entrypoint);
+        let compiler_binary = executable_from_current_dir(&self.config.compiler_binary)?;
+        let working_dir = absolute_from_current_dir(&self.config.working_dir)?;
+        let entrypoint = resolve_against(&working_dir, &spec.runtime.entrypoint);
+        let cache_dir = absolute_from_current_dir(&self.config.cache_dir)?;
         let source = tokio::fs::read(&entrypoint).await?;
         let source_hash = stable_hash([
             b"source".as_slice(),
@@ -172,31 +189,34 @@ impl NativeTsRuntime {
         ]);
         let name = format!("{}-{source_hash}", sanitize_filename(&spec.name));
         Ok(NativeArtifact {
+            compiler_binary,
+            working_dir,
             entrypoint,
-            binary: self.config.cache_dir.join(name),
+            binary: cache_dir.join(name),
             source_hash,
         })
     }
 
     #[cfg(feature = "native-ts")]
-    async fn compile_if_needed(&self, spec: &WorkflowSpec) -> Result<NativeTsRuntimePreflight> {
+    async fn compile_if_needed(&self, spec: &WorkflowSpec) -> Result<(NativeArtifact, bool)> {
         let artifact = self.artifact_for(spec).await?;
         if tokio::fs::metadata(&artifact.binary).await.is_ok() {
-            return Ok(NativeTsRuntimePreflight {
-                entrypoint: artifact.entrypoint,
-                artifact: artifact.binary,
-                source_hash: artifact.source_hash,
-                cache_hit: true,
-            });
+            return Ok((artifact, true));
         }
 
-        tokio::fs::create_dir_all(&self.config.cache_dir).await?;
-        let output = Command::new(&self.config.compiler_binary)
+        let cache_dir = artifact.binary.parent().ok_or_else(|| {
+            FlowError::Runtime(format!(
+                "native TypeScript artifact {} has no cache directory",
+                artifact.binary.display()
+            ))
+        })?;
+        tokio::fs::create_dir_all(cache_dir).await?;
+        let output = Command::new(&artifact.compiler_binary)
             .arg("compile")
             .arg(&artifact.entrypoint)
             .arg("-o")
             .arg(&artifact.binary)
-            .current_dir(&self.config.working_dir)
+            .current_dir(&artifact.working_dir)
             .output()
             .await?;
 
@@ -214,12 +234,7 @@ impl NativeTsRuntime {
             ))
         })?;
 
-        Ok(NativeTsRuntimePreflight {
-            entrypoint: artifact.entrypoint,
-            artifact: artifact.binary,
-            source_hash: artifact.source_hash,
-            cache_hit: false,
-        })
+        Ok((artifact, false))
     }
 
     #[cfg(feature = "native-ts")]
@@ -233,20 +248,20 @@ impl NativeTsRuntime {
         I: Serialize + Send,
         O: DeserializeOwned,
     {
-        let preflight = self.compile_if_needed(spec).await?;
+        let (artifact, _) = self.compile_if_needed(spec).await?;
         let request = NativeRuntimeRequest::new(
             kind,
             spec.runtime.export_name.clone(),
-            preflight.source_hash,
+            artifact.source_hash,
             payload,
         );
 
-        let mut child = Command::new(&preflight.artifact)
+        let mut child = Command::new(&artifact.binary)
             .arg("--a3s-flow-runtime")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .current_dir(&self.config.working_dir)
+            .current_dir(&artifact.working_dir)
             .spawn()?;
 
         let mut stdin = child
@@ -349,6 +364,22 @@ fn resolve_against(root: &Path, value: &str) -> PathBuf {
     } else {
         root.join(path)
     }
+}
+
+#[cfg(feature = "native-ts")]
+fn absolute_from_current_dir(path: &Path) -> Result<PathBuf> {
+    if path.is_absolute() {
+        return Ok(path.to_path_buf());
+    }
+    Ok(std::env::current_dir()?.join(path))
+}
+
+#[cfg(feature = "native-ts")]
+fn executable_from_current_dir(path: &Path) -> Result<PathBuf> {
+    if path.components().count() == 1 {
+        return Ok(path.to_path_buf());
+    }
+    absolute_from_current_dir(path)
 }
 
 #[cfg(feature = "native-ts")]

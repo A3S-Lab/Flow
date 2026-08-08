@@ -183,6 +183,46 @@ printf '{{"protocol":"a3s.flow.native_ts.v1","kind":"workflow","ok":false,"error
     }
 
     #[tokio::test]
+    async fn native_runtime_resolves_relative_working_and_cache_paths_once() {
+        let current_dir = std::env::current_dir().unwrap();
+        let dir = tempfile::tempdir_in(&current_dir).unwrap();
+        let relative_working_dir = dir.path().strip_prefix(&current_dir).unwrap();
+        let relative_cache_dir = relative_working_dir.join("cache");
+        let compiler = dir.path().join("fake-compiler");
+        let compile_log = dir.path().join("compile.log");
+        let entrypoint = dir.path().join("workflow.ts");
+        let request_log = dir.path().join("requests.jsonl");
+        let cache_dir = dir.path().join("cache");
+
+        write_fake_compiler(&compiler, &compile_log);
+        write_runtime_source(
+            &entrypoint,
+            &request_log,
+            "relative-paths",
+            "a3s.flow.native_ts.v1",
+        );
+
+        let runtime = Arc::new(NativeTsRuntime::new(NativeTsRuntimeConfig::new(
+            relative_working_dir.join("fake-compiler"),
+            relative_cache_dir,
+            relative_working_dir,
+        )));
+        let spec = native_spec("workflow.ts");
+
+        let preflight = runtime.preflight(&spec).await.unwrap();
+
+        assert_eq!(preflight.entrypoint, entrypoint);
+        assert!(preflight.artifact.starts_with(cache_dir));
+        assert!(preflight.artifact.is_file());
+
+        let engine = FlowEngine::in_memory(runtime);
+        let run_id = engine.start(spec, json!({})).await.unwrap();
+        let snapshot = engine.snapshot(&run_id).await.unwrap();
+        assert_eq!(snapshot.output.unwrap()["marker"], "relative-paths");
+        assert_eq!(compile_count(&compile_log), 1);
+    }
+
+    #[tokio::test]
     async fn native_runtime_preflight_surfaces_compile_stderr() {
         let dir = tempfile::tempdir().unwrap();
         let compiler = dir.path().join("failing-compiler");
