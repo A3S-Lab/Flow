@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 
 use crate::error::Result;
+use crate::runtime_build::RuntimeBuildId;
 
 use super::{FlowTask, FlowTaskLease};
 
@@ -8,6 +9,36 @@ use super::{FlowTask, FlowTaskLease};
 #[async_trait]
 pub trait FlowTaskDispatcher: Send + Sync {
     async fn dispatch(&self, task: FlowTask) -> Result<()>;
+
+    /// Return whether this dispatcher has an explicit compatible route.
+    fn has_runtime_build_route(&self, required_build_id: Option<&RuntimeBuildId>) -> bool {
+        required_build_id.is_none()
+    }
+
+    /// Fail before dispatch when no compatible route is registered.
+    fn ensure_runtime_build_route(&self, required_build_id: Option<&RuntimeBuildId>) -> Result<()> {
+        if self.has_runtime_build_route(required_build_id) {
+            return Ok(());
+        }
+        Err(crate::FlowError::RuntimeBuildRouteNotFound {
+            required_build_id: required_build_id.cloned(),
+        })
+    }
+
+    /// Dispatch to a route that explicitly serves `required_build_id`.
+    ///
+    /// Ordinary queues accept legacy unpinned tasks only. Pinned workflows
+    /// fail closed unless a build-aware dispatcher such as
+    /// [`RuntimeBuildTaskRouter`](super::RuntimeBuildTaskRouter) selects a
+    /// concrete route.
+    async fn dispatch_for_runtime_build(
+        &self,
+        required_build_id: Option<&RuntimeBuildId>,
+        task: FlowTask,
+    ) -> Result<()> {
+        self.ensure_runtime_build_route(required_build_id)?;
+        self.dispatch(task).await
+    }
 }
 
 /// Queue abstraction for workflow dispatch.

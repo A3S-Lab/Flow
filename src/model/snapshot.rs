@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::error::{FlowError, Result};
+use crate::runtime_build::RuntimeBuildId;
 
 use super::{
     CancellationRequestSnapshot, ChildOperationReference, JsonValue, RetryPolicy, WorkflowProgress,
@@ -165,6 +166,9 @@ pub struct ScheduledWakeup {
     pub kind: ScheduledWakeupKind,
     pub subject_id: String,
     pub scheduled_at: DateTime<Utc>,
+    /// Runtime build persisted by the owning run, used for indexed dispatch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_build_id: Option<RuntimeBuildId>,
 }
 
 /// Aggregated run counts for host dashboards and health probes.

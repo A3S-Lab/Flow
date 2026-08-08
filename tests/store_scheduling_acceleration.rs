@@ -81,18 +81,21 @@ impl IndexedScheduleStore {
                     kind: ScheduledWakeupKind::Wait,
                     subject_id: "timer".into(),
                     scheduled_at: wait_at,
+                    runtime_build_id: None,
                 },
                 ScheduledWakeup {
                     run_id: "indexed-retry-run".into(),
                     kind: ScheduledWakeupKind::Retry,
                     subject_id: "flaky".into(),
                     scheduled_at: retry_at,
+                    runtime_build_id: None,
                 },
                 ScheduledWakeup {
                     run_id: "indexed-future-run".into(),
                     kind: ScheduledWakeupKind::Wait,
                     subject_id: "future".into(),
                     scheduled_at: future_at,
+                    runtime_build_id: None,
                 },
             ],
             due_queries: AtomicUsize::new(0),
@@ -274,6 +277,7 @@ async fn engine_and_scheduler_use_indexed_wakeup_queries_without_global_history_
     assert_eq!(tick.due_retries.len(), 1);
     assert_eq!(tick.enqueued_tasks, 2);
     assert_eq!(store.due_queries.load(Ordering::SeqCst), 4);
+    assert_eq!(store.targeted_history_loads.load(Ordering::SeqCst), 0);
 
     let next = engine.next_wakeup(now).await.unwrap().unwrap();
     assert!(matches!(

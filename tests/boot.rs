@@ -8,8 +8,9 @@ use a3s_boot::{ModuleRef, Queue, QueueJobOptions, QueueOptions, QueueRetryPolicy
 use a3s_flow::SqliteEventStore;
 use a3s_flow::{
     BootFlowTaskDeduplication, BootFlowTaskManager, BootFlowTaskPolicy, FlowEngine, FlowError,
-    FlowRuntime, FlowScheduler, FlowTask, RuntimeCommand, StepInvocation, WorkflowInvocation,
-    WorkflowRunStatus, WorkflowSpec,
+    FlowRuntime, FlowScheduler, FlowTask, FlowTaskDispatcher, RuntimeBuildCompatibility,
+    RuntimeBuildId, RuntimeCommand, StepInvocation, WorkflowInvocation, WorkflowRunStatus,
+    WorkflowSpec,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
@@ -18,6 +19,10 @@ use tokio::sync::Notify;
 
 fn spec() -> WorkflowSpec {
     WorkflowSpec::rust_embedded("boot.workflow", "0.1.0", "tests::boot", "main")
+}
+
+fn build_id(value: &str) -> RuntimeBuildId {
+    RuntimeBuildId::new(value).unwrap()
 }
 
 struct SleepRuntime;
@@ -152,6 +157,47 @@ async fn boot_task_manager_records_invalid_flow_payload_as_failed_job() {
     let failures = queue.failures().unwrap();
     assert_eq!(failures.len(), 1);
     assert!(failures[0].message.contains("invalid queued job data"));
+}
+
+#[tokio::test]
+async fn boot_task_manager_dispatches_only_engine_compatible_runtime_builds() {
+    let current = build_id("worker-v2");
+    let compatible = build_id("worker-v1");
+    let unsupported = build_id("worker-v3");
+    let engine = FlowEngine::builder(Arc::new(SleepRuntime))
+        .with_runtime_build_compatibility(
+            RuntimeBuildCompatibility::new(current.clone())
+                .with_compatible_build(compatible.clone()),
+        )
+        .build();
+    let queue = Arc::new(Queue::in_process("flow-build-routing-tests"));
+    let manager = BootFlowTaskManager::new(engine, queue.clone());
+
+    manager
+        .dispatch_for_runtime_build(
+            Some(&compatible),
+            FlowTask::DriveRun {
+                run_id: "compatible-run".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(queue.stats().unwrap().pending, 1);
+
+    for required in [Some(&unsupported), None] {
+        let error = manager
+            .dispatch_for_runtime_build(
+                required,
+                FlowTask::DriveRun {
+                    run_id: "rejected-run".to_string(),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(error, FlowError::RuntimeBuildRouteNotFound { .. }));
+    }
+    assert_eq!(queue.stats().unwrap().pending, 1);
+    assert!(manager.has_runtime_build_route(Some(&current)));
 }
 
 #[test]

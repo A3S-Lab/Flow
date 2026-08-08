@@ -10,6 +10,7 @@ use crate::model::{
 };
 use crate::observe::{FlowEventObserver, NoopFlowEventObserver};
 use crate::runtime::{FlowRuntime, WorkflowInvocation};
+use crate::runtime_build::{RuntimeBuildCompatibility, RuntimeBuildId};
 use crate::store::{scheduled_wakeups_for_snapshot, FlowEventStore, InMemoryEventStore};
 
 mod hooks;
@@ -28,6 +29,7 @@ pub struct FlowEngineBuilder {
     store: Arc<dyn FlowEventStore>,
     runtime: Arc<dyn FlowRuntime>,
     observer: Arc<dyn FlowEventObserver>,
+    runtime_build_compatibility: Option<RuntimeBuildCompatibility>,
     max_replay_iterations: usize,
 }
 
@@ -37,6 +39,7 @@ impl FlowEngineBuilder {
             store: Arc::new(InMemoryEventStore::new()),
             runtime,
             observer: Arc::new(NoopFlowEventObserver),
+            runtime_build_compatibility: None,
             max_replay_iterations: 1024,
         }
     }
@@ -51,6 +54,15 @@ impl FlowEngineBuilder {
         self
     }
 
+    /// Fence workflow execution to an explicit runtime build compatibility set.
+    pub fn with_runtime_build_compatibility(
+        mut self,
+        compatibility: RuntimeBuildCompatibility,
+    ) -> Self {
+        self.runtime_build_compatibility = Some(compatibility);
+        self
+    }
+
     pub fn with_max_replay_iterations(mut self, max_replay_iterations: usize) -> Self {
         self.max_replay_iterations = max_replay_iterations.max(1);
         self
@@ -61,6 +73,7 @@ impl FlowEngineBuilder {
             store: self.store,
             runtime: self.runtime,
             observer: self.observer,
+            runtime_build_compatibility: self.runtime_build_compatibility,
             max_replay_iterations: self.max_replay_iterations,
         }
     }
@@ -72,6 +85,7 @@ pub struct FlowEngine {
     store: Arc<dyn FlowEventStore>,
     runtime: Arc<dyn FlowRuntime>,
     observer: Arc<dyn FlowEventObserver>,
+    runtime_build_compatibility: Option<RuntimeBuildCompatibility>,
     max_replay_iterations: usize,
 }
 
@@ -85,6 +99,7 @@ impl FlowEngine {
             store,
             runtime,
             observer: Arc::new(NoopFlowEventObserver),
+            runtime_build_compatibility: None,
             max_replay_iterations: 1024,
         }
     }
@@ -99,6 +114,24 @@ impl FlowEngine {
 
     pub fn observer(&self) -> Arc<dyn FlowEventObserver> {
         Arc::clone(&self.observer)
+    }
+
+    /// Return this engine's explicit runtime-build admission policy.
+    pub fn runtime_build_compatibility(&self) -> Option<&RuntimeBuildCompatibility> {
+        self.runtime_build_compatibility.as_ref()
+    }
+
+    /// Return whether this engine can replay a pinned or legacy run.
+    pub fn supports_runtime_build(&self, required_build_id: Option<&RuntimeBuildId>) -> bool {
+        match &self.runtime_build_compatibility {
+            Some(compatibility) => compatibility.supports(required_build_id),
+            None => required_build_id.is_none(),
+        }
+    }
+
+    /// Read the runtime build identity pinned by one run.
+    pub async fn runtime_build_id(&self, run_id: &str) -> Result<Option<RuntimeBuildId>> {
+        Ok(self.snapshot(run_id).await?.spec.runtime_build_id)
     }
 
     /// Start a workflow run and drive it until completion or suspension.
@@ -120,6 +153,7 @@ impl FlowEngine {
         spec.validate()?;
         let run_id = run_id.into();
         validate_run_id(&run_id)?;
+        self.ensure_runtime_build_available(&run_id, &spec)?;
 
         for _ in 0..self.max_replay_iterations {
             match self.store.list(&run_id).await {
@@ -186,6 +220,7 @@ impl FlowEngine {
             if snapshot.status.is_terminal() {
                 return Err(FlowError::RunTerminal(run_id.to_string()));
             }
+            self.ensure_runtime_build_available(run_id, &snapshot.spec)?;
             match snapshot.waits.get(wait_id) {
                 Some(wait) if wait.status == WaitStatus::Waiting => {
                     match self
@@ -308,6 +343,10 @@ impl FlowEngine {
     ) -> Result<Vec<ScheduledWakeup>> {
         let history = self.store.list(run_id).await?;
         let snapshot = project_run(run_id, &history)?;
+        if snapshot.status.is_terminal() {
+            return Ok(Vec::new());
+        }
+        self.ensure_runtime_build_available(run_id, &snapshot.spec)?;
         let due = scheduled_wakeups_for_snapshot(&snapshot)
             .into_iter()
             .filter(|wakeup| wakeup.scheduled_at <= now)
@@ -483,6 +522,10 @@ impl FlowEngine {
         'replay: for _ in 0..self.max_replay_iterations {
             let history = self.store.list(run_id).await?;
             let snapshot = project_run(run_id, &history)?;
+            if snapshot.status.is_terminal() {
+                return Ok(snapshot);
+            }
+            self.ensure_runtime_build_available(run_id, &snapshot.spec)?;
             if let Some(event) = interrupted_retry_exhaustion_event(&snapshot, &history) {
                 match self
                     .record_event_at(run_id, snapshot.last_sequence, event)
@@ -493,11 +536,10 @@ impl FlowEngine {
                     Err(err) => return Err(err),
                 }
             }
-            if snapshot.status.is_terminal()
-                || snapshot
-                    .waits
-                    .values()
-                    .any(|wait| wait.status == WaitStatus::Waiting)
+            if snapshot
+                .waits
+                .values()
+                .any(|wait| wait.status == WaitStatus::Waiting)
                 || snapshot
                     .hooks
                     .values()
@@ -802,6 +844,25 @@ impl FlowEngine {
             }
         }
         Err(FlowError::ReplayLimitExceeded(self.max_replay_iterations))
+    }
+
+    pub(crate) fn ensure_runtime_build_available(
+        &self,
+        run_id: &str,
+        spec: &WorkflowSpec,
+    ) -> Result<()> {
+        let required_build_id = spec.runtime_build_id.as_ref();
+        if self.supports_runtime_build(required_build_id) {
+            return Ok(());
+        }
+        Err(FlowError::RuntimeBuildUnavailable {
+            run_id: run_id.to_string(),
+            required_build_id: required_build_id.cloned(),
+            current_build_id: self
+                .runtime_build_compatibility
+                .as_ref()
+                .map(|compatibility| compatibility.current_build_id().clone()),
+        })
     }
 
     async fn record_event_at(
