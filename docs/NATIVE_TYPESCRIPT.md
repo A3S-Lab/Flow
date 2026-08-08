@@ -54,6 +54,15 @@ the executable. Runtimes can share a cache root without one compiler,
 workspace, or native target reusing another one's executable, and a protocol
 revision automatically selects a new artifact path.
 
+Every cold compile is also bound to the stable entrypoint snapshot that
+produced its source hash and cache identity. Flow records the content
+fingerprint and stable file metadata before spawning the compiler, then reads
+the source again after the compiler exits. A content or metadata change
+removes the temporary compiler output and returns an error; it cannot publish
+an artifact produced from replacement source under the previous source hash.
+This post-compile check is unnecessary on a cache hit because publication has
+already established the binding.
+
 Compilation never writes directly to the final cache entry. Every cold
 preflight creates a unique temporary directory containing the compiler output
 and an integrity manifest. The manifest binds the cache key, executable byte

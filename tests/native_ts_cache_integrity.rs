@@ -6,6 +6,7 @@ mod native_ts_cache_integrity {
     use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
+    use std::time::Duration;
 
     struct Harness {
         _directory: tempfile::TempDir,
@@ -191,6 +192,61 @@ printf '{"protocol":"a3s.flow.native_ts.v1","kind":"workflow","ok":true,"output"
         let error = runtime.preflight(&spec).await.unwrap_err();
         assert!(
             matches!(error, FlowError::Runtime(message) if message.contains("is not executable"))
+        );
+        assert_eq!(fs::read_dir(&cache_dir).unwrap().count(), 0);
+    }
+
+    #[tokio::test]
+    async fn source_changed_during_compilation_is_not_published_under_the_old_hash() {
+        let directory = tempfile::tempdir().unwrap();
+        let compiler = directory.path().join("blocking-compiler");
+        let compile_started = directory.path().join("compile.started");
+        let release_compile = directory.path().join("compile.release");
+        let entrypoint = directory.path().join("workflow.ts");
+        let cache_dir = directory.path().join("cache");
+        let compiler_source = format!(
+            r#"#!/bin/sh
+set -eu
+printf 'started\n' > {compile_started}
+while [ ! -e {release_compile} ]; do
+  sleep 0.01
+done
+cp "$2" "$4"
+chmod +x "$4"
+"#,
+            compile_started = shell_quote(&compile_started),
+            release_compile = shell_quote(&release_compile),
+        );
+        write_executable(&compiler, &compiler_source);
+        write_executable(&entrypoint, "#!/bin/sh\nexit 0\n");
+
+        let runtime = Arc::new(NativeTsRuntime::new(NativeTsRuntimeConfig::new(
+            &compiler,
+            &cache_dir,
+            directory.path(),
+        )));
+        let spec = WorkflowSpec::native_ts("native.workflow", "0.1.0", "workflow.ts", "main");
+        let task_runtime = Arc::clone(&runtime);
+        let task_spec = spec.clone();
+        let preflight = tokio::spawn(async move { task_runtime.preflight(&task_spec).await });
+
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if tokio::fs::try_exists(&compile_started).await.unwrap() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("compiler did not start");
+
+        write_executable(&entrypoint, "#!/bin/sh\nexit 9\n");
+        fs::write(&release_compile, b"release\n").unwrap();
+
+        let error = preflight.await.unwrap().unwrap_err();
+        assert!(
+            matches!(error, FlowError::Runtime(message) if message.contains("changed while it was being compiled"))
         );
         assert_eq!(fs::read_dir(&cache_dir).unwrap().count(), 0);
     }

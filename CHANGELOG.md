@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.14 - 2026-08-08
+
+- Bind every cold Native TypeScript compilation to a stable entrypoint source
+  snapshot. Flow now fingerprints a metadata-stable read before deriving the
+  cache key and verifies the same content and stable file metadata after the
+  compiler exits.
+- Reject source replacements observed during compilation and remove the
+  temporary output instead of publishing an artifact built from changed source
+  under the previous source hash.
+
 ## 0.10.13 - 2026-08-08
 
 - Added persistent integrity manifests for Native TypeScript cache entries.

@@ -285,6 +285,7 @@ The TypeScript path provides:
 - Authoring-only `.d.ts` definitions that mirror the Rust protocol shape.
 - Compile preflight through `NativeTsRuntime::preflight()`.
 - Stable source hashes with compile-environment-isolated artifact caching.
+- Cold-compile source snapshot verification before artifact publication.
 - Cancellation-safe compiler and runtime artifact process ownership.
 - Configurable, bounded compiler and runtime stdout/stderr capture.
 - Opt-in cold-compilation and per-invocation timeouts.
@@ -581,6 +582,15 @@ an incompatible executable. Replacing a compiler in place therefore triggers
 a cold compile while leaving the portable source hash unchanged. The compiler
 fingerprint is memoized against stable file metadata so hot workflow replay
 does not repeatedly read the executable.
+
+Cold compilation is bound to the exact entrypoint snapshot used to derive the
+source hash and cache key. Flow fingerprints a metadata-stable source read,
+then re-reads the entrypoint after the compiler exits and requires both its
+content and stable file metadata to match. If an editor, generator, or
+deployment replaces the source during compilation, Flow removes the temporary
+output and returns an error instead of publishing an artifact under the
+previous source hash. Cache hits do not perform this second read because their
+artifact was already published against a verified source snapshot.
 
 Relative working and cache directories are resolved against the host process
 directory before a compiler or runtime subprocess starts. Workflow entrypoints
@@ -1586,7 +1596,7 @@ just flow-test
   them.
 - Keep the local audit sink aligned with Flow event keys and host examples.
 - Keep Native TypeScript preflight diagnostics aligned with compiler behavior,
-  artifact cache metadata, and host authoring examples.
+  source-snapshot binding, artifact cache metadata, and host authoring examples.
 - Add hosted event and metrics adapters for A3S observability.
 
 ## License
