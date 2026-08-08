@@ -343,8 +343,10 @@ The adapter validates `protocol`, response `kind`, error envelopes, and
 source-hash based artifact cache keys. `NativeTsRuntime::preflight()` exposes the
 resolved entrypoint, artifact path, source hash, and cache-hit metadata before a
 run starts, and compile failures include compiler stderr in the returned runtime
-error. This leaves deeper compiler integration incremental: a host can start
-with a process boundary and later link compiler crates directly.
+error. Relative host configuration is resolved before subprocess launch, and
+absolute entrypoint and artifact paths prevent child working directories from
+reapplying a prefix. This leaves deeper compiler integration incremental: a
+host can start with a process boundary and later link compiler crates directly.
 
 ## Next Components
 
