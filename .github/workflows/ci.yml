@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -61,6 +61,9 @@ jobs:
         run: cargo doc --all-features --no-deps
 
       - name: Verify package contents
+        env:
+          # Avoid placing a nested packaged workspace inside rust-cache's target tree.
+          CARGO_TARGET_DIR: ${{ runner.temp }}/a3s-flow-package-target
         run: cargo package
 
   postgres:
@@ -84,7 +87,7 @@ jobs:
       A3S_FLOW_POSTGRES_URL: postgres://a3s_flow:a3s_flow@127.0.0.1:5432/a3s_flow
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
