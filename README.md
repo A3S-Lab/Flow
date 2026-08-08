@@ -260,6 +260,8 @@ Dispatch capabilities include:
 - JSON-backed local queues for crash/restart durability.
 - Postgres queues for shared workers using `FOR UPDATE SKIP LOCKED`.
 - Renewable leases with a replacement fencing token on every heartbeat.
+- Canonical local-file lease tokens that cannot resolve outside the inflight
+  queue directory.
 - Explicit `LeaseLost` errors for stale heartbeats and acknowledgements.
 - Lease recovery through `requeue_inflight()`.
 - Lease-age policies through `requeue_inflight_older_than(...)`.
@@ -319,7 +321,7 @@ which observability sinks receive committed events.
 
 ```toml
 [dependencies]
-a3s-flow = "0.10.0"
+a3s-flow = "0.10.1"
 async-trait = "0.1"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -980,7 +982,7 @@ single SQLite database instead of one JSONL file per run:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.0", features = ["sqlite"] }
+a3s-flow = { version = "0.10.1", features = ["sqlite"] }
 ```
 
 ```rust
@@ -1043,7 +1045,7 @@ event history through a database:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.0", features = ["postgres"] }
+a3s-flow = { version = "0.10.1", features = ["postgres"] }
 ```
 
 ```rust
@@ -1127,7 +1129,7 @@ Enable `boot` and one durable storage feature for a host that uses A3S Boot:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.0", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.10.1", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
@@ -1349,7 +1351,7 @@ hosts that already use A3S Event as their event backbone:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.0", features = ["a3s-event"] }
+a3s-flow = { version = "0.10.1", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 

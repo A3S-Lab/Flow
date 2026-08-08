@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.1 - 2026-08-08
+
+- Hardened `LocalFileFlowTaskQueue` acknowledgements and heartbeats by
+  validating every caller-provided lease ID as a canonical queue-generated
+  fencing-token file name before resolving an inflight path. Absolute paths,
+  parent traversal, path separators, and malformed tokens now return
+  `FlowError::LeaseLost` without moving or deleting any file.
+- Added regression coverage that preserves external files and queue-root files
+  under hostile lease IDs while retaining valid heartbeat rotation and
+  acknowledgement behavior.
+
 ## 0.10.0 - 2026-08-08
 
 - Added `FlowTask::ResumeScheduledRun { run_id, now }` and

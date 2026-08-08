@@ -237,8 +237,11 @@ Lease IDs are fencing tokens. Every successful `heartbeat()` atomically refreshe
 lease age and replaces the token; only the latest token can heartbeat or
 acknowledge the task. `FlowWorker` can heartbeat while handling long-running
 tasks. A lost heartbeat drops the handling future, while a stale acknowledgement
-returns `FlowError::LeaseLost` instead of being mistaken for completion. Workflow
-steps still have documented at-least-once side-effect semantics: fencing guards
+returns `FlowError::LeaseLost` instead of being mistaken for completion.
+Local-file queues accept only their canonical timestamp-and-UUID lease file
+names, so caller-provided tokens cannot escape the inflight queue directory.
+Workflow steps still have documented at-least-once side-effect semantics:
+fencing guards
 queue ownership, while committed event history and idempotency keys remain the
 authority for replay.
 
