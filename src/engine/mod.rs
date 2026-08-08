@@ -125,10 +125,7 @@ impl FlowEngine {
                 Ok(history) => {
                     let snapshot = project_run(&run_id, &history)?;
                     ensure_same_start(&run_id, &snapshot, &spec, &input)?;
-                    if !history
-                        .iter()
-                        .any(|event| matches!(event.event, FlowEvent::RunStarted))
-                    {
+                    if snapshot.status == WorkflowRunStatus::Pending {
                         match self
                             .record_event_at(&run_id, snapshot.last_sequence, FlowEvent::RunStarted)
                             .await

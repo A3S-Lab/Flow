@@ -12,6 +12,51 @@ fn workflow_spec() -> WorkflowSpec {
     WorkflowSpec::rust_embedded("test.crash-recovery", "1", "tests::runtime", "main")
 }
 
+struct CrashBeforeRunStartedStore {
+    inner: InMemoryEventStore,
+    armed: AtomicBool,
+}
+
+impl CrashBeforeRunStartedStore {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryEventStore::new(),
+            armed: AtomicBool::new(true),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowEventStore for CrashBeforeRunStartedStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        if matches!(event, FlowEvent::RunStarted) && self.armed.swap(false, Ordering::SeqCst) {
+            return Err(FlowError::Store(
+                "injected crash before run start became durable".into(),
+            ));
+        }
+        self.inner
+            .append_if_sequence(run_id, expected_sequence, event)
+            .await
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
 struct CrashBeforeRetryExhaustionStore {
     inner: InMemoryEventStore,
     armed: AtomicBool,
@@ -328,4 +373,69 @@ async fn exhausted_step_failure_wins_over_a_racing_cancellation_after_restart() 
     assert!(!history
         .iter()
         .any(|event| matches!(event.event, FlowEvent::RunCancelled { .. })));
+}
+
+#[tokio::test]
+async fn terminal_run_is_not_started_after_run_start_persistence_is_lost() {
+    let run_id = "run-start-crash-recovery";
+    let store = Arc::new(CrashBeforeRunStartedStore::new());
+    let runtime = Arc::new(DurableEffectRuntime::default());
+    let engine = FlowEngine::new(store.clone(), runtime.clone());
+
+    let failure = engine
+        .start_with_id(run_id, workflow_spec(), json!({}))
+        .await
+        .expect_err("the injected persistence loss must interrupt the first engine");
+    assert!(matches!(failure, FlowError::Store(_)));
+    assert_eq!(
+        engine
+            .snapshot(run_id)
+            .await
+            .expect("pending snapshot")
+            .status,
+        WorkflowRunStatus::Pending
+    );
+
+    engine
+        .force_cancel(run_id, Some("cancelled before start recovery".into()))
+        .await
+        .expect("the created run remains cancellable");
+    drop(engine);
+
+    let restarted = FlowEngine::new(store.clone(), runtime.clone());
+    let recovered_run_id = restarted
+        .start_with_id(run_id, workflow_spec(), json!({}))
+        .await
+        .expect("an idempotent start must preserve the terminal run");
+    assert_eq!(recovered_run_id, run_id);
+
+    let recovered = restarted
+        .snapshot(run_id)
+        .await
+        .expect("cancelled snapshot");
+    assert_eq!(recovered.status, WorkflowRunStatus::Cancelled);
+    assert_eq!(
+        recovered.terminal_outcome,
+        Some(WorkflowTerminalOutcome::Cancelled {
+            reason: Some("cancelled before start recovery".into()),
+        })
+    );
+    assert_eq!(runtime.effect_invocations.load(Ordering::SeqCst), 0);
+
+    let history = store.list(run_id).await.expect("preserved history");
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| matches!(event.event, FlowEvent::RunStarted))
+            .count(),
+        0,
+        "start recovery must not append after a terminal event"
+    );
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| matches!(event.event, FlowEvent::RunCancelled { .. }))
+            .count(),
+        1
+    );
 }
