@@ -17,3 +17,13 @@ pub use postgres::{PostgresDeadLetteredTask, PostgresFlowTaskQueue};
 pub use queue::{FlowTaskDispatcher, FlowTaskQueue};
 pub use runner::FlowWorker;
 pub use task::{FlowTask, FlowTaskLease, FlowTaskOutcome};
+
+fn timestamp_nanos_saturating(timestamp: chrono::DateTime<chrono::Utc>) -> i64 {
+    timestamp.timestamp_nanos_opt().unwrap_or_else(|| {
+        if timestamp.timestamp() < 0 {
+            i64::MIN
+        } else {
+            i64::MAX
+        }
+    })
+}

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.2 - 2026-08-08
+
+- Replaced unchecked retry-delay casts and UTC date addition with validated,
+  checked deadline construction. Single and batch commands now reject delays
+  that cannot produce a UTC deadline before persisting a step or invoking its
+  side effect, preventing negative-delay wraparound and process panics.
+- Preserved lease-age ordering across the full Chrono timestamp range by
+  saturating out-of-nanosecond-range cutoffs for local-file and A3S ORM-backed
+  PostgreSQL queues. Minimum cutoffs retain current leases and maximum cutoffs
+  reclaim them without arithmetic overflow.
+- Added single-step, batch-step, local queue, and real PostgreSQL boundary
+  coverage for extreme retry delays and UTC lease cutoffs.
+
 ## 0.10.1 - 2026-08-08
 
 - Hardened `LocalFileFlowTaskQueue` acknowledgements and heartbeats by

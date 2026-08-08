@@ -47,8 +47,10 @@ The runtime returns exactly one command:
 - `schedule_step`: the engine persists `step_created`, runs the step runtime,
   persists `step_completed` or retry/failure events, then replays. Delayed
   retries persist `retry_after` and suspend until due retry scanning drives the
-  run again. Exhausted failures fail the run by default; when the step retry
-  policy uses `continue_workflow_on_failure()`, the engine records
+  run again. Retry deadlines use checked UTC arithmetic and invalid delays are
+  rejected before step persistence or execution. Exhausted failures fail the
+  run by default; when the step retry policy uses
+  `continue_workflow_on_failure()`, the engine records
   `step_failed` and replays so workflow code can observe `step_failed(...)`.
 - `schedule_steps`: the engine validates a stable batch of unique step IDs, then
   applies the same durable step lifecycle to each step before replaying.
@@ -241,9 +243,8 @@ returns `FlowError::LeaseLost` instead of being mistaken for completion.
 Local-file queues accept only their canonical timestamp-and-UUID lease file
 names, so caller-provided tokens cannot escape the inflight queue directory.
 Workflow steps still have documented at-least-once side-effect semantics:
-fencing guards
-queue ownership, while committed event history and idempotency keys remain the
-authority for replay.
+fencing guards queue ownership, while committed event history and idempotency
+keys remain the authority for replay.
 
 `FlowScheduler` stays on the projected-state side of the boundary. It reports
 the next timed wake-up for hosts that want to sleep between ticks, then scans
@@ -269,9 +270,10 @@ the same canonical migration set as the PostgreSQL event store. Leasing uses an
 atomic `FOR UPDATE SKIP LOCKED` CTE, so multiple workers can lease concurrently
 without taking the same task.
 Requeue and dead-letter operations use `leased_at_nanos` cutoffs to implement
-host-defined visibility timeout policies. Heartbeat, reclaim, dead-letter, and
-acknowledgement statements contend on the same task row, so exactly one current
-lease transition wins.
+host-defined visibility timeout policies. Out-of-range UTC cutoffs saturate at
+the signed nanosecond bounds, preserving minimum/maximum ordering without
+overflow. Heartbeat, reclaim, dead-letter, and acknowledgement statements
+contend on the same task row, so exactly one current lease transition wins.
 
 The PostgreSQL process-death gate leases a real task in a subprocess, commits an
 idempotent side effect, pauses before `step_completed`, and kills that process.

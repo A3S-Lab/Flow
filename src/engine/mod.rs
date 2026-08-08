@@ -18,8 +18,8 @@ mod validation;
 use steps::StepExecutionContext;
 use validation::{
     ensure_child_operation_matches, ensure_hook_command_matches, ensure_progress_matches,
-    ensure_same_start, ensure_step_batch_valid, ensure_step_command_matches,
-    ensure_wait_command_matches, is_event_conflict, validate_run_id,
+    ensure_retry_policy_valid, ensure_same_start, ensure_step_batch_valid,
+    ensure_step_command_matches, ensure_wait_command_matches, is_event_conflict, validate_run_id,
 };
 
 /// Builder for a [`FlowEngine`].
@@ -801,6 +801,7 @@ impl FlowEngine {
                             )));
                         }
                     }
+                    ensure_retry_policy_valid(retry)?;
                     match self
                         .execute_step(
                             run_id,
@@ -849,6 +850,9 @@ impl FlowEngine {
                         return Err(FlowError::InvalidTransition(format!(
                             "workflow rescheduled only terminal steps without progress: {step_ids}"
                         )));
+                    }
+                    for step in &steps {
+                        ensure_retry_policy_valid(step.retry)?;
                     }
                     match self.execute_step_batch(run_id, &snapshot, steps, now).await {
                         Ok(()) => {}

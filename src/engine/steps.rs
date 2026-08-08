@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use chrono::{DateTime, Utc};
 use tokio::task::JoinSet;
 
 use crate::error::{FlowError, Result};
@@ -120,11 +120,7 @@ impl FlowEngine {
                     return Ok(());
                 }
                 Err(err) if attempt < max_attempts => {
-                    let retry_after = if retry.delay_ms > 0 {
-                        Some(Utc::now() + ChronoDuration::milliseconds(retry.delay_ms as i64))
-                    } else {
-                        None
-                    };
+                    let retry_after = retry.retry_after(Utc::now())?;
                     let retrying = self
                         .record_event_at(
                             run_id,
@@ -310,14 +306,7 @@ impl FlowEngine {
                     }
                     Err(error) if *attempt < step.retry.max_attempts.max(1) => {
                         let error = error.to_string();
-                        let retry_after = if step.retry.delay_ms > 0 {
-                            Some(
-                                Utc::now()
-                                    + ChronoDuration::milliseconds(step.retry.delay_ms as i64),
-                            )
-                        } else {
-                            None
-                        };
+                        let retry_after = step.retry.retry_after(Utc::now())?;
                         let retrying = self
                             .record_event_at(
                                 run_id,
