@@ -64,6 +64,28 @@ its partially written temporary artifact. Flow does not create an operating-
 system process group around this contract; compilers and artifacts that launch
 their own descendants must terminate and reap those descendants themselves.
 
+Each compiler and runtime artifact process has independent stdout and stderr
+capture limits. The defaults retain at most 8 MiB from stdout and 256 KiB from
+stderr. Exceeding either limit terminates and reaps the direct child, then
+returns a runtime error naming the process, stream, and byte limit. This bounds
+memory even when an untrusted compiler or workflow writes continuously.
+
+Adjust both limits when a host intentionally permits larger protocol responses
+or compiler diagnostics:
+
+```rust
+let runtime = NativeTsRuntime::new(NativeTsRuntimeConfig::new(
+    "/path/to/a3s-flow-native-compiler",
+    ".a3s/flow/native-ts",
+    ".",
+))
+.with_output_limits(16 * 1024 * 1024, 512 * 1024);
+```
+
+The first limit applies to stdout and the second to stderr for both compilation
+and invocation. A response must fit in full because truncating JSON would make
+the runtime protocol ambiguous.
+
 The runnable example also accepts:
 
 ```sh

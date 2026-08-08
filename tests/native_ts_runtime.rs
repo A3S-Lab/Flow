@@ -28,6 +28,28 @@ mod native_ts_runtime {
         fs::set_permissions(path, permissions).unwrap();
     }
 
+    #[derive(Clone, Copy)]
+    enum TestOutputStream {
+        Stdout,
+        Stderr,
+    }
+
+    impl TestOutputStream {
+        fn name(self) -> &'static str {
+            match self {
+                Self::Stdout => "stdout",
+                Self::Stderr => "stderr",
+            }
+        }
+
+        fn shell_redirect(self) -> &'static str {
+            match self {
+                Self::Stdout => "",
+                Self::Stderr => ">&2",
+            }
+        }
+    }
+
     fn write_fake_compiler(path: &Path, compile_log: &Path) {
         let content = format!(
             r#"#!/bin/sh
@@ -132,6 +154,24 @@ exec sleep 30
         write_executable(path, &content);
     }
 
+    fn write_oversized_output_compiler(path: &Path, pid_file: &Path, stream: TestOutputStream) {
+        let content = format!(
+            r#"#!/bin/sh
+set -eu
+printf '%s\n' "$$" > {pid_file}
+index=0
+while [ "$index" -lt 32 ]; do
+  printf '0123456789abcdef' {redirect}
+  index=$((index + 1))
+done
+exec sleep 30
+"#,
+            pid_file = shell_quote(pid_file),
+            redirect = stream.shell_redirect(),
+        );
+        write_executable(path, &content);
+    }
+
     fn write_runtime_source(path: &Path, request_log: &Path, marker: &str, protocol: &str) {
         let content = format!(
             r#"#!/bin/sh
@@ -204,6 +244,29 @@ printf '%s\n' "$$" > {pid_file}
 exec sleep 30
 "#,
             pid_file = shell_quote(pid_file),
+        );
+        write_executable(path, &content);
+    }
+
+    fn write_oversized_output_runtime_source(
+        path: &Path,
+        pid_file: &Path,
+        stream: TestOutputStream,
+    ) {
+        let content = format!(
+            r#"#!/bin/sh
+set -eu
+cat >/dev/null
+printf '%s\n' "$$" > {pid_file}
+index=0
+while [ "$index" -lt 32 ]; do
+  printf '0123456789abcdef' {redirect}
+  index=$((index + 1))
+done
+exec sleep 30
+"#,
+            pid_file = shell_quote(pid_file),
+            redirect = stream.shell_redirect(),
         );
         write_executable(path, &content);
     }
@@ -459,6 +522,53 @@ exec sleep 30
         );
         assert_eq!(compile_count(&compile_log), 1);
         assert_eq!(fs::read_dir(&cache_dir).unwrap().count(), 0);
+    }
+
+    #[tokio::test]
+    async fn native_runtime_preflight_bounds_compiler_output_streams() {
+        for stream in [TestOutputStream::Stdout, TestOutputStream::Stderr] {
+            let dir = tempfile::tempdir().unwrap();
+            let compiler = dir.path().join("oversized-output-compiler");
+            let compiler_pid = dir.path().join("compiler.pid");
+            let entrypoint = dir.path().join("workflow.ts");
+            let cache_dir = dir.path().join("cache");
+
+            write_oversized_output_compiler(&compiler, &compiler_pid, stream);
+            fs::write(&entrypoint, "export async function main() {}\n").unwrap();
+
+            let runtime = NativeTsRuntime::new(NativeTsRuntimeConfig::new(
+                &compiler,
+                &cache_dir,
+                dir.path(),
+            ))
+            .with_output_limits(128, 128);
+            let error = tokio::time::timeout(
+                Duration::from_secs(5),
+                runtime.preflight(&native_spec("workflow.ts")),
+            )
+            .await
+            .unwrap_or_else(|_| {
+                panic!(
+                    "compiler {} output limit must fail before the child finishes",
+                    stream.name()
+                )
+            })
+            .unwrap_err();
+
+            let message = match error {
+                FlowError::Runtime(message) => message,
+                error => panic!("unexpected compiler output error: {error:?}"),
+            };
+            assert!(message.contains(&format!(
+                "compiler {} exceeded the 128-byte limit",
+                stream.name()
+            )));
+            let pid = wait_for_pid(&compiler_pid)
+                .await
+                .expect("oversized compiler did not report its process ID");
+            assert_process_stops_after_abort(pid, "oversized compiler").await;
+            assert_directory_becomes_empty(&cache_dir, "rejecting oversized compiler output").await;
+        }
     }
 
     #[tokio::test]
@@ -745,6 +855,55 @@ exec sleep 30
 
         assert_process_stops_after_abort(pid, "runtime artifact").await;
         assert_eq!(compile_count(&compile_log), 1);
+    }
+
+    #[tokio::test]
+    async fn native_runtime_invocation_bounds_runtime_output_streams() {
+        for stream in [TestOutputStream::Stdout, TestOutputStream::Stderr] {
+            let dir = tempfile::tempdir().unwrap();
+            let compiler = dir.path().join("fake-compiler");
+            let compile_log = dir.path().join("compile.log");
+            let entrypoint = dir.path().join("workflow.ts");
+            let runtime_pid = dir.path().join("runtime.pid");
+            let cache_dir = dir.path().join("cache");
+
+            write_fake_compiler(&compiler, &compile_log);
+            write_oversized_output_runtime_source(&entrypoint, &runtime_pid, stream);
+
+            let runtime = NativeTsRuntime::new(NativeTsRuntimeConfig::new(
+                &compiler,
+                &cache_dir,
+                dir.path(),
+            ))
+            .with_output_limits(128, 128);
+            let spec = native_spec("workflow.ts");
+            runtime.preflight(&spec).await.unwrap();
+            let runtime = Arc::new(runtime);
+            let engine = FlowEngine::in_memory(runtime);
+            let error = tokio::time::timeout(Duration::from_secs(5), engine.start(spec, json!({})))
+                .await
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "runtime {} output limit must fail before the child finishes",
+                        stream.name()
+                    )
+                })
+                .unwrap_err();
+
+            let message = match error {
+                FlowError::Runtime(message) => message,
+                error => panic!("unexpected runtime output error: {error:?}"),
+            };
+            assert!(message.contains(&format!(
+                "runtime {} exceeded the 128-byte limit",
+                stream.name()
+            )));
+            let pid = wait_for_pid(&runtime_pid)
+                .await
+                .expect("oversized runtime did not report its process ID");
+            assert_process_stops_after_abort(pid, "oversized runtime artifact").await;
+            assert_eq!(compile_count(&compile_log), 1);
+        }
     }
 
     #[tokio::test]

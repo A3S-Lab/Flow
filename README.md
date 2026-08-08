@@ -286,6 +286,7 @@ The TypeScript path provides:
 - Compile preflight through `NativeTsRuntime::preflight()`.
 - Stable source hashes with compile-environment-isolated artifact caching.
 - Cancellation-safe compiler and runtime artifact process ownership.
+- Configurable, bounded compiler and runtime stdout/stderr capture.
 - Runtime request/response protocol validation.
 - Compiler stderr surfaced as runtime errors.
 
@@ -597,6 +598,21 @@ cancelled cold compile schedules removal of its partial temporary artifact.
 The process contract does not create an operating-system process group, so a
 compiler or artifact that launches descendants remains responsible for
 terminating and reaping them.
+
+Flow retains at most 8 MiB from stdout and 256 KiB from stderr for each
+compiler or runtime artifact process. Crossing either limit terminates the
+direct child and returns a runtime error instead of growing host memory without
+bound. Hosts that need different protocol-payload or diagnostic limits can set
+them without changing `NativeTsRuntimeConfig`:
+
+```rust
+let runtime = NativeTsRuntime::new(NativeTsRuntimeConfig::new(
+    "a3s-flow-native-compiler",
+    ".a3s/flow/native-ts",
+    ".",
+))
+.with_output_limits(16 * 1024 * 1024, 512 * 1024);
+```
 
 Hosts can preflight a workflow before accepting or starting a run. Preflight
 validates the `WorkflowSpec`, compiles the source when the artifact cache is
@@ -1477,7 +1493,7 @@ the Flow event store remains authoritative.
 | `BootFlowTaskDeduplication` | Disabled, terminal-lifetime, or terminal/TTL logical Flow task deduplication mode |
 | `FlowWorker` | Handles queued tasks against a `FlowEngine` |
 | `FlowScheduler` | Reports the next wake-up, discovers due waits and retries once, groups them by run, and dispatches targeted tasks through `FlowTaskDispatcher` |
-| `NativeTsRuntime` | Optional runtime adapter that compiles TypeScript workflow source into native artifacts |
+| `NativeTsRuntime` | Optional runtime adapter that compiles TypeScript workflow source into native artifacts with cancellation-safe, bounded child-process output capture |
 | `NativeTsRuntimeConfig` | Compiler binary, artifact cache directory, and working directory for `NativeTsRuntime` |
 | `NativeTsRuntimePreflight` | Public result of Native TypeScript validation and compile preflight, including entrypoint, artifact, source hash, and cache-hit metadata |
 | `NativeRuntimeRequest` | Versioned JSON request envelope sent to a native runtime artifact |
