@@ -13,7 +13,7 @@ inject its queue.
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.1", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.10.2", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
@@ -140,7 +140,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.1", features = ["sqlite"] }
+a3s-flow = { version = "0.10.2", features = ["sqlite"] }
 ```
 
 Then wire the SQLite event store into the same engine and worker shape:
@@ -210,7 +210,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.1", features = ["postgres"] }
+a3s-flow = { version = "0.10.2", features = ["postgres"] }
 ```
 
 Then wire the Postgres event store and task queue into the same engine and
@@ -400,7 +400,8 @@ schedule the next dependent step after the earlier output is available.
 Use retry policy for infrastructure failures that should be retried by the
 engine. A zero delay retries in the same drive loop. A positive delay writes a
 `retry_after` timestamp and suspends the run until a scheduler or host resumes
-due retries.
+due retries. Flow rejects delays that cannot be represented as a UTC deadline
+before it persists or executes the step.
 
 ```rust
 use a3s_flow::RetryPolicy;
@@ -710,7 +711,7 @@ feature and publish bridged records through an `EventBus`:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.1", features = ["a3s-event"] }
+a3s-flow = { version = "0.10.2", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 

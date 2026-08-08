@@ -12,7 +12,7 @@ use crate::error::{FlowError, Result};
 use crate::store::postgres_migrations;
 
 pub use super::task::PostgresDeadLetteredTask;
-use super::{FlowTask, FlowTaskLease, FlowTaskQueue};
+use super::{timestamp_nanos_saturating, FlowTask, FlowTaskLease, FlowTaskQueue};
 
 /// A3S ORM-backed PostgreSQL task queue for shared workers.
 ///
@@ -125,11 +125,11 @@ impl PostgresFlowTaskQueue {
                 "UPDATE flow_tasks SET status = 'pending', lease_id = NULL, \
                  leased_at_nanos = NULL, updated_at_nanos = ",
             )
-            .bind(timestamp_nanos(Utc::now()))
+            .bind(timestamp_nanos_saturating(Utc::now()))
             .append(" WHERE queue_name = ")
             .bind(self.queue_name.clone())
             .append(" AND status = 'inflight' AND leased_at_nanos <= ")
-            .bind(timestamp_nanos(cutoff)),
+            .bind(timestamp_nanos_saturating(cutoff)),
         )
         .await?;
         postgres_rows_affected_to_usize(rows)
@@ -142,7 +142,7 @@ impl PostgresFlowTaskQueue {
     ) -> Result<usize> {
         let queue_name = self.queue_name.clone();
         let reason = reason.into();
-        let cutoff = timestamp_nanos(cutoff);
+        let cutoff = timestamp_nanos_saturating(cutoff);
         let result = self
             .executor
             .transaction(|transaction| {
@@ -163,7 +163,7 @@ impl PostgresFlowTaskQueue {
                     )
                     .await?;
 
-                    let dead_lettered_at = timestamp_nanos(Utc::now());
+                    let dead_lettered_at = timestamp_nanos_saturating(Utc::now());
                     for (task_id, lease_id, task_json, leased_at) in &rows {
                         let lease_id = lease_id.as_ref().ok_or_else(|| {
                             FlowError::Store(format!(
@@ -225,7 +225,7 @@ impl PostgresFlowTaskQueue {
 #[async_trait]
 impl FlowTaskQueue for PostgresFlowTaskQueue {
     async fn enqueue(&self, task: FlowTask) -> Result<()> {
-        let now = timestamp_nanos(Utc::now());
+        let now = timestamp_nanos_saturating(Utc::now());
         execute_query(
             &self.executor,
             sql_query::<()>(
@@ -249,7 +249,7 @@ impl FlowTaskQueue for PostgresFlowTaskQueue {
 
     async fn lease(&self) -> Result<Option<FlowTaskLease>> {
         let lease_id = Uuid::new_v4().to_string();
-        let now = timestamp_nanos(Utc::now());
+        let now = timestamp_nanos_saturating(Utc::now());
         let row = fetch_optional_query(
             &self.executor,
             sql_query::<(String, String)>(
@@ -286,7 +286,7 @@ impl FlowTaskQueue for PostgresFlowTaskQueue {
 
     async fn heartbeat(&self, lease_id: &str) -> Result<String> {
         let renewed_lease_id = Uuid::new_v4().to_string();
-        let now = timestamp_nanos(Utc::now());
+        let now = timestamp_nanos_saturating(Utc::now());
         let rows = execute_query(
             &self.executor,
             sql_query::<()>("UPDATE flow_tasks SET lease_id = ")
@@ -329,7 +329,7 @@ impl FlowTaskQueue for PostgresFlowTaskQueue {
                 "UPDATE flow_tasks SET status = 'pending', lease_id = NULL, \
                  leased_at_nanos = NULL, updated_at_nanos = ",
             )
-            .bind(timestamp_nanos(Utc::now()))
+            .bind(timestamp_nanos_saturating(Utc::now()))
             .append(" WHERE queue_name = ")
             .bind(self.queue_name.clone())
             .append(" AND status = 'inflight'"),
@@ -438,12 +438,6 @@ fn postgres_rows_affected_to_usize(rows: u64) -> Result<usize> {
             "PostgreSQL Flow affected row count {rows} exceeds usize range: {error}"
         ))
     })
-}
-
-fn timestamp_nanos(timestamp: DateTime<Utc>) -> i64 {
-    timestamp
-        .timestamp_nanos_opt()
-        .unwrap_or_else(|| timestamp.timestamp_micros() * 1_000)
 }
 
 fn nanos_to_datetime(nanos: i64) -> Result<DateTime<Utc>> {

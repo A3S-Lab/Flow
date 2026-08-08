@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
@@ -157,6 +157,25 @@ impl RetryPolicy {
 
     pub fn continue_workflow_on_failure(self) -> Self {
         self.with_failure_action(StepFailureAction::ContinueWorkflow)
+    }
+
+    pub(crate) fn retry_after(self, now: DateTime<Utc>) -> Result<Option<DateTime<Utc>>> {
+        if self.delay_ms == 0 {
+            return Ok(None);
+        }
+        let delay_ms = i64::try_from(self.delay_ms).map_err(|_| self.invalid_delay_error())?;
+        let delay =
+            ChronoDuration::try_milliseconds(delay_ms).ok_or_else(|| self.invalid_delay_error())?;
+        now.checked_add_signed(delay)
+            .map(Some)
+            .ok_or_else(|| self.invalid_delay_error())
+    }
+
+    fn invalid_delay_error(self) -> FlowError {
+        FlowError::InvalidTransition(format!(
+            "retry delay {}ms cannot be represented as a UTC deadline",
+            self.delay_ms
+        ))
     }
 }
 

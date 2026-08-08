@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::error::{FlowError, Result};
 
 pub use super::task::LocalFileDeadLetteredTask;
-use super::{FlowTask, FlowTaskLease, FlowTaskQueue};
+use super::{timestamp_nanos_saturating, FlowTask, FlowTaskLease, FlowTaskQueue};
 
 /// JSON-backed local durable task queue.
 ///
@@ -56,9 +56,7 @@ impl LocalFileFlowTaskQueue {
     }
 
     fn queue_file_name(now: DateTime<Utc>, id: Uuid) -> String {
-        let timestamp = now
-            .timestamp_nanos_opt()
-            .unwrap_or_else(|| now.timestamp_micros() * 1_000);
+        let timestamp = timestamp_nanos_saturating(now);
         format!("{timestamp:020}-{id}.json")
     }
 
@@ -179,9 +177,7 @@ impl LocalFileFlowTaskQueue {
     }
 
     async fn expired_inflight_paths(&self, cutoff: DateTime<Utc>) -> Result<Vec<PathBuf>> {
-        let cutoff = cutoff
-            .timestamp_nanos_opt()
-            .unwrap_or_else(|| cutoff.timestamp_micros() * 1_000);
+        let cutoff = timestamp_nanos_saturating(cutoff);
         Ok(self
             .inflight_files()
             .await?

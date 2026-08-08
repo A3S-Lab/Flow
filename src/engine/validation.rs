@@ -65,6 +65,10 @@ pub(super) fn ensure_step_batch_valid(steps: &[StepCommand]) -> Result<()> {
     Ok(())
 }
 
+pub(super) fn ensure_retry_policy_valid(retry: RetryPolicy) -> Result<()> {
+    retry.retry_after(Utc::now()).map(|_| ())
+}
+
 pub(super) fn ensure_step_command_matches(
     run_id: &str,
     step: &StepSnapshot,

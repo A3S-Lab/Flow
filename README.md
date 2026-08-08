@@ -321,7 +321,7 @@ which observability sinks receive committed events.
 
 ```toml
 [dependencies]
-a3s-flow = "0.10.1"
+a3s-flow = "0.10.2"
 async-trait = "0.1"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -781,6 +781,10 @@ Ok(ctx.schedule_step_with_retry(
 ```
 
 When a retry has a delay, the run suspends and is resumed by due retry scanning.
+Flow validates that the delay can form a UTC deadline before it persists the
+step or invokes its side effect. Unrepresentable values from custom or
+serialized runtimes return `FlowError::InvalidTransition` instead of wrapping
+negative or panicking.
 By default, a step that exhausts its attempts records `flow.step.failed` and then
 fails the workflow run. When workflow code should choose a fallback or explicit
 compensation path, opt in to replay after exhaustion:
@@ -982,7 +986,7 @@ single SQLite database instead of one JSONL file per run:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.1", features = ["sqlite"] }
+a3s-flow = { version = "0.10.2", features = ["sqlite"] }
 ```
 
 ```rust
@@ -1045,7 +1049,7 @@ event history through a database:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.1", features = ["postgres"] }
+a3s-flow = { version = "0.10.2", features = ["postgres"] }
 ```
 
 ```rust
@@ -1129,7 +1133,7 @@ Enable `boot` and one durable storage feature for a host that uses A3S Boot:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.1", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.10.2", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
@@ -1265,7 +1269,10 @@ task. Queue names isolate hosts or tenants that share one database. Use
 poison-task inspection. Set the heartbeat interval comfortably below the age
 used by `requeue_inflight_older_than(...)`. Call unconditional
 `requeue_inflight()` only during startup when the host has exclusive ownership
-of that queue; it intentionally fences every current lease.
+of that queue; it intentionally fences every current lease. Age-based local
+and PostgreSQL queue operations preserve ordering for the full UTC range:
+cutoffs outside signed nanosecond storage saturate to the nearest bound instead
+of overflowing.
 
 Use `FlowScheduler` to turn due waits and due retries into queue tasks:
 
@@ -1351,7 +1358,7 @@ hosts that already use A3S Event as their event backbone:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.1", features = ["a3s-event"] }
+a3s-flow = { version = "0.10.2", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 
