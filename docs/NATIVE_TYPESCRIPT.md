@@ -56,6 +56,14 @@ preflights may both compile, but neither can report or execute a partial cache
 entry. Failed temporary files are removed, and a publish race leaves only a
 completed artifact at the shared path.
 
+The compiler process and every invoked runtime artifact are owned by the async
+future that started them. If a caller drops that future because of a Boot
+timeout, lease loss, host shutdown, or explicit cancellation, Flow terminates
+the direct child process. A cancelled cold compile also schedules removal of
+its partially written temporary artifact. Flow does not create an operating-
+system process group around this contract; compilers and artifacts that launch
+their own descendants must terminate and reap those descendants themselves.
+
 The runnable example also accepts:
 
 ```sh

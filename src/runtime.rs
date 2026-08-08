@@ -133,6 +133,55 @@ struct NativeArtifact {
     source_hash: String,
 }
 
+#[cfg(feature = "native-ts")]
+struct TemporaryArtifactGuard {
+    path: PathBuf,
+    armed: bool,
+}
+
+#[cfg(feature = "native-ts")]
+impl TemporaryArtifactGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    async fn remove(&mut self) {
+        remove_temporary_artifact(&self.path).await;
+        self.armed = false;
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+#[cfg(feature = "native-ts")]
+impl Drop for TemporaryArtifactGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+
+        let path = self.path.clone();
+        match tokio::runtime::Handle::try_current() {
+            Ok(runtime) => {
+                let _cleanup = runtime.spawn(async move {
+                    remove_temporary_artifact(&path).await;
+                });
+            }
+            Err(error) => tracing::warn!(
+                path = %self.path.display(),
+                %error,
+                "failed to schedule cancelled native TypeScript artifact cleanup"
+            ),
+        }
+    }
+}
+
 /// Result of validating and compiling a native TypeScript workflow source.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct NativeTsRuntimePreflight {
@@ -219,39 +268,44 @@ impl NativeTsRuntime {
         // Keep the shared cache entry invisible until the compiler has closed
         // a complete artifact. Same-directory rename is the atomic publish
         // boundary for concurrent preflight calls and processes.
-        let temporary_binary = temporary_artifact_path(&artifact.binary)?;
+        let mut temporary_binary =
+            TemporaryArtifactGuard::new(temporary_artifact_path(&artifact.binary)?);
         let output = match Command::new(&artifact.compiler_binary)
             .arg("compile")
             .arg(&artifact.entrypoint)
             .arg("-o")
-            .arg(&temporary_binary)
+            .arg(temporary_binary.path())
             .current_dir(&artifact.working_dir)
+            // A cancelled preflight must not leave the compiler running after
+            // its Rust future and temporary-artifact cleanup have disappeared.
+            .kill_on_drop(true)
             .output()
             .await
         {
             Ok(output) => output,
             Err(error) => {
-                remove_temporary_artifact(&temporary_binary).await;
+                temporary_binary.remove().await;
                 return Err(error.into());
             }
         };
 
         if !output.status.success() {
-            remove_temporary_artifact(&temporary_binary).await;
+            temporary_binary.remove().await;
             return Err(FlowError::Runtime(format!(
                 "native TypeScript compile failed: {}",
                 String::from_utf8_lossy(&output.stderr)
             )));
         }
 
-        if let Err(error) = tokio::fs::metadata(&temporary_binary).await {
-            remove_temporary_artifact(&temporary_binary).await;
+        if let Err(error) = tokio::fs::metadata(temporary_binary.path()).await {
+            temporary_binary.remove().await;
             return Err(FlowError::Runtime(format!(
                 "native TypeScript compiler did not produce artifact {}: {error}",
                 artifact.binary.display()
             )));
         }
-        publish_temporary_artifact(&temporary_binary, &artifact.binary).await?;
+        publish_temporary_artifact(temporary_binary.path(), &artifact.binary).await?;
+        temporary_binary.disarm();
 
         Ok((artifact, false))
     }
@@ -281,6 +335,9 @@ impl NativeTsRuntime {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .current_dir(&artifact.working_dir)
+            // Boot timeouts, lease loss, shutdown, and caller cancellation all
+            // drop this future. Tie the direct artifact process to that owner.
+            .kill_on_drop(true)
             .spawn()?;
 
         let mut stdin = child

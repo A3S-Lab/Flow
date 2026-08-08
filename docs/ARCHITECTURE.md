@@ -351,9 +351,13 @@ protocol, and host OS/architecture, preventing shared cache roots from crossing
 compiler, workspace, or native-target boundaries while preserving a portable
 public source hash. Cold compiles target unique same-directory temporary files
 and reach the shared cache only through atomic rename, so concurrent preflight
-cannot expose a partially written executable. This leaves deeper compiler
-integration incremental: a host can start with a process boundary and later
-link compiler crates directly.
+cannot expose a partially written executable. Compiler and artifact processes
+are owned by their async preflight or invocation future: cancellation
+terminates the direct child, and cancelled cold compiles schedule temporary
+artifact cleanup. The boundary does not create an OS process group, so child
+implementations remain responsible for descendants they launch. This leaves
+deeper compiler integration incremental: a host can start with a process
+boundary and later link compiler crates directly.
 
 ## Next Components
 

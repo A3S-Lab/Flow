@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.9 - 2026-08-08
+
+- Tied Native TypeScript compiler and runtime artifact processes to their
+  owning async futures. Boot timeouts, lease loss, host shutdown, or caller
+  cancellation now terminate the direct child instead of leaving it running.
+- Added cancellation-safe cleanup for partially written temporary compile
+  artifacts and process-level regressions that abort both preflight and runtime
+  invocation futures, prove child termination, and verify cache cleanup.
+
 ## 0.10.8 - 2026-08-08
 
 - Separated the portable Native TypeScript source hash from the local artifact

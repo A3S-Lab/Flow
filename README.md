@@ -285,6 +285,7 @@ The TypeScript path provides:
 - Authoring-only `.d.ts` definitions that mirror the Rust protocol shape.
 - Compile preflight through `NativeTsRuntime::preflight()`.
 - Stable source hashes with compile-environment-isolated artifact caching.
+- Cancellation-safe compiler and runtime artifact process ownership.
 - Runtime request/response protocol validation.
 - Compiler stderr surfaced as runtime errors.
 
@@ -588,6 +589,14 @@ and atomically published only after compilation succeeds. Concurrent preflight
 calls can compile redundantly, but they cannot observe or execute another
 call's partially written output. Failed temporary outputs are removed, and
 competing publishers can leave only a complete artifact at the shared path.
+
+Compiler and runtime artifact processes are owned by the async operation that
+started them. Dropping a preflight or invocation future—for example after a
+Boot timeout, lease loss, or host shutdown—terminates its direct child, and a
+cancelled cold compile schedules removal of its partial temporary artifact.
+The process contract does not create an operating-system process group, so a
+compiler or artifact that launches descendants remains responsible for
+terminating and reaping them.
 
 Hosts can preflight a workflow before accepting or starting a run. Preflight
 validates the `WorkflowSpec`, compiles the source when the artifact cache is
