@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.15 - 2026-08-08
+
+- Stream Native TypeScript entrypoints through bounded 64 KiB buffers while
+  deriving both the public source hash and the publication snapshot
+  fingerprint, avoiding source-size-proportional memory during preflight.
+- Standardize stable hash length prefixes as little-endian `u64` values. This
+  preserves existing 64-bit source and cache hashes while making the identity
+  format consistent on 32-bit targets, with a fixed golden source-hash test.
+- Define `WorkflowSpec.version` as the deployment revision for imported files,
+  compiler configuration, lockfiles, generated inputs, and other inputs outside
+  the configured entrypoint. Added an end-to-end cache test proving that such
+  changes select a new artifact after an explicit version bump.
+
 ## 0.10.14 - 2026-08-08
 
 - Bind every cold Native TypeScript compilation to a stable entrypoint source

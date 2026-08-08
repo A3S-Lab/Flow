@@ -351,8 +351,22 @@ fingerprint, resolved compile paths, protocol, and host OS/architecture,
 preventing shared cache roots from crossing compiler revisions, workspaces, or
 native-target boundaries while preserving a portable public source hash.
 Stable compiler file metadata memoizes the content fingerprint, while an
-in-place compiler replacement invalidates the old artifact identity. Each
-cache identity resolves to a directory containing the executable and a
+in-place compiler replacement invalidates the old artifact identity.
+Entrypoint reads stream through a 64 KiB buffer and update the public source
+hash and content fingerprint together. Stable hash parts use explicit
+little-endian `u64` lengths rather than host-width values, so cache identity is
+portable across pointer widths without buffering the complete entrypoint.
+
+Flow deliberately owns only the configured entrypoint identity. It does not
+implement a partial TypeScript resolver for imports, `tsconfig`, package or
+lockfiles, generated inputs, or compiler environment. `WorkflowSpec.version`
+is therefore the deployment revision for every compiler input outside the
+entrypoint: changing one requires a version bump before cache reuse is safe.
+The same version declares that external inputs are unchanged. A future native
+compiler contract may report a verified dependency manifest and extend the
+cache identity without teaching Flow compiler-specific resolution rules.
+
+Each cache identity resolves to a directory containing the executable and a
 cache-key-bound length/content integrity manifest. Cold compiles build unique
 same-directory temporary entries and publish the executable/manifest pair with
 one atomic directory rename, so concurrent preflight cannot expose a partially
@@ -362,14 +376,13 @@ snapshot used for the cache key; a concurrent source replacement discards the
 temporary output instead of poisoning the old identity. Cache hits memoize
 successful validation against stable file metadata; content changes, malformed
 manifests, or lost execution permissions quarantine the entry and trigger a
-convergent cold repair.
-Compiler and artifact processes
-are owned by their async preflight or invocation future: cancellation
-terminates the direct child, and cancelled cold compiles schedule temporary
-artifact cleanup. The boundary does not create an OS process group, so child
-implementations remain responsible for descendants they launch. This leaves
-deeper compiler integration incremental: a host can start with a process
-boundary and later link compiler crates directly.
+convergent cold repair. Compiler and artifact processes are owned by their
+async preflight or invocation future: cancellation terminates the direct child,
+and cancelled cold compiles schedule temporary artifact cleanup. The boundary
+does not create an OS process group, so child implementations remain
+responsible for descendants they launch. This leaves deeper compiler
+integration incremental: a host can start with a process boundary and later
+add compiler-owned dependency manifests or link compiler crates directly.
 
 ## Next Components
 
@@ -377,5 +390,6 @@ boundary and later link compiler crates directly.
   OpenTelemetry, or remote audit streams.
 - Additional task queue adapters when concrete deployments need a backend other
   than Postgres.
-- Deeper Native TypeScript build-time validation for unsupported workflow APIs
-  once compiler integration moves beyond the process contract.
+- Compiler-owned Native TypeScript dependency manifests and deeper build-time
+  validation for unsupported workflow APIs once integration moves beyond the
+  current process contract.

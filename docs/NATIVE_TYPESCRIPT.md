@@ -44,15 +44,28 @@ artifact paths, so their child working directory does not apply either prefix
 a second time.
 
 The public source hash covers source and workflow identity and remains stable
-across local compile environments. The internal artifact cache identity also
-covers the resolved compiler path and executable-content fingerprint, resolved
-working directory, absolute entrypoint, protocol version, and host
-OS/architecture. The fingerprint is memoized while stable file metadata proves
-the executable is unchanged. Replacing compiler contents at the same path
-therefore selects a new artifact without making every hot-cache lookup reread
-the executable. Runtimes can share a cache root without one compiler,
-workspace, or native target reusing another one's executable, and a protocol
-revision automatically selects a new artifact path.
+across local compile environments. The configured entrypoint is streamed
+through a bounded buffer, and every hash-part length uses an explicit
+little-endian `u64`, so hashing does not allocate memory proportional to source
+size and produces the same identity format on 32-bit and 64-bit targets. The
+internal artifact cache identity also covers the resolved compiler path and
+executable-content fingerprint, resolved working directory, absolute
+entrypoint, protocol version, and host OS/architecture. The fingerprint is
+memoized while stable file metadata proves the executable is unchanged.
+Replacing compiler contents at the same path therefore selects a new artifact
+without making every hot-cache lookup reread the executable. Runtimes can share
+a cache root without one compiler, workspace, or native target reusing another
+one's executable, and a protocol revision automatically selects a new artifact
+path.
+
+"Source" at this boundary means the configured entrypoint bytes, workflow
+name, `WorkflowSpec.version`, entrypoint name, and export name. Flow does not
+parse TypeScript imports or interpret `tsconfig`, package manifests, lockfiles,
+generated sources, compiler environment variables, or other compiler-owned
+inputs. Until the compiler contract can return a verified dependency manifest,
+deployments must bump `WorkflowSpec.version` whenever any such input can change
+the compiled artifact. Reusing the same version explicitly means those inputs
+belong to the same deployment revision and may reuse the existing cache entry.
 
 Every cold compile is also bound to the stable entrypoint snapshot that
 produced its source hash and cache identity. Flow records the content

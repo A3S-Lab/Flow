@@ -285,6 +285,7 @@ The TypeScript path provides:
 - Authoring-only `.d.ts` definitions that mirror the Rust protocol shape.
 - Compile preflight through `NativeTsRuntime::preflight()`.
 - Stable source hashes with compile-environment-isolated artifact caching.
+- Explicit workflow-version invalidation for imported and compiler-owned inputs.
 - Cold-compile source snapshot verification before artifact publication.
 - Cancellation-safe compiler and runtime artifact process ownership.
 - Configurable, bounded compiler and runtime stdout/stderr capture.
@@ -583,6 +584,16 @@ a cold compile while leaving the portable source hash unchanged. The compiler
 fingerprint is memoized against stable file metadata so hot workflow replay
 does not repeatedly read the executable.
 
+Automatic source detection is intentionally bounded to the configured
+entrypoint bytes. Flow does not parse the TypeScript import graph or hash
+`tsconfig`, package manifests, lockfiles, generated sources, compiler
+environment variables, or other auxiliary compiler inputs. Treat
+`WorkflowSpec.version` as the deployment revision and bump it whenever any of
+those inputs can change the generated artifact. Keeping the same version means
+the existing artifact remains eligible for reuse. A future compiler-owned,
+verified dependency manifest can extend this boundary without embedding a
+partial TypeScript resolver in Flow.
+
 Cold compilation is bound to the exact entrypoint snapshot used to derive the
 source hash and cache key. Flow fingerprints a metadata-stable source read,
 then re-reads the entrypoint after the compiler exits and requires both its
@@ -591,6 +602,10 @@ deployment replaces the source during compilation, Flow removes the temporary
 output and returns an error instead of publishing an artifact under the
 previous source hash. Cache hits do not perform this second read because their
 artifact was already published against a verified source snapshot.
+Both the public source hash and snapshot fingerprint are calculated in one
+streaming pass with a 64 KiB buffer. Stable hash fields use little-endian `u64`
+length prefixes, so the identity format is independent of pointer width while
+remaining unchanged for existing 64-bit deployments.
 
 Relative working and cache directories are resolved against the host process
 directory before a compiler or runtime subprocess starts. Workflow entrypoints

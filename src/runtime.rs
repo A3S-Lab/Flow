@@ -284,11 +284,10 @@ impl NativeTsRuntime {
         let working_dir = absolute_from_current_dir(&self.config.working_dir)?;
         let entrypoint = resolve_against(&working_dir, &spec.runtime.entrypoint);
         let cache_dir = absolute_from_current_dir(&self.config.cache_dir)?;
-        let (source, source_snapshot) = SourceSnapshot::read(&entrypoint).await?;
+        let (source_hash, source_snapshot) = SourceSnapshot::read(&entrypoint, spec).await?;
         // Keep the protocol-visible source hash portable, but scope the local
         // native executable cache to every compile-environment input that can
         // make identical workflow source produce an incompatible artifact.
-        let source_hash = native_source_hash(spec, &source);
         let artifact_hash = native_artifact_cache_key(
             &source_hash,
             &compiler_binary,
@@ -388,7 +387,7 @@ impl NativeTsRuntime {
 
         match artifact
             .source_snapshot
-            .still_matches(&artifact.entrypoint)
+            .still_matches(&artifact.entrypoint, spec)
             .await
         {
             Ok(true) => {}
@@ -636,18 +635,6 @@ where
 }
 
 #[cfg(feature = "native-ts")]
-fn native_source_hash(spec: &WorkflowSpec, source: &[u8]) -> String {
-    stable_hash([
-        b"source".as_slice(),
-        spec.name.as_bytes(),
-        spec.version.as_bytes(),
-        spec.runtime.entrypoint.as_bytes(),
-        spec.runtime.export_name.as_bytes(),
-        source,
-    ])
-}
-
-#[cfg(feature = "native-ts")]
 fn native_artifact_cache_key(
     source_hash: &str,
     compiler_binary: &Path,
@@ -761,11 +748,15 @@ fn absolute_from_current_dir(path: &Path) -> Result<PathBuf> {
 fn stable_hash(parts: impl IntoIterator<Item = impl AsRef<[u8]>>) -> String {
     let mut hasher = Sha256::new();
     for part in parts {
-        let bytes = part.as_ref();
-        hasher.update(bytes.len().to_le_bytes());
-        hasher.update(bytes);
+        update_stable_hash_part(&mut hasher, part.as_ref());
     }
     hex_lower(&hasher.finalize())
+}
+
+#[cfg(feature = "native-ts")]
+fn update_stable_hash_part(hasher: &mut Sha256, bytes: &[u8]) {
+    hasher.update((bytes.len() as u64).to_le_bytes());
+    hasher.update(bytes);
 }
 
 #[cfg(feature = "native-ts")]

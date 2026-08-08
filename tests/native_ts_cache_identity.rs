@@ -38,6 +38,21 @@ chmod +x "$4"
         write_executable(path, &content);
     }
 
+    fn write_external_input_compiler(path: &Path, compile_log: &Path, external_input: &Path) {
+        let content = format!(
+            r#"#!/bin/sh
+set -eu
+printf 'compile\n' >> {compile_log}
+marker=$(sed -n '1p' {external_input})
+sed "s/native-cache-compiler-marker/$marker/g" "$2" > "$4"
+chmod +x "$4"
+"#,
+            compile_log = shell_quote(compile_log),
+            external_input = shell_quote(external_input),
+        );
+        write_executable(path, &content);
+    }
+
     fn write_runtime_source(path: &Path) {
         write_executable(
             path,
@@ -91,5 +106,58 @@ printf '{"protocol":"a3s.flow.native_ts.v1","kind":"workflow","ok":true,"output"
             engine.snapshot(&run_id).await.unwrap().output.unwrap()["marker"],
             "compiler-b"
         );
+    }
+
+    #[tokio::test]
+    async fn external_compiler_inputs_require_workflow_version_bumps() {
+        let dir = tempfile::tempdir().unwrap();
+        let compiler = dir.path().join("native-compiler");
+        let compile_log = dir.path().join("compile.log");
+        let external_input = dir.path().join("compiler-input.txt");
+        let entrypoint = dir.path().join("workflow.ts");
+        let cache_dir = dir.path().join("cache");
+        let initial_spec =
+            WorkflowSpec::native_ts("native.workflow", "0.1.0", "workflow.ts", "main");
+
+        write_runtime_source(&entrypoint);
+        fs::write(&external_input, "dependency-a\n").unwrap();
+        write_external_input_compiler(&compiler, &compile_log, &external_input);
+
+        let runtime = Arc::new(NativeTsRuntime::new(NativeTsRuntimeConfig::new(
+            &compiler,
+            &cache_dir,
+            dir.path(),
+        )));
+        let first = runtime.preflight(&initial_spec).await.unwrap();
+        assert!(!first.cache_hit);
+        assert_eq!(compile_count(&compile_log), 1);
+        assert!(fs::read_to_string(&first.artifact)
+            .unwrap()
+            .contains("dependency-a"));
+
+        fs::write(&external_input, "dependency-b\n").unwrap();
+
+        let unchanged_version = runtime.preflight(&initial_spec).await.unwrap();
+        assert!(
+            unchanged_version.cache_hit,
+            "external compiler inputs are deployment-owned and do not invalidate the cache"
+        );
+        assert_eq!(unchanged_version.artifact, first.artifact);
+        assert_eq!(unchanged_version.source_hash, first.source_hash);
+        assert_eq!(compile_count(&compile_log), 1);
+
+        let updated_spec =
+            WorkflowSpec::native_ts("native.workflow", "0.1.1", "workflow.ts", "main");
+        let updated = runtime.preflight(&updated_spec).await.unwrap();
+        assert!(
+            !updated.cache_hit,
+            "bumping the workflow version must select a new compiled artifact"
+        );
+        assert_ne!(updated.artifact, first.artifact);
+        assert_ne!(updated.source_hash, first.source_hash);
+        assert_eq!(compile_count(&compile_log), 2);
+        assert!(fs::read_to_string(&updated.artifact)
+            .unwrap()
+            .contains("dependency-b"));
     }
 }

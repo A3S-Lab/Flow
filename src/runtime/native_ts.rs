@@ -17,10 +17,13 @@ const ARTIFACT_MANIFEST_FILE_NAME: &str = "manifest.json";
 const ARTIFACT_MANIFEST_FORMAT: &str = "a3s.flow.native_ts.cache.v1";
 const MAX_ARTIFACT_MANIFEST_BYTES: u64 = 16 * 1024;
 const COMPILER_FINGERPRINT_DOMAIN: &[u8] = b"a3s.flow.native_ts.compiler.v2";
-const SOURCE_FINGERPRINT_DOMAIN: &[u8] = b"a3s.flow.native_ts.source.contents.v1";
 const ARTIFACT_FINGERPRINT_DOMAIN: &[u8] = b"a3s.flow.native_ts.artifact.contents.v1";
 const MAX_STABLE_READ_ATTEMPTS: usize = 3;
 const MAX_PUBLISH_ATTEMPTS: usize = 3;
+
+mod source;
+
+pub(super) use source::SourceSnapshot;
 
 #[derive(Debug, Clone, Default)]
 pub(super) struct CompilerIdentityCache {
@@ -44,12 +47,6 @@ struct CachedArtifactValidation {
     cache_key: String,
     artifact_metadata: FileMetadata,
     manifest_metadata: FileMetadata,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct SourceSnapshot {
-    metadata: FileMetadata,
-    fingerprint: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,49 +132,6 @@ impl CompilerIdentityCache {
             "native TypeScript compiler {} changed while its cache identity was being calculated",
             path.display()
         )))
-    }
-}
-
-impl SourceSnapshot {
-    pub(super) async fn read(path: &Path) -> Result<(Vec<u8>, Self)> {
-        for _ in 0..MAX_STABLE_READ_ATTEMPTS {
-            let before = source_metadata(path).await?;
-            let contents = tokio::fs::read(path).await.map_err(|error| {
-                FlowError::Runtime(format!(
-                    "native TypeScript source {} could not be read: {error}",
-                    path.display()
-                ))
-            })?;
-            let after = source_metadata(path).await?;
-            let contents_length = u64::try_from(contents.len()).map_err(|_| {
-                FlowError::Runtime(format!(
-                    "native TypeScript source {} is too large to fingerprint",
-                    path.display()
-                ))
-            })?;
-            if before != after || contents_length != after.length {
-                continue;
-            }
-
-            let fingerprint = fingerprint_bytes(SOURCE_FINGERPRINT_DOMAIN, &contents);
-            return Ok((
-                contents,
-                Self {
-                    metadata: after,
-                    fingerprint,
-                },
-            ));
-        }
-
-        Err(FlowError::Runtime(format!(
-            "native TypeScript source {} changed repeatedly while it was being read",
-            path.display()
-        )))
-    }
-
-    pub(super) async fn still_matches(&self, path: &Path) -> Result<bool> {
-        let (_, current) = Self::read(path).await?;
-        Ok(self == &current)
     }
 }
 
@@ -602,22 +556,6 @@ async fn compiler_metadata(path: &Path) -> Result<FileMetadata> {
     Ok(FileMetadata::from(&metadata))
 }
 
-async fn source_metadata(path: &Path) -> Result<FileMetadata> {
-    let metadata = tokio::fs::metadata(path).await.map_err(|error| {
-        FlowError::Runtime(format!(
-            "native TypeScript source {} could not be inspected: {error}",
-            path.display()
-        ))
-    })?;
-    if !metadata.is_file() {
-        return Err(FlowError::Runtime(format!(
-            "native TypeScript source {} is not a regular file",
-            path.display()
-        )));
-    }
-    Ok(FileMetadata::from(&metadata))
-}
-
 async fn compiled_artifact_metadata(path: &Path) -> Result<FileMetadata> {
     let metadata = tokio::fs::symlink_metadata(path).await.map_err(|error| {
         FlowError::Runtime(format!(
@@ -703,15 +641,6 @@ async fn fingerprint_file(
         hasher.update(&buffer[..count]);
     }
     Ok(Some(super::hex_lower(&hasher.finalize())))
-}
-
-fn fingerprint_bytes(domain: &[u8], contents: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update((domain.len() as u64).to_le_bytes());
-    hasher.update(domain);
-    hasher.update((contents.len() as u64).to_le_bytes());
-    hasher.update(contents);
-    super::hex_lower(&hasher.finalize())
 }
 
 fn temporary_sibling_path(path: &Path, suffix: &str) -> Result<PathBuf> {
