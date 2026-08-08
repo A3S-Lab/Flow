@@ -530,6 +530,27 @@ let (run_id, hook_id) = engine
     .await?;
 ```
 
+Public-token lookup is the active callback routing surface. A durable Outbox
+consumer that already knows the internal identities should persist them and
+retry by run and hook ID:
+
+```rust
+engine
+    .resume_hook(
+        &run_id,
+        &hook_id,
+        serde_json::json!({ "approved": true, "decisionId": "decision-1" }),
+    )
+    .await?;
+```
+
+The direct call accepts an identical redelivery after `hook_received` commits,
+even if workflow drive acknowledgement was lost or the run is now terminal.
+A different payload or an attempted dispose/resume reversal returns
+`FlowError::HookConflict` without appending another event. Use stable decision
+identity inside the payload so the owning business service can enforce the same
+idempotency boundary before it calls Flow.
+
 Withdrawal or expiry handler:
 
 ```rust

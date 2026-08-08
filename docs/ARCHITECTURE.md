@@ -61,7 +61,11 @@ The runtime returns exactly one command:
 - `create_hook`: the engine persists `hook_created` and stops until
   `resume_hook()` records `hook_received` or `dispose_hook()` records
   `hook_disposed`. Replay then continues so workflow code can observe
-  `hook_payload()` or `hook_disposed()` and choose the next command.
+  `hook_payload()` or `hook_disposed()` and choose the next command. Stable
+  run/hook-identified redelivery accepts only the already committed payload or
+  disposal, including after terminal completion; payload drift and opposite
+  resolutions fail with `HookConflict`. Public-token lookup intentionally
+  covers only active hooks.
 - `complete`: the engine persists `run_completed`.
 - `fail`: the engine persists `run_failed`.
 - `record_progress`: the engine persists an idempotently identified progress

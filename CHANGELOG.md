@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.16 - 2026-08-09
+
+- Made run/hook-identified resume and disposal safe for durable Outbox
+  redelivery. Repeating the same payload or disposal now succeeds without
+  appending another resolution event, including after terminal completion and
+  after a resolution event commits before workflow drive acknowledgement.
+- Added typed `HookConflict` failures for payload drift and opposite terminal
+  resolutions. A received hook cannot be reported as disposed, and a disposed
+  or cancelled hook cannot accept a late direct resume.
+- Added focused crash, concurrent-delivery, payload-drift, terminal-redelivery,
+  and resolution-race coverage. Public token lookup remains intentionally
+  active-only; durable consumers retain stable run and hook identities.
+
 ## 0.10.15 - 2026-08-08
 
 - Stream Native TypeScript entrypoints through bounded 64 KiB buffers while
