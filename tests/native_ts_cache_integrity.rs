@@ -156,10 +156,9 @@ printf '{"protocol":"a3s.flow.native_ts.v1","kind":"workflow","ok":true,"output"
         let first = harness.runtime.preflight(&harness.spec).await.unwrap();
         write_executable(&first.artifact, "#!/bin/sh\nexit 99\n");
 
-        let (first_repair, second_repair) = tokio::join!(
-            harness.runtime.preflight(&harness.spec),
-            harness.runtime.preflight(&harness.spec),
-        );
+        let first_repair = Box::pin(harness.runtime.preflight(&harness.spec));
+        let second_repair = Box::pin(harness.runtime.preflight(&harness.spec));
+        let (first_repair, second_repair) = tokio::join!(first_repair, second_repair);
         let first_repair = first_repair.unwrap();
         let second_repair = second_repair.unwrap();
         assert!(
