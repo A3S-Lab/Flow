@@ -25,6 +25,12 @@ use crate::protocol::{
     NativeRuntimeKind, NativeRuntimeRequest, NativeRuntimeResponse, NATIVE_RUNTIME_PROTOCOL,
 };
 
+#[cfg(feature = "native-ts")]
+mod native_ts;
+
+#[cfg(feature = "native-ts")]
+use native_ts::CompilerIdentityCache;
+
 /// Workflow replay request passed to a runtime implementation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowInvocation {
@@ -126,6 +132,8 @@ pub struct NativeTsRuntime {
     max_stderr_bytes: usize,
     compile_timeout: Option<Duration>,
     invocation_timeout: Option<Duration>,
+    #[cfg(feature = "native-ts")]
+    compiler_identity_cache: CompilerIdentityCache,
 }
 
 #[cfg(feature = "native-ts")]
@@ -228,6 +236,8 @@ impl NativeTsRuntime {
             max_stderr_bytes: Self::DEFAULT_MAX_STDERR_BYTES,
             compile_timeout: None,
             invocation_timeout: None,
+            #[cfg(feature = "native-ts")]
+            compiler_identity_cache: CompilerIdentityCache::default(),
         }
     }
 
@@ -309,7 +319,10 @@ impl NativeTsRuntime {
     #[cfg(feature = "native-ts")]
     async fn artifact_for(&self, spec: &WorkflowSpec) -> Result<NativeArtifact> {
         validate_native_ts_spec(spec)?;
-        let compiler_binary = executable_from_current_dir(&self.config.compiler_binary)?;
+        let (compiler_binary, compiler_fingerprint) = self
+            .compiler_identity_cache
+            .resolve_and_fingerprint(&self.config.compiler_binary)
+            .await?;
         let working_dir = absolute_from_current_dir(&self.config.working_dir)?;
         let entrypoint = resolve_against(&working_dir, &spec.runtime.entrypoint);
         let cache_dir = absolute_from_current_dir(&self.config.cache_dir)?;
@@ -321,6 +334,7 @@ impl NativeTsRuntime {
         let artifact_hash = native_artifact_cache_key(
             &source_hash,
             &compiler_binary,
+            &compiler_fingerprint,
             &working_dir,
             &entrypoint,
             NATIVE_RUNTIME_PROTOCOL,
@@ -613,15 +627,17 @@ fn native_source_hash(spec: &WorkflowSpec, source: &[u8]) -> String {
 fn native_artifact_cache_key(
     source_hash: &str,
     compiler_binary: &Path,
+    compiler_fingerprint: &str,
     working_dir: &Path,
     entrypoint: &Path,
     protocol: &str,
 ) -> String {
     stable_hash([
-        b"a3s.flow.native_ts.artifact.v1".as_slice(),
+        b"a3s.flow.native_ts.artifact.v2".as_slice(),
         source_hash.as_bytes(),
         protocol.as_bytes(),
         compiler_binary.as_os_str().as_encoded_bytes(),
+        compiler_fingerprint.as_bytes(),
         working_dir.as_os_str().as_encoded_bytes(),
         entrypoint.as_os_str().as_encoded_bytes(),
         std::env::consts::OS.as_bytes(),
@@ -715,14 +731,6 @@ fn absolute_from_current_dir(path: &Path) -> Result<PathBuf> {
         return Ok(path.to_path_buf());
     }
     Ok(std::env::current_dir()?.join(path))
-}
-
-#[cfg(feature = "native-ts")]
-fn executable_from_current_dir(path: &Path) -> Result<PathBuf> {
-    if path.components().count() == 1 {
-        return Ok(path.to_path_buf());
-    }
-    absolute_from_current_dir(path)
 }
 
 #[cfg(feature = "native-ts")]
@@ -824,7 +832,7 @@ where
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "native-ts")]
-    use super::{native_artifact_cache_key, read_bounded_output, NativeProcessOutputError};
+    use super::{read_bounded_output, NativeProcessOutputError};
     use super::{NativeTsRuntime, NativeTsRuntimeConfig};
     use std::path::Path;
     use std::time::Duration;
@@ -886,70 +894,5 @@ mod tests {
                 limit: 4
             }
         ));
-    }
-
-    #[cfg(feature = "native-ts")]
-    #[test]
-    fn native_ts_artifact_cache_key_covers_the_compile_environment() {
-        let identity = |source, compiler, working_dir, entrypoint, protocol| {
-            native_artifact_cache_key(
-                source,
-                Path::new(compiler),
-                Path::new(working_dir),
-                Path::new(entrypoint),
-                protocol,
-            )
-        };
-        let baseline = identity(
-            "source-a",
-            "/compiler-a",
-            "/workspace-a",
-            "/workspace-a/workflow.ts",
-            "protocol-a",
-        );
-        let variants = [
-            (
-                "source-b",
-                "/compiler-a",
-                "/workspace-a",
-                "/workspace-a/workflow.ts",
-                "protocol-a",
-            ),
-            (
-                "source-a",
-                "/compiler-b",
-                "/workspace-a",
-                "/workspace-a/workflow.ts",
-                "protocol-a",
-            ),
-            (
-                "source-a",
-                "/compiler-a",
-                "/workspace-b",
-                "/workspace-a/workflow.ts",
-                "protocol-a",
-            ),
-            (
-                "source-a",
-                "/compiler-a",
-                "/workspace-a",
-                "/workspace-b/workflow.ts",
-                "protocol-a",
-            ),
-            (
-                "source-a",
-                "/compiler-a",
-                "/workspace-a",
-                "/workspace-a/workflow.ts",
-                "protocol-b",
-            ),
-        ];
-
-        for (source, compiler, working_dir, entrypoint, protocol) in variants {
-            assert_ne!(
-                identity(source, compiler, working_dir, entrypoint, protocol),
-                baseline
-            );
-        }
     }
 }

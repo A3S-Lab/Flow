@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.12 - 2026-08-08
+
+- Fingerprint the resolved Native TypeScript compiler executable as part of the
+  artifact cache identity. Replacing compiler contents at the same configured
+  path now triggers a cold compile instead of reusing output from the previous
+  compiler revision, while the public source hash remains portable.
+- Memoize compiler content fingerprints against stable file metadata and
+  resolve bare compiler commands through `PATH`, preserving hot-cache replay
+  performance while detecting in-place upgrades in long-running hosts.
+
 ## 0.10.11 - 2026-08-08
 
 - Added opt-in cold-compilation and per-invocation timeouts through
