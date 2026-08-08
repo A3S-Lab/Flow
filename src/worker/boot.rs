@@ -17,9 +17,9 @@ const DEFAULT_FLOW_JOB_NAME: &str = "a3s.flow.task";
 /// How a Boot queue coalesces duplicate Flow task targets.
 ///
 /// The derived ID excludes scan timestamps and hook payloads. It identifies the
-/// logical Flow target instead: a run, wait, hook, callback token, or global due
-/// scan. IDs are SHA-256 digests, so callback tokens are not exposed in queue
-/// metadata.
+/// logical Flow target instead: a run, wait, hook, callback token, targeted
+/// scheduled run, or compatibility-wide due scan. IDs are SHA-256 digests, so
+/// callback tokens are not exposed in queue metadata.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum BootFlowTaskDeduplication {
     /// Submit every dispatch as a distinct Boot job.
@@ -317,6 +317,10 @@ fn flow_task_deduplication_id(job_name: &str, task: &FlowTask) -> String {
             hash_deduplication_field(&mut hasher, token);
             "dispose_hook_by_token"
         }
+        FlowTask::ResumeScheduledRun { run_id, .. } => {
+            hash_deduplication_field(&mut hasher, run_id);
+            "resume_scheduled_run"
+        }
         FlowTask::ResumeDueWaits { .. } => "resume_due_waits",
         FlowTask::ResumeDueRetries { .. } => "resume_due_retries",
     };
@@ -334,6 +338,7 @@ fn flow_task_needs_active_successor(task: &FlowTask) -> bool {
     matches!(
         task,
         FlowTask::DriveRun { .. }
+            | FlowTask::ResumeScheduledRun { .. }
             | FlowTask::ResumeDueWaits { .. }
             | FlowTask::ResumeDueRetries { .. }
     )

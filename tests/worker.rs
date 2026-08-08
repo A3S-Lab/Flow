@@ -235,6 +235,51 @@ async fn worker_resumes_due_waits_from_queue() {
 }
 
 #[tokio::test]
+async fn worker_resumes_only_the_targeted_scheduled_run() {
+    let now = Utc::now();
+    let engine = FlowEngine::in_memory(Arc::new(SleepRuntime));
+    let targeted_run_id = engine
+        .start(
+            spec(),
+            json!({ "resume_at": (now - ChronoDuration::seconds(2)).to_rfc3339() }),
+        )
+        .await
+        .unwrap();
+    let other_due_run_id = engine
+        .start(
+            spec(),
+            json!({ "resume_at": (now - ChronoDuration::seconds(1)).to_rfc3339() }),
+        )
+        .await
+        .unwrap();
+
+    let worker = FlowWorker::in_memory(engine.clone());
+    worker
+        .enqueue(FlowTask::ResumeScheduledRun {
+            run_id: targeted_run_id.clone(),
+            now,
+        })
+        .await
+        .unwrap();
+
+    let outcome = worker.run_once().await.unwrap().unwrap();
+    assert_eq!(outcome.run_ids, vec![targeted_run_id.clone()]);
+    assert_eq!(
+        outcome.resumed_waits,
+        vec![(targeted_run_id.clone(), "sleep".to_string())]
+    );
+    assert!(outcome.resumed_retries.is_empty());
+    assert_eq!(
+        engine.snapshot(&targeted_run_id).await.unwrap().status,
+        WorkflowRunStatus::Completed
+    );
+    assert_eq!(
+        engine.snapshot(&other_due_run_id).await.unwrap().status,
+        WorkflowRunStatus::Suspended
+    );
+}
+
+#[tokio::test]
 async fn worker_resumes_due_retries_from_queue() {
     let now = Utc::now();
     let runtime = Arc::new(DelayedRetryRuntime::default());
@@ -825,6 +870,23 @@ async fn postgres_task_queue_drives_worker_when_url_is_configured() {
 
 #[test]
 fn flow_task_serializes_for_external_queues() {
+    let now = "2026-08-08T12:34:56.123456789Z"
+        .parse::<DateTime<Utc>>()
+        .unwrap();
+    let task = FlowTask::ResumeScheduledRun {
+        run_id: "run-1".to_string(),
+        now,
+    };
+
+    let encoded = serde_json::to_string(&task).unwrap();
+    assert_eq!(
+        encoded,
+        r#"{"type":"resume_scheduled_run","run_id":"run-1","now":"2026-08-08T12:34:56.123456789Z"}"#
+    );
+
+    let decoded: FlowTask = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded, task);
+
     let task = FlowTask::ResumeHookByToken {
         token: "approval-token".to_string(),
         payload: json!({ "approved": true }),

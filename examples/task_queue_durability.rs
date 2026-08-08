@@ -54,7 +54,12 @@ async fn main() -> a3s_flow::Result<()> {
 
     {
         let queue = LocalFileFlowTaskQueue::new(&queue_root);
-        queue.enqueue(FlowTask::ResumeDueWaits { now }).await?;
+        queue
+            .enqueue(FlowTask::ResumeScheduledRun {
+                run_id: run_id.clone(),
+                now,
+            })
+            .await?;
         println!("pending_before_restart={}", queue.len().await?);
     }
 

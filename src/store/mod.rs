@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use crate::error::Result;
 use crate::model::{
     project_run, ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookStatus, ScheduledWakeup,
-    ScheduledWakeupKind, StepStatus, WaitStatus,
+    ScheduledWakeupKind, StepStatus, WaitStatus, WorkflowRunSnapshot,
 };
 
 mod local_file;
@@ -140,33 +140,42 @@ where
     for run_id in store.list_run_ids().await? {
         let history = store.list(&run_id).await?;
         let snapshot = project_run(&run_id, &history)?;
-        if snapshot.status.is_terminal() {
-            continue;
+        wakeups.extend(scheduled_wakeups_for_snapshot(&snapshot));
+    }
+    Ok(wakeups)
+}
+
+pub(crate) fn scheduled_wakeups_for_snapshot(
+    snapshot: &WorkflowRunSnapshot,
+) -> Vec<ScheduledWakeup> {
+    if snapshot.status.is_terminal() {
+        return Vec::new();
+    }
+
+    let mut wakeups = Vec::new();
+    for wait in snapshot.waits.values() {
+        if wait.status == WaitStatus::Waiting {
+            wakeups.push(ScheduledWakeup {
+                run_id: snapshot.run_id.clone(),
+                kind: ScheduledWakeupKind::Wait,
+                subject_id: wait.wait_id.clone(),
+                scheduled_at: wait.resume_at,
+            });
         }
-        for wait in snapshot.waits.values() {
-            if wait.status == WaitStatus::Waiting {
+    }
+    for step in snapshot.steps.values() {
+        if step.status == StepStatus::Pending {
+            if let Some(retry_after) = step.retry_after {
                 wakeups.push(ScheduledWakeup {
-                    run_id: run_id.clone(),
-                    kind: ScheduledWakeupKind::Wait,
-                    subject_id: wait.wait_id.clone(),
-                    scheduled_at: wait.resume_at,
+                    run_id: snapshot.run_id.clone(),
+                    kind: ScheduledWakeupKind::Retry,
+                    subject_id: step.step_id.clone(),
+                    scheduled_at: retry_after,
                 });
             }
         }
-        for step in snapshot.steps.values() {
-            if step.status == StepStatus::Pending {
-                if let Some(retry_after) = step.retry_after {
-                    wakeups.push(ScheduledWakeup {
-                        run_id: run_id.clone(),
-                        kind: ScheduledWakeupKind::Retry,
-                        subject_id: step.step_id.clone(),
-                        scheduled_at: retry_after,
-                    });
-                }
-            }
-        }
     }
-    Ok(wakeups)
+    wakeups
 }
 
 #[cfg(any(feature = "postgres", feature = "sqlite"))]

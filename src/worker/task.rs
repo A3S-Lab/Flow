@@ -30,6 +30,10 @@ pub enum FlowTask {
     DisposeHookByToken {
         token: String,
     },
+    ResumeScheduledRun {
+        run_id: String,
+        now: DateTime<Utc>,
+    },
     ResumeDueWaits {
         now: DateTime<Utc>,
     },

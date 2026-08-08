@@ -13,7 +13,7 @@ inject its queue.
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.9.0", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.10.0", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
@@ -140,7 +140,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.9.0", features = ["sqlite"] }
+a3s-flow = { version = "0.10.0", features = ["sqlite"] }
 ```
 
 Then wire the SQLite event store into the same engine and worker shape:
@@ -210,7 +210,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.9.0", features = ["postgres"] }
+a3s-flow = { version = "0.10.0", features = ["postgres"] }
 ```
 
 Then wire the Postgres event store and task queue into the same engine and
@@ -429,8 +429,13 @@ if tick.has_due_work() {
 retries, `Some(Duration::ZERO)` for due or overdue work, and a positive delay
 for future work. Hosts that own their own clock can sleep for that delay before
 calling `enqueue_due_work()` again. One scheduler tick discovers due waits and
-retries with a combined store query. SQL stores use their A3S ORM projection;
-other stores preserve the same behavior through event-history replay.
+retries with a combined store query, groups them by run ID, and dispatches one
+targeted task per affected run. The worker replays only that run, so it does not
+repeat the global due query; a batch of due retry siblings is resumed together.
+SQL stores use their A3S ORM projection, while other stores preserve the same
+behavior through event-history replay. With Boot deduplication enabled, the
+stable target is the run ID: scan timestamps do not fragment the identity, and
+the latest task is retained when the matching owner is active.
 
 See `examples/retry_backoff.rs` for a complete delayed retry flow.
 
@@ -705,7 +710,7 @@ feature and publish bridged records through an `EventBus`:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.9.0", features = ["a3s-event"] }
+a3s-flow = { version = "0.10.0", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 

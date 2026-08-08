@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,7 +9,7 @@ use crate::error::Result;
 use crate::model::{ScheduledWakeupKind, WorkflowRunSuspension};
 use crate::worker::{FlowTask, FlowTaskDispatcher};
 
-/// Result of one scheduler scan.
+/// Result of one scheduler scan and its targeted per-run dispatches.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FlowSchedulerTick {
     pub due_waits: Vec<(String, String)>,
@@ -22,7 +23,7 @@ impl FlowSchedulerTick {
     }
 }
 
-/// Scheduler that scans durable state and enqueues due workflow work.
+/// Scheduler that scans durable state once and enqueues one task per due run.
 #[derive(Clone)]
 pub struct FlowScheduler {
     engine: FlowEngine,
@@ -81,21 +82,19 @@ impl FlowScheduler {
             .map(|wakeup| (wakeup.run_id.clone(), wakeup.subject_id.clone()))
             .collect::<Vec<_>>();
         let due_retries = due
-            .into_iter()
+            .iter()
             .filter(|wakeup| wakeup.kind == ScheduledWakeupKind::Retry)
-            .map(|wakeup| (wakeup.run_id, wakeup.subject_id))
+            .map(|wakeup| (wakeup.run_id.clone(), wakeup.subject_id.clone()))
             .collect::<Vec<_>>();
         let mut enqueued_tasks = 0usize;
 
-        if !due_waits.is_empty() {
+        let run_ids = due
+            .into_iter()
+            .map(|wakeup| wakeup.run_id)
+            .collect::<BTreeSet<_>>();
+        for run_id in run_ids {
             self.dispatcher
-                .dispatch(FlowTask::ResumeDueWaits { now })
-                .await?;
-            enqueued_tasks += 1;
-        }
-        if !due_retries.is_empty() {
-            self.dispatcher
-                .dispatch(FlowTask::ResumeDueRetries { now })
+                .dispatch(FlowTask::ResumeScheduledRun { run_id, now })
                 .await?;
             enqueued_tasks += 1;
         }

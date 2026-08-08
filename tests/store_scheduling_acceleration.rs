@@ -1,7 +1,8 @@
 use a3s_flow::{
     FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore, FlowRuntime,
-    FlowScheduler, InMemoryFlowTaskQueue, RuntimeCommand, ScheduledWakeup, ScheduledWakeupKind,
-    StepInvocation, WorkflowInvocation, WorkflowRunSuspension, WorkflowSpec,
+    FlowScheduler, FlowTaskQueue, FlowWorker, InMemoryEventStore, InMemoryFlowTaskQueue,
+    RuntimeCommand, ScheduledWakeup, ScheduledWakeupKind, StepInvocation, WorkflowInvocation,
+    WorkflowRunStatus, WorkflowRunSuspension, WorkflowSpec,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -171,6 +172,63 @@ impl FlowEventStore for IndexedScheduleStore {
     }
 }
 
+#[derive(Default)]
+struct CountingScheduleStore {
+    inner: InMemoryEventStore,
+    due_queries: AtomicUsize,
+}
+
+#[async_trait]
+impl FlowEventStore for CountingScheduleStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner
+            .append_if_sequence(run_id, expected_sequence, event)
+            .await
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+
+    async fn list_due_wakeups(&self, now: DateTime<Utc>) -> a3s_flow::Result<Vec<ScheduledWakeup>> {
+        self.due_queries.fetch_add(1, Ordering::SeqCst);
+        self.inner.list_due_wakeups(now).await
+    }
+}
+
+struct CompletingWaitRuntime;
+
+#[async_trait]
+impl FlowRuntime for CompletingWaitRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let ctx = invocation.context();
+        if ctx.wait_completed("timer") {
+            return Ok(ctx.complete(json!({ "done": true })));
+        }
+        Ok(ctx.wait_until("timer", timestamp("2026-08-07T00:00:01.000000100Z")))
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        unreachable!("wait workflow does not run steps")
+    }
+}
+
 struct UnusedRuntime;
 
 #[async_trait]
@@ -229,4 +287,47 @@ async fn engine_and_scheduler_use_indexed_wakeup_queries_without_global_history_
     assert_eq!(store.next_queries.load(Ordering::SeqCst), 1);
     assert_eq!(store.targeted_history_loads.load(Ordering::SeqCst), 1);
     assert_eq!(store.global_history_scans.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn scheduler_and_worker_query_due_wakeups_once_end_to_end() {
+    let store = Arc::new(CountingScheduleStore::default());
+    let engine = FlowEngine::new(store.clone(), Arc::new(CompletingWaitRuntime));
+    let run_id = engine
+        .start_with_id(
+            "counted-schedule-run",
+            WorkflowSpec::rust_embedded(
+                "test.counted-scheduling",
+                "1",
+                "tests::store_scheduling_acceleration",
+                "main",
+            ),
+            json!({}),
+        )
+        .await
+        .unwrap();
+    let queue = Arc::new(InMemoryFlowTaskQueue::new());
+    let scheduler = FlowScheduler::new(engine.clone(), queue.clone());
+
+    let tick = scheduler
+        .enqueue_due_work(timestamp("2026-08-07T00:00:02Z"))
+        .await
+        .unwrap();
+    assert_eq!(tick.enqueued_tasks, 1);
+    assert_eq!(queue.len().await.unwrap(), 1);
+
+    let outcomes = FlowWorker::new(engine.clone(), queue)
+        .run_until_idle()
+        .await
+        .unwrap();
+    assert_eq!(outcomes.len(), 1);
+    assert_eq!(
+        outcomes[0].resumed_waits,
+        vec![(run_id.clone(), "timer".to_string())]
+    );
+    assert_eq!(
+        engine.snapshot(&run_id).await.unwrap().status,
+        WorkflowRunStatus::Completed
+    );
+    assert_eq!(store.due_queries.load(Ordering::SeqCst), 1);
 }

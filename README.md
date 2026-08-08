@@ -156,7 +156,8 @@ steps may fail or need to be retried safely.
 
 `wait_until()` records a durable timer and suspends the run without holding
 compute. A host can resume a specific wait directly, call
-`resume_due_waits(now)`, or let `FlowScheduler` enqueue due work for workers.
+`resume_due_waits(now)`, target one run with `resume_scheduled_run(run_id, now)`,
+or let `FlowScheduler` enqueue due work for workers.
 
 Common patterns include:
 
@@ -170,6 +171,10 @@ Common patterns include:
 the earliest known timer or delayed retry needs attention. SQL stores answer
 these scheduler queries from a transactionally maintained A3S ORM projection;
 in-memory, local-file, and custom stores keep replay-compatible defaults.
+Each scheduler tick performs one combined due query, groups the returned
+wake-ups by run ID, and dispatches one `ResumeScheduledRun` task per affected
+run. The worker then replays only that run instead of repeating a global due
+query; due retry siblings from the same batch are driven together.
 
 ### External callbacks and human-in-the-loop work
 
@@ -208,6 +213,7 @@ The engine exposes host-facing control-plane APIs:
 - `run_summary()` for status and actionable-work counts.
 - `list_open_suspensions()` for waits, active hooks, and delayed retries.
 - `list_due_wakeups()` for one combined due-wait and delayed-retry query.
+- `resume_scheduled_run()` for targeted handling without another global scan.
 - `next_wakeup()` for scheduler planning.
 - `list_active_hooks()` for callback routing.
 
@@ -313,7 +319,7 @@ which observability sinks receive committed events.
 
 ```toml
 [dependencies]
-a3s-flow = "0.9.0"
+a3s-flow = "0.10.0"
 async-trait = "0.1"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -673,7 +679,7 @@ Use these docs when moving from API exploration to a host integration:
 | **Retries** | Failed steps can retry immediately or after a durable delay |
 | **Recoverable step failures** | Exhausted step failures can either fail the run or replay to workflow fallback logic |
 | **Workers** | Queued tasks let a host drive runs outside the request path |
-| **Schedulers** | Due waits and delayed retries are discovered together and enqueued without global SQL history scans |
+| **Schedulers** | Due waits and delayed retries are discovered together, grouped by run, and handled without a second global due query or global SQL history scans |
 | **Observers** | Committed events can be mirrored into logs, metrics, or audit sinks |
 | **A3S ORM storage** | Optional SQLite and PostgreSQL stores use `a3s-orm` transactions, typed decoding, checksummed migrations, indexed active-hook routing, and indexed scheduled wake-ups |
 | **A3S Boot task management** | Boot queues own processor registration, job state, worker lifecycle, retry, timeout, cleanup, logical deduplication, and shutdown through `BootFlowTaskManager` and `BootFlowTaskPolicy` |
@@ -974,7 +980,7 @@ single SQLite database instead of one JSONL file per run:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.9.0", features = ["sqlite"] }
+a3s-flow = { version = "0.10.0", features = ["sqlite"] }
 ```
 
 ```rust
@@ -1037,7 +1043,7 @@ event history through a database:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.9.0", features = ["postgres"] }
+a3s-flow = { version = "0.10.0", features = ["postgres"] }
 ```
 
 ```rust
@@ -1121,7 +1127,7 @@ Enable `boot` and one durable storage feature for a host that uses A3S Boot:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.9.0", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.10.0", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
@@ -1166,6 +1172,9 @@ without changing Flow. The default task policy preserves the earlier behavior:
 no retries, timeout, cleanup, or deduplication. Use `job_options_for(...)` to
 inspect the generated `QueueJobOptions`, or `enqueue_with_options(...)` when one
 submission needs a caller-assigned job ID or another Boot-specific option.
+Scheduler tasks deduplicate by stable run ID rather than scan timestamp. If a
+matching task is already active, Boot retains the latest successor so a newer
+cutoff is not lost.
 
 ### Embedded and compatibility queues
 
@@ -1184,7 +1193,8 @@ use a3s_flow::{FlowTask, FlowWorker};
 let worker = FlowWorker::in_memory(engine.clone());
 
 worker
-    .enqueue(FlowTask::ResumeDueWaits {
+    .enqueue(FlowTask::ResumeScheduledRun {
+        run_id: run_id.clone(),
         now: chrono::Utc::now(),
     })
     .await?;
@@ -1266,6 +1276,11 @@ let next_delay = scheduler.next_wakeup_delay(now).await?;
 let tick = scheduler.enqueue_due_work(now).await?;
 ```
 
+The scheduler emits one `ResumeScheduledRun` task per affected run. Multiple
+due retry siblings in one run share that task, while the legacy global
+`ResumeDueWaits` and `ResumeDueRetries` variants remain available for existing
+queue payloads.
+
 ## Observability
 
 Attach a `FlowEventObserver` when committed workflow events should be mirrored
@@ -1334,7 +1349,7 @@ hosts that already use A3S Event as their event backbone:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.9.0", features = ["a3s-event"] }
+a3s-flow = { version = "0.10.0", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 
@@ -1404,7 +1419,7 @@ the Flow event store remains authoritative.
 | `WorkflowRunSnapshot` | Materialized state projected from event history |
 | `RetryPolicy` | Step retry attempts and delay |
 | `StepFailureAction` | Retry exhaustion behavior: fail the run or replay to workflow logic |
-| `FlowTask` | Serializable unit of queued workflow work |
+| `FlowTask` | Serializable unit of queued workflow work, including targeted `ResumeScheduledRun` and compatibility-wide due tasks |
 | `FlowTaskDispatcher` | Enqueue-only scheduler and callback dispatch boundary |
 | `FlowTaskQueue` | Queue abstraction for workflow dispatch |
 | `FlowTaskLease` | Queue lease whose fencing token rotates on heartbeat and is acknowledged after successful handling |
@@ -1417,7 +1432,7 @@ the Flow event store remains authoritative.
 | `BootFlowTaskPolicy` | Scheduler-wide Boot retry, timeout, stalled-job, terminal-record cleanup, and logical deduplication policy |
 | `BootFlowTaskDeduplication` | Disabled, terminal-lifetime, or terminal/TTL logical Flow task deduplication mode |
 | `FlowWorker` | Handles queued tasks against a `FlowEngine` |
-| `FlowScheduler` | Reports the next scheduler wake-up, scans due waits and retries, then dispatches tasks through `FlowTaskDispatcher` |
+| `FlowScheduler` | Reports the next wake-up, discovers due waits and retries once, groups them by run, and dispatches targeted tasks through `FlowTaskDispatcher` |
 | `NativeTsRuntime` | Optional runtime adapter that compiles TypeScript workflow source into native artifacts |
 | `NativeTsRuntimeConfig` | Compiler binary, artifact cache directory, and working directory for `NativeTsRuntime` |
 | `NativeTsRuntimePreflight` | Public result of Native TypeScript validation and compile preflight, including entrypoint, artifact, source hash, and cache-hit metadata |

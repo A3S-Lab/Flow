@@ -245,8 +245,16 @@ authority for replay.
 `FlowScheduler` stays on the projected-state side of the boundary. It reports
 the next timed wake-up for hosts that want to sleep between ticks, then scans
 for due waits and delayed retries with one combined store query and enqueues
-coarse tasks such as
-`ResumeDueWaits { now }` or `ResumeDueRetries { now }`.
+one `ResumeScheduledRun { run_id, now }` task per affected run. A worker replays
+only that run, derives the still-due wake-ups from the snapshot, resumes due
+waits, and drives all due retry siblings together. It does not issue a second
+global due query. The older `ResumeDueWaits { now }` and
+`ResumeDueRetries { now }` payloads remain supported for queue compatibility.
+
+Boot deduplication hashes the stable run target and intentionally excludes the
+volatile `now` cutoff. Different runs therefore remain independent, while a
+newer task for an active run is retained as its successor rather than being
+discarded.
 
 `LocalFileFlowTaskQueue` stores one JSON task file per pending or inflight task.
 It serializes access inside one process and is intended for local

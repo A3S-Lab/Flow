@@ -88,6 +88,48 @@ impl FlowRuntime for DelayedRetryRuntime {
     }
 }
 
+#[derive(Default)]
+struct DelayedBatchRetryRuntime {
+    alpha_attempts: AtomicUsize,
+    beta_attempts: AtomicUsize,
+}
+
+#[async_trait]
+impl FlowRuntime for DelayedBatchRetryRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let ctx = invocation.context();
+        if ctx.step_output("alpha").is_some() && ctx.step_output("beta").is_some() {
+            return Ok(ctx.complete(json!({ "done": true })));
+        }
+
+        let retry = RetryPolicy::fixed(2, Duration::from_secs(60));
+        Ok(ctx.schedule_steps(vec![
+            ctx.step_with_retry("alpha", "batchStep", json!({}), retry),
+            ctx.step_with_retry("beta", "batchStep", json!({}), retry),
+        ]))
+    }
+
+    async fn run_step(&self, invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        let attempts = match invocation.step_id.as_str() {
+            "alpha" => &self.alpha_attempts,
+            "beta" => &self.beta_attempts,
+            other => return Err(FlowError::Runtime(format!("unknown batch step {other}"))),
+        };
+        let attempt = attempts.fetch_add(1, Ordering::SeqCst) + 1;
+        if attempt == 1 {
+            Err(FlowError::Runtime(format!(
+                "{} failed once",
+                invocation.step_id
+            )))
+        } else {
+            Ok(json!({ "attempt": attempt }))
+        }
+    }
+}
+
 #[tokio::test]
 async fn scheduler_enqueues_due_wait_work_only_when_due() {
     let now = Utc::now();
@@ -111,12 +153,18 @@ async fn scheduler_enqueues_due_wait_work_only_when_due() {
     let scheduler = FlowScheduler::new(engine, queue.clone());
     let tick = scheduler.enqueue_due_work(now).await.unwrap();
 
-    assert_eq!(tick.due_waits, vec![(due_run_id, "sleep".to_string())]);
+    assert_eq!(
+        tick.due_waits,
+        vec![(due_run_id.clone(), "sleep".to_string())]
+    );
     assert!(tick.due_retries.is_empty());
     assert_eq!(tick.enqueued_tasks, 1);
     assert_eq!(
         queue.dequeue().await.unwrap(),
-        Some(FlowTask::ResumeDueWaits { now })
+        Some(FlowTask::ResumeScheduledRun {
+            run_id: due_run_id,
+            now,
+        })
     );
     assert_eq!(
         scheduler
@@ -238,4 +286,52 @@ async fn scheduler_enqueues_due_retry_and_worker_drains_it() {
     let completed = engine.snapshot(&run_id).await.unwrap();
     assert_eq!(runtime.attempts.load(Ordering::SeqCst), 2);
     assert_eq!(completed.status, WorkflowRunStatus::Completed);
+}
+
+#[tokio::test]
+async fn scheduler_groups_due_retry_siblings_into_one_run_task() {
+    let now = Utc::now();
+    let runtime = Arc::new(DelayedBatchRetryRuntime::default());
+    let engine = FlowEngine::in_memory(runtime.clone());
+    let run_id = engine.start(spec(), json!({})).await.unwrap();
+
+    let queue = Arc::new(InMemoryFlowTaskQueue::new());
+    let scheduler = FlowScheduler::new(engine.clone(), queue.clone());
+    let dispatch_at = now + ChronoDuration::seconds(120);
+    let tick = scheduler.enqueue_due_work(dispatch_at).await.unwrap();
+
+    assert_eq!(
+        tick.due_retries,
+        vec![
+            (run_id.clone(), "alpha".to_string()),
+            (run_id.clone(), "beta".to_string()),
+        ]
+    );
+    assert_eq!(tick.enqueued_tasks, 1);
+    let task = queue.dequeue().await.unwrap();
+    assert_eq!(
+        task,
+        Some(FlowTask::ResumeScheduledRun {
+            run_id: run_id.clone(),
+            now: dispatch_at,
+        })
+    );
+
+    let outcome = FlowWorker::in_memory(engine.clone())
+        .handle(task.unwrap())
+        .await
+        .unwrap();
+    assert_eq!(
+        outcome.resumed_retries,
+        vec![
+            (run_id.clone(), "alpha".to_string()),
+            (run_id.clone(), "beta".to_string()),
+        ]
+    );
+    assert_eq!(runtime.alpha_attempts.load(Ordering::SeqCst), 2);
+    assert_eq!(runtime.beta_attempts.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        engine.snapshot(&run_id).await.unwrap().status,
+        WorkflowRunStatus::Completed
+    );
 }

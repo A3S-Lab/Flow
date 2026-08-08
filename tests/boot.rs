@@ -14,6 +14,7 @@ use a3s_flow::{
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde_json::json;
+use tokio::sync::Notify;
 
 fn spec() -> WorkflowSpec {
     WorkflowSpec::rust_embedded("boot.workflow", "0.1.0", "tests::boot", "main")
@@ -42,6 +43,38 @@ impl FlowRuntime for SleepRuntime {
 
     async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
         unreachable!("sleep runtime does not schedule steps")
+    }
+}
+
+#[derive(Default)]
+struct BlockingScheduledRuntime {
+    started: Notify,
+    release: Notify,
+}
+
+#[async_trait]
+impl FlowRuntime for BlockingScheduledRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let ctx = invocation.context();
+        if ctx.wait_completed("sleep") {
+            self.started.notify_one();
+            self.release.notified().await;
+            return Ok(ctx.complete(json!({ "slept": true })));
+        }
+
+        let resume_at = ctx.input()["resume_at"]
+            .as_str()
+            .ok_or_else(|| FlowError::Runtime("missing resume_at".to_string()))?
+            .parse::<DateTime<Utc>>()
+            .map_err(|error| FlowError::Runtime(format!("invalid resume_at: {error}")))?;
+        Ok(ctx.wait_until("sleep", resume_at))
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        unreachable!("blocking scheduled runtime does not schedule steps")
     }
 }
 
@@ -162,6 +195,18 @@ fn boot_task_policy_maps_typed_options_and_scan_targets() {
     let first_options = manager.job_options_for(&first_scan);
     let later_options = manager.job_options_for(&later_scan);
     let retry_options = manager.job_options_for(&retry_scan);
+    let first_run = manager.job_options_for(&FlowTask::ResumeScheduledRun {
+        run_id: "run-1".to_string(),
+        now: Utc::now(),
+    });
+    let later_same_run = manager.job_options_for(&FlowTask::ResumeScheduledRun {
+        run_id: "run-1".to_string(),
+        now: Utc::now() + ChronoDuration::seconds(1),
+    });
+    let other_run = manager.job_options_for(&FlowTask::ResumeScheduledRun {
+        run_id: "run-2".to_string(),
+        now: Utc::now(),
+    });
 
     assert_eq!(first_options.retry_policy, policy.retry_policy().clone());
     assert_eq!(first_options.timeout, Some(Duration::from_secs(30)));
@@ -175,6 +220,13 @@ fn boot_task_policy_maps_typed_options_and_scan_targets() {
     assert_ne!(first_deduplication.id, retry_deduplication.id);
     assert_eq!(first_deduplication.ttl, Some(Duration::from_secs(60)));
     assert!(first_deduplication.keep_last_if_active);
+    let first_run = first_run.deduplication.unwrap();
+    let later_same_run = later_same_run.deduplication.unwrap();
+    let other_run = other_run.deduplication.unwrap();
+    assert_eq!(first_run.id, later_same_run.id);
+    assert_ne!(first_run.id, other_run.id);
+    assert!(first_run.id.starts_with("a3s-flow:resume_scheduled_run:"));
+    assert!(first_run.keep_last_if_active);
 }
 
 #[test]
@@ -243,7 +295,7 @@ fn boot_task_manager_rejects_a_zero_deduplication_ttl() {
 }
 
 #[tokio::test]
-async fn boot_task_manager_deduplicates_scans_and_accepts_explicit_job_options() {
+async fn boot_task_manager_deduplicates_scheduled_runs_and_accepts_explicit_job_options() {
     let engine = FlowEngine::in_memory(Arc::new(SleepRuntime));
     let queue = Arc::new(Queue::in_process("flow-options-tests"));
     let manager = BootFlowTaskManager::new(engine, queue.clone())
@@ -253,17 +305,31 @@ async fn boot_task_manager_deduplicates_scans_and_accepts_explicit_job_options()
         .unwrap();
 
     let first = manager
-        .enqueue_with_receipt(FlowTask::ResumeDueWaits { now: Utc::now() })
+        .enqueue_with_receipt(FlowTask::ResumeScheduledRun {
+            run_id: "scheduled-run".to_string(),
+            now: Utc::now(),
+        })
         .await
         .unwrap();
     let duplicate = manager
-        .enqueue_with_receipt(FlowTask::ResumeDueWaits {
+        .enqueue_with_receipt(FlowTask::ResumeScheduledRun {
+            run_id: "scheduled-run".to_string(),
             now: Utc::now() + ChronoDuration::seconds(1),
         })
         .await
         .unwrap();
     assert_eq!(first.id, duplicate.id);
     assert_eq!(queue.stats().unwrap().pending, 1);
+
+    let distinct = manager
+        .enqueue_with_receipt(FlowTask::ResumeScheduledRun {
+            run_id: "other-run".to_string(),
+            now: Utc::now(),
+        })
+        .await
+        .unwrap();
+    assert_ne!(first.id, distinct.id);
+    assert_eq!(queue.stats().unwrap().pending, 2);
 
     let explicit = manager
         .enqueue_with_options(
@@ -275,7 +341,67 @@ async fn boot_task_manager_deduplicates_scans_and_accepts_explicit_job_options()
         .await
         .unwrap();
     assert_eq!(explicit.id, "flow-explicit-job");
-    assert_eq!(queue.stats().unwrap().pending, 2);
+    assert_eq!(queue.stats().unwrap().pending, 3);
+}
+
+#[tokio::test]
+async fn boot_task_manager_retains_the_latest_scheduled_run_while_active() {
+    let now = Utc::now();
+    let runtime = Arc::new(BlockingScheduledRuntime::default());
+    let engine = FlowEngine::in_memory(runtime.clone());
+    let run_id = engine
+        .start(
+            spec(),
+            json!({ "resume_at": (now - ChronoDuration::seconds(1)).to_rfc3339() }),
+        )
+        .await
+        .unwrap();
+    let queue = Arc::new(Queue::in_process_with_options(
+        "flow-active-successor-tests",
+        QueueOptions::new().with_poll_interval(Duration::from_millis(5)),
+    ));
+    let manager = BootFlowTaskManager::new(engine, queue.clone())
+        .with_task_policy(
+            BootFlowTaskPolicy::new().with_deduplication(BootFlowTaskDeduplication::UntilTerminal),
+        )
+        .unwrap();
+    manager.register().unwrap();
+    queue.start(ModuleRef::new()).await.unwrap();
+
+    let first = manager
+        .enqueue_with_receipt(FlowTask::ResumeScheduledRun {
+            run_id: run_id.clone(),
+            now,
+        })
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(1), runtime.started.notified())
+        .await
+        .expect("first scheduled task should become active");
+    assert_eq!(queue.stats().unwrap().active, 1);
+
+    let successor = manager
+        .enqueue_with_receipt(FlowTask::ResumeScheduledRun {
+            run_id,
+            now: now + ChronoDuration::seconds(1),
+        })
+        .await
+        .unwrap();
+    assert_eq!(first.id, successor.id);
+
+    runtime.release.notify_one();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            let stats = queue.stats().unwrap();
+            if stats.completed == 2 && stats.active == 0 && stats.pending == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("the retained successor should run after the active owner");
+    queue.shutdown().await.unwrap();
 }
 
 #[cfg(feature = "sqlite")]

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.10.0 - 2026-08-08
+
+- Added `FlowTask::ResumeScheduledRun { run_id, now }` and
+  `FlowEngine::resume_scheduled_run(...)` for targeted timer and delayed-retry
+  handling. `FlowScheduler` now groups every due wake-up by run and dispatches
+  one stable task per affected run, including a whole batch of due retry
+  siblings.
+- Removed the second global due-wakeup query from the scheduler-to-worker path.
+  Workers replay only the targeted run, classify its still-due waits and
+  retries in `FlowTaskOutcome`, resume waits, and drive all due retry siblings
+  together. The global `ResumeDueWaits` and `ResumeDueRetries` variants remain
+  supported for queue compatibility.
+- Extended A3S Boot logical deduplication with stable per-run scheduling IDs
+  that ignore the volatile scan timestamp, distinguish different runs, and
+  retain the latest successor while a matching task is active.
+- Added scheduler grouping, targeted-worker isolation, stable JSON protocol,
+  single-query end-to-end, and active Boot successor regression coverage.
+
 ## 0.9.0 - 2026-08-07
 
 - Added public `ScheduledWakeup` and `ScheduledWakeupKind` records plus
