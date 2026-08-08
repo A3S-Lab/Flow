@@ -51,6 +51,13 @@ pub enum FlowError {
         existing_hook_id: String,
     },
 
+    #[error("hook {hook_id} for workflow run {run_id} conflicts with request: {reason}")]
+    HookConflict {
+        run_id: String,
+        hook_id: String,
+        reason: String,
+    },
+
     #[error("invalid workflow definition: {0}")]
     InvalidWorkflow(String),
 
@@ -130,6 +137,16 @@ impl fmt::Debug for FlowError {
                 .field("token", &"<redacted>")
                 .field("existing_run_id", existing_run_id)
                 .field("existing_hook_id", existing_hook_id)
+                .finish(),
+            Self::HookConflict {
+                run_id,
+                hook_id,
+                reason,
+            } => formatter
+                .debug_struct("HookConflict")
+                .field("run_id", run_id)
+                .field("hook_id", hook_id)
+                .field("reason", reason)
                 .finish(),
             Self::InvalidWorkflow(message) => formatter
                 .debug_tuple("InvalidWorkflow")

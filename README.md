@@ -189,10 +189,15 @@ Hook capabilities include:
 - Resume by run/hook ID or by public token.
 - Dispose by run/hook ID or by public token when a request expires or is
   withdrawn.
+- Idempotent run/hook-identified redelivery for the same received payload or
+  disposal, including after terminal completion.
+- Typed conflicts for payload drift and for resume/dispose races that selected
+  different terminal hook resolutions.
 - Unique active hook tokens across non-terminal runs.
 - Indexed active-hook routing and transaction-level token ownership in the SQL
   stores.
-- Late-callback rejection after disposal or terminal completion.
+- Active-only public-token routing with late-callback rejection after
+  resolution.
 - Typed `HookMetadata` and `HookCallbackRoute` helpers for audit records,
   dashboards, and callback routers.
 - `list_active_hooks()` for hosts that need to build callback indexes or UI
@@ -781,7 +786,7 @@ Use these docs when moving from API exploration to a host integration:
 | **Durable operation state** | Idempotently identified progress updates and child-operation references survive host replacement; same-store child run IDs must already exist |
 | **Typed terminal outcomes** | Snapshots distinguish completion, failure, cancellation, timeout, retry exhaustion, and explicit non-resumable host shutdown |
 | **Timers** | Waits suspend runs without holding compute |
-| **Hooks** | External callbacks resume or dispose active runs by hook ID or public token |
+| **Hooks** | External callbacks resume or dispose hooks by stable run/hook identity or active public token; identical stable-identity redelivery is idempotent and conflicting resolution is explicit |
 | **Retries** | Failed steps can retry immediately or after a durable delay |
 | **Recoverable step failures** | Exhausted step failures can either fail the run or replay to workflow fallback logic |
 | **Workers** | Queued tasks let a host drive runs outside the request path |
@@ -962,6 +967,23 @@ engine
     .resume_hook_by_token("approval-token", json!({ "approved": true }))
     .await?;
 ```
+
+Durable Outbox consumers should retain the stable run and hook identities and
+use the direct API for retries:
+
+```rust
+engine
+    .resume_hook(&run_id, "approval", json!({ "approved": true }))
+    .await?;
+```
+
+If `hook_received` committed but acknowledgement or the following workflow
+drive was interrupted, redelivering the identical payload resumes recovery
+without a second resolution event. A different payload returns
+`FlowError::HookConflict`, including after the run is terminal. Direct
+`dispose_hook()` redelivery has the same idempotent behavior. The token helpers
+intentionally route only active hooks and therefore remain suitable for the
+first external callback, not durable post-resolution retries.
 
 External hosts can also dispose an active hook when a request is withdrawn,
 expires, or no longer has a valid callback route:
