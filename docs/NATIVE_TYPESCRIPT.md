@@ -38,16 +38,21 @@ let runtime = NativeTsRuntime::new(NativeTsRuntimeConfig::new(
 when they are relative. Workflow entrypoints are resolved from the resulting
 working directory. Bare compiler names use `PATH`; compiler paths containing a
 relative directory component are resolved from the host process directory.
-The compiler and runtime receive absolute entrypoint and artifact paths, so
-their child working directory does not apply either prefix a second time.
+The resolved compiler must remain an executable file even when an artifact is
+already cached. The compiler and runtime receive absolute entrypoint and
+artifact paths, so their child working directory does not apply either prefix
+a second time.
 
 The public source hash covers source and workflow identity and remains stable
 across local compile environments. The internal artifact cache identity also
-covers the configured compiler command, resolved working directory, absolute
-entrypoint, protocol version, and host OS/architecture. Runtimes can therefore
-share a cache root without one compiler, workspace, or native target reusing
-another one's executable, and a protocol revision automatically selects a new
-artifact path.
+covers the resolved compiler path and executable-content fingerprint, resolved
+working directory, absolute entrypoint, protocol version, and host
+OS/architecture. The fingerprint is memoized while stable file metadata proves
+the executable is unchanged. Replacing compiler contents at the same path
+therefore selects a new artifact without making every hot-cache lookup reread
+the executable. Runtimes can share a cache root without one compiler,
+workspace, or native target reusing another one's executable, and a protocol
+revision automatically selects a new artifact path.
 
 Compilation never writes directly to the final cache entry. Every cold
 preflight uses a unique temporary artifact in the same cache directory and

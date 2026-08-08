@@ -574,17 +574,23 @@ async fn main() -> a3s_flow::Result<()> {
 the artifact cache when needed, then invokes the cached artifact for workflow
 replay and step execution. The public source hash stays stable across local
 compile environments. The artifact cache key additionally includes the
-configured compiler command, resolved working directory, absolute entrypoint,
-runtime protocol, and host OS/architecture, so changing any of those inputs
-selects a distinct cache entry instead of reusing an incompatible executable.
+resolved compiler path and executable-content fingerprint, resolved working
+directory, absolute entrypoint, runtime protocol, and host OS/architecture, so
+changing any of those inputs selects a distinct cache entry instead of reusing
+an incompatible executable. Replacing a compiler in place therefore triggers
+a cold compile while leaving the portable source hash unchanged. The compiler
+fingerprint is memoized against stable file metadata so hot workflow replay
+does not repeatedly read the executable.
 
 Relative working and cache directories are resolved against the host process
 directory before a compiler or runtime subprocess starts. Workflow entrypoints
 are then resolved from the runtime working directory and passed to the compiler
-as absolute paths. A bare compiler name is discovered through `PATH`; a
-relative compiler path containing a directory component is also resolved from
-the host process directory. This keeps child `current_dir` handling from
-applying a relative prefix twice.
+as absolute paths. A bare compiler name is resolved to an executable through
+`PATH`; a relative compiler path containing a directory component is resolved
+from the host process directory. Preflight validates that the resolved compiler
+remains an executable file before consulting the artifact cache. This keeps
+child `current_dir` handling from applying a relative prefix twice and prevents
+an obsolete artifact from hiding a missing or replaced compiler.
 
 Compiler output is written to a unique temporary file in the artifact cache
 and atomically published only after compilation succeeds. Concurrent preflight
