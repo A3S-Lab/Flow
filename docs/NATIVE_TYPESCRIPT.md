@@ -55,17 +55,31 @@ workspace, or native target reusing another one's executable, and a protocol
 revision automatically selects a new artifact path.
 
 Compilation never writes directly to the final cache entry. Every cold
-preflight uses a unique temporary artifact in the same cache directory and
-publishes it with an atomic rename after the compiler succeeds. Concurrent
-preflights may both compile, but neither can report or execute a partial cache
-entry. Failed temporary files are removed, and a publish race leaves only a
-completed artifact at the shared path.
+preflight creates a unique temporary directory containing the compiler output
+and an integrity manifest. The manifest binds the cache key, executable byte
+length, and streamed content fingerprint. Flow validates that the output is a
+non-empty regular executable, writes the manifest, and atomically renames the
+whole directory into the shared cache. Concurrent preflights may both compile,
+but neither can report or execute a partial executable/manifest pair.
+
+Every cache hit validates the entry shape, execution permission, manifest, and
+content fingerprint. Successful validation is memoized while stable file
+metadata proves both files are unchanged. Missing or malformed manifests,
+changed artifact contents, empty or non-regular artifacts, and lost execution
+permissions cause the entry to be quarantined and recompiled before reuse.
+Concurrent repairs converge on one valid entry, and failed temporary entries
+are removed.
+
+The integrity-manifest layout uses a new cache identity. Flat artifacts created
+by releases before `0.10.13` are not trusted or migrated; the first use performs
+a cold compile into the new layout. Hosts may remove those older cache files
+after upgrading when reclaiming disk space.
 
 The compiler process and every invoked runtime artifact are owned by the async
 future that started them. If a caller drops that future because of a Boot
 timeout, lease loss, host shutdown, or explicit cancellation, Flow terminates
 the direct child process. A cancelled cold compile also schedules removal of
-its partially written temporary artifact. Flow does not create an operating-
+its partially written temporary cache entry. Flow does not create an operating-
 system process group around this contract; compilers and artifacts that launch
 their own descendants must terminate and reap those descendants themselves.
 
@@ -101,7 +115,7 @@ cold compiler process; cache hits return without starting its timer. The
 invocation timeout applies independently to each workflow replay and step, and
 covers the complete stdin write, concurrent bounded stdout/stderr reads, and
 process exit. On timeout, Flow terminates and reaps the direct child. A timed-
-out cold compile also removes its unique partial cache artifact. An outer Boot
+out cold compile also removes its unique partial cache entry. An outer Boot
 job timeout, lease loss, host shutdown, or caller cancellation can still end
 the same operation sooner.
 

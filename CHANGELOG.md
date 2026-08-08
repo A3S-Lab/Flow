@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.13 - 2026-08-08
+
+- Added persistent integrity manifests for Native TypeScript cache entries.
+  Cache hits now require a regular executable whose length, content
+  fingerprint, and cache identity match the atomically published manifest;
+  damaged files, malformed manifests, and removed execution permissions trigger
+  a cold recompile before reuse.
+- Publish each executable and manifest as one atomically renamed cache-entry
+  directory, quarantine invalid entries during repair, and converge concurrent
+  repair attempts on one valid entry. Compiler and artifact fingerprints stream
+  through bounded buffers and are memoized against stable file metadata.
+
 ## 0.10.12 - 2026-08-08
 
 - Fingerprint the resolved Native TypeScript compiler executable as part of the

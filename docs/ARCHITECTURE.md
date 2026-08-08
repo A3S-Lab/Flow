@@ -351,10 +351,15 @@ fingerprint, resolved compile paths, protocol, and host OS/architecture,
 preventing shared cache roots from crossing compiler revisions, workspaces, or
 native-target boundaries while preserving a portable public source hash.
 Stable compiler file metadata memoizes the content fingerprint, while an
-in-place compiler replacement invalidates the old artifact identity. Cold
-compiles target unique same-directory temporary files
-and reach the shared cache only through atomic rename, so concurrent preflight
-cannot expose a partially written executable. Compiler and artifact processes
+in-place compiler replacement invalidates the old artifact identity. Each
+cache identity resolves to a directory containing the executable and a
+cache-key-bound length/content integrity manifest. Cold compiles build unique
+same-directory temporary entries and publish the executable/manifest pair with
+one atomic directory rename, so concurrent preflight cannot expose a partially
+written executable. Cache hits memoize successful validation against stable
+file metadata; content changes, malformed manifests, or lost execution
+permissions quarantine the entry and trigger a convergent cold repair.
+Compiler and artifact processes
 are owned by their async preflight or invocation future: cancellation
 terminates the direct child, and cancelled cold compiles schedule temporary
 artifact cleanup. The boundary does not create an OS process group, so child

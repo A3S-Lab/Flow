@@ -8,13 +8,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
-#[cfg(feature = "native-ts")]
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
-#[cfg(feature = "native-ts")]
-use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
-#[cfg(feature = "native-ts")]
-use uuid::Uuid;
-
 use crate::context::WorkflowContext;
 use crate::error::{FlowError, Result};
 #[cfg(feature = "native-ts")]
@@ -24,12 +17,19 @@ use crate::model::{FlowEventEnvelope, JsonValue, RuntimeCommand, WorkflowSpec};
 use crate::protocol::{
     NativeRuntimeKind, NativeRuntimeRequest, NativeRuntimeResponse, NATIVE_RUNTIME_PROTOCOL,
 };
+#[cfg(feature = "native-ts")]
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+#[cfg(feature = "native-ts")]
+use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
 
 #[cfg(feature = "native-ts")]
 mod native_ts;
 
 #[cfg(feature = "native-ts")]
-use native_ts::CompilerIdentityCache;
+use native_ts::{
+    artifact_binary_path, ArtifactCache, ArtifactCacheState, CompilerIdentityCache,
+    TemporaryCacheEntryGuard,
+};
 
 /// Workflow replay request passed to a runtime implementation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,6 +134,8 @@ pub struct NativeTsRuntime {
     invocation_timeout: Option<Duration>,
     #[cfg(feature = "native-ts")]
     compiler_identity_cache: CompilerIdentityCache,
+    #[cfg(feature = "native-ts")]
+    artifact_cache: ArtifactCache,
 }
 
 #[cfg(feature = "native-ts")]
@@ -142,6 +144,8 @@ struct NativeArtifact {
     compiler_binary: PathBuf,
     working_dir: PathBuf,
     entrypoint: PathBuf,
+    cache_entry: PathBuf,
+    cache_key: String,
     binary: PathBuf,
     source_hash: String,
 }
@@ -158,55 +162,6 @@ struct NativeProcessOutput {
 enum NativeProcessOutputError {
     Io(std::io::Error),
     LimitExceeded { stream: &'static str, limit: usize },
-}
-
-#[cfg(feature = "native-ts")]
-struct TemporaryArtifactGuard {
-    path: PathBuf,
-    armed: bool,
-}
-
-#[cfg(feature = "native-ts")]
-impl TemporaryArtifactGuard {
-    fn new(path: PathBuf) -> Self {
-        Self { path, armed: true }
-    }
-
-    fn path(&self) -> &Path {
-        &self.path
-    }
-
-    async fn remove(&mut self) {
-        remove_temporary_artifact(&self.path).await;
-        self.armed = false;
-    }
-
-    fn disarm(&mut self) {
-        self.armed = false;
-    }
-}
-
-#[cfg(feature = "native-ts")]
-impl Drop for TemporaryArtifactGuard {
-    fn drop(&mut self) {
-        if !self.armed {
-            return;
-        }
-
-        let path = self.path.clone();
-        match tokio::runtime::Handle::try_current() {
-            Ok(runtime) => {
-                let _cleanup = runtime.spawn(async move {
-                    remove_temporary_artifact(&path).await;
-                });
-            }
-            Err(error) => tracing::warn!(
-                path = %self.path.display(),
-                %error,
-                "failed to schedule cancelled native TypeScript artifact cleanup"
-            ),
-        }
-    }
 }
 
 /// Result of validating and compiling a native TypeScript workflow source.
@@ -238,6 +193,8 @@ impl NativeTsRuntime {
             invocation_timeout: None,
             #[cfg(feature = "native-ts")]
             compiler_identity_cache: CompilerIdentityCache::default(),
+            #[cfg(feature = "native-ts")]
+            artifact_cache: ArtifactCache::default(),
         }
     }
 
@@ -340,11 +297,14 @@ impl NativeTsRuntime {
             NATIVE_RUNTIME_PROTOCOL,
         );
         let name = format!("{}-{artifact_hash}", sanitize_filename(&spec.name));
+        let cache_entry = cache_dir.join(name);
         Ok(NativeArtifact {
             compiler_binary,
             working_dir,
             entrypoint,
-            binary: cache_dir.join(name),
+            binary: artifact_binary_path(&cache_entry),
+            cache_entry,
+            cache_key: artifact_hash,
             source_hash,
         })
     }
@@ -352,27 +312,38 @@ impl NativeTsRuntime {
     #[cfg(feature = "native-ts")]
     async fn compile_if_needed(&self, spec: &WorkflowSpec) -> Result<(NativeArtifact, bool)> {
         let artifact = self.artifact_for(spec).await?;
-        if tokio::fs::metadata(&artifact.binary).await.is_ok() {
-            return Ok((artifact, true));
+        match self
+            .artifact_cache
+            .inspect(&artifact.cache_entry, &artifact.cache_key)
+            .await?
+        {
+            ArtifactCacheState::Valid => return Ok((artifact, true)),
+            ArtifactCacheState::Missing => {}
+            ArtifactCacheState::Invalid(reason) => {
+                tracing::warn!(
+                    path = %artifact.cache_entry.display(),
+                    %reason,
+                    "repairing invalid native TypeScript cache entry"
+                );
+            }
         }
 
-        let cache_dir = artifact.binary.parent().ok_or_else(|| {
+        let cache_dir = artifact.cache_entry.parent().ok_or_else(|| {
             FlowError::Runtime(format!(
-                "native TypeScript artifact {} has no cache directory",
-                artifact.binary.display()
+                "native TypeScript cache entry {} has no parent directory",
+                artifact.cache_entry.display()
             ))
         })?;
         tokio::fs::create_dir_all(cache_dir).await?;
-        // Keep the shared cache entry invisible until the compiler has closed
-        // a complete artifact. Same-directory rename is the atomic publish
-        // boundary for concurrent preflight calls and processes.
-        let mut temporary_binary =
-            TemporaryArtifactGuard::new(temporary_artifact_path(&artifact.binary)?);
+        // Bundle the executable and its integrity manifest in a unique cache
+        // entry. Renaming the directory is the atomic publish boundary, so a
+        // reader can observe either the complete entry or no entry at all.
+        let mut temporary_entry = TemporaryCacheEntryGuard::create(&artifact.cache_entry).await?;
         let child = match Command::new(&artifact.compiler_binary)
             .arg("compile")
             .arg(&artifact.entrypoint)
             .arg("-o")
-            .arg(temporary_binary.path())
+            .arg(temporary_entry.binary())
             .current_dir(&artifact.working_dir)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
@@ -384,7 +355,7 @@ impl NativeTsRuntime {
         {
             Ok(child) => child,
             Err(error) => {
-                temporary_binary.remove().await;
+                temporary_entry.remove().await;
                 return Err(error.into());
             }
         };
@@ -400,28 +371,60 @@ impl NativeTsRuntime {
         {
             Ok(output) => output,
             Err(error) => {
-                temporary_binary.remove().await;
+                temporary_entry.remove().await;
                 return Err(error);
             }
         };
 
         if !output.status.success() {
-            temporary_binary.remove().await;
+            temporary_entry.remove().await;
             return Err(FlowError::Runtime(format!(
                 "native TypeScript compile failed: {}",
                 String::from_utf8_lossy(&output.stderr)
             )));
         }
 
-        if let Err(error) = tokio::fs::metadata(temporary_binary.path()).await {
-            temporary_binary.remove().await;
-            return Err(FlowError::Runtime(format!(
-                "native TypeScript compiler did not produce artifact {}: {error}",
-                artifact.binary.display()
-            )));
+        if let Err(error) = self
+            .artifact_cache
+            .prepare(temporary_entry.path(), &artifact.cache_key)
+            .await
+        {
+            temporary_entry.remove().await;
+            return Err(error);
         }
-        publish_temporary_artifact(temporary_binary.path(), &artifact.binary).await?;
-        temporary_binary.disarm();
+        if let Err(error) = self
+            .artifact_cache
+            .publish(
+                temporary_entry.path(),
+                &artifact.cache_entry,
+                &artifact.cache_key,
+            )
+            .await
+        {
+            temporary_entry.remove().await;
+            return Err(error);
+        }
+        temporary_entry.disarm();
+
+        match self
+            .artifact_cache
+            .inspect(&artifact.cache_entry, &artifact.cache_key)
+            .await?
+        {
+            ArtifactCacheState::Valid => {}
+            ArtifactCacheState::Missing => {
+                return Err(FlowError::Runtime(format!(
+                    "native TypeScript cache entry {} disappeared after publication",
+                    artifact.cache_entry.display()
+                )));
+            }
+            ArtifactCacheState::Invalid(reason) => {
+                return Err(FlowError::Runtime(format!(
+                    "native TypeScript cache entry {} is invalid after publication: {reason}",
+                    artifact.cache_entry.display()
+                )));
+            }
+        }
 
         Ok((artifact, false))
     }
@@ -633,7 +636,7 @@ fn native_artifact_cache_key(
     protocol: &str,
 ) -> String {
     stable_hash([
-        b"a3s.flow.native_ts.artifact.v2".as_slice(),
+        b"a3s.flow.native_ts.artifact.v3".as_slice(),
         source_hash.as_bytes(),
         protocol.as_bytes(),
         compiler_binary.as_os_str().as_encoded_bytes(),
@@ -731,49 +734,6 @@ fn absolute_from_current_dir(path: &Path) -> Result<PathBuf> {
         return Ok(path.to_path_buf());
     }
     Ok(std::env::current_dir()?.join(path))
-}
-
-#[cfg(feature = "native-ts")]
-fn temporary_artifact_path(artifact: &Path) -> Result<PathBuf> {
-    let file_name = artifact.file_name().ok_or_else(|| {
-        FlowError::Runtime(format!(
-            "native TypeScript artifact {} has no file name",
-            artifact.display()
-        ))
-    })?;
-    let temporary_name = format!(".{}.{}.tmp", file_name.to_string_lossy(), Uuid::new_v4());
-    Ok(artifact.with_file_name(temporary_name))
-}
-
-#[cfg(feature = "native-ts")]
-async fn publish_temporary_artifact(temporary: &Path, artifact: &Path) -> Result<()> {
-    match tokio::fs::rename(temporary, artifact).await {
-        Ok(()) => Ok(()),
-        Err(rename_error) => {
-            if tokio::fs::metadata(artifact).await.is_ok() {
-                remove_temporary_artifact(temporary).await;
-                return Ok(());
-            }
-            remove_temporary_artifact(temporary).await;
-            Err(FlowError::Runtime(format!(
-                "native TypeScript artifact {} could not be published atomically: {rename_error}",
-                artifact.display()
-            )))
-        }
-    }
-}
-
-#[cfg(feature = "native-ts")]
-async fn remove_temporary_artifact(path: &Path) {
-    match tokio::fs::remove_file(path).await {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => tracing::warn!(
-            path = %path.display(),
-            %error,
-            "failed to remove temporary native TypeScript artifact"
-        ),
-    }
 }
 
 #[cfg(feature = "native-ts")]
