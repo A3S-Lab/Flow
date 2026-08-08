@@ -144,6 +144,17 @@ pub(super) async fn handle_flow_task(
             outcome.run_ids.push(run_id.clone());
             outcome.disposed_hook = Some((run_id, hook_id));
         }
+        FlowTask::ResumeScheduledRun { run_id, now } => {
+            let resumed = engine.resume_scheduled_run(&run_id, now).await?;
+            outcome.run_ids.push(run_id);
+            for wakeup in resumed {
+                let target = (wakeup.run_id, wakeup.subject_id);
+                match wakeup.kind {
+                    crate::ScheduledWakeupKind::Wait => outcome.resumed_waits.push(target),
+                    crate::ScheduledWakeupKind::Retry => outcome.resumed_retries.push(target),
+                }
+            }
+        }
         FlowTask::ResumeDueWaits { now } => {
             let resumed = engine.resume_due_waits(now).await?;
             for (run_id, _) in &resumed {

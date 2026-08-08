@@ -10,7 +10,7 @@ use crate::model::{
 };
 use crate::observe::{FlowEventObserver, NoopFlowEventObserver};
 use crate::runtime::{FlowRuntime, WorkflowInvocation};
-use crate::store::{FlowEventStore, InMemoryEventStore};
+use crate::store::{scheduled_wakeups_for_snapshot, FlowEventStore, InMemoryEventStore};
 
 mod operations;
 mod steps;
@@ -452,6 +452,43 @@ impl FlowEngine {
         for run_id in run_ids {
             self.drive_at(&run_id, now).await?;
         }
+        Ok(due)
+    }
+
+    /// Resume the due waits and delayed retries for one targeted run.
+    ///
+    /// Unlike the compatibility-wide `resume_due_*` methods, this path loads
+    /// only `run_id` and never performs another global due-wakeup query. The
+    /// returned records describe the wakeups that were still due when the task
+    /// began handling.
+    pub async fn resume_scheduled_run(
+        &self,
+        run_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<ScheduledWakeup>> {
+        let history = self.store.list(run_id).await?;
+        let snapshot = project_run(run_id, &history)?;
+        let due = scheduled_wakeups_for_snapshot(&snapshot)
+            .into_iter()
+            .filter(|wakeup| wakeup.scheduled_at <= now)
+            .collect::<Vec<_>>();
+
+        let due_wait_ids = due
+            .iter()
+            .filter(|wakeup| wakeup.kind == ScheduledWakeupKind::Wait)
+            .map(|wakeup| wakeup.subject_id.clone())
+            .collect::<Vec<_>>();
+        let has_due_retries = due
+            .iter()
+            .any(|wakeup| wakeup.kind == ScheduledWakeupKind::Retry);
+
+        for wait_id in due_wait_ids {
+            self.resume_wait(run_id, &wait_id).await?;
+        }
+        if has_due_retries {
+            self.drive_at(run_id, now).await?;
+        }
+
         Ok(due)
     }
 

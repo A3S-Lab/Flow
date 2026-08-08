@@ -72,7 +72,12 @@ async fn main() -> a3s_flow::Result<()> {
         )
         .await?;
 
-    queue.enqueue(FlowTask::ResumeDueWaits { now }).await?;
+    queue
+        .enqueue(FlowTask::ResumeScheduledRun {
+            run_id: run_id.clone(),
+            now,
+        })
+        .await?;
     println!("queue_name={queue_name}");
     println!("pending_before_lease={}", queue.len().await?);
 
