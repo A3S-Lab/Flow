@@ -15,7 +15,7 @@ use crate::store::{scheduled_wakeups_for_snapshot, FlowEventStore, InMemoryEvent
 mod operations;
 mod steps;
 mod validation;
-use steps::StepExecutionContext;
+use steps::{interrupted_retry_exhaustion_event, StepExecutionContext};
 use validation::{
     ensure_child_operation_matches, ensure_hook_command_matches, ensure_progress_matches,
     ensure_retry_policy_valid, ensure_same_start, ensure_step_batch_valid,
@@ -643,6 +643,16 @@ impl FlowEngine {
         'replay: for _ in 0..self.max_replay_iterations {
             let history = self.store.list(run_id).await?;
             let snapshot = project_run(run_id, &history)?;
+            if let Some(event) = interrupted_retry_exhaustion_event(&snapshot, &history) {
+                match self
+                    .record_event_at(run_id, snapshot.last_sequence, event)
+                    .await
+                {
+                    Ok(_) => continue,
+                    Err(err) if is_event_conflict(&err) => continue,
+                    Err(err) => return Err(err),
+                }
+            }
             if snapshot.status.is_terminal()
                 || snapshot
                     .waits
