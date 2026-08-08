@@ -6,11 +6,12 @@ use sha2::{Digest, Sha256};
 #[cfg(feature = "native-ts")]
 use std::path::Path;
 use std::path::PathBuf;
+use std::time::Duration;
 
 #[cfg(feature = "native-ts")]
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 #[cfg(feature = "native-ts")]
-use tokio::process::{Child, Command};
+use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
 #[cfg(feature = "native-ts")]
 use uuid::Uuid;
 
@@ -123,6 +124,8 @@ pub struct NativeTsRuntime {
     config: NativeTsRuntimeConfig,
     max_stdout_bytes: usize,
     max_stderr_bytes: usize,
+    compile_timeout: Option<Duration>,
+    invocation_timeout: Option<Duration>,
 }
 
 #[cfg(feature = "native-ts")]
@@ -223,6 +226,8 @@ impl NativeTsRuntime {
             config,
             max_stdout_bytes: Self::DEFAULT_MAX_STDOUT_BYTES,
             max_stderr_bytes: Self::DEFAULT_MAX_STDERR_BYTES,
+            compile_timeout: None,
+            invocation_timeout: None,
         }
     }
 
@@ -250,6 +255,37 @@ impl NativeTsRuntime {
     /// Return the configured byte limit for each stderr pipe.
     pub fn max_stderr_bytes(&self) -> usize {
         self.max_stderr_bytes
+    }
+
+    /// Set the maximum duration of each cold compiler process.
+    ///
+    /// Cache hits do not start a compiler and therefore do not consume this
+    /// timeout. By default, compilation has no runtime-owned timeout and
+    /// remains bounded only by caller cancellation or an outer host timeout.
+    pub fn with_compile_timeout(mut self, timeout: Duration) -> Self {
+        self.compile_timeout = Some(timeout);
+        self
+    }
+
+    /// Set the maximum duration of each workflow or step artifact invocation.
+    ///
+    /// The timeout covers writing the complete request to stdin, reading both
+    /// output pipes, and waiting for process exit. By default, invocation has
+    /// no runtime-owned timeout and remains bounded only by caller cancellation
+    /// or an outer host timeout.
+    pub fn with_invocation_timeout(mut self, timeout: Duration) -> Self {
+        self.invocation_timeout = Some(timeout);
+        self
+    }
+
+    /// Return the configured cold-compilation timeout, if any.
+    pub fn compile_timeout(&self) -> Option<Duration> {
+        self.compile_timeout
+    }
+
+    /// Return the configured workflow and step invocation timeout, if any.
+    pub fn invocation_timeout(&self) -> Option<Duration> {
+        self.invocation_timeout
     }
 
     #[cfg(feature = "native-ts")]
@@ -338,11 +374,13 @@ impl NativeTsRuntime {
                 return Err(error.into());
             }
         };
-        let output = match wait_with_bounded_output(
+        let output = match communicate_with_bounded_output(
             child,
             "compiler",
+            None,
             self.max_stdout_bytes,
             self.max_stderr_bytes,
+            self.compile_timeout,
         )
         .await
         {
@@ -386,14 +424,14 @@ impl NativeTsRuntime {
         O: DeserializeOwned,
     {
         let (artifact, _) = self.compile_if_needed(spec).await?;
-        let request = NativeRuntimeRequest::new(
+        let request = serde_json::to_vec(&NativeRuntimeRequest::new(
             kind,
             spec.runtime.export_name.clone(),
             artifact.source_hash,
             payload,
-        );
+        ))?;
 
-        let mut child = Command::new(&artifact.binary)
+        let child = Command::new(&artifact.binary)
             .arg("--a3s-flow-runtime")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -404,21 +442,13 @@ impl NativeTsRuntime {
             .kill_on_drop(true)
             .spawn()?;
 
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| FlowError::Runtime("failed to open runtime stdin".to_string()))?;
-        stdin
-            .write_all(serde_json::to_string(&request)?.as_bytes())
-            .await?;
-        stdin.shutdown().await?;
-        drop(stdin);
-
-        let output = wait_with_bounded_output(
+        let output = communicate_with_bounded_output(
             child,
             "runtime",
+            Some(request),
             self.max_stdout_bytes,
             self.max_stderr_bytes,
+            self.invocation_timeout,
         )
         .await?;
         if !output.status.success() {
@@ -433,12 +463,25 @@ impl NativeTsRuntime {
 }
 
 #[cfg(feature = "native-ts")]
-async fn wait_with_bounded_output(
+async fn communicate_with_bounded_output(
     mut child: Child,
     process_kind: &'static str,
+    stdin_bytes: Option<Vec<u8>>,
     max_stdout_bytes: usize,
     max_stderr_bytes: usize,
+    process_timeout: Option<Duration>,
 ) -> Result<NativeProcessOutput> {
+    let stdin = match stdin_bytes {
+        Some(bytes) => Some((
+            child.stdin.take().ok_or_else(|| {
+                FlowError::Runtime(format!(
+                    "native TypeScript {process_kind} stdin pipe is unavailable"
+                ))
+            })?,
+            bytes,
+        )),
+        None => None,
+    };
     let stdout = child.stdout.take().ok_or_else(|| {
         FlowError::Runtime(format!(
             "native TypeScript {process_kind} stdout pipe is unavailable"
@@ -450,24 +493,33 @@ async fn wait_with_bounded_output(
         ))
     })?;
 
-    let output = {
-        let wait = async { child.wait().await.map_err(NativeProcessOutputError::Io) };
-        let stdout = read_bounded_output(stdout, "stdout", max_stdout_bytes);
-        let stderr = read_bounded_output(stderr, "stderr", max_stderr_bytes);
-        tokio::try_join!(wait, stdout, stderr)
+    let communication = collect_native_process_output(
+        &mut child,
+        stdin,
+        stdout,
+        stderr,
+        max_stdout_bytes,
+        max_stderr_bytes,
+    );
+    let output = match process_timeout {
+        Some(timeout) => match tokio::time::timeout(timeout, communication).await {
+            Ok(output) => output,
+            Err(_) => {
+                terminate_and_reap(&mut child).await;
+                return Err(FlowError::Runtime(format!(
+                    "native TypeScript {process_kind} timed out after {timeout:?}"
+                )));
+            }
+        },
+        None => communication.await,
     };
 
     match output {
-        Ok((status, stdout, stderr)) => Ok(NativeProcessOutput {
-            status,
-            stdout,
-            stderr,
-        }),
+        Ok(output) => Ok(output),
         Err(error) => {
             // The read that crossed the limit stops consuming its pipe. Kill
             // and reap the child so a blocked writer cannot outlive this call.
-            let _ = child.start_kill();
-            let _ = child.wait().await;
+            terminate_and_reap(&mut child).await;
             match error {
                 NativeProcessOutputError::Io(error) => Err(error.into()),
                 NativeProcessOutputError::LimitExceeded { stream, limit } => {
@@ -478,6 +530,45 @@ async fn wait_with_bounded_output(
             }
         }
     }
+}
+
+#[cfg(feature = "native-ts")]
+async fn collect_native_process_output(
+    child: &mut Child,
+    stdin: Option<(ChildStdin, Vec<u8>)>,
+    stdout: ChildStdout,
+    stderr: ChildStderr,
+    max_stdout_bytes: usize,
+    max_stderr_bytes: usize,
+) -> std::result::Result<NativeProcessOutput, NativeProcessOutputError> {
+    let write_stdin = async move {
+        if let Some((mut stdin, bytes)) = stdin {
+            stdin
+                .write_all(&bytes)
+                .await
+                .map_err(NativeProcessOutputError::Io)?;
+            stdin
+                .shutdown()
+                .await
+                .map_err(NativeProcessOutputError::Io)?;
+        }
+        Ok(())
+    };
+    let wait = async { child.wait().await.map_err(NativeProcessOutputError::Io) };
+    let stdout = read_bounded_output(stdout, "stdout", max_stdout_bytes);
+    let stderr = read_bounded_output(stderr, "stderr", max_stderr_bytes);
+    let (status, (), stdout, stderr) = tokio::try_join!(wait, write_stdin, stdout, stderr)?;
+    Ok(NativeProcessOutput {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
+#[cfg(feature = "native-ts")]
+async fn terminate_and_reap(child: &mut Child) {
+    let _ = child.start_kill();
+    let _ = child.wait().await;
 }
 
 #[cfg(feature = "native-ts")]
@@ -736,6 +827,7 @@ mod tests {
     use super::{native_artifact_cache_key, read_bounded_output, NativeProcessOutputError};
     use super::{NativeTsRuntime, NativeTsRuntimeConfig};
     use std::path::Path;
+    use std::time::Duration;
 
     #[test]
     fn native_ts_default_cache_stays_under_a3s_state_root() {
@@ -760,6 +852,20 @@ mod tests {
         let runtime = runtime.with_output_limits(123, 45);
         assert_eq!(runtime.max_stdout_bytes(), 123);
         assert_eq!(runtime.max_stderr_bytes(), 45);
+    }
+
+    #[test]
+    fn native_ts_runtime_timeouts_are_opt_in_and_configurable() {
+        let runtime = NativeTsRuntime::new(NativeTsRuntimeConfig::default());
+
+        assert_eq!(runtime.compile_timeout(), None);
+        assert_eq!(runtime.invocation_timeout(), None);
+
+        let runtime = runtime
+            .with_compile_timeout(Duration::from_secs(30))
+            .with_invocation_timeout(Duration::from_secs(5));
+        assert_eq!(runtime.compile_timeout(), Some(Duration::from_secs(30)));
+        assert_eq!(runtime.invocation_timeout(), Some(Duration::from_secs(5)));
     }
 
     #[cfg(feature = "native-ts")]
