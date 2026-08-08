@@ -339,13 +339,17 @@ Response envelope:
 }
 ```
 
-The adapter validates `protocol`, response `kind`, error envelopes, and
-source-hash based artifact cache keys. `NativeTsRuntime::preflight()` exposes the
-resolved entrypoint, artifact path, source hash, and cache-hit metadata before a
-run starts, and compile failures include compiler stderr in the returned runtime
-error. Relative host configuration is resolved before subprocess launch, and
-absolute entrypoint and artifact paths prevent child working directories from
-reapplying a prefix. Cold compiles target unique same-directory temporary files
+The adapter validates `protocol`, response `kind`, and error envelopes, and it
+uses environment-scoped artifact cache keys. `NativeTsRuntime::preflight()`
+exposes the resolved entrypoint, artifact path, source hash, and cache-hit
+metadata before a run starts, and compile failures include compiler stderr in
+the returned runtime error. Relative host configuration is resolved before
+subprocess launch, and absolute entrypoint and artifact paths prevent child
+working directories from reapplying a prefix. A separate local artifact
+identity covers the source hash, configured compiler, resolved compile paths,
+protocol, and host OS/architecture, preventing shared cache roots from crossing
+compiler, workspace, or native-target boundaries while preserving a portable
+public source hash. Cold compiles target unique same-directory temporary files
 and reach the shared cache only through atomic rename, so concurrent preflight
 cannot expose a partially written executable. This leaves deeper compiler
 integration incremental: a host can start with a process boundary and later

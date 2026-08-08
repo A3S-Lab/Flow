@@ -284,7 +284,7 @@ The TypeScript path provides:
 - TypeScript workflow and step source files.
 - Authoring-only `.d.ts` definitions that mirror the Rust protocol shape.
 - Compile preflight through `NativeTsRuntime::preflight()`.
-- Source-hash based artifact caching.
+- Stable source hashes with compile-environment-isolated artifact caching.
 - Runtime request/response protocol validation.
 - Compiler stderr surfaced as runtime errors.
 
@@ -567,9 +567,13 @@ async fn main() -> a3s_flow::Result<()> {
 }
 ```
 
-`NativeTsRuntime` hashes the source file, compiles it into the artifact cache
-when needed, then invokes the cached artifact for workflow replay and step
-execution. Changing the source creates a new artifact cache key.
+`NativeTsRuntime` hashes the source file and workflow identity, compiles it into
+the artifact cache when needed, then invokes the cached artifact for workflow
+replay and step execution. The public source hash stays stable across local
+compile environments. The artifact cache key additionally includes the
+configured compiler command, resolved working directory, absolute entrypoint,
+runtime protocol, and host OS/architecture, so changing any of those inputs
+selects a distinct cache entry instead of reusing an incompatible executable.
 
 Relative working and cache directories are resolved against the host process
 directory before a compiler or runtime subprocess starts. Workflow entrypoints
