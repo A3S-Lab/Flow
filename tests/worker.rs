@@ -496,6 +496,107 @@ async fn local_file_task_queue_leases_and_acks_tasks() {
 }
 
 #[tokio::test]
+async fn local_file_task_queue_rejects_absolute_ack_path_without_deleting_external_file() {
+    let queue_dir = tempfile::tempdir().unwrap();
+    let external_dir = tempfile::tempdir().unwrap();
+    let external_path = external_dir.path().join("ack-victim.json");
+    tokio::fs::write(&external_path, b"must survive")
+        .await
+        .unwrap();
+
+    let queue = LocalFileFlowTaskQueue::new(queue_dir.path());
+    let malicious_lease_id = external_path.to_string_lossy().into_owned();
+    let err = queue.ack(&malicious_lease_id).await.unwrap_err();
+
+    assert!(
+        matches!(err, FlowError::LeaseLost(lease_id) if lease_id == malicious_lease_id),
+        "absolute paths must be rejected as lost leases"
+    );
+    assert_eq!(
+        tokio::fs::read(&external_path).await.unwrap(),
+        b"must survive"
+    );
+}
+
+#[tokio::test]
+async fn local_file_task_queue_rejects_absolute_heartbeat_path_without_moving_external_file() {
+    let queue_dir = tempfile::tempdir().unwrap();
+    let external_dir = tempfile::tempdir().unwrap();
+    let external_path = external_dir.path().join("heartbeat-victim.json");
+    tokio::fs::write(&external_path, b"must stay outside")
+        .await
+        .unwrap();
+    tokio::fs::create_dir_all(queue_dir.path().join("inflight"))
+        .await
+        .unwrap();
+
+    let queue = LocalFileFlowTaskQueue::new(queue_dir.path());
+    let malicious_lease_id = external_path.to_string_lossy().into_owned();
+    let err = queue.heartbeat(&malicious_lease_id).await.unwrap_err();
+
+    assert!(
+        matches!(err, FlowError::LeaseLost(lease_id) if lease_id == malicious_lease_id),
+        "absolute paths must be rejected as lost leases"
+    );
+    assert_eq!(
+        tokio::fs::read(&external_path).await.unwrap(),
+        b"must stay outside"
+    );
+}
+
+#[tokio::test]
+async fn local_file_task_queue_rejects_parent_traversal_without_deleting_queue_files() {
+    let dir = tempfile::tempdir().unwrap();
+    tokio::fs::create_dir_all(dir.path().join("inflight"))
+        .await
+        .unwrap();
+    let protected_path = dir.path().join("protected.json");
+    tokio::fs::write(&protected_path, b"must survive")
+        .await
+        .unwrap();
+
+    let queue = LocalFileFlowTaskQueue::new(dir.path());
+    let malicious_lease_id = "../protected.json";
+    let err = queue.ack(malicious_lease_id).await.unwrap_err();
+
+    assert!(
+        matches!(err, FlowError::LeaseLost(lease_id) if lease_id == malicious_lease_id),
+        "parent traversal must be rejected as a lost lease"
+    );
+    assert_eq!(
+        tokio::fs::read(&protected_path).await.unwrap(),
+        b"must survive"
+    );
+}
+
+#[tokio::test]
+async fn local_file_task_queue_rejects_noncanonical_lease_file_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let inflight_dir = dir.path().join("inflight");
+    tokio::fs::create_dir_all(&inflight_dir).await.unwrap();
+    let ack_path = inflight_dir.join("not-a-lease.json");
+    let heartbeat_path = inflight_dir.join("also-not-a-lease.json");
+    tokio::fs::write(&ack_path, b"ack target").await.unwrap();
+    tokio::fs::write(&heartbeat_path, b"heartbeat target")
+        .await
+        .unwrap();
+
+    let queue = LocalFileFlowTaskQueue::new(dir.path());
+    let ack_err = queue.ack("not-a-lease.json").await.unwrap_err();
+    let heartbeat_err = queue.heartbeat("also-not-a-lease.json").await.unwrap_err();
+
+    assert!(matches!(ack_err, FlowError::LeaseLost(lease_id) if lease_id == "not-a-lease.json"));
+    assert!(
+        matches!(heartbeat_err, FlowError::LeaseLost(lease_id) if lease_id == "also-not-a-lease.json")
+    );
+    assert_eq!(tokio::fs::read(&ack_path).await.unwrap(), b"ack target");
+    assert_eq!(
+        tokio::fs::read(&heartbeat_path).await.unwrap(),
+        b"heartbeat target"
+    );
+}
+
+#[tokio::test]
 async fn local_file_task_queue_requeues_unacked_inflight_tasks() {
     let dir = tempfile::tempdir().unwrap();
     let queue = Arc::new(LocalFileFlowTaskQueue::new(dir.path()));

@@ -13,7 +13,7 @@ inject its queue.
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.0", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.10.1", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
@@ -140,7 +140,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.0", features = ["sqlite"] }
+a3s-flow = { version = "0.10.1", features = ["sqlite"] }
 ```
 
 Then wire the SQLite event store into the same engine and worker shape:
@@ -210,7 +210,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.0", features = ["postgres"] }
+a3s-flow = { version = "0.10.1", features = ["postgres"] }
 ```
 
 Then wire the Postgres event store and task queue into the same engine and
@@ -710,7 +710,7 @@ feature and publish bridged records through an `EventBus`:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.0", features = ["a3s-event"] }
+a3s-flow = { version = "0.10.1", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 

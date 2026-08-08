@@ -73,8 +73,36 @@ impl LocalFileFlowTaskQueue {
         self.pending_dir().join(name)
     }
 
-    fn inflight_path(&self, lease_id: &str) -> PathBuf {
-        self.inflight_dir().join(lease_id)
+    fn inflight_path(&self, lease_id: &str) -> Result<PathBuf> {
+        if !Self::is_canonical_lease_id(lease_id) {
+            return Err(FlowError::LeaseLost(lease_id.to_string()));
+        }
+        Ok(self.inflight_dir().join(lease_id))
+    }
+
+    fn is_canonical_lease_id(lease_id: &str) -> bool {
+        let Some((timestamp, uuid_with_extension)) = lease_id.split_once('-') else {
+            return false;
+        };
+        if timestamp.len() != 20 || !timestamp.bytes().all(|byte| byte.is_ascii_digit()) {
+            return false;
+        }
+        let Ok(timestamp_value) = timestamp.parse::<i64>() else {
+            return false;
+        };
+        if format!("{timestamp_value:020}") != timestamp {
+            return false;
+        }
+
+        let Some(uuid_text) = uuid_with_extension.strip_suffix(".json") else {
+            return false;
+        };
+        let Ok(uuid) = Uuid::parse_str(uuid_text) else {
+            return false;
+        };
+        uuid.get_version_num() == 4
+            && uuid.get_variant() == uuid::Variant::RFC4122
+            && uuid.hyphenated().to_string() == uuid_text
     }
 
     fn dead_letter_path(&self, name: &str) -> PathBuf {
@@ -268,7 +296,7 @@ impl FlowTaskQueue for LocalFileFlowTaskQueue {
             )));
         };
         let lease_id = Self::queue_file_name(Utc::now(), Uuid::new_v4());
-        let inflight_path = self.inflight_path(&lease_id);
+        let inflight_path = self.inflight_path(&lease_id)?;
         tokio::fs::rename(&path, &inflight_path).await?;
 
         let task = Self::read_task_file(&inflight_path).await?;
@@ -277,9 +305,9 @@ impl FlowTaskQueue for LocalFileFlowTaskQueue {
 
     async fn heartbeat(&self, lease_id: &str) -> Result<String> {
         let _guard = self.lock.lock().await;
-        let current_path = self.inflight_path(lease_id);
+        let current_path = self.inflight_path(lease_id)?;
         let renewed_lease_id = Self::queue_file_name(Utc::now(), Uuid::new_v4());
-        let renewed_path = self.inflight_path(&renewed_lease_id);
+        let renewed_path = self.inflight_path(&renewed_lease_id)?;
         match tokio::fs::rename(current_path, renewed_path).await {
             Ok(()) => Ok(renewed_lease_id),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
@@ -291,7 +319,7 @@ impl FlowTaskQueue for LocalFileFlowTaskQueue {
 
     async fn ack(&self, lease_id: &str) -> Result<()> {
         let _guard = self.lock.lock().await;
-        let path = self.inflight_path(lease_id);
+        let path = self.inflight_path(lease_id)?;
         match tokio::fs::remove_file(&path).await {
             Ok(()) => Ok(()),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
