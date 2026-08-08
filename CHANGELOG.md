@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.10.3 - 2026-08-08
+
+- Hardened event projection so persisted step attempts must advance exactly one
+  number at a time, retry and failure events must match the running attempt,
+  and retry versus terminal failure events must respect the configured attempt
+  budget.
+- Rejected persisted retry events whose `retry_after` shape conflicts with an
+  immediate or delayed policy, as well as unrepresentable persisted retry
+  delays.
+- Required `run_retry_exhausted` to preserve the failed step's error and
+  failure action, preventing corrupt histories from terminating a step that
+  explicitly opted into workflow recovery.
+- Added a focused corrupt-history regression suite for retry projection
+  invariants.
+
 ## 0.10.2 - 2026-08-08
 
 - Replaced unchecked retry-delay casts and UTC date addition with validated,

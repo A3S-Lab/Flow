@@ -136,8 +136,9 @@ gives A3S Flow:
 
 Event keys are dot-separated A3S keys such as `flow.step.completed`.
 Projection preserves store order and validates event sequence continuity and
-lifecycle transitions, including duplicate step/wait/hook creation and events
-appended after a terminal run state.
+lifecycle transitions, including duplicate step/wait/hook creation, exact step
+attempt progression, retry-budget and deadline consistency, terminal retry
+outcomes, and events appended after a terminal run state.
 The local JSONL store keeps file order intact and projects existing history
 before append, so a corrupt local log is rejected instead of extended.
 `SqliteEventStore` stores the same envelopes as rows in one SQLite database and

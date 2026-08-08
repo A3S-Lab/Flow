@@ -87,7 +87,8 @@ Flow runs are event-sourced from creation to terminal state:
   stored as a `FlowEventEnvelope` with a per-run sequence number.
 - `WorkflowRunSnapshot` is a projection of the event stream, not mutable state.
 - Expected-sequence appends detect stale writers and concurrent updates.
-- Projection validates event order, duplicate definitions, invalid lifecycle
+- Projection validates event order, duplicate definitions, step attempt and
+  retry-budget consistency, retry deadline shape, invalid lifecycle
   transitions, and events appended after terminal states.
 
 This gives hosts crash recovery, audit-friendly histories, idempotent re-drive,
@@ -321,7 +322,7 @@ which observability sinks receive committed events.
 
 ```toml
 [dependencies]
-a3s-flow = "0.10.2"
+a3s-flow = "0.10.3"
 async-trait = "0.1"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -986,7 +987,7 @@ single SQLite database instead of one JSONL file per run:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.2", features = ["sqlite"] }
+a3s-flow = { version = "0.10.3", features = ["sqlite"] }
 ```
 
 ```rust
@@ -1049,7 +1050,7 @@ event history through a database:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.2", features = ["postgres"] }
+a3s-flow = { version = "0.10.3", features = ["postgres"] }
 ```
 
 ```rust
@@ -1133,7 +1134,7 @@ Enable `boot` and one durable storage feature for a host that uses A3S Boot:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.2", features = ["boot", "sqlite"] }
+a3s-flow = { version = "0.10.3", features = ["boot", "sqlite"] }
 a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
 ```
 
@@ -1358,7 +1359,7 @@ hosts that already use A3S Event as their event backbone:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.10.2", features = ["a3s-event"] }
+a3s-flow = { version = "0.10.3", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 
