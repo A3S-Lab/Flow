@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.10 - 2026-08-08
+
+- Bounded stdout and stderr capture for Native TypeScript compiler and runtime
+  artifact processes. The defaults cap each stdout pipe at 8 MiB and each
+  stderr pipe at 256 KiB; hosts can override both through
+  `NativeTsRuntime::with_output_limits`.
+- Terminate and reap a direct child as soon as either stream crosses its limit,
+  preventing untrusted compiler or workflow output from growing host memory
+  without bound. Added process-level coverage for all four stream paths and an
+  exact-boundary regression.
+
 ## 0.10.9 - 2026-08-08
 
 - Tied Native TypeScript compiler and runtime artifact processes to their

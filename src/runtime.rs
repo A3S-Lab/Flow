@@ -8,9 +8,9 @@ use std::path::Path;
 use std::path::PathBuf;
 
 #[cfg(feature = "native-ts")]
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 #[cfg(feature = "native-ts")]
-use tokio::process::Command;
+use tokio::process::{Child, Command};
 #[cfg(feature = "native-ts")]
 use uuid::Uuid;
 
@@ -121,6 +121,8 @@ impl Default for NativeTsRuntimeConfig {
 #[derive(Debug, Clone)]
 pub struct NativeTsRuntime {
     config: NativeTsRuntimeConfig,
+    max_stdout_bytes: usize,
+    max_stderr_bytes: usize,
 }
 
 #[cfg(feature = "native-ts")]
@@ -131,6 +133,20 @@ struct NativeArtifact {
     entrypoint: PathBuf,
     binary: PathBuf,
     source_hash: String,
+}
+
+#[cfg(feature = "native-ts")]
+struct NativeProcessOutput {
+    status: std::process::ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+#[cfg(feature = "native-ts")]
+#[derive(Debug)]
+enum NativeProcessOutputError {
+    Io(std::io::Error),
+    LimitExceeded { stream: &'static str, limit: usize },
 }
 
 #[cfg(feature = "native-ts")]
@@ -196,12 +212,44 @@ pub struct NativeTsRuntimePreflight {
 }
 
 impl NativeTsRuntime {
+    /// Default maximum bytes retained from a compiler or runtime stdout pipe.
+    pub const DEFAULT_MAX_STDOUT_BYTES: usize = 8 * 1024 * 1024;
+
+    /// Default maximum bytes retained from a compiler or runtime stderr pipe.
+    pub const DEFAULT_MAX_STDERR_BYTES: usize = 256 * 1024;
+
     pub fn new(config: NativeTsRuntimeConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            max_stdout_bytes: Self::DEFAULT_MAX_STDOUT_BYTES,
+            max_stderr_bytes: Self::DEFAULT_MAX_STDERR_BYTES,
+        }
     }
 
     pub fn config(&self) -> &NativeTsRuntimeConfig {
         &self.config
+    }
+
+    /// Override the independent byte limits for each compiler and runtime
+    /// stdout/stderr pipe.
+    ///
+    /// Exceeding either limit terminates the direct child process and returns a
+    /// runtime error. A zero limit allows an empty pipe but rejects its first
+    /// byte of output.
+    pub fn with_output_limits(mut self, max_stdout_bytes: usize, max_stderr_bytes: usize) -> Self {
+        self.max_stdout_bytes = max_stdout_bytes;
+        self.max_stderr_bytes = max_stderr_bytes;
+        self
+    }
+
+    /// Return the configured byte limit for each stdout pipe.
+    pub fn max_stdout_bytes(&self) -> usize {
+        self.max_stdout_bytes
+    }
+
+    /// Return the configured byte limit for each stderr pipe.
+    pub fn max_stderr_bytes(&self) -> usize {
+        self.max_stderr_bytes
     }
 
     #[cfg(feature = "native-ts")]
@@ -270,22 +318,38 @@ impl NativeTsRuntime {
         // boundary for concurrent preflight calls and processes.
         let mut temporary_binary =
             TemporaryArtifactGuard::new(temporary_artifact_path(&artifact.binary)?);
-        let output = match Command::new(&artifact.compiler_binary)
+        let child = match Command::new(&artifact.compiler_binary)
             .arg("compile")
             .arg(&artifact.entrypoint)
             .arg("-o")
             .arg(temporary_binary.path())
             .current_dir(&artifact.working_dir)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
             // A cancelled preflight must not leave the compiler running after
             // its Rust future and temporary-artifact cleanup have disappeared.
             .kill_on_drop(true)
-            .output()
-            .await
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(error) => {
+                temporary_binary.remove().await;
+                return Err(error.into());
+            }
+        };
+        let output = match wait_with_bounded_output(
+            child,
+            "compiler",
+            self.max_stdout_bytes,
+            self.max_stderr_bytes,
+        )
+        .await
         {
             Ok(output) => output,
             Err(error) => {
                 temporary_binary.remove().await;
-                return Err(error.into());
+                return Err(error);
             }
         };
 
@@ -350,7 +414,13 @@ impl NativeTsRuntime {
         stdin.shutdown().await?;
         drop(stdin);
 
-        let output = child.wait_with_output().await?;
+        let output = wait_with_bounded_output(
+            child,
+            "runtime",
+            self.max_stdout_bytes,
+            self.max_stderr_bytes,
+        )
+        .await?;
         if !output.status.success() {
             return Err(FlowError::Runtime(format!(
                 "native TypeScript runtime failed: {}",
@@ -359,6 +429,80 @@ impl NativeTsRuntime {
         }
 
         decode_native_response(kind, &output.stdout)
+    }
+}
+
+#[cfg(feature = "native-ts")]
+async fn wait_with_bounded_output(
+    mut child: Child,
+    process_kind: &'static str,
+    max_stdout_bytes: usize,
+    max_stderr_bytes: usize,
+) -> Result<NativeProcessOutput> {
+    let stdout = child.stdout.take().ok_or_else(|| {
+        FlowError::Runtime(format!(
+            "native TypeScript {process_kind} stdout pipe is unavailable"
+        ))
+    })?;
+    let stderr = child.stderr.take().ok_or_else(|| {
+        FlowError::Runtime(format!(
+            "native TypeScript {process_kind} stderr pipe is unavailable"
+        ))
+    })?;
+
+    let output = {
+        let wait = async { child.wait().await.map_err(NativeProcessOutputError::Io) };
+        let stdout = read_bounded_output(stdout, "stdout", max_stdout_bytes);
+        let stderr = read_bounded_output(stderr, "stderr", max_stderr_bytes);
+        tokio::try_join!(wait, stdout, stderr)
+    };
+
+    match output {
+        Ok((status, stdout, stderr)) => Ok(NativeProcessOutput {
+            status,
+            stdout,
+            stderr,
+        }),
+        Err(error) => {
+            // The read that crossed the limit stops consuming its pipe. Kill
+            // and reap the child so a blocked writer cannot outlive this call.
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+            match error {
+                NativeProcessOutputError::Io(error) => Err(error.into()),
+                NativeProcessOutputError::LimitExceeded { stream, limit } => {
+                    Err(FlowError::Runtime(format!(
+                        "native TypeScript {process_kind} {stream} exceeded the {limit}-byte limit"
+                    )))
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "native-ts")]
+async fn read_bounded_output<R>(
+    mut reader: R,
+    stream: &'static str,
+    limit: usize,
+) -> std::result::Result<Vec<u8>, NativeProcessOutputError>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut output = Vec::with_capacity(limit.min(8 * 1024));
+    let mut buffer = [0_u8; 8 * 1024];
+    loop {
+        let count = reader
+            .read(&mut buffer)
+            .await
+            .map_err(NativeProcessOutputError::Io)?;
+        if count == 0 {
+            return Ok(output);
+        }
+        if count > limit.saturating_sub(output.len()) {
+            return Err(NativeProcessOutputError::LimitExceeded { stream, limit });
+        }
+        output.extend_from_slice(&buffer[..count]);
     }
 }
 
@@ -589,8 +733,8 @@ where
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "native-ts")]
-    use super::native_artifact_cache_key;
-    use super::NativeTsRuntimeConfig;
+    use super::{native_artifact_cache_key, read_bounded_output, NativeProcessOutputError};
+    use super::{NativeTsRuntime, NativeTsRuntimeConfig};
     use std::path::Path;
 
     #[test]
@@ -598,6 +742,44 @@ mod tests {
         let config = NativeTsRuntimeConfig::default();
 
         assert_eq!(config.cache_dir, Path::new(".a3s/flow/native-ts"));
+    }
+
+    #[test]
+    fn native_ts_runtime_output_limits_are_configurable() {
+        let runtime = NativeTsRuntime::new(NativeTsRuntimeConfig::default());
+
+        assert_eq!(
+            runtime.max_stdout_bytes(),
+            NativeTsRuntime::DEFAULT_MAX_STDOUT_BYTES
+        );
+        assert_eq!(
+            runtime.max_stderr_bytes(),
+            NativeTsRuntime::DEFAULT_MAX_STDERR_BYTES
+        );
+
+        let runtime = runtime.with_output_limits(123, 45);
+        assert_eq!(runtime.max_stdout_bytes(), 123);
+        assert_eq!(runtime.max_stderr_bytes(), 45);
+    }
+
+    #[cfg(feature = "native-ts")]
+    #[tokio::test]
+    async fn native_ts_output_reader_accepts_exact_limit_and_rejects_next_byte() {
+        let exact = read_bounded_output(&b"1234"[..], "stdout", 4)
+            .await
+            .unwrap();
+        assert_eq!(exact, b"1234");
+
+        let error = read_bounded_output(&b"12345"[..], "stdout", 4)
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            NativeProcessOutputError::LimitExceeded {
+                stream: "stdout",
+                limit: 4
+            }
+        ));
     }
 
     #[cfg(feature = "native-ts")]
