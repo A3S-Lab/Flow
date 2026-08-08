@@ -4,8 +4,8 @@ use crate::error::{FlowError, Result};
 
 use super::{
     CancellationRequestSnapshot, FlowEvent, FlowEventEnvelope, HookSnapshot, HookStatus,
-    StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowRunSnapshot, WorkflowRunStatus,
-    WorkflowTerminalOutcome,
+    StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowRunSnapshot,
+    WorkflowRunStatus, WorkflowTerminalOutcome,
 };
 
 pub(crate) fn project_run(
@@ -165,6 +165,16 @@ pub(crate) fn project_run(
                         "run_retry_exhausted does not match failed step {step_id} attempt {attempt}"
                     )));
                 }
+                if step.retry.on_exhausted == StepFailureAction::ContinueWorkflow {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "run_retry_exhausted conflicts with continue_workflow for step {step_id}"
+                    )));
+                }
+                if step.error.as_deref() != Some(error.as_str()) {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "run_retry_exhausted error does not match failed step {step_id}"
+                    )));
+                }
                 snapshot.status = WorkflowRunStatus::Failed;
                 snapshot.error = Some(error.clone());
                 snapshot.terminal_outcome = Some(WorkflowTerminalOutcome::RetryExhausted {
@@ -221,6 +231,7 @@ pub(crate) fn project_run(
                         "step_created duplicates step {step_id}"
                     )));
                 }
+                retry.retry_after(envelope.timestamp).map(|_| ())?;
                 snapshot.steps.insert(
                     step_id.clone(),
                     StepSnapshot {
@@ -246,6 +257,17 @@ pub(crate) fn project_run(
                     return Err(FlowError::InvalidTransition(format!(
                         "step_started cannot follow {:?} for step {step_id}",
                         step.status
+                    )));
+                }
+                let expected_attempt = step.attempt.checked_add(1).ok_or_else(|| {
+                    FlowError::InvalidTransition(format!(
+                        "step_started cannot advance attempt beyond {} for step {step_id}",
+                        step.attempt
+                    ))
+                })?;
+                if *attempt != expected_attempt {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "step_started attempt {attempt} must be {expected_attempt} for step {step_id}"
                     )));
                 }
                 step.status = StepStatus::Running;
@@ -286,6 +308,28 @@ pub(crate) fn project_run(
                         step.status
                     )));
                 }
+                if *attempt != step.attempt {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "step_retrying attempt {attempt} does not match running attempt {} for step {step_id}",
+                        step.attempt
+                    )));
+                }
+                let max_attempts = step.retry.max_attempts.max(1);
+                if *attempt >= max_attempts {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "step_retrying exceeds retry budget for step {step_id}: attempt {attempt}, max_attempts {max_attempts}"
+                    )));
+                }
+                if step.retry.delay_ms > 0 && retry_after.is_none() {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "step_retrying for delayed step {step_id} requires retry_after"
+                    )));
+                }
+                if step.retry.delay_ms == 0 && retry_after.is_some() {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "step_retrying for immediate step {step_id} must not include retry_after"
+                    )));
+                }
                 step.status = StepStatus::Pending;
                 step.attempt = *attempt;
                 step.error = Some(error.clone());
@@ -305,6 +349,18 @@ pub(crate) fn project_run(
                     return Err(FlowError::InvalidTransition(format!(
                         "step_failed cannot follow {:?} for step {step_id}",
                         step.status
+                    )));
+                }
+                if *attempt != step.attempt {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "step_failed attempt {attempt} does not match running attempt {} for step {step_id}",
+                        step.attempt
+                    )));
+                }
+                let max_attempts = step.retry.max_attempts.max(1);
+                if *attempt < max_attempts {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "step_failed before retry budget was exhausted for step {step_id}: attempt {attempt}, max_attempts {max_attempts}"
                     )));
                 }
                 step.status = StepStatus::Failed;
