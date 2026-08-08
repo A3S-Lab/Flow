@@ -181,15 +181,18 @@ impl NativeTsRuntime {
         let entrypoint = resolve_against(&working_dir, &spec.runtime.entrypoint);
         let cache_dir = absolute_from_current_dir(&self.config.cache_dir)?;
         let source = tokio::fs::read(&entrypoint).await?;
-        let source_hash = stable_hash([
-            b"source".as_slice(),
-            spec.name.as_bytes(),
-            spec.version.as_bytes(),
-            spec.runtime.entrypoint.as_bytes(),
-            spec.runtime.export_name.as_bytes(),
-            &source,
-        ]);
-        let name = format!("{}-{source_hash}", sanitize_filename(&spec.name));
+        // Keep the protocol-visible source hash portable, but scope the local
+        // native executable cache to every compile-environment input that can
+        // make identical workflow source produce an incompatible artifact.
+        let source_hash = native_source_hash(spec, &source);
+        let artifact_hash = native_artifact_cache_key(
+            &source_hash,
+            &compiler_binary,
+            &working_dir,
+            &entrypoint,
+            NATIVE_RUNTIME_PROTOCOL,
+        );
+        let name = format!("{}-{artifact_hash}", sanitize_filename(&spec.name));
         Ok(NativeArtifact {
             compiler_binary,
             working_dir,
@@ -300,6 +303,38 @@ impl NativeTsRuntime {
 
         decode_native_response(kind, &output.stdout)
     }
+}
+
+#[cfg(feature = "native-ts")]
+fn native_source_hash(spec: &WorkflowSpec, source: &[u8]) -> String {
+    stable_hash([
+        b"source".as_slice(),
+        spec.name.as_bytes(),
+        spec.version.as_bytes(),
+        spec.runtime.entrypoint.as_bytes(),
+        spec.runtime.export_name.as_bytes(),
+        source,
+    ])
+}
+
+#[cfg(feature = "native-ts")]
+fn native_artifact_cache_key(
+    source_hash: &str,
+    compiler_binary: &Path,
+    working_dir: &Path,
+    entrypoint: &Path,
+    protocol: &str,
+) -> String {
+    stable_hash([
+        b"a3s.flow.native_ts.artifact.v1".as_slice(),
+        source_hash.as_bytes(),
+        protocol.as_bytes(),
+        compiler_binary.as_os_str().as_encoded_bytes(),
+        working_dir.as_os_str().as_encoded_bytes(),
+        entrypoint.as_os_str().as_encoded_bytes(),
+        std::env::consts::OS.as_bytes(),
+        std::env::consts::ARCH.as_bytes(),
+    ])
 }
 
 #[cfg(feature = "native-ts")]
@@ -496,6 +531,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "native-ts")]
+    use super::native_artifact_cache_key;
     use super::NativeTsRuntimeConfig;
     use std::path::Path;
 
@@ -504,5 +541,70 @@ mod tests {
         let config = NativeTsRuntimeConfig::default();
 
         assert_eq!(config.cache_dir, Path::new(".a3s/flow/native-ts"));
+    }
+
+    #[cfg(feature = "native-ts")]
+    #[test]
+    fn native_ts_artifact_cache_key_covers_the_compile_environment() {
+        let identity = |source, compiler, working_dir, entrypoint, protocol| {
+            native_artifact_cache_key(
+                source,
+                Path::new(compiler),
+                Path::new(working_dir),
+                Path::new(entrypoint),
+                protocol,
+            )
+        };
+        let baseline = identity(
+            "source-a",
+            "/compiler-a",
+            "/workspace-a",
+            "/workspace-a/workflow.ts",
+            "protocol-a",
+        );
+        let variants = [
+            (
+                "source-b",
+                "/compiler-a",
+                "/workspace-a",
+                "/workspace-a/workflow.ts",
+                "protocol-a",
+            ),
+            (
+                "source-a",
+                "/compiler-b",
+                "/workspace-a",
+                "/workspace-a/workflow.ts",
+                "protocol-a",
+            ),
+            (
+                "source-a",
+                "/compiler-a",
+                "/workspace-b",
+                "/workspace-a/workflow.ts",
+                "protocol-a",
+            ),
+            (
+                "source-a",
+                "/compiler-a",
+                "/workspace-a",
+                "/workspace-b/workflow.ts",
+                "protocol-a",
+            ),
+            (
+                "source-a",
+                "/compiler-a",
+                "/workspace-a",
+                "/workspace-a/workflow.ts",
+                "protocol-b",
+            ),
+        ];
+
+        for (source, compiler, working_dir, entrypoint, protocol) in variants {
+            assert_ne!(
+                identity(source, compiler, working_dir, entrypoint, protocol),
+                baseline
+            );
+        }
     }
 }

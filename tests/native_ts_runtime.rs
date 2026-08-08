@@ -48,6 +48,33 @@ chmod +x "$4"
         write_executable(path, &content);
     }
 
+    fn write_rewriting_compiler(path: &Path, compile_log: &Path, marker: &str) {
+        assert!(
+            marker
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '-'),
+            "test compiler marker must be safe for sed replacement"
+        );
+        let content = format!(
+            r#"#!/bin/sh
+set -eu
+printf 'compile\n' >> {compile_log}
+if [ "$1" != "compile" ]; then
+  echo "expected compile command" >&2
+  exit 2
+fi
+if [ "$3" != "-o" ]; then
+  echo "expected -o" >&2
+  exit 2
+fi
+sed 's/native-cache-compiler-marker/{marker}/g' "$2" > "$4"
+chmod +x "$4"
+"#,
+            compile_log = shell_quote(compile_log),
+        );
+        write_executable(path, &content);
+    }
+
     fn write_slow_fake_compiler(path: &Path, compile_log: &Path, started_log: &Path) {
         let content = format!(
             r#"#!/bin/sh
@@ -416,6 +443,75 @@ printf '{{"protocol":"a3s.flow.native_ts.v1","kind":"workflow","ok":false,"error
             2,
             "changed source should compile to a new artifact"
         );
+    }
+
+    #[tokio::test]
+    async fn native_runtime_cache_is_isolated_by_compiler_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let first_compiler = dir.path().join("first-compiler");
+        let second_compiler = dir.path().join("second-compiler");
+        let first_compile_log = dir.path().join("first-compile.log");
+        let second_compile_log = dir.path().join("second-compile.log");
+        let entrypoint = dir.path().join("workflow.ts");
+        let request_log = dir.path().join("requests.jsonl");
+        let cache_dir = dir.path().join("cache");
+        let spec = native_spec("workflow.ts");
+
+        write_rewriting_compiler(&first_compiler, &first_compile_log, "compiler-a");
+        write_rewriting_compiler(&second_compiler, &second_compile_log, "compiler-b");
+        write_runtime_source(
+            &entrypoint,
+            &request_log,
+            "native-cache-compiler-marker",
+            "a3s.flow.native_ts.v1",
+        );
+
+        let first_runtime = Arc::new(NativeTsRuntime::new(NativeTsRuntimeConfig::new(
+            &first_compiler,
+            &cache_dir,
+            dir.path(),
+        )));
+        let first_preflight = first_runtime.preflight(&spec).await.unwrap();
+        assert!(!first_preflight.cache_hit);
+        let first_engine = FlowEngine::in_memory(first_runtime);
+        let first_run_id = first_engine.start(spec.clone(), json!({})).await.unwrap();
+        assert_eq!(
+            first_engine
+                .snapshot(&first_run_id)
+                .await
+                .unwrap()
+                .output
+                .unwrap()["marker"],
+            "compiler-a"
+        );
+
+        let second_runtime = Arc::new(NativeTsRuntime::new(NativeTsRuntimeConfig::new(
+            &second_compiler,
+            &cache_dir,
+            dir.path(),
+        )));
+        let second_preflight = second_runtime.preflight(&spec).await.unwrap();
+        assert!(
+            !second_preflight.cache_hit,
+            "a different configured compiler must not reuse another compiler's artifact"
+        );
+        assert_eq!(second_preflight.source_hash, first_preflight.source_hash);
+        assert_ne!(second_preflight.artifact, first_preflight.artifact);
+
+        let second_engine = FlowEngine::in_memory(second_runtime);
+        let second_run_id = second_engine.start(spec, json!({})).await.unwrap();
+        assert_eq!(
+            second_engine
+                .snapshot(&second_run_id)
+                .await
+                .unwrap()
+                .output
+                .unwrap()["marker"],
+            "compiler-b"
+        );
+        assert_eq!(compile_count(&first_compile_log), 1);
+        assert_eq!(compile_count(&second_compile_log), 1);
+        assert_eq!(fs::read_dir(&cache_dir).unwrap().count(), 2);
     }
 
     #[tokio::test]

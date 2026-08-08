@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.8 - 2026-08-08
+
+- Separated the portable Native TypeScript source hash from the local artifact
+  cache identity. Cache paths now also cover the configured compiler command,
+  resolved working directory, absolute entrypoint, runtime protocol, and host
+  OS/architecture.
+- Prevented runtimes that share a cache directory but use different compilers
+  or compile environments from reusing each other's native artifacts. Added a
+  two-compiler regression that proves independent compilation, stable source
+  hashes, distinct artifact paths, and correct runtime invocation.
+
 ## 0.10.7 - 2026-08-08
 
 - Prevented concurrent Native TypeScript preflights from treating a partially

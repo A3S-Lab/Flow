@@ -41,6 +41,14 @@ relative directory component are resolved from the host process directory.
 The compiler and runtime receive absolute entrypoint and artifact paths, so
 their child working directory does not apply either prefix a second time.
 
+The public source hash covers source and workflow identity and remains stable
+across local compile environments. The internal artifact cache identity also
+covers the configured compiler command, resolved working directory, absolute
+entrypoint, protocol version, and host OS/architecture. Runtimes can therefore
+share a cache root without one compiler, workspace, or native target reusing
+another one's executable, and a protocol revision automatically selects a new
+artifact path.
+
 Compilation never writes directly to the final cache entry. Every cold
 preflight uses a unique temporary artifact in the same cache directory and
 publishes it with an atomic rename after the compiler succeeds. Concurrent
@@ -80,7 +88,8 @@ Preflight performs the same compile path used by workflow and step execution:
 
 - validates that the `WorkflowSpec` is a valid `native_ts` spec,
 - resolves the compiler, cache, working directory, and entrypoint paths once,
-- hashes the source and runtime identity fields into the artifact cache key,
+- calculates a portable source hash and a compile-environment-specific artifact
+  cache identity,
 - compiles the source only when the artifact cache is cold and atomically
   publishes the completed artifact,
 - returns `NativeTsRuntimePreflight` with entrypoint, artifact, source hash, and
