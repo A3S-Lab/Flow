@@ -362,7 +362,7 @@ which observability sinks receive committed events.
 
 ```toml
 [dependencies]
-a3s-flow = "0.11.0"
+a3s-flow = "0.12.0"
 async-trait = "0.1"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -1146,7 +1146,7 @@ single SQLite database instead of one JSONL file per run:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.11.0", features = ["sqlite"] }
+a3s-flow = { version = "0.12.0", features = ["sqlite"] }
 ```
 
 ```rust
@@ -1209,7 +1209,7 @@ event history through a database:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.11.0", features = ["postgres"] }
+a3s-flow = { version = "0.12.0", features = ["postgres"] }
 ```
 
 ```rust
@@ -1293,8 +1293,8 @@ Enable `boot` and one durable storage feature for a host that uses A3S Boot:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.11.0", features = ["boot", "sqlite"] }
-a3s-boot = { version = "0.1.3", default-features = false, features = ["queue"] }
+a3s-flow = { version = "0.12.0", features = ["boot", "sqlite"] }
+a3s-boot = { version = "0.2.0", default-features = false, features = ["queue"] }
 ```
 
 `BootFlowTaskManager` registers one Flow processor with a Boot queue and
@@ -1552,7 +1552,7 @@ hosts that already use A3S Event as their event backbone:
 
 ```toml
 [dependencies]
-a3s-flow = { version = "0.11.0", features = ["a3s-event"] }
+a3s-flow = { version = "0.12.0", features = ["a3s-event"] }
 a3s-event = { version = "0.3", default-features = false }
 ```
 
