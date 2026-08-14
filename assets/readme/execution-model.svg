@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="430" viewBox="0 0 1200 430" role="img" aria-labelledby="title desc">
+  <title id="title">A3S Flow replay and durability model</title>
+  <desc id="desc">Workflow code reads projected history and returns one command. Flow appends events before replay observes results. Steps perform host-owned side effects, while waits and hooks suspend without holding compute.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 10 5 0 10Z" fill="#4fd1c5"/>
+    </marker>
+    <marker id="arrow-warm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 10 5 0 10Z" fill="#f6c85f"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="430" rx="24" fill="#07111c"/>
+  <rect x="1" y="1" width="1198" height="428" rx="23" fill="none" stroke="#193246" stroke-width="2"/>
+  <text x="48" y="54" fill="#f3f8fc" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="36" font-weight="760">History drives every decision.</text>
+  <text x="48" y="84" fill="#8ca4b6" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18">READ HISTORY → RETURN ONE COMMAND → APPEND RESULT → REPLAY</text>
+
+  <g font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+    <rect x="48" y="126" width="238" height="126" rx="14" fill="#0b1825" stroke="#28516b" stroke-width="1.5"/>
+    <text x="70" y="160" fill="#4fd1c5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" font-weight="700">01 / PROJECT</text>
+    <text x="70" y="194" fill="#f3f8fc" font-size="24" font-weight="700">Run snapshot</text>
+    <text x="70" y="225" fill="#9fb2c1" font-size="18">Input + durable history</text>
+
+    <rect x="338" y="126" width="238" height="126" rx="14" fill="#0b1825" stroke="#28516b" stroke-width="1.5"/>
+    <text x="360" y="160" fill="#4fd1c5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" font-weight="700">02 / DECIDE</text>
+    <text x="360" y="194" fill="#f3f8fc" font-size="24" font-weight="700">Workflow runtime</text>
+    <text x="360" y="225" fill="#9fb2c1" font-size="18">Returns one command</text>
+
+    <rect x="628" y="126" width="238" height="126" rx="14" fill="#0b1825" stroke="#75612d" stroke-width="1.5"/>
+    <text x="650" y="160" fill="#f6c85f" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" font-weight="700">03 / COMMIT</text>
+    <text x="650" y="194" fill="#f3f8fc" font-size="24" font-weight="700">Append events</text>
+    <text x="650" y="225" fill="#9fb2c1" font-size="18">Expected sequence enforced</text>
+
+    <rect x="918" y="126" width="234" height="126" rx="14" fill="#0b1825" stroke="#28516b" stroke-width="1.5"/>
+    <text x="940" y="160" fill="#4fd1c5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" font-weight="700">04 / CONTINUE</text>
+    <text x="940" y="194" fill="#f3f8fc" font-size="24" font-weight="700">Replay or suspend</text>
+    <text x="940" y="225" fill="#9fb2c1" font-size="18">No in-memory stack required</text>
+  </g>
+
+  <path d="M286 189h52M576 189h52M866 189h52" fill="none" stroke="#4fd1c5" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <path d="M1035 252v34H167v-34" fill="none" stroke="#4fd1c5" stroke-width="2" stroke-dasharray="7 6" marker-end="url(#arrow)"/>
+
+  <g font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+    <rect x="48" y="316" width="340" height="72" rx="12" fill="#0d1c2a" stroke="#28516b"/>
+    <text x="70" y="347" fill="#f3f8fc" font-size="21" font-weight="700">Steps</text>
+    <text x="70" y="374" fill="#9fb2c1" font-size="18">Host side effects · logical idempotency</text>
+
+    <rect x="430" y="316" width="340" height="72" rx="12" fill="#0d1c2a" stroke="#28516b"/>
+    <text x="452" y="347" fill="#f3f8fc" font-size="21" font-weight="700">Waits + hooks</text>
+    <text x="452" y="374" fill="#9fb2c1" font-size="18">Suspend durably · resume externally</text>
+
+    <rect x="812" y="316" width="340" height="72" rx="12" fill="#211d10" stroke="#75612d"/>
+    <text x="834" y="347" fill="#ffe39a" font-size="21" font-weight="700">Terminal state</text>
+    <text x="834" y="374" fill="#c8b878" font-size="18">Complete · fail · cancel · timeout</text>
+  </g>
+  <path d="M747 252v32H218v32M747 252v64M747 252v32h235v32" fill="none" stroke="#f6c85f" stroke-width="2" marker-end="url(#arrow-warm)"/>
+</svg>
