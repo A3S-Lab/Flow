@@ -96,8 +96,9 @@ only after a concrete host requirement exists; it is not a second list of
 missing core engine features.
 
 1. **Native TypeScript developer kit**
-   - Maintain the installable `a3s-flow-native-compiler`, its public Git install
-     path, Bun selection through `A3S_FLOW_BUN`, and closed command surface.
+   - Maintain the installable `a3s-flow-native-compiler`, its versioned
+     crates.io install path, Bun selection through `A3S_FLOW_BUN`, and closed
+     command surface.
    - Keep the compiler-gated `native_ts_greeting` and `native_ts_preflight`
      examples aligned with the runtime protocol and compiler diagnostics.
    - Maintain `NativeTsRuntime::preflight()` diagnostics for spec validation,

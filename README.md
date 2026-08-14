@@ -78,7 +78,7 @@ Add the engine and an async runtime:
 
 ```toml
 [dependencies]
-a3s-flow = "0.12.0"
+a3s-flow = "0.13.0"
 async-trait = "0.1"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -298,11 +298,11 @@ verifies the complete dependency graph before and after atomic publication.
 Rust remains the SDK and authority. TypeScript does not create another event
 store, worker, scheduler, or workflow lifecycle.
 
-Install the compiler from the public repository and provide Bun on `PATH` (or
-set `A3S_FLOW_BUN` to its executable):
+Install the compiler from crates.io and provide Bun on `PATH` (or set
+`A3S_FLOW_BUN` to its executable):
 
 ```sh
-cargo install --git https://github.com/A3S-Lab/Flow --locked \
+cargo install a3s-flow --version 0.13.0 --locked \
   --bin a3s-flow-native-compiler
 
 a3s-flow-native-compiler capabilities

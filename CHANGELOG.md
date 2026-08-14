@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.13.0 - 2026-08-14
+
 - Added the installable `a3s-flow-native-compiler` with closed capabilities,
   dependency-manifest, and compile commands backed by Bun. The compiler builds
   standalone workflow/step artifacts, reports its exact Bun content identity,

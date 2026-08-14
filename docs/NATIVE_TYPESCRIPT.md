@@ -9,12 +9,12 @@ artifact that a Rust host compiles and invokes.
 
 ## Compiler Contract
 
-Install the compiler from the public repository. It requires Bun on `PATH`; set
+Install the compiler from crates.io. It requires Bun on `PATH`; set
 `A3S_FLOW_BUN` to an explicit executable when the host does not expose Bun
 globally.
 
 ```sh
-cargo install --git https://github.com/A3S-Lab/Flow --locked \
+cargo install a3s-flow --version 0.13.0 --locked \
   --bin a3s-flow-native-compiler
 
 a3s-flow-native-compiler --version
