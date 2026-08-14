@@ -116,12 +116,6 @@ jobs:
           cargo test --test native_ts_bun_smoke --features native-ts --
           --ignored --exact native_ts_compiler_executes_real_bun_workflow
 
-      - name: Package check
-        env:
-          # Avoid placing a nested packaged workspace inside rust-cache's target tree.
-          CARGO_TARGET_DIR: ${{ runner.temp }}/a3s-flow-package-target
-        run: cargo package --locked
-
   native-ts-windows:
     name: Native TypeScript Windows
     runs-on: windows-latest
@@ -153,11 +147,26 @@ jobs:
           cargo test --test native_ts_bun_smoke --features native-ts --
           --ignored --exact native_ts_compiler_executes_real_bun_workflow
 
+  package:
+    name: Package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify package
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/a3s-flow-package-target
+        run: cargo package --locked
+
   publish-crate:
     name: Publish to crates.io
     needs:
       - ci
       - native-ts-windows
+      - package
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -205,16 +214,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Generate release notes
-        run: |
-          set -euo pipefail
-          PREV_TAG="$(git tag --sort=-v:refname | grep '^v' | head -2 | tail -1 || true)"
-          if [ -z "$PREV_TAG" ]; then
-            echo "Initial release" > /tmp/release-notes.md
-          else
-            git log "${PREV_TAG}..HEAD" --oneline --no-merges --pretty=format:"- %s" | head -50 > /tmp/release-notes.md
-          fi
-
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -223,10 +222,9 @@ jobs:
           set -euo pipefail
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" \
-              --title "$RELEASE_TAG" \
-              --notes-file /tmp/release-notes.md
+              --title "$RELEASE_TAG"
           else
             gh release create "$RELEASE_TAG" \
               --title "$RELEASE_TAG" \
-              --notes-file /tmp/release-notes.md
+              --generate-notes
           fi

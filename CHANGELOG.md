@@ -2,8 +2,14 @@
 
 ## Unreleased
 
-## 0.13.0 - 2026-08-14
+## 0.13.1 - 2026-08-15
 
+- Release note: `0.13.0` was not published to crates.io or GitHub Releases
+  after its release workflow stopped at package verification. `0.13.1`
+  supersedes that unpublished tag and contains the changes below.
+- Isolated package verification in a dedicated clean release job so it cannot
+  inherit workspace state or resource pressure from the full release test
+  matrix.
 - Added the installable `a3s-flow-native-compiler` with closed capabilities,
   dependency-manifest, and compile commands backed by Bun. The compiler builds
   standalone workflow/step artifacts, reports its exact Bun content identity,
