@@ -1,5 +1,6 @@
 use a3s_flow::{
-    FlowEngine, LocalFileEventStore, NativeTsRuntime, NativeTsRuntimeConfig, WorkflowSpec,
+    FlowEngine, LocalFileEventStore, NativeTsDependencyMode, NativeTsRuntime,
+    NativeTsRuntimeConfig, WorkflowSpec,
 };
 use serde_json::json;
 use std::path::PathBuf;
@@ -14,11 +15,14 @@ async fn main() -> a3s_flow::Result<()> {
     };
 
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let runtime = Arc::new(NativeTsRuntime::new(NativeTsRuntimeConfig::new(
-        compiler,
-        manifest_dir.join("target/a3s-flow-native-ts/artifacts"),
-        &manifest_dir,
-    )));
+    let runtime = Arc::new(
+        NativeTsRuntime::new(NativeTsRuntimeConfig::new(
+            compiler,
+            manifest_dir.join("target/a3s-flow-native-ts/artifacts"),
+            &manifest_dir,
+        ))
+        .with_dependency_mode(NativeTsDependencyMode::CompilerManifest),
+    );
     let store = Arc::new(LocalFileEventStore::new(
         manifest_dir.join("target/a3s-flow-native-ts/events"),
     ));

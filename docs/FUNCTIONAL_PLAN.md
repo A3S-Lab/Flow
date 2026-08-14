@@ -27,7 +27,32 @@ Workflow as a Service product surfaces.
 | Scheduling | `ScheduledWakeup`, `FlowEventStore::list_due_wakeups`, `FlowEventStore::next_scheduled_wakeup`, `FlowEngine::resume_scheduled_run`, `FlowTask::ResumeScheduledRun`, `FlowScheduler::next_wakeup`, `FlowScheduler::next_wakeup_delay`, `FlowScheduler::enqueue_due_work` | `examples/scheduler_worker.rs`, `tests/scheduler.rs`, `tests/boot.rs`, `tests/store_scheduling_acceleration.rs`, `tests/sqlite_scheduled_wakeups.rs`, `tests/postgres_scheduled_wakeups.rs`, `tests/worker.rs` | Scheduler reports the next timed wake-up, discovers due waits and retries in one store query, groups them into one task per affected run, and gives hosts a sleep-friendly delay. Workers replay only the target run, avoid a second global due query, and drive due retry siblings together. SQL stores use indexed ORM projections; other stores retain replay-compatible defaults. |
 | Local and shared durability | `LocalFileEventStore`, `SqliteEventStore`, `PostgresEventStore`, `FlowHistoryRetentionPolicy`, `LocalFileFlowTaskQueue`, `PostgresFlowTaskQueue` | `examples/local_file_durability.rs`, `examples/sqlite_durability.rs`, `examples/sqlite_retention.rs`, `examples/postgres_durability.rs`, `examples/local_retention.rs`, `tests/store_reference_integrity.rs`, `tests/sqlite_retention.rs`, `tests/postgres_retention.rs`, `tests/sqlite_active_hooks.rs`, `tests/postgres_active_hooks.rs`, `tests/sqlite_scheduled_wakeups.rs`, `tests/postgres_scheduled_wakeups.rs`, `tests/postgres_process_recovery.rs` | Local JSONL, SQLite, and PostgreSQL stores share one retention planner that deletes complete eligible terminal components only and protects parent-child references. SQL stores additionally use A3S ORM transactions, typed decoding, checksummed migrations, durable audit holds, checksum tombstones, and transactionally maintained active-hook and scheduled-wakeup projections. Partial event-stream compaction is never performed. |
 | Observability | `FlowEventObserver`, `FanoutFlowEventObserver`, `A3sFlowEventBridge`, `A3sFlowEvent`, `A3sEventBusFlowEventSink`, `InMemoryFlowEventObserver`, `LocalFileA3sFlowEventSink` | `examples/observer_bridge.rs`, `examples/observer_fanout.rs`, `examples/local_audit_log.rs`, `tests/engine.rs` | Observers mirror committed events after store append; fan-out observers feed multiple sinks; bridge records expose A3S event keys, safe metric labels, local JSONL audit records, and optional A3S Event publishing while stores remain authoritative. |
-| Native TypeScript runtime | `NativeTsRuntime`, `NativeTsRuntimePreflight`, `NativeRuntimeRequest`, `NativeRuntimeResponse` | `README.md`, `docs/NATIVE_TYPESCRIPT.md`, `examples/native_ts_greeting.rs`, `examples/native_ts_preflight.rs`, `examples/native-ts/greeting.ts`, `examples/native-ts/a3s-flow-runtime.d.ts`, `tests/native_ts_runtime.rs`, `tests/native_ts_cache_identity.rs`, `tests/native_ts_cache_integrity.rs`, `tests/protocol.rs` | Rust owns the engine; TypeScript is validated, compiled, cached, and invoked as a native runtime artifact. Portable source hashes are separated from compiler-content-, path-, protocol-, and native-target-scoped artifact identities, so replacing a compiler at the same path cannot reuse its old output. Entrypoint bytes feed the source hash and snapshot fingerprint in one bounded streaming pass with pointer-width-independent length prefixes. Imported and compiler-owned inputs use `WorkflowSpec.version` as their explicit deployment revision until a compiler-owned dependency manifest exists. Atomically published executable/manifest directories detect content damage, malformed metadata, and lost execution permission before reuse, while concurrent repair converges on a valid entry. Cold compilation rechecks the stable entrypoint snapshot before publication so a concurrent source replacement cannot poison the previous cache identity. Relative configuration is resolved once before subprocess launch, and future cancellation terminates direct children while cleaning partial temporary entries. Authoring types track the Rust protocol shape without claiming to be a standalone TypeScript SDK. |
+| Native TypeScript runtime | `NativeTsRuntime`, `NativeTsDependencyMode`, `NativeTsRuntimePreflight`, `NativeTsCompilerCapabilities`, `NativeTsDependencyManifest`, `NativeRuntimeRequest`, `NativeRuntimeResponse`, `a3s-flow-native-compiler` | `README.md`, `docs/NATIVE_TYPESCRIPT.md`, `examples/native_ts_greeting.rs`, `examples/native_ts_preflight.rs`, `examples/native-ts/greeting.ts`, `examples/native-ts/a3s-flow-runtime.d.ts`, `tests/native_ts_runtime.rs`, `tests/native_ts_dependency_manifest.rs`, `tests/native_ts_cache_identity.rs`, `tests/native_ts_cache_integrity.rs`, `tests/native_ts_bun_smoke.rs`, `tests/protocol.rs` | Rust remains the durable authority; TypeScript is compiled, cached, and invoked through versioned compiler and runtime protocols. The compatibility `EntrypointOnly` policy preserves the original compiler contract. Recommended `CompilerManifest` mode verifies a strictly bounded compiler-owned dependency graph, canonicalizes every file under the working directory, includes the opaque backend identity in the local artifact key, and rechecks graph shape, file content, and compiler identity after cold compilation. The bundled installable compiler derives dependencies from Bun, fingerprints the exact Bun executable, builds Windows `.exe` artifacts when required, and supervises Bun across cancellation. Portable source hashes remain separate from compiler-, path-, protocol-, and native-target-scoped cache identities. Atomically published executable/manifest directories detect damage or permission loss and converge under repair. Authoring types track Rust serde without creating a second SDK or lifecycle authority. |
+
+## Definition Of SDK Completion
+
+The Flow SDK baseline is complete only when all mapped capabilities are
+implemented without production placeholders and the following release gates
+pass from the crate repository:
+
+| Gate | Required evidence |
+| --- | --- |
+| Formatting and static analysis | `cargo fmt --all -- --check`, all-feature/all-target Clippy with warnings denied |
+| Public API compatibility | `cargo-semver-checks` against the latest normal release with all features enabled |
+| Feature compatibility | Default, no-default, each optional feature, and all-feature build/test matrices |
+| Durable behavior | All unit and integration suites, including crash, corruption, cancellation, routing, retention, and queue fencing |
+| Database behavior | Real PostgreSQL store, hook, wakeup, retention, queue, reconnect, and process-death gates; SQLite integration suite |
+| Native TypeScript | Compiler unit tests, manifest drift tests, Linux compile checking, and `tests/native_ts_bun_smoke.rs` executing cold/warm preflight plus a complete workflow with real Bun on Linux and Windows |
+| Public artifact | Rustdoc with warnings denied plus `cargo package --locked` verification containing the compiler binary and required docs/examples |
+
+Hosted tenancy, authorization, product graph editing, and deployment UI remain
+outside this definition because A3S Cloud owns those product-control-plane
+surfaces.
+
+The pull-request, `main`, and release workflows encode these gates. Publishing
+cannot start until the release workflow passes real PostgreSQL behavior, public
+API compatibility, package verification, and real Bun execution on both Linux
+and Windows.
 
 ## Example Coverage Goals
 
@@ -63,23 +88,30 @@ test helpers.
 | `local_retention` | Present | Retain a terminal child while its linked parent is suspended, then prune the complete component after the parent becomes terminal. |
 | `boot_task_policy` | Present, `boot` feature-gated | Configure typed Boot retry, timeout, stalled-job, cleanup, and logical-target deduplication policy, then prove duplicate due scans coalesce and completed records are removed. |
 
-## Near-Term Functional Work
+## Maintenance And Conditional Extensions
+
+The unconditional Rust SDK capability baseline is represented by the current
+capability map above. The work below preserves that baseline or adds adapters
+only after a concrete host requirement exists; it is not a second list of
+missing core engine features.
 
 1. **Native TypeScript developer kit**
-   - Document the compiler command contract and environment variable used by
-     examples; add a public compiler installation path when the compiler is
-     packaged.
+   - Maintain the installable `a3s-flow-native-compiler`, its public Git install
+     path, Bun selection through `A3S_FLOW_BUN`, and closed command surface.
    - Keep the compiler-gated `native_ts_greeting` and `native_ts_preflight`
      examples aligned with the runtime protocol and compiler diagnostics.
    - Maintain `NativeTsRuntime::preflight()` diagnostics for spec validation,
-     compiler stderr, artifact cache paths, source hashes, and cache-hit
-     reporting.
-   - Keep imported files and compiler-owned inputs tied to explicit
-     `WorkflowSpec.version` deployment revisions until the compiler protocol
-     provides a verified dependency manifest.
+      compiler stderr, artifact cache paths, source hashes, and cache-hit
+      reporting.
+   - Preserve `EntrypointOnly` compatibility while keeping
+     `CompilerManifest` fail-closed on unsafe paths, malformed documents,
+     dependency drift, and compiler-backend drift.
+   - Keep the bundled Bun dependency graph, configuration inputs, backend
+     fingerprint, post-compile rescan, and descendant-process supervision under
+     regression coverage.
    - Maintain TypeScript type definitions for workflow and step invocation
-     shapes under `examples/native-ts/`, with protocol tests guarding the
-     authoring contract against Rust serde drift.
+      shapes under `examples/native-ts/`, with protocol tests guarding the
+      authoring contract against Rust serde drift.
 
 2. **Durable local operations**
    - Maintain cookbook guidance for pairing `LocalFileEventStore` and

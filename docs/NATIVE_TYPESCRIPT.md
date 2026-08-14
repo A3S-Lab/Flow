@@ -9,11 +9,45 @@ artifact that a Rust host compiles and invokes.
 
 ## Compiler Contract
 
-`NativeTsRuntime` expects a compiler executable with this command shape:
+Install the compiler from the public repository. It requires Bun on `PATH`; set
+`A3S_FLOW_BUN` to an explicit executable when the host does not expose Bun
+globally.
 
 ```sh
+cargo install --git https://github.com/A3S-Lab/Flow --locked \
+  --bin a3s-flow-native-compiler
+
+a3s-flow-native-compiler --version
+a3s-flow-native-compiler capabilities
+```
+
+The compiler surface is closed and versioned:
+
+```sh
+a3s-flow-native-compiler capabilities
+a3s-flow-native-compiler dependencies <entrypoint.ts>
 a3s-flow-native-compiler compile <entrypoint.ts> -o <artifact>
 ```
+
+`capabilities` emits the compiler protocol and whether dependency manifests are
+available. `dependencies` emits a strictly sorted list of portable paths plus
+an opaque compiler identity:
+
+```json
+{
+  "protocol": "a3s.flow.native_ts.dependencies.v1",
+  "compilerIdentity": "bun-sha256:...",
+  "files": ["package.json", "src/main.ts", "src/shared.ts"]
+}
+```
+
+The manifest must include the configured entrypoint and every source,
+resolution, configuration, or generated file that can affect the artifact.
+Paths are UTF-8, normalized, forward-slash-separated, relative to the compiler
+working directory, strictly sorted, and unique. Flow rejects empty identities,
+control characters, absolute paths, traversal, symlink escapes, non-files,
+duplicates, more than 4,096 entries, paths over 4,096 bytes, and documents over
+1 MiB.
 
 The produced artifact must:
 
@@ -27,12 +61,19 @@ The produced artifact must:
 Set a custom compiler path in Rust:
 
 ```rust
+use a3s_flow::NativeTsDependencyMode;
+
 let runtime = NativeTsRuntime::new(NativeTsRuntimeConfig::new(
     "/path/to/a3s-flow-native-compiler",
     ".a3s/flow/native-ts",
     ".",
-));
+))
+.with_dependency_mode(NativeTsDependencyMode::CompilerManifest);
 ```
+
+`CompilerManifest` is recommended with the bundled compiler. The default
+`EntrypointOnly` mode deliberately retains the original compile-only contract
+for existing third-party compilers.
 
 `working_dir` and `cache_dir` are resolved against the host process directory
 when they are relative. Workflow entrypoints are resolved from the resulting
@@ -43,38 +84,44 @@ already cached. The compiler and runtime receive absolute entrypoint and
 artifact paths, so their child working directory does not apply either prefix
 a second time.
 
-The public source hash covers source and workflow identity and remains stable
-across local compile environments. The configured entrypoint is streamed
-through a bounded buffer, and every hash-part length uses an explicit
-little-endian `u64`, so hashing does not allocate memory proportional to source
-size and produces the same identity format on 32-bit and 64-bit targets. The
-internal artifact cache identity also covers the resolved compiler path and
-executable-content fingerprint, resolved working directory, absolute
-entrypoint, protocol version, and host OS/architecture. The fingerprint is
-memoized while stable file metadata proves the executable is unchanged.
-Replacing compiler contents at the same path therefore selects a new artifact
-without making every hot-cache lookup reread the executable. Runtimes can share
-a cache root without one compiler, workspace, or native target reusing another
-one's executable, and a protocol revision automatically selects a new artifact
-path.
+The public source hash covers workflow identity and source content while
+remaining independent of local compiler paths and native targets. In
+`EntrypointOnly` mode, source retains its original meaning: the configured
+entrypoint bytes, workflow name, `WorkflowSpec.version`, entrypoint name, and
+export name. Hosts using this compatibility mode must bump
+`WorkflowSpec.version` when imports, `tsconfig`, package metadata, lockfiles,
+generated inputs, compiler environment, or another compiler-owned input can
+change.
 
-"Source" at this boundary means the configured entrypoint bytes, workflow
-name, `WorkflowSpec.version`, entrypoint name, and export name. Flow does not
-parse TypeScript imports or interpret `tsconfig`, package manifests, lockfiles,
-generated sources, compiler environment variables, or other compiler-owned
-inputs. Until the compiler contract can return a verified dependency manifest,
-deployments must bump `WorkflowSpec.version` whenever any such input can change
-the compiled artifact. Reusing the same version explicitly means those inputs
-belong to the same deployment revision and may reuse the existing cache entry.
+In `CompilerManifest` mode, the source hash instead covers the manifest's
+strictly ordered logical paths plus every file's length and streamed content
+fingerprint. Flow resolves each path under the canonical working directory,
+stores the verified canonical target to prevent a later symlink retarget, and
+requires the configured entrypoint to be present. Every hash-part length uses
+an explicit little-endian `u64`; source reads use bounded heap buffers, so the
+identity is pointer-width independent without allocating in proportion to the
+complete graph.
 
-Every cold compile is also bound to the stable entrypoint snapshot that
-produced its source hash and cache identity. Flow records the content
-fingerprint and stable file metadata before spawning the compiler, then reads
-the source again after the compiler exits. A content or metadata change
-removes the temporary compiler output and returns an error; it cannot publish
-an artifact produced from replacement source under the previous source hash.
-This post-compile check is unnecessary on a cache hit because publication has
-already established the binding.
+The internal artifact cache identity additionally covers the resolved compiler
+path and executable-content fingerprint, resolved working directory, absolute
+entrypoint, runtime protocol, host OS/architecture, and—when present—the
+manifest's opaque `compilerIdentity`. Replacing either the Flow compiler or its
+declared backend therefore selects a new artifact. Runtimes can share a cache
+root without crossing compiler revisions, workspaces, or native targets.
+
+The bundled compiler derives files from Bun's build metafile and includes
+applicable `package.json`, `bun.lock`, `bun.lockb`, `bunfig.toml`,
+`tsconfig.json`, and resolved bundled source files. Its compiler identity is a
+stable SHA-256 fingerprint of the resolved Bun executable. It verifies that Bun
+does not change during either command.
+
+Every cold manifest-mode compile is bracketed by two dependency scans. After
+the compiler exits, Flow requires the compiler identity, dependency set, file
+content, and stable metadata to match the pre-compile snapshot. Any drift
+removes the temporary output and fails closed. `EntrypointOnly` applies the same
+before/after rule to the entrypoint alone. A cache hit still performs the
+initial manifest scan so a source, configuration, or compiler-backend change
+selects a different cache key before reuse.
 
 Compilation never writes directly to the final cache entry. Every cold
 preflight creates a unique temporary directory containing the compiler output
@@ -104,6 +151,10 @@ the direct child process. A cancelled cold compile also schedules removal of
 its partially written temporary cache entry. Flow does not create an operating-
 system process group around this contract; compilers and artifacts that launch
 their own descendants must terminate and reap those descendants themselves.
+The bundled compiler satisfies that rule with a cross-platform liveness-pipe
+supervisor: if Flow kills the compiler wrapper, the supervisor terminates and
+waits for Bun before exiting. A separate liveness guard removes the compiler's
+bootstrap/metafile workspace on normal exit or abrupt parent loss.
 
 Each compiler and runtime artifact process has independent stdout and stderr
 capture limits. The defaults retain at most 8 MiB from stdout and 256 KiB from
@@ -127,19 +178,21 @@ let runtime = NativeTsRuntime::new(NativeTsRuntimeConfig::new(
 .with_invocation_timeout(Duration::from_secs(30));
 ```
 
-The first limit applies to stdout and the second to stderr for both compilation
-and invocation. A response must fit in full because truncating JSON would make
-the runtime protocol ambiguous.
+The first limit applies to stdout and the second to stderr for compilation and
+invocation. A response must fit in full because truncating JSON would make the
+runtime protocol ambiguous. Dependency-manifest stdout has its stricter fixed
+1 MiB protocol limit; its stderr uses the configured stderr limit.
 
 Compilation and invocation timeouts are opt-in to preserve hosts that
-intentionally run long compilers or steps. The compile timeout applies to each
-cold compiler process; cache hits return without starting its timer. The
-invocation timeout applies independently to each workflow replay and step, and
-covers the complete stdin write, concurrent bounded stdout/stderr reads, and
-process exit. On timeout, Flow terminates and reaps the direct child. A timed-
-out cold compile also removes its unique partial cache entry. An outer Boot
-job timeout, lease loss, host shutdown, or caller cancellation can still end
-the same operation sooner.
+intentionally run long compilers or steps. The compile timeout applies
+independently to each dependency scan and cold compile process. Entrypoint-only
+cache hits start no compiler; manifest-mode cache hits still scan dependencies
+under this limit. The invocation timeout applies independently to each workflow
+replay and step, and covers the complete stdin write, concurrent bounded
+stdout/stderr reads, and process exit. On timeout, Flow terminates and reaps the
+direct child. A timed-out cold compile also removes its unique partial cache
+entry. An outer Boot job timeout, lease loss, host shutdown, or caller
+cancellation can still end the same operation sooner.
 
 The runnable example also accepts:
 
@@ -149,11 +202,17 @@ A3S_FLOW_NATIVE_TS_COMPILER=/path/to/a3s-flow-native-compiler \
 
 A3S_FLOW_NATIVE_TS_COMPILER=/path/to/a3s-flow-native-compiler \
   cargo run --example native_ts_preflight
+
+A3S_FLOW_NATIVE_TS_COMPILER=/path/to/a3s-flow-native-compiler \
+  just native-ts-bun-test
 ```
 
 When that environment variable is not set, the examples print the missing
-prerequisite and exits successfully so the normal Rust example suite remains
-portable.
+prerequisite and exit successfully so the normal Rust example suite remains
+portable. The opt-in test requires the compiler and Bun, then asserts compiler
+capabilities, cold and warm manifest-mode preflight, platform-native artifact
+naming, workflow replay, step dispatch, and final output. CI runs that test on
+Linux and Windows.
 
 ## Preflight And Diagnostics
 
@@ -173,10 +232,12 @@ Preflight performs the same compile path used by workflow and step execution:
 
 - validates that the `WorkflowSpec` is a valid `native_ts` spec,
 - resolves the compiler, cache, working directory, and entrypoint paths once,
+- in compiler-manifest mode, validates the compiler-owned source graph and
+  backend identity before selecting a cache entry,
 - calculates a portable source hash and a compile-environment-specific artifact
   cache identity,
 - compiles the source only when the artifact cache is cold and atomically
-  publishes the completed artifact,
+  publishes the completed artifact after a second manifest/snapshot check,
 - returns `NativeTsRuntimePreflight` with entrypoint, artifact, source hash, and
   cache-hit metadata,
 - returns a runtime error containing compiler stderr when compilation fails.

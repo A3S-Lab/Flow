@@ -43,9 +43,10 @@ silently accepting drift.
 | Roll out replay code safely | Pin new histories to `RuntimeBuildId` and reject incompatible workers before mutation |
 | Keep storage portable | Use in-memory, JSONL, SQLite, or PostgreSQL stores behind one `FlowEventStore` contract |
 
-The public SDK is Rust-first. An optional `NativeTsRuntime` compiles TypeScript
-workflow source into a native artifact while Rust still owns history, replay,
-storage, workers, scheduling, and observability.
+The public SDK is Rust-first. An optional `NativeTsRuntime` and installable
+`a3s-flow-native-compiler` compile TypeScript workflow source into a native
+artifact while Rust still owns history, replay, storage, workers, scheduling,
+and observability.
 
 ## Execution model
 
@@ -290,11 +291,30 @@ Keep an old route alive until its pinned histories terminate. Use
 
 `NativeTsRuntime` compiles TypeScript workflow and step source into a native
 artifact and invokes it through a versioned JSON protocol. Artifact identity
-binds source, compiler, working directory, protocol, OS, and architecture;
-cold compilation verifies the source snapshot before atomic publication.
+binds source, compiler executable, compiler backend, working directory,
+protocol, OS, and architecture. In compiler-manifest mode, cold compilation
+verifies the complete dependency graph before and after atomic publication.
 
 Rust remains the SDK and authority. TypeScript does not create another event
 store, worker, scheduler, or workflow lifecycle.
+
+Install the compiler from the public repository and provide Bun on `PATH` (or
+set `A3S_FLOW_BUN` to its executable):
+
+```sh
+cargo install --git https://github.com/A3S-Lab/Flow --locked \
+  --bin a3s-flow-native-compiler
+
+a3s-flow-native-compiler capabilities
+```
+
+The bundled compiler reports and verifies its Bun content fingerprint, derives
+the source graph from Bun's metafile, includes applicable package, lock, Bun,
+and TypeScript configuration files, and supervises Bun so cancellation does not
+leave it orphaned. `NativeTsDependencyMode::CompilerManifest` enables this
+strict graph identity. The default `EntrypointOnly` mode preserves compatibility
+with existing third-party compilers; hosts using it must continue to bump
+`WorkflowSpec.version` when imported or compiler-owned inputs change.
 
 - [Compiler and protocol contract](docs/NATIVE_TYPESCRIPT.md)
 - [Authoring definitions](examples/native-ts/a3s-flow-runtime.d.ts)
@@ -317,6 +337,7 @@ Start with one executable path, then move to the concern you need:
 | Local durability | [`local_file_durability`](examples/local_file_durability.rs), [`sqlite_durability`](examples/sqlite_durability.rs) |
 | Shared PostgreSQL | [`postgres_durability`](examples/postgres_durability.rs), [`postgres_task_queue_durability`](examples/postgres_task_queue_durability.rs) |
 | Audit and events | [`observer_bridge`](examples/observer_bridge.rs), [`observer_fanout`](examples/observer_fanout.rs), [`local_audit_log`](examples/local_audit_log.rs) |
+| Native TypeScript | [`native_ts_preflight`](examples/native_ts_preflight.rs), [`native_ts_greeting`](examples/native_ts_greeting.rs) |
 | Host recipes | [Cookbook](docs/COOKBOOK.md) |
 
 The deeper references keep operational detail out of this homepage:
@@ -326,7 +347,7 @@ The deeper references keep operational detail out of this homepage:
 | [Architecture](docs/ARCHITECTURE.md) | Event sourcing, replay, store, scheduler, and native runtime boundaries |
 | [Cookbook](docs/COOKBOOK.md) | Stable IDs, stores, batches, retries, timers, hooks, compensation, and observability recipes |
 | [Native TypeScript](docs/NATIVE_TYPESCRIPT.md) | Compiler contract, cache identity, process limits, and JSON protocol |
-| [Functional plan](docs/FUNCTIONAL_PLAN.md) | Capability coverage, non-goals, and next work |
+| [Functional plan](docs/FUNCTIONAL_PLAN.md) | Capability coverage, completion gates, and non-goals |
 | [API docs](https://docs.rs/a3s-flow) | Public Rust types and methods |
 
 ## Ownership boundary
@@ -360,20 +381,25 @@ Repository recipes provide the supported matrices:
 just deep-test-non-pg
 A3S_FLOW_POSTGRES_URL=postgres://user:pass@localhost:5432/a3s_flow \
   just postgres-test
+A3S_FLOW_NATIVE_TS_COMPILER=/path/to/a3s-flow-native-compiler \
+  just native-ts-bun-test
 ```
 
-The PostgreSQL gate runs against real PostgreSQL in CI and does not silently
-skip store, wakeup, hook-token, retention, or worker-queue coverage.
+CI checks the public API against the latest released crate, runs the PostgreSQL
+gate against a real database without silently skipping store, wakeup,
+hook-token, retention, or worker-queue coverage, and executes the bundled Bun
+compiler plus a complete TypeScript workflow on Linux and Windows.
 
 ## Roadmap
 
-- Stabilize the Rust runtime, store, worker, and scheduler APIs.
-- Keep SQLite and PostgreSQL aligned on replay, hooks, wakeups, retention, and
-  reconnect behavior.
-- Extend production queue and observability adapters only for concrete host
-  requirements.
-- Keep Native TypeScript preflight and artifact identity aligned with compiler
-  behavior.
+- Preserve semver compatibility for the implemented runtime, store, worker, and
+  scheduler contracts.
+- Keep SQLite and PostgreSQL parity gates aligned on replay, hooks, wakeups,
+  retention, and reconnect behavior.
+- Maintain the Native TypeScript compiler, dependency-manifest protocol, and
+  artifact identity as Bun and supported targets evolve.
+- Add queue or hosted observability adapters only for a concrete deployment
+  requirement; they are extension points, not missing engine primitives.
 
 See the [functional plan](docs/FUNCTIONAL_PLAN.md) for capability-level status
 and non-goals.

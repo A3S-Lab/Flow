@@ -1,4 +1,4 @@
-use a3s_flow::{NativeTsRuntime, NativeTsRuntimeConfig, WorkflowSpec};
+use a3s_flow::{NativeTsDependencyMode, NativeTsRuntime, NativeTsRuntimeConfig, WorkflowSpec};
 use std::path::PathBuf;
 
 #[tokio::main(flavor = "current_thread")]
@@ -14,7 +14,8 @@ async fn main() -> a3s_flow::Result<()> {
         compiler,
         manifest_dir.join("target/a3s-flow-native-ts/artifacts"),
         &manifest_dir,
-    ));
+    ))
+    .with_dependency_mode(NativeTsDependencyMode::CompilerManifest);
     let spec = WorkflowSpec::native_ts(
         "examples.native-ts-greeting",
         "0.1.0",

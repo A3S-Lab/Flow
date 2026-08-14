@@ -37,11 +37,13 @@ pub use observe::{
     InMemoryFlowEventObserver, LocalFileA3sFlowEventSink, NoopFlowEventObserver,
 };
 pub use protocol::{
-    NativeRuntimeKind, NativeRuntimeRequest, NativeRuntimeResponse, NATIVE_RUNTIME_PROTOCOL,
+    NativeRuntimeKind, NativeRuntimeRequest, NativeRuntimeResponse, NativeTsCompilerCapabilities,
+    NativeTsDependencyManifest, NATIVE_COMPILER_PROTOCOL, NATIVE_DEPENDENCY_MANIFEST_PROTOCOL,
+    NATIVE_RUNTIME_PROTOCOL,
 };
 pub use runtime::{
-    FlowRuntime, NativeTsRuntime, NativeTsRuntimeConfig, NativeTsRuntimePreflight, StepInvocation,
-    WorkflowInvocation,
+    FlowRuntime, NativeTsDependencyMode, NativeTsRuntime, NativeTsRuntimeConfig,
+    NativeTsRuntimePreflight, StepInvocation, WorkflowInvocation,
 };
 pub use runtime_build::{RuntimeBuildCompatibility, RuntimeBuildId};
 pub use scheduler::{FlowScheduler, FlowSchedulerTick};

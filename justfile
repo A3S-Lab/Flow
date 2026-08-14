@@ -31,6 +31,11 @@ postgres-test:
     test -n "${A3S_FLOW_POSTGRES_URL:-}" || (echo "A3S_FLOW_POSTGRES_URL is required" >&2; exit 1)
     cargo test --all-targets --features postgres -- --test-threads=1
 
+# Run the opt-in real Bun compiler and workflow smoke test
+native-ts-bun-test:
+    test -n "${A3S_FLOW_NATIVE_TS_COMPILER:-}" || (echo "A3S_FLOW_NATIVE_TS_COMPILER is required" >&2; exit 1)
+    cargo test --test native_ts_bun_smoke --features native-ts -- --ignored --exact native_ts_compiler_executes_real_bun_workflow
+
 # Run strict linting across non-Postgres feature combinations
 clippy-non-pg:
     cargo clippy --all-targets -- -D warnings
@@ -68,5 +73,5 @@ examples-non-pg:
 
 # Verify the crate package and publish payload without uploading it
 package-dry-run:
-    cargo package --allow-dirty
-    cargo publish --dry-run --allow-dirty
+    cargo package --locked --allow-dirty
+    cargo publish --locked --dry-run --allow-dirty

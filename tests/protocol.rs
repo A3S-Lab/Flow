@@ -1,6 +1,7 @@
 use a3s_flow::{
     FlowEvent, FlowEventEnvelope, NativeRuntimeKind, NativeRuntimeRequest, NativeRuntimeResponse,
-    RuntimeCommand, WorkflowRunSummary, NATIVE_RUNTIME_PROTOCOL,
+    NativeTsCompilerCapabilities, NativeTsDependencyManifest, RuntimeCommand, WorkflowRunSummary,
+    NATIVE_COMPILER_PROTOCOL, NATIVE_DEPENDENCY_MANIFEST_PROTOCOL, NATIVE_RUNTIME_PROTOCOL,
 };
 use chrono::Utc;
 use serde_json::json;
@@ -35,6 +36,23 @@ fn native_runtime_response_decodes_kind_and_error_envelope() {
 
     assert_eq!(response.kind, NativeRuntimeKind::Step);
     assert_eq!(response.error.as_deref(), Some("step failed"));
+}
+
+#[test]
+fn native_compiler_protocol_has_stable_capability_and_manifest_fields() {
+    let capabilities = serde_json::to_value(NativeTsCompilerCapabilities::current()).unwrap();
+    assert_eq!(capabilities["protocol"], NATIVE_COMPILER_PROTOCOL);
+    assert_eq!(capabilities["dependencyManifest"], true);
+
+    let manifest = serde_json::to_value(NativeTsDependencyManifest::new(
+        "bun-sha256:test",
+        vec!["src/main.ts".to_string(), "src/shared.ts".to_string()],
+    ))
+    .unwrap();
+    assert_eq!(manifest["protocol"], NATIVE_DEPENDENCY_MANIFEST_PROTOCOL);
+    assert_eq!(manifest["compilerIdentity"], "bun-sha256:test");
+    assert_eq!(manifest["files"][0], "src/main.ts");
+    assert_eq!(manifest["files"][1], "src/shared.ts");
 }
 
 #[test]

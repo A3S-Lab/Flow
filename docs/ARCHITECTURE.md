@@ -372,11 +372,13 @@ changing engine persistence semantics.
 `NativeTsRuntime` intentionally depends on a process boundary first:
 
 1. Validate and preflight the `native_ts` workflow spec.
-2. Compile the workflow entrypoint with the configured native compiler when the
-   artifact cache is cold.
-3. Execute the compiled binary with `--a3s-flow-runtime`.
-4. Send a `NativeRuntimeRequest` JSON envelope on stdin.
-5. Read a `NativeRuntimeResponse` JSON envelope from stdout.
+2. In compiler-manifest mode, obtain and verify the compiler-owned dependency
+   graph and backend identity.
+3. Compile the workflow entrypoint when the selected artifact cache is cold,
+   then verify the graph again before publication.
+4. Execute the compiled binary with `--a3s-flow-runtime`.
+5. Send a `NativeRuntimeRequest` JSON envelope on stdin.
+6. Read a `NativeRuntimeResponse` JSON envelope from stdout.
 
 Request envelope:
 
@@ -412,21 +414,28 @@ identity covers the source hash, resolved compiler path and executable-content
 fingerprint, resolved compile paths, protocol, and host OS/architecture,
 preventing shared cache roots from crossing compiler revisions, workspaces, or
 native-target boundaries while preserving a portable public source hash.
-Stable compiler file metadata memoizes the content fingerprint, while an
-in-place compiler replacement invalidates the old artifact identity.
-Entrypoint reads stream through a 64 KiB buffer and update the public source
-hash and content fingerprint together. Stable hash parts use explicit
-little-endian `u64` lengths rather than host-width values, so cache identity is
-portable across pointer widths without buffering the complete entrypoint.
+Stable compiler file metadata memoizes the wrapper content fingerprint, while
+an in-place compiler replacement invalidates the old artifact identity. Source
+reads use bounded 64 KiB heap buffers, and stable hash parts use explicit
+little-endian `u64` lengths rather than host-width values.
 
-Flow deliberately owns only the configured entrypoint identity. It does not
-implement a partial TypeScript resolver for imports, `tsconfig`, package or
-lockfiles, generated inputs, or compiler environment. `WorkflowSpec.version`
-is therefore the deployment revision for every compiler input outside the
-entrypoint: changing one requires a version bump before cache reuse is safe.
-The same version declares that external inputs are unchanged. A future native
-compiler contract may report a verified dependency manifest and extend the
-cache identity without teaching Flow compiler-specific resolution rules.
+The compatibility `EntrypointOnly` policy preserves the original behavior:
+Flow owns the configured entrypoint identity and `WorkflowSpec.version` is the
+deployment revision for imports, `tsconfig`, package or lockfiles, generated
+inputs, and compiler environment. The recommended `CompilerManifest` policy
+moves resolution ownership to the compiler instead of teaching Flow a partial
+TypeScript resolver. Flow validates a versioned manifest containing an opaque
+`compilerIdentity` and a strictly sorted portable path list, canonicalizes each
+file under the working directory, and hashes logical paths plus streamed file
+contents. The bundled compiler derives that graph from Bun's metafile, adds
+applicable package/lock/Bun/TypeScript configuration, and identifies the exact
+Bun executable by content fingerprint.
+
+Every manifest-mode cache lookup scans the current graph before selecting an
+artifact. A cold compile performs a second scan and requires compiler identity,
+graph shape, file content, and stable metadata to match before publication.
+This closes imported-source, resolver, and compiler-backend drift without
+coupling the durable engine to Bun internals.
 
 Each cache identity resolves to a directory containing the executable and a
 cache-key-bound length/content integrity manifest. Cold compiles build unique
@@ -442,16 +451,17 @@ convergent cold repair. Compiler and artifact processes are owned by their
 async preflight or invocation future: cancellation terminates the direct child,
 and cancelled cold compiles schedule temporary artifact cleanup. The boundary
 does not create an OS process group, so child implementations remain
-responsible for descendants they launch. This leaves deeper compiler
-integration incremental: a host can start with a process boundary and later
-add compiler-owned dependency manifests or link compiler crates directly.
+responsible for descendants they launch. The bundled compiler uses a liveness-
+pipe supervisor that terminates and reaps Bun when the wrapper is killed, plus
+an independent guard that removes its temporary build workspace on parent loss.
 
-## Next Components
+## Conditional Extensions
 
 - Hosted observability sinks for `A3sFlowEventBridge`, such as A3S Observer,
-  OpenTelemetry, or remote audit streams.
+  OpenTelemetry, or remote audit streams, when a host selects that backend.
 - Additional task queue adapters when concrete deployments need a backend other
   than Postgres.
-- Compiler-owned Native TypeScript dependency manifests and deeper build-time
-  validation for unsupported workflow APIs once integration moves beyond the
-  current process contract.
+- Additional compiler backends or build-time policy validation when a concrete
+  host needs behavior beyond the complete Bun process contract.
+
+These are adapter opportunities, not missing durable-engine responsibilities.

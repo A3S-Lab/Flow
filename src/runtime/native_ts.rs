@@ -12,7 +12,10 @@ use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
 
+#[cfg(not(windows))]
 const ARTIFACT_FILE_NAME: &str = "artifact";
+#[cfg(windows)]
+const ARTIFACT_FILE_NAME: &str = "artifact.exe";
 const ARTIFACT_MANIFEST_FILE_NAME: &str = "manifest.json";
 const ARTIFACT_MANIFEST_FORMAT: &str = "a3s.flow.native_ts.cache.v1";
 const MAX_ARTIFACT_MANIFEST_BYTES: u64 = 16 * 1024;
@@ -21,8 +24,12 @@ const ARTIFACT_FINGERPRINT_DOMAIN: &[u8] = b"a3s.flow.native_ts.artifact.content
 const MAX_STABLE_READ_ATTEMPTS: usize = 3;
 const MAX_PUBLISH_ATTEMPTS: usize = 3;
 
+mod dependencies;
 mod source;
 
+pub(super) use dependencies::{
+    verified_dependency_graph, VerifiedDependencyGraph, MAX_DEPENDENCY_MANIFEST_BYTES,
+};
 pub(super) use source::SourceSnapshot;
 
 #[derive(Debug, Clone, Default)]
@@ -627,7 +634,10 @@ async fn fingerprint_file(
     hasher.update((domain.len() as u64).to_le_bytes());
     hasher.update(domain);
     hasher.update(expected_length.to_le_bytes());
-    let mut buffer = [0_u8; 64 * 1024];
+    // Keep the async future small enough for current-thread runtimes on hosts
+    // with a one-MiB main-thread stack. The buffer remains bounded but lives on
+    // the heap instead of being copied through nested future state machines.
+    let mut buffer = vec![0_u8; 64 * 1024];
     loop {
         let count = file.read(&mut buffer).await.map_err(|error| {
             FlowError::Runtime(format!(
@@ -721,17 +731,23 @@ mod tests {
 
     #[test]
     fn artifact_cache_key_covers_the_compile_environment() {
-        let identity =
-            |source, compiler, compiler_fingerprint, working_dir, entrypoint, protocol| {
-                native_artifact_cache_key(
-                    source,
-                    Path::new(compiler),
-                    compiler_fingerprint,
-                    Path::new(working_dir),
-                    Path::new(entrypoint),
-                    protocol,
-                )
-            };
+        let identity = |source,
+                        compiler,
+                        compiler_fingerprint,
+                        working_dir,
+                        entrypoint,
+                        protocol,
+                        dependency_compiler_identity| {
+            native_artifact_cache_key(
+                source,
+                Path::new(compiler),
+                compiler_fingerprint,
+                Path::new(working_dir),
+                Path::new(entrypoint),
+                protocol,
+                dependency_compiler_identity,
+            )
+        };
         let baseline = identity(
             "source-a",
             "/compiler-a",
@@ -739,6 +755,7 @@ mod tests {
             "/workspace-a",
             "/workspace-a/workflow.ts",
             "protocol-a",
+            None,
         );
         let variants = [
             (
@@ -748,6 +765,7 @@ mod tests {
                 "/workspace-a",
                 "/workspace-a/workflow.ts",
                 "protocol-a",
+                None,
             ),
             (
                 "source-a",
@@ -756,6 +774,7 @@ mod tests {
                 "/workspace-a",
                 "/workspace-a/workflow.ts",
                 "protocol-a",
+                None,
             ),
             (
                 "source-a",
@@ -764,6 +783,7 @@ mod tests {
                 "/workspace-a",
                 "/workspace-a/workflow.ts",
                 "protocol-a",
+                None,
             ),
             (
                 "source-a",
@@ -772,6 +792,7 @@ mod tests {
                 "/workspace-b",
                 "/workspace-a/workflow.ts",
                 "protocol-a",
+                None,
             ),
             (
                 "source-a",
@@ -780,6 +801,7 @@ mod tests {
                 "/workspace-a",
                 "/workspace-b/workflow.ts",
                 "protocol-a",
+                None,
             ),
             (
                 "source-a",
@@ -788,10 +810,28 @@ mod tests {
                 "/workspace-a",
                 "/workspace-a/workflow.ts",
                 "protocol-b",
+                None,
+            ),
+            (
+                "source-a",
+                "/compiler-a",
+                "fingerprint-a",
+                "/workspace-a",
+                "/workspace-a/workflow.ts",
+                "protocol-a",
+                Some("bun-fingerprint-b"),
             ),
         ];
 
-        for (source, compiler, compiler_fingerprint, working_dir, entrypoint, protocol) in variants
+        for (
+            source,
+            compiler,
+            compiler_fingerprint,
+            working_dir,
+            entrypoint,
+            protocol,
+            dependency_compiler_identity,
+        ) in variants
         {
             assert_ne!(
                 identity(
@@ -801,6 +841,7 @@ mod tests {
                     working_dir,
                     entrypoint,
                     protocol,
+                    dependency_compiler_identity,
                 ),
                 baseline
             );

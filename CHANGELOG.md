@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased
+
+- Added the installable `a3s-flow-native-compiler` with closed capabilities,
+  dependency-manifest, and compile commands backed by Bun. The compiler builds
+  standalone workflow/step artifacts, reports its exact Bun content identity,
+  derives dependencies from Bun's metafile, includes applicable package, lock,
+  Bun, and TypeScript configuration files, and supervises Bun so cancellation
+  terminates and reaps the descendant process. A separate liveness guard cleans
+  compiler bootstrap/metafile workspaces after normal completion or abrupt
+  wrapper termination.
+- Added opt-in `NativeTsDependencyMode::CompilerManifest`. Flow validates a
+  bounded, versioned, strictly sorted dependency manifest; canonicalizes every
+  file under the working directory; hashes the complete logical source graph;
+  and binds the local artifact key to the compiler-owned backend identity. Cold
+  compilation rescans the manifest and rejects dependency-set, content, or
+  compiler-identity drift before atomic publication. The default
+  `EntrypointOnly` policy preserves existing compiler compatibility.
+- Fixed Windows native artifacts to use the required `.exe` filename and moved
+  64 KiB async fingerprint buffers to the heap. This prevents stack overflow on
+  small current-thread runtime stacks while retaining bounded streaming and is
+  guarded by a preflight-future size regression.
+- Added an opt-in real Bun preflight/cache/execution integration test, automated
+  it on Linux and Windows CI, and made it a release prerequisite. Also added
+  compiler/backend protocol tests, unsafe manifest-path validation,
+  imported-source cache invalidation, post-compile drift regressions,
+  Linux-target compile checking, and released-API SemVer checks.
+
+## 0.12.0 - 2026-08-10
+
+- Aligned optional task management with `a3s-boot` 0.2.0 and SQLite/PostgreSQL
+  persistence with `a3s-orm` 0.3.0.
+- Raised the crate version to 0.12.0 for the dependency compatibility boundary.
+
 ## 0.11.0 - 2026-08-09
 
 - Added typed `RuntimeBuildId` pinning to `WorkflowSpec` and strict

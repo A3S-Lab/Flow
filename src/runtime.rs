@@ -27,8 +27,9 @@ mod native_ts;
 
 #[cfg(feature = "native-ts")]
 use native_ts::{
-    artifact_binary_path, ArtifactCache, ArtifactCacheState, CompilerIdentityCache, SourceSnapshot,
-    TemporaryCacheEntryGuard,
+    artifact_binary_path, verified_dependency_graph, ArtifactCache, ArtifactCacheState,
+    CompilerIdentityCache, SourceSnapshot, TemporaryCacheEntryGuard, VerifiedDependencyGraph,
+    MAX_DEPENDENCY_MANIFEST_BYTES,
 };
 
 /// Workflow replay request passed to a runtime implementation.
@@ -85,6 +86,16 @@ pub trait FlowRuntime: Send + Sync {
     async fn run_step(&self, invocation: StepInvocation) -> Result<JsonValue>;
 }
 
+/// Source-identity policy for native TypeScript artifacts.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum NativeTsDependencyMode {
+    /// Preserve the original entrypoint-plus-deployment-version identity.
+    #[default]
+    EntrypointOnly,
+    /// Ask the compiler for its complete source graph and verify every file.
+    CompilerManifest,
+}
+
 /// Configuration for the native TypeScript runtime adapter.
 #[derive(Debug, Clone)]
 pub struct NativeTsRuntimeConfig {
@@ -132,6 +143,7 @@ pub struct NativeTsRuntime {
     max_stderr_bytes: usize,
     compile_timeout: Option<Duration>,
     invocation_timeout: Option<Duration>,
+    dependency_mode: NativeTsDependencyMode,
     #[cfg(feature = "native-ts")]
     compiler_identity_cache: CompilerIdentityCache,
     #[cfg(feature = "native-ts")]
@@ -149,6 +161,7 @@ struct NativeArtifact {
     binary: PathBuf,
     source_hash: String,
     source_snapshot: SourceSnapshot,
+    dependency_compiler_identity: Option<String>,
 }
 
 #[cfg(feature = "native-ts")]
@@ -192,6 +205,7 @@ impl NativeTsRuntime {
             max_stderr_bytes: Self::DEFAULT_MAX_STDERR_BYTES,
             compile_timeout: None,
             invocation_timeout: None,
+            dependency_mode: NativeTsDependencyMode::default(),
             #[cfg(feature = "native-ts")]
             compiler_identity_cache: CompilerIdentityCache::default(),
             #[cfg(feature = "native-ts")]
@@ -256,6 +270,21 @@ impl NativeTsRuntime {
         self.invocation_timeout
     }
 
+    /// Bind source and cache identity to the compiler-owned dependency graph.
+    ///
+    /// This mode requires the compiler's `dependencies` command and fails
+    /// closed on a missing, malformed, unsafe, or changing manifest. The
+    /// default remains entrypoint-only for compatibility with older compilers.
+    pub fn with_dependency_mode(mut self, mode: NativeTsDependencyMode) -> Self {
+        self.dependency_mode = mode;
+        self
+    }
+
+    /// Return the configured native TypeScript source-identity policy.
+    pub fn dependency_mode(&self) -> NativeTsDependencyMode {
+        self.dependency_mode
+    }
+
     #[cfg(feature = "native-ts")]
     pub async fn preflight(&self, spec: &WorkflowSpec) -> Result<NativeTsRuntimePreflight> {
         let (artifact, cache_hit) = self.compile_if_needed(spec).await?;
@@ -284,7 +313,26 @@ impl NativeTsRuntime {
         let working_dir = absolute_from_current_dir(&self.config.working_dir)?;
         let entrypoint = resolve_against(&working_dir, &spec.runtime.entrypoint);
         let cache_dir = absolute_from_current_dir(&self.config.cache_dir)?;
-        let (source_hash, source_snapshot) = SourceSnapshot::read(&entrypoint, spec).await?;
+        let (source_hash, source_snapshot, dependency_compiler_identity) = match self
+            .dependency_mode
+        {
+            NativeTsDependencyMode::EntrypointOnly => {
+                let (source_hash, source_snapshot) =
+                    SourceSnapshot::read(&entrypoint, spec).await?;
+                (source_hash, source_snapshot, None)
+            }
+            NativeTsDependencyMode::CompilerManifest => {
+                let graph = Box::pin(self.compiler_dependency_graph(
+                    &compiler_binary,
+                    &working_dir,
+                    &entrypoint,
+                ))
+                .await?;
+                let (source_hash, source_snapshot) =
+                    Box::pin(SourceSnapshot::read_dependency_graph(graph.sources, spec)).await?;
+                (source_hash, source_snapshot, Some(graph.compiler_identity))
+            }
+        };
         // Keep the protocol-visible source hash portable, but scope the local
         // native executable cache to every compile-environment input that can
         // make identical workflow source produce an incompatible artifact.
@@ -295,6 +343,7 @@ impl NativeTsRuntime {
             &working_dir,
             &entrypoint,
             NATIVE_RUNTIME_PROTOCOL,
+            dependency_compiler_identity.as_deref(),
         );
         let name = format!("{}-{artifact_hash}", sanitize_filename(&spec.name));
         let cache_entry = cache_dir.join(name);
@@ -307,7 +356,43 @@ impl NativeTsRuntime {
             cache_key: artifact_hash,
             source_hash,
             source_snapshot,
+            dependency_compiler_identity,
         })
+    }
+
+    #[cfg(feature = "native-ts")]
+    async fn compiler_dependency_graph(
+        &self,
+        compiler_binary: &Path,
+        working_dir: &Path,
+        entrypoint: &Path,
+    ) -> Result<VerifiedDependencyGraph> {
+        let child = Command::new(compiler_binary)
+            .arg("dependencies")
+            .arg(entrypoint)
+            .current_dir(working_dir)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()?;
+        let output = communicate_with_bounded_output(
+            child,
+            "compiler dependency scan",
+            None,
+            MAX_DEPENDENCY_MANIFEST_BYTES,
+            self.max_stderr_bytes,
+            self.compile_timeout,
+        )
+        .await?;
+        if !output.status.success() {
+            return Err(FlowError::Runtime(format!(
+                "native TypeScript dependency scan failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+
+        verified_dependency_graph(&output.stdout, working_dir, entrypoint).await
     }
 
     #[cfg(feature = "native-ts")]
@@ -385,17 +470,40 @@ impl NativeTsRuntime {
             )));
         }
 
-        match artifact
-            .source_snapshot
-            .still_matches(&artifact.entrypoint, spec)
-            .await
-        {
+        let source_still_matches = match &artifact.dependency_compiler_identity {
+            None => artifact.source_snapshot.still_matches(spec).await,
+            Some(expected_identity) => {
+                match Box::pin(self.compiler_dependency_graph(
+                    &artifact.compiler_binary,
+                    &artifact.working_dir,
+                    &artifact.entrypoint,
+                ))
+                .await
+                {
+                    Ok(graph) if graph.compiler_identity == *expected_identity => {
+                        Box::pin(
+                            artifact
+                                .source_snapshot
+                                .still_matches_dependency_graph(graph.sources, spec),
+                        )
+                        .await
+                    }
+                    Ok(_) => Ok(false),
+                    Err(error) => Err(error),
+                }
+            }
+        };
+        match source_still_matches {
             Ok(true) => {}
             Ok(false) => {
                 temporary_entry.remove().await;
+                let subject = if artifact.dependency_compiler_identity.is_some() {
+                    "dependency graph or compiler identity".to_string()
+                } else {
+                    format!("source {}", artifact.entrypoint.display())
+                };
                 return Err(FlowError::Runtime(format!(
-                    "native TypeScript source {} changed while it was being compiled; refusing to publish the artifact",
-                    artifact.entrypoint.display()
+                    "native TypeScript {subject} changed while it was being compiled; refusing to publish the artifact"
                 )));
             }
             Err(error) => {
@@ -642,8 +750,9 @@ fn native_artifact_cache_key(
     working_dir: &Path,
     entrypoint: &Path,
     protocol: &str,
+    dependency_compiler_identity: Option<&str>,
 ) -> String {
-    stable_hash([
+    let legacy_identity = stable_hash([
         b"a3s.flow.native_ts.artifact.v3".as_slice(),
         source_hash.as_bytes(),
         protocol.as_bytes(),
@@ -653,7 +762,15 @@ fn native_artifact_cache_key(
         entrypoint.as_os_str().as_encoded_bytes(),
         std::env::consts::OS.as_bytes(),
         std::env::consts::ARCH.as_bytes(),
-    ])
+    ]);
+    match dependency_compiler_identity {
+        None => legacy_identity,
+        Some(identity) => stable_hash([
+            b"a3s.flow.native_ts.artifact.compiler_identity.v1".as_slice(),
+            legacy_identity.as_bytes(),
+            identity.as_bytes(),
+        ]),
+    }
 }
 
 #[cfg(feature = "native-ts")]
@@ -802,69 +919,4 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-    #[cfg(feature = "native-ts")]
-    use super::{read_bounded_output, NativeProcessOutputError};
-    use super::{NativeTsRuntime, NativeTsRuntimeConfig};
-    use std::path::Path;
-    use std::time::Duration;
-
-    #[test]
-    fn native_ts_default_cache_stays_under_a3s_state_root() {
-        let config = NativeTsRuntimeConfig::default();
-
-        assert_eq!(config.cache_dir, Path::new(".a3s/flow/native-ts"));
-    }
-
-    #[test]
-    fn native_ts_runtime_output_limits_are_configurable() {
-        let runtime = NativeTsRuntime::new(NativeTsRuntimeConfig::default());
-
-        assert_eq!(
-            runtime.max_stdout_bytes(),
-            NativeTsRuntime::DEFAULT_MAX_STDOUT_BYTES
-        );
-        assert_eq!(
-            runtime.max_stderr_bytes(),
-            NativeTsRuntime::DEFAULT_MAX_STDERR_BYTES
-        );
-
-        let runtime = runtime.with_output_limits(123, 45);
-        assert_eq!(runtime.max_stdout_bytes(), 123);
-        assert_eq!(runtime.max_stderr_bytes(), 45);
-    }
-
-    #[test]
-    fn native_ts_runtime_timeouts_are_opt_in_and_configurable() {
-        let runtime = NativeTsRuntime::new(NativeTsRuntimeConfig::default());
-
-        assert_eq!(runtime.compile_timeout(), None);
-        assert_eq!(runtime.invocation_timeout(), None);
-
-        let runtime = runtime
-            .with_compile_timeout(Duration::from_secs(30))
-            .with_invocation_timeout(Duration::from_secs(5));
-        assert_eq!(runtime.compile_timeout(), Some(Duration::from_secs(30)));
-        assert_eq!(runtime.invocation_timeout(), Some(Duration::from_secs(5)));
-    }
-
-    #[cfg(feature = "native-ts")]
-    #[tokio::test]
-    async fn native_ts_output_reader_accepts_exact_limit_and_rejects_next_byte() {
-        let exact = read_bounded_output(&b"1234"[..], "stdout", 4)
-            .await
-            .unwrap();
-        assert_eq!(exact, b"1234");
-
-        let error = read_bounded_output(&b"12345"[..], "stdout", 4)
-            .await
-            .unwrap_err();
-        assert!(matches!(
-            error,
-            NativeProcessOutputError::LimitExceeded {
-                stream: "stdout",
-                limit: 4
-            }
-        ));
-    }
-}
+mod tests;

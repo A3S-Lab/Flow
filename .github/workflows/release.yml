@@ -22,6 +22,22 @@ jobs:
   ci:
     name: CI Checks
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: a3s_flow
+          POSTGRES_PASSWORD: a3s_flow
+          POSTGRES_USER: a3s_flow
+        options: >-
+          --health-cmd "pg_isready -U a3s_flow -d a3s_flow"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+        ports:
+          - 5432:5432
+    env:
+      A3S_FLOW_POSTGRES_URL: postgres://a3s_flow:a3s_flow@127.0.0.1:5432/a3s_flow
     steps:
       - uses: actions/checkout@v5
 
@@ -29,6 +45,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+
+      - name: Install Bun
+        id: setup-bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -45,6 +67,11 @@ jobs:
             exit 1
           fi
 
+      - name: Check released API compatibility
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          feature-group: all-features
+
       - name: Format check
         run: cargo fmt --all -- --check
 
@@ -60,6 +87,12 @@ jobs:
       - name: Test default features
         run: cargo test --all-targets
 
+      - name: Test SQLite only
+        run: cargo test --all-targets --no-default-features --features sqlite
+
+      - name: Test A3S Boot only
+        run: cargo test --all-targets --no-default-features --features boot
+
       - name: Test A3S Event feature
         run: cargo test --all-targets --no-default-features --features a3s-event
 
@@ -69,15 +102,62 @@ jobs:
       - name: Test A3S Boot with ORM storage
         run: cargo test --all-targets --no-default-features --features boot,sqlite
 
+      - name: Test all features with real PostgreSQL
+        run: cargo test --all-targets --all-features -- --test-threads=1
+
+      - name: Build the installable compiler
+        run: cargo build --bin a3s-flow-native-compiler
+
+      - name: Test real Bun compilation and execution
+        env:
+          A3S_FLOW_BUN: ${{ steps.setup-bun.outputs.bun-path }}
+          A3S_FLOW_NATIVE_TS_COMPILER: ${{ github.workspace }}/target/debug/a3s-flow-native-compiler
+        run: >-
+          cargo test --test native_ts_bun_smoke --features native-ts --
+          --ignored --exact native_ts_compiler_executes_real_bun_workflow
+
       - name: Package check
         env:
           # Avoid placing a nested packaged workspace inside rust-cache's target tree.
           CARGO_TARGET_DIR: ${{ runner.temp }}/a3s-flow-package-target
-        run: cargo package
+        run: cargo package --locked
+
+  native-ts-windows:
+    name: Native TypeScript Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Bun
+        id: setup-bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-native-ts-windows
+
+      - name: Build the installable compiler
+        run: cargo build --bin a3s-flow-native-compiler
+
+      - name: Test real Bun compilation and execution
+        env:
+          A3S_FLOW_BUN: ${{ steps.setup-bun.outputs.bun-path }}
+          A3S_FLOW_NATIVE_TS_COMPILER: ${{ github.workspace }}/target/debug/a3s-flow-native-compiler.exe
+        run: >-
+          cargo test --test native_ts_bun_smoke --features native-ts --
+          --ignored --exact native_ts_compiler_executes_real_bun_workflow
 
   publish-crate:
     name: Publish to crates.io
-    needs: ci
+    needs:
+      - ci
+      - native-ts-windows
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
