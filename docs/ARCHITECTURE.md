@@ -434,7 +434,10 @@ preflight every target before the first enqueue, then sends each
 `ResumeScheduledRun` through its exact build route. This prevents a missing
 route from producing a partially enqueued tick; transport failures after
 preflight retain ordinary at-least-once dispatch semantics and cannot be made
-atomic across independent queue backends.
+atomic across independent queue backends. Duplicate targeted tasks may race,
+but `FlowTaskOutcome.resumed_waits` reports only waits whose `wait_completed`
+event that task commits. The public engine method separately retains its
+documented due-at-start return value for scheduler hosts.
 
 `RuntimeBuildTaskRouter` owns an immutable map from exact build IDs to concrete
 dispatchers plus a separate optional unpinned route. A plain `FlowTaskQueue`

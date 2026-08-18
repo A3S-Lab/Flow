@@ -72,7 +72,9 @@ impl FlowTask {
 pub struct FlowTaskOutcome {
     pub task: FlowTask,
     pub run_ids: Vec<String>,
+    /// Wait completions committed by this task.
     pub resumed_waits: Vec<(String, String)>,
+    /// Delayed retry wakeups driven by this task.
     pub resumed_retries: Vec<(String, String)>,
     /// Hook receipt committed by this task, excluding matching redelivery.
     pub resumed_hook: Option<(String, String)>,

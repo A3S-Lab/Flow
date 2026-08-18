@@ -310,7 +310,9 @@ Ok(ctx.wait_until("approval-timeout", deadline))
 Timer delivery is safe to retry. Calling `resume_wait()` again for an existing
 wait after it completed or its run became terminal is a no-op. Concurrent
 `resume_due_waits()` scans report only the waits whose completion that caller
-committed, so scheduler accounting does not claim another caller's work.
+committed. Targeted `ResumeScheduledRun` worker outcomes apply the same rule
+when duplicate scheduler tasks race, so accounting does not claim another
+caller's work.
 
 Named signals are queued asynchronous messages. Declare accepted names in the
 immutable spec, then wait with a stable workflow-local ID:

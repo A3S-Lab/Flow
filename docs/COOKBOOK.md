@@ -749,7 +749,10 @@ existing wait after it completed or its run terminated is safe and appends no
 new event. If multiple hosts call `resume_due_waits()` from overlapping scans,
 only the host that commits `wait_completed` receives that wait in its returned
 list. A compatibility `ResumeWait` task left behind by cancellation is
-acknowledged without being reported as resumed.
+acknowledged without being reported as resumed. The targeted
+`ResumeScheduledRun` worker path follows the same commit-report rule when
+duplicate tasks race, while `FlowEngine::resume_scheduled_run()` itself still
+returns the wakeups that were due when the call began.
 
 For polling, give each wait a deterministic ID derived from the poll attempt,
 for example `poll-1`, `poll-2`, and so on. Reusing a completed wait ID for a new

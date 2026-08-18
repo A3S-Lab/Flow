@@ -200,5 +200,7 @@ mod local_file_queue;
 #[cfg(feature = "postgres")]
 #[path = "worker/postgres_queue.rs"]
 mod postgres_queue;
+#[path = "worker/scheduled_outcomes.rs"]
+mod scheduled_outcomes;
 #[path = "worker/task_protocol.rs"]
 mod task_protocol;

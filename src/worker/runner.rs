@@ -169,13 +169,16 @@ pub(super) async fn handle_flow_task(
             }
         }
         FlowTask::ResumeScheduledRun { run_id, now } => {
-            let resumed = engine.resume_scheduled_run(&run_id, now).await?;
+            let (due, resumed_waits) = engine
+                .resume_scheduled_run_with_committed_waits(&run_id, now)
+                .await?;
             outcome.run_ids.push(run_id);
-            for wakeup in resumed {
-                let target = (wakeup.run_id, wakeup.subject_id);
-                match wakeup.kind {
-                    crate::ScheduledWakeupKind::Wait => outcome.resumed_waits.push(target),
-                    crate::ScheduledWakeupKind::Retry => outcome.resumed_retries.push(target),
+            outcome.resumed_waits = resumed_waits;
+            for wakeup in due {
+                if wakeup.kind == crate::ScheduledWakeupKind::Retry {
+                    outcome
+                        .resumed_retries
+                        .push((wakeup.run_id, wakeup.subject_id));
                 }
             }
         }

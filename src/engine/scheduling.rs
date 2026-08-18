@@ -151,10 +151,22 @@ impl FlowEngine {
         run_id: &str,
         now: DateTime<Utc>,
     ) -> Result<Vec<ScheduledWakeup>> {
+        let (due, _) = self
+            .resume_scheduled_run_with_committed_waits(run_id, now)
+            .await?;
+        Ok(due)
+    }
+
+    /// Resume one scheduled run and report wait completions committed here.
+    pub(crate) async fn resume_scheduled_run_with_committed_waits(
+        &self,
+        run_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<(Vec<ScheduledWakeup>, Vec<(String, String)>)> {
         let history = self.store.list(run_id).await?;
         let snapshot = project_run(run_id, &history)?;
         if snapshot.status.is_terminal() {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), Vec::new()));
         }
         self.ensure_runtime_build_available(run_id, &snapshot.spec)?;
         let due = scheduled_wakeups_for_snapshot(&snapshot)
@@ -171,13 +183,16 @@ impl FlowEngine {
             .iter()
             .any(|wakeup| wakeup.kind == ScheduledWakeupKind::Retry);
 
+        let mut resumed_waits = Vec::with_capacity(due_wait_ids.len());
         for wait_id in due_wait_ids {
-            self.resume_wait(run_id, &wait_id).await?;
+            if self.resume_wait_if_open(run_id, &wait_id).await? {
+                resumed_waits.push((run_id.to_string(), wait_id));
+            }
         }
         if has_due_retries {
             self.drive_at(run_id, now).await?;
         }
 
-        Ok(due)
+        Ok((due, resumed_waits))
     }
 }

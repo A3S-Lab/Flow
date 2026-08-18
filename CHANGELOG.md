@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Made targeted scheduler worker outcomes report only wait completions that
+  their task committed. Concurrent `ResumeScheduledRun` tasks still
+  acknowledge and drive the same run, but no longer claim one durable
+  `wait_completed` event twice; the public engine API continues to return the
+  wakeups that were due when handling began.
 - Made Signal worker outcomes reflect the task that actually committed
   `signal_received`. Matching delivery-ID redelivery still acknowledges the
   task, follows continue-as-new descendants, and drives interrupted recovery,
