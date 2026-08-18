@@ -2,6 +2,7 @@ mod command;
 mod event;
 mod hook;
 mod operation;
+mod patch;
 mod projection;
 mod snapshot;
 
@@ -15,6 +16,7 @@ pub use operation::{
     CancellationRequest, CancellationRequestSnapshot, ChildOperationReference, WorkflowProgress,
     WorkflowTerminalOutcome,
 };
+pub use patch::{WorkflowPatchId, MAX_WORKFLOW_PATCH_MARKERS};
 pub(crate) use projection::project_run;
 pub use snapshot::{
     ActiveHookSnapshot, HookSnapshot, HookStatus, ScheduledWakeup, ScheduledWakeupKind,

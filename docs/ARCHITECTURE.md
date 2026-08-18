@@ -30,7 +30,7 @@ Runtime adapter layer
           |
           v
 Durable engine layer
-  FlowEngine, replay loop, runtime-build admission, inspection, waits, scheduler
+  FlowEngine, replay loop, runtime-build admission, patch markers, inspection, waits, scheduler
           |
           v
 Event store layer
@@ -74,8 +74,10 @@ programmatically, then reuse this exact structural compiler.
 
 ## Durable Execution Model
 
-Each run starts with `flow.run.created` and `flow.run.started`. The engine then
-replays the workflow runtime with the full event history.
+Each run starts with `flow.run.created` and `flow.run.started`. The created
+event atomically pins the workflow spec, including its runtime build and
+replay-safe patch marker set. The engine then replays the workflow runtime with
+the full event history.
 
 The runtime returns exactly one command:
 
@@ -143,6 +145,10 @@ Replay also validates durable command definitions. If workflow code reuses an
 existing step, wait, or hook ID with a different step input, retry policy, timer
 deadline, hook token, or hook metadata, the engine returns a non-deterministic
 replay error instead of silently accepting the changed definition.
+
+Compatible workflow code may use `WorkflowContext::has_patch_marker(...)` to
+select between an old and new deterministic branch. Marker membership comes
+only from the immutable run spec; it never changes as the history advances.
 
 Active hook tokens are unique across non-terminal runs. A duplicate token is
 rejected before `hook_created` is appended, so callback routing by token remains
@@ -301,6 +307,34 @@ scans are intentionally ambiguous at this boundary. A callback host first
 resolves the active token to stable run/hook identities, then dispatches the
 run-targeted task. Mixed-build deployments use targeted scheduler tasks and do
 not use the legacy global due-scan variants.
+
+## Replay-Safe Patch Markers
+
+`WorkflowSpec.patch_markers` is a sorted, bounded set of typed
+`WorkflowPatchId` values. Because the complete `WorkflowSpec` is part of the
+first `run_created` event, marker selection is atomic with run creation and is
+available to both Rust and native TypeScript runtimes. Histories written before
+the field existed deserialize with an empty set.
+
+Patch markers and runtime build IDs solve different rollout problems:
+
+- The runtime build ID is an admission fence. It prevents a worker that cannot
+  replay a history from invoking workflow code or mutating the run.
+- A patch marker is a deterministic branch decision within code that is
+  explicitly compatible with both marked and unmarked histories.
+
+A rollout first deploys a build that retains both branches and advertises
+compatibility with the old build. The host adds the marker only to specs used
+for new runs. Existing runs remain unmarked and therefore continue to choose
+the old branch on every replay, including after worker replacement. Since
+`start_with_id` compares the complete spec, retrying an existing run with a
+different marker set returns `RunConflict` without appending history.
+
+Markers are not dynamic feature flags, authorization state, or migration
+commands. Hosts must use stable lowercase IDs, never reuse an ID for another
+behavior, and retain the unmarked branch until no admitted active history can
+require it. Removing the old branch also requires removing compatibility for
+runtime builds whose histories cannot follow the remaining code.
 
 ## Dispatch And Task Management
 

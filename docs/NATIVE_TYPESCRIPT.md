@@ -14,7 +14,7 @@ Install the compiler from crates.io. It requires Bun on `PATH`; set
 globally.
 
 ```sh
-cargo install a3s-flow --version 0.13.1 --locked \
+cargo install a3s-flow --version 0.14.0 --locked \
   --bin a3s-flow-native-compiler
 
 a3s-flow-native-compiler --version
@@ -291,6 +291,7 @@ history helpers or rely on helpers injected by the compiler artifact.
 
 The contract defines:
 
+- `WorkflowSpec`
 - `WorkflowInvocation<Input>`
 - `StepInvocation<Input>`
 - `RuntimeCommand`
@@ -308,6 +309,10 @@ Important protocol details:
 
 - `FlowEventEnvelope` includes `event_id`, `run_id`, `sequence`, `timestamp`,
   and `event`. It does not include a derived event key.
+- `WorkflowSpec.runtime_build_id` and `WorkflowSpec.patch_markers` are optional
+  for legacy histories. A marked run receives a sorted string array and
+  workflow code may use `invocation.spec.patch_markers?.includes(id)` to select
+  its immutable replay branch.
 - `create_hook` commands and `hook_created` history events include a required
   `token` because callback routing must be stable across replay.
 - `step_retrying.retry_after` is `string | null`, matching Rust's serialized
@@ -353,7 +358,9 @@ Workflow exports should be deterministic:
 - return exactly one `RuntimeCommand`,
 - do not perform network, clock, random, filesystem, or shell work,
 - put side effects in step handlers,
-- use stable step IDs, wait IDs, and hook IDs.
+- use stable step IDs, wait IDs, hook IDs, and patch marker IDs,
+- treat `spec.patch_markers` as immutable run history rather than a dynamic
+  product feature flag,
 - set `retry.on_exhausted` to `"continue_workflow"` only when workflow replay
   explicitly handles the resulting `step_failed` history.
 

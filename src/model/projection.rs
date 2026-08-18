@@ -24,6 +24,7 @@ pub(crate) fn project_run(
             ))
         }
     };
+    spec.validate()?;
 
     let mut snapshot = WorkflowRunSnapshot {
         run_id: run_id.to_string(),

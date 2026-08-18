@@ -143,6 +143,70 @@ use `RuntimeBuildTaskRouter::dispatch_for_run(...)`. The compatibility-wide
 `ResumeDueWaits` and `ResumeDueRetries` tasks are likewise unsuitable for a
 mixed-build fleet; use `FlowScheduler`'s targeted tasks.
 
+## Replay-Safe Workflow Patches
+
+Use a patch marker when one compatible runtime build must keep replaying an old
+branch for existing runs while new runs select a replacement branch. Create a
+typed, stable ID and add it only to new workflow specs:
+
+```rust
+use a3s_flow::{WorkflowPatchId, WorkflowSpec};
+
+# fn patched_spec() -> a3s_flow::Result<WorkflowSpec> {
+let spec = WorkflowSpec::rust_embedded(
+    "orders.fulfill",
+    "2",
+    "orders",
+    "main",
+)
+.with_patch_marker(WorkflowPatchId::new("orders.reserve-inventory-v2")?);
+# Ok(spec)
+# }
+```
+
+The runtime retains both deterministic paths and reads the marker from the
+invocation context:
+
+```rust
+# fn next_command(
+#     context: &a3s_flow::WorkflowContext<'_>,
+# ) -> a3s_flow::RuntimeCommand {
+if context.has_patch_marker("orders.reserve-inventory-v2") {
+    context.schedule_step(
+        "reserve-inventory-v2",
+        "reserveInventoryV2",
+        serde_json::json!({}),
+    )
+} else {
+    context.schedule_step(
+        "reserve-inventory-v1",
+        "reserveInventoryV1",
+        serde_json::json!({}),
+    )
+}
+# }
+```
+
+The marker set is serialized in the `WorkflowSpec` inside `run_created`, so a
+process crash cannot leave a run half-opted-in. Legacy specs deserialize with
+an empty set, marker order is canonical, and changing markers during an
+idempotent `start_with_id` retry is a workflow-spec conflict.
+
+Roll out and retire a patch in this order:
+
+1. Deploy runtime code containing both paths and, when builds are pinned,
+   advertise the older build only after proving exact replay compatibility.
+2. Add the marker to specs for new runs. Never mutate or restart an existing
+   run with a changed marker set.
+3. Keep the marker ID and both branches while any admitted active history is
+   unmarked.
+4. After unmarked histories terminate or their builds are no longer admitted,
+   collapse the branch. Never reuse the marker ID for another change.
+
+Patch markers are not tenant flags or kill switches. Product rollout policy
+stays with the host; Flow only persists and replays the resulting immutable
+decision. See `examples/replay_safe_patch.rs` for a runnable minimal example.
+
 ## Embedded Flow-Owned Queue Host
 
 For an embedded local host, pair the local JSONL event store with the local task

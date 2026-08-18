@@ -169,6 +169,8 @@ fn native_ts_authoring_types_track_runtime_protocol_shape() {
 
     assert!(types.contains("event_id: string;"));
     assert!(!types.contains("key: string;"));
+    assert!(types.contains("runtime_build_id?: string;"));
+    assert!(types.contains("patch_markers?: string[];"));
     assert!(types.contains("token: string;"));
     assert!(types.contains("retry?: RetryPolicy;"));
     assert!(types.contains("retry_after: string | null;"));

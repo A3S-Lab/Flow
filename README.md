@@ -132,6 +132,7 @@ implementation. See the runnable
 | Pause without holding compute | Record waits, delayed retries, and external hooks as durable suspensions |
 | Run across workers | Route serializable `FlowTask` work through A3S Boot or the compatibility queues |
 | Roll out replay code safely | Pin new histories to `RuntimeBuildId` and reject incompatible workers before mutation |
+| Introduce a compatible code path | Pin bounded `WorkflowPatchId` markers at run creation and replay old and new branches deterministically |
 | Keep storage portable | Use in-memory, JSONL, SQLite, or PostgreSQL stores behind one `FlowEventStore` contract |
 
 The public SDK is Rust-first. An optional `NativeTsRuntime` and installable
@@ -169,7 +170,7 @@ Add the engine and an async runtime:
 
 ```toml
 [dependencies]
-a3s-flow = "0.13.1"
+a3s-flow = "0.14.0"
 async-trait = "0.1"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -379,6 +380,37 @@ missing routes fail before a scheduler tick partially enqueues work.
 Keep an old route alive until its pinned histories terminate. Use
 `accept_unpinned()` only as a bounded migration for legacy histories.
 
+### Replay-safe patch markers
+
+Runtime build IDs decide which workers may execute a history. Patch markers
+decide which branch compatible workflow code must replay. Add a stable marker
+only to new run specs and retain both branches while older unmarked histories
+are active:
+
+```rust
+use a3s_flow::{WorkflowPatchId, WorkflowSpec};
+
+# fn spec() -> a3s_flow::Result<WorkflowSpec> {
+let spec = WorkflowSpec::rust_embedded(
+    "checkout.calculate",
+    "2",
+    "checkout",
+    "main",
+)
+.with_patch_marker(WorkflowPatchId::new("checkout.calculation-v2")?);
+# Ok(spec)
+# }
+```
+
+Rust workflow code selects the persisted branch with
+`WorkflowContext::has_patch_marker(...)`. The complete sorted marker set is
+inside the immutable `WorkflowSpec` stored by `flow.run.created`; retrying the
+same run ID with a different set returns `RunConflict`. Existing serialized
+specs default to no markers. Markers are not mutable feature flags and their
+IDs must never be reused for another behavior. See the
+[`replay_safe_patch`](examples/replay_safe_patch.rs) example and the
+[rollout recipe](docs/COOKBOOK.md#replay-safe-workflow-patches).
+
 ## Native TypeScript
 
 `NativeTsRuntime` compiles TypeScript workflow and step source into a native
@@ -394,7 +426,7 @@ Install the compiler from crates.io and provide Bun on `PATH` (or set
 `A3S_FLOW_BUN` to its executable):
 
 ```sh
-cargo install a3s-flow --version 0.13.1 --locked \
+cargo install a3s-flow --version 0.14.0 --locked \
   --bin a3s-flow-native-compiler
 
 a3s-flow-native-compiler capabilities
@@ -426,6 +458,7 @@ Start with one executable path, then move to the concern you need:
 | Human approval | [`hook_approval`](examples/hook_approval.rs), [`hook_disposal`](examples/hook_disposal.rs) |
 | Timers and polling | [`scheduler_worker`](examples/scheduler_worker.rs), [`polling_loop`](examples/polling_loop.rs) |
 | Cancellation | [`cancellation`](examples/cancellation.rs) |
+| Replay-safe code changes | [`replay_safe_patch`](examples/replay_safe_patch.rs) |
 | Local durability | [`local_file_durability`](examples/local_file_durability.rs), [`sqlite_durability`](examples/sqlite_durability.rs) |
 | Shared PostgreSQL | [`postgres_durability`](examples/postgres_durability.rs), [`postgres_task_queue_durability`](examples/postgres_task_queue_durability.rs) |
 | Audit and events | [`observer_bridge`](examples/observer_bridge.rs), [`observer_fanout`](examples/observer_fanout.rs), [`local_audit_log`](examples/local_audit_log.rs) |
@@ -451,7 +484,7 @@ The deeper references keep operational detail out of this homepage:
 | Append-only run history and sequence checks | Product authorization, tenancy, and publication lifecycle |
 | Deterministic replay validation | Runtime node registry and business-data semantics |
 | Step, wait, hook, retry, and terminal lifecycles | Which tools and external systems a step may call |
-| Runtime-build admission and task routing | Deployment policy and compatible build declarations |
+| Runtime-build admission, pinned patch markers, and task routing | Deployment policy, compatible build declarations, and marker rollout timing |
 | Store, scheduler, worker, and observer contracts | Logical idempotency for physical side effects |
 
 This split keeps Flow reusable as the sole durable orchestration authority
@@ -499,8 +532,9 @@ second graph compiler, scheduler, event store, or workflow lifecycle.
 - **Persistence — implemented, with feature gates.** Memory and JSONL are built
   in; SQLite and PostgreSQL share canonical A3S ORM migrations.
 - **Dispatch and rolling builds — implemented.** A3S Boot is the recommended
-  task manager, compatibility queues remain available, and exact runtime-build
-  routing fails closed.
+  task manager, compatibility queues remain available, exact runtime-build
+  routing fails closed, and immutable patch markers preserve old/new replay
+  branches across compatible builds.
 - **Native TypeScript — implemented, optional.** The runtime, compiler,
   dependency manifest, cache identity, and Bun backend remain Rust-controlled
   adapters rather than a second workflow engine.

@@ -27,8 +27,9 @@ pub use model::{
     FlowEvent, FlowEventEnvelope, HookCallbackRoute, HookMetadata, HookSnapshot, HookStatus,
     JsonValue, RetryPolicy, RuntimeCommand, RuntimeKind, RuntimeSpec, ScheduledWakeup,
     ScheduledWakeupKind, StepCommand, StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot,
-    WaitStatus, WorkflowProgress, WorkflowRunSnapshot, WorkflowRunStatus, WorkflowRunSummary,
-    WorkflowRunSuspension, WorkflowSpec, WorkflowTerminalOutcome,
+    WaitStatus, WorkflowPatchId, WorkflowProgress, WorkflowRunSnapshot, WorkflowRunStatus,
+    WorkflowRunSummary, WorkflowRunSuspension, WorkflowSpec, WorkflowTerminalOutcome,
+    MAX_WORKFLOW_PATCH_MARKERS,
 };
 #[cfg(feature = "a3s-event")]
 pub use observe::A3sEventBusFlowEventSink;

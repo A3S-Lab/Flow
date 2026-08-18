@@ -4,7 +4,7 @@ use serde::de::DeserializeOwned;
 use crate::error::{FlowError, Result};
 use crate::model::{
     CancellationRequest, ChildOperationReference, FlowEvent, FlowEventEnvelope, HookMetadata,
-    JsonValue, RetryPolicy, RuntimeCommand, StepCommand, WorkflowProgress,
+    JsonValue, RetryPolicy, RuntimeCommand, StepCommand, WorkflowProgress, WorkflowSpec,
 };
 use crate::runtime::WorkflowInvocation;
 
@@ -28,6 +28,20 @@ impl<'a> WorkflowContext<'a> {
 
     pub fn input(&self) -> &JsonValue {
         &self.invocation.input
+    }
+
+    /// Return the immutable workflow definition pinned by `run_created`.
+    pub fn spec(&self) -> &WorkflowSpec {
+        &self.invocation.spec
+    }
+
+    /// Return whether this run was created with a replay-safe patch marker.
+    ///
+    /// Marker presence never changes for an existing run. A compatible runtime
+    /// can therefore keep both code paths and deterministically replay old
+    /// unmarked histories alongside new marked histories.
+    pub fn has_patch_marker(&self, patch_id: &str) -> bool {
+        self.spec().has_patch_marker(patch_id)
     }
 
     /// Decode the workflow input into a host-defined serde type.

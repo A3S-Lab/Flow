@@ -20,6 +20,8 @@ export type WorkflowSpec = {
   name: string;
   version: string;
   runtime: RuntimeSpec;
+  runtime_build_id?: string;
+  patch_markers?: string[];
 };
 
 export type RetryPolicy = {

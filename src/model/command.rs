@@ -1,12 +1,16 @@
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use crate::error::{FlowError, Result};
 use crate::runtime_build::RuntimeBuildId;
 
-use super::{ChildOperationReference, WorkflowProgress};
+use super::patch::deserialize_patch_markers;
+use super::{
+    ChildOperationReference, WorkflowPatchId, WorkflowProgress, MAX_WORKFLOW_PATCH_MARKERS,
+};
 
 /// JSON payload exchanged between the engine and runtimes.
 pub type JsonValue = Value;
@@ -56,6 +60,13 @@ pub struct WorkflowSpec {
     /// Exact deployed runtime build required to replay this run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_build_id: Option<RuntimeBuildId>,
+    /// Replay-safe code changes enabled for this run at creation time.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_patch_markers",
+        skip_serializing_if = "BTreeSet::is_empty"
+    )]
+    pub patch_markers: BTreeSet<WorkflowPatchId>,
 }
 
 impl WorkflowSpec {
@@ -70,6 +81,7 @@ impl WorkflowSpec {
             version: version.into(),
             runtime: RuntimeSpec::native_ts(entrypoint, export_name),
             runtime_build_id: None,
+            patch_markers: BTreeSet::new(),
         }
     }
 
@@ -84,6 +96,7 @@ impl WorkflowSpec {
             version: version.into(),
             runtime: RuntimeSpec::rust_embedded(entrypoint, export_name),
             runtime_build_id: None,
+            patch_markers: BTreeSet::new(),
         }
     }
 
@@ -91,6 +104,21 @@ impl WorkflowSpec {
     pub fn with_runtime_build(mut self, runtime_build_id: RuntimeBuildId) -> Self {
         self.runtime_build_id = Some(runtime_build_id);
         self
+    }
+
+    /// Enable a replay-safe code path for every run created from this spec.
+    ///
+    /// The complete marker set is persisted atomically inside `run_created`.
+    /// Reusing an existing run ID with a different set is rejected as a start
+    /// conflict instead of changing the behavior of an in-flight history.
+    pub fn with_patch_marker(mut self, patch_id: WorkflowPatchId) -> Self {
+        self.patch_markers.insert(patch_id);
+        self
+    }
+
+    /// Return whether this immutable run definition contains `patch_id`.
+    pub fn has_patch_marker(&self, patch_id: &str) -> bool {
+        self.patch_markers.contains(patch_id)
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -113,6 +141,12 @@ impl WorkflowSpec {
             return Err(FlowError::InvalidWorkflow(
                 "runtime export_name must not be empty".to_string(),
             ));
+        }
+        if self.patch_markers.len() > MAX_WORKFLOW_PATCH_MARKERS {
+            return Err(FlowError::InvalidWorkflow(format!(
+                "workflow patch marker count {} exceeds {MAX_WORKFLOW_PATCH_MARKERS}",
+                self.patch_markers.len()
+            )));
         }
         Ok(())
     }

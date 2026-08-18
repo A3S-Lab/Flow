@@ -25,6 +25,9 @@ pub enum FlowError {
     #[error("invalid runtime build identity: {0}")]
     InvalidRuntimeBuildId(String),
 
+    #[error("invalid workflow patch identity: {0}")]
+    InvalidWorkflowPatchId(String),
+
     #[error(
         "workflow run {run_id} requires runtime build {required_build_id:?}, but the configured current build is {current_build_id:?}"
     )]
@@ -127,6 +130,10 @@ impl fmt::Debug for FlowError {
                 .finish(),
             Self::InvalidRuntimeBuildId(reason) => formatter
                 .debug_tuple("InvalidRuntimeBuildId")
+                .field(reason)
+                .finish(),
+            Self::InvalidWorkflowPatchId(reason) => formatter
+                .debug_tuple("InvalidWorkflowPatchId")
                 .field(reason)
                 .finish(),
             Self::RuntimeBuildUnavailable {

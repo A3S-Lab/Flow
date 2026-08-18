@@ -62,6 +62,7 @@ doc-non-pg:
 # Run executable examples that do not require Postgres
 examples-non-pg:
     cargo run --quiet --no-default-features --example sequential_steps
+    cargo run --quiet --no-default-features --example replay_safe_patch
     cargo run --quiet --no-default-features --example local_retention
     cargo run --quiet --no-default-features --example task_queue_durability
     cargo run --quiet --no-default-features --features boot --example boot_task_policy

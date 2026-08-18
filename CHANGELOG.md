@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Raised the crate version to 0.14.0 for the `WorkflowSpec` patch-marker
+  compatibility boundary.
+- Added bounded, typed `WorkflowPatchId` markers to `WorkflowSpec`. Marker sets
+  are sorted and persisted atomically in `run_created`, legacy histories default
+  to no markers, compatible runtimes can replay old and new branches through
+  `WorkflowContext::has_patch_marker`, and idempotent starts reject marker
+  drift.
 - Added native workflow app DSL and extracted graph import. The public model retains
   unknown vendor fields, classifies DSL version compatibility, validates
   deterministic top-level and iteration/loop scopes before execution, and
