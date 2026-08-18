@@ -1,13 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" role="img" aria-labelledby="title desc">
-  <title id="title">A3S Flow durable workflow engine for Rust</title>
-  <desc id="desc">A3S Flow records an append-only event history, replays workflow decisions, and projects exact run state without repeating completed side effects.</desc>
+  <title id="title">A3S Flow portable DAG compiler and durable workflow engine for Rust</title>
+  <desc id="desc">A3S Flow compiles portable nodes and edges into deterministic plans, then records append-only history and replays decisions without repeating completed work.</desc>
 
   <defs>
     <marker id="arrow-cyan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
       <path d="M0 0 10 5 0 10Z" fill="#4fd1c5"/>
-    </marker>
-    <marker id="arrow-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
-      <path d="M0 0 10 5 0 10Z" fill="#f6c85f"/>
     </marker>
   </defs>
 
@@ -15,47 +12,50 @@
   <rect x="1" y="1" width="1198" height="398" rx="23" fill="none" stroke="#193246" stroke-width="2"/>
 
   <g transform="translate(56 42)">
-    <text x="0" y="18" fill="#4fd1c5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="700" letter-spacing="2.2">DURABLE WORKFLOW ENGINE / RUST SDK</text>
+    <text x="0" y="18" fill="#4fd1c5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16" font-weight="700" letter-spacing="1.8">PORTABLE DAG + DURABLE WORKFLOW / RUST SDK</text>
     <text x="0" y="88" fill="#f3f8fc" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="72" font-weight="760" letter-spacing="-2.5">A3S Flow</text>
-    <text x="0" y="136" fill="#f6c85f" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="36" font-weight="700">Replay decisions.</text>
-    <text x="0" y="178" fill="#f6c85f" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="36" font-weight="700">Preserve completed work.</text>
-    <text x="2" y="218" fill="#a9bac8" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="21">Event-sourced runs survive restarts, waits, callbacks,</text>
-    <text x="2" y="247" fill="#a9bac8" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="21">retries, and worker replacement.</text>
+    <text x="0" y="136" fill="#f6c85f" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="32" font-weight="700">Compile graphs. Replay safely.</text>
+    <text x="0" y="176" fill="#f6c85f" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="32" font-weight="700">Preserve completed work.</text>
+    <text x="2" y="218" fill="#a9bac8" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="21">Portable nodes + edges become deterministic plans;</text>
+    <text x="2" y="247" fill="#a9bac8" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="21">event-sourced runs survive restarts and worker replacement.</text>
 
     <g transform="translate(0 276)" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16" font-weight="700">
-      <rect width="172" height="42" rx="8" fill="#0d1c2a" stroke="#28516b"/>
-      <text x="86" y="27" fill="#82e5dc" text-anchor="middle">EVENT-SOURCED</text>
-      <rect x="186" width="156" height="42" rx="8" fill="#0d1c2a" stroke="#28516b"/>
-      <text x="264" y="27" fill="#82e5dc" text-anchor="middle">REPLAY-SAFE</text>
-      <rect x="356" width="134" height="42" rx="8" fill="#0d1c2a" stroke="#28516b"/>
-      <text x="423" y="27" fill="#82e5dc" text-anchor="middle">RUST-FIRST</text>
+      <rect width="158" height="42" rx="8" fill="#0d1c2a" stroke="#28516b"/>
+      <text x="79" y="27" fill="#82e5dc" text-anchor="middle">DAG COMPILE</text>
+      <rect x="172" width="172" height="42" rx="8" fill="#0d1c2a" stroke="#28516b"/>
+      <text x="258" y="27" fill="#82e5dc" text-anchor="middle">EVENT-SOURCED</text>
+      <rect x="358" width="132" height="42" rx="8" fill="#0d1c2a" stroke="#28516b"/>
+      <text x="424" y="27" fill="#82e5dc" text-anchor="middle">RUST-FIRST</text>
     </g>
   </g>
 
   <g transform="translate(704 34)">
     <rect width="440" height="332" rx="18" fill="#0b1825" stroke="#24445b" stroke-width="1.5"/>
-    <text x="24" y="34" fill="#8ca4b6" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" font-weight="700" letter-spacing="1.4">ONE RUN / APPEND-ONLY HISTORY</text>
+    <text x="24" y="34" fill="#8ca4b6" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" font-weight="700" letter-spacing="1.2">DAG / PLAN / APPEND-ONLY HISTORY</text>
     <line x1="24" y1="52" x2="416" y2="52" stroke="#24445b"/>
 
-    <path d="M48 84v190" fill="none" stroke="#2d5b72" stroke-width="2"/>
-    <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18">
-      <circle cx="48" cy="88" r="10" fill="#102b39" stroke="#4fd1c5" stroke-width="2"/>
-      <text x="76" y="95" fill="#d9e8f1">flow.run.created</text>
-      <circle cx="48" cy="136" r="10" fill="#102b39" stroke="#4fd1c5" stroke-width="2"/>
-      <text x="76" y="143" fill="#d9e8f1">flow.step.completed</text>
-      <circle cx="48" cy="184" r="10" fill="#102b39" stroke="#4fd1c5" stroke-width="2"/>
-      <text x="76" y="191" fill="#d9e8f1">flow.wait.created</text>
-      <circle cx="48" cy="232" r="10" fill="#102b39" stroke="#4fd1c5" stroke-width="2"/>
-      <text x="76" y="239" fill="#d9e8f1">flow.hook.received</text>
-      <circle cx="48" cy="280" r="10" fill="#2d2814" stroke="#f6c85f" stroke-width="2"/>
-      <text x="76" y="287" fill="#ffe39a">flow.run.completed</text>
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="700">
+      <rect x="24" y="72" width="105" height="42" rx="8" fill="#102635" stroke="#2d5b72"/>
+      <text x="76" y="99" fill="#d9e8f1" text-anchor="middle">start</text>
+      <rect x="168" y="72" width="105" height="42" rx="8" fill="#102635" stroke="#2d5b72"/>
+      <text x="220" y="99" fill="#d9e8f1" text-anchor="middle">llm</text>
+      <rect x="311" y="72" width="105" height="42" rx="8" fill="#102635" stroke="#2d5b72"/>
+      <text x="363" y="99" fill="#d9e8f1" text-anchor="middle">answer</text>
     </g>
+    <path d="M129 93h39M273 93h38" fill="none" stroke="#4fd1c5" stroke-width="2" marker-end="url(#arrow-cyan)"/>
 
-    <rect x="24" y="302" width="170" height="34" rx="7" fill="#102635" stroke="#2d5b72"/>
-    <text x="109" y="325" fill="#82e5dc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16" font-weight="700" text-anchor="middle">REPLAY DECISIONS</text>
-    <rect x="246" y="302" width="170" height="34" rx="7" fill="#2a2412" stroke="#75612d"/>
-    <text x="331" y="325" fill="#ffe39a" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16" font-weight="700" text-anchor="middle">PROJECT STATE</text>
-    <path d="M194 319h52" fill="none" stroke="#f6c85f" stroke-width="2" marker-end="url(#arrow-amber)"/>
-    <path d="M416 319h12V72H58" fill="none" stroke="#4fd1c5" stroke-width="2" stroke-dasharray="6 6" marker-end="url(#arrow-cyan)"/>
+    <rect x="24" y="134" width="392" height="38" rx="8" fill="#211d10" stroke="#75612d"/>
+    <text x="220" y="159" fill="#ffe39a" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="700" text-anchor="middle">PLAN / start / llm / answer</text>
+
+    <text x="24" y="205" fill="#8ca4b6" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" font-weight="700" letter-spacing="1.2">DURABLE HISTORY</text>
+    <path d="M48 224v76" fill="none" stroke="#2d5b72" stroke-width="2"/>
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18">
+      <circle cx="48" cy="228" r="9" fill="#102b39" stroke="#4fd1c5" stroke-width="2"/>
+      <text x="74" y="235" fill="#d9e8f1">flow.run.created</text>
+      <circle cx="48" cy="264" r="9" fill="#102b39" stroke="#4fd1c5" stroke-width="2"/>
+      <text x="74" y="271" fill="#d9e8f1">flow.step.completed</text>
+      <circle cx="48" cy="300" r="9" fill="#2d2814" stroke="#f6c85f" stroke-width="2"/>
+      <text x="74" y="307" fill="#ffe39a">flow.run.completed</text>
+    </g>
   </g>
 </svg>

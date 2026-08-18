@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="460" viewBox="0 0 1200 460" role="img" aria-labelledby="title desc">
+  <title id="title">A3S Flow workflow DAG architecture</title>
+  <desc id="desc">An authoring tool exports a portable nodes and edges definition. Flow compiles its structure, a host binds node capabilities, and Flow provides durable event-sourced execution.</desc>
+
+  <defs>
+    <marker id="arrow-cyan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 10 5 0 10Z" fill="#4fd1c5"/>
+    </marker>
+    <marker id="arrow-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 10 5 0 10Z" fill="#f6c85f"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="460" rx="24" fill="#07111c"/>
+  <rect x="1" y="1" width="1198" height="458" rx="23" fill="none" stroke="#193246" stroke-width="2"/>
+
+  <text x="48" y="52" fill="#f3f8fc" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="36" font-weight="760">One graph. One structural compiler.</text>
+  <text x="48" y="83" fill="#8ca4b6" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="700">DEFINITION / FLOW COMPILE / HOST BINDING / DURABLE EXECUTION</text>
+
+  <g id="define" transform="translate(48 116)">
+    <rect width="250" height="230" rx="14" fill="#0b1825" stroke="#28516b" stroke-width="1.5"/>
+    <text x="22" y="34" fill="#4fd1c5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="700">01 / DEFINE</text>
+
+    <rect x="24" y="55" width="202" height="40" rx="8" fill="#102635" stroke="#2d5b72"/>
+    <text x="42" y="81" fill="#f3f8fc" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="20" font-weight="700">start</text>
+    <text x="204" y="81" fill="#82e5dc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" text-anchor="end">node</text>
+
+    <path d="M125 95v14" fill="none" stroke="#4fd1c5" stroke-width="2" marker-end="url(#arrow-cyan)"/>
+    <rect x="24" y="112" width="202" height="40" rx="8" fill="#102635" stroke="#2d5b72"/>
+    <text x="42" y="138" fill="#f3f8fc" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="20" font-weight="700">llm</text>
+    <text x="204" y="138" fill="#82e5dc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" text-anchor="end">node</text>
+
+    <path d="M125 152v14" fill="none" stroke="#4fd1c5" stroke-width="2" marker-end="url(#arrow-cyan)"/>
+    <rect x="24" y="169" width="202" height="40" rx="8" fill="#102635" stroke="#2d5b72"/>
+    <text x="42" y="195" fill="#f3f8fc" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="20" font-weight="700">answer</text>
+    <text x="204" y="195" fill="#82e5dc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" text-anchor="end">node</text>
+  </g>
+
+  <g id="compile" transform="translate(332 116)">
+    <rect width="250" height="230" rx="14" fill="#0b1825" stroke="#28516b" stroke-width="1.5"/>
+    <text x="22" y="34" fill="#4fd1c5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="700">02 / COMPILE</text>
+    <text x="22" y="78" fill="#f3f8fc" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="20" font-weight="700">IDs + endpoints</text>
+    <text x="22" y="113" fill="#f3f8fc" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="20" font-weight="700">Scopes + acyclicity</text>
+    <text x="22" y="148" fill="#f3f8fc" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="20" font-weight="700">Topological plan</text>
+    <rect x="22" y="171" width="206" height="38" rx="8" fill="#211d10" stroke="#75612d"/>
+    <text x="125" y="196" fill="#ffe39a" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="700" text-anchor="middle">SEMANTIC DIGEST</text>
+  </g>
+
+  <g id="bind" transform="translate(616 116)">
+    <rect width="250" height="230" rx="14" fill="#0b1825" stroke="#75612d" stroke-width="1.5"/>
+    <text x="22" y="34" fill="#f6c85f" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="700">03 / HOST BIND</text>
+    <text x="22" y="78" fill="#f3f8fc" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="20" font-weight="700">data.type -&gt; executor</text>
+    <text x="22" y="113" fill="#f3f8fc" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="20" font-weight="700">Credentials + policy</text>
+    <text x="22" y="148" fill="#f3f8fc" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="20" font-weight="700">Tenant + tool access</text>
+    <rect x="22" y="171" width="206" height="38" rx="8" fill="#211d10" stroke="#75612d"/>
+    <text x="125" y="196" fill="#ffe39a" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="700" text-anchor="middle">PREFLIGHT OR REJECT</text>
+  </g>
+
+  <g id="execute" transform="translate(900 116)">
+    <rect width="252" height="230" rx="14" fill="#0b1825" stroke="#28516b" stroke-width="1.5"/>
+    <text x="22" y="34" fill="#4fd1c5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="700">04 / EXECUTE</text>
+    <path d="M36 65v104" fill="none" stroke="#2d5b72" stroke-width="2"/>
+    <circle cx="36" cy="72" r="8" fill="#102b39" stroke="#4fd1c5" stroke-width="2"/>
+    <text x="58" y="79" fill="#f3f8fc" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="19" font-weight="700">append events</text>
+    <circle cx="36" cy="119" r="8" fill="#102b39" stroke="#4fd1c5" stroke-width="2"/>
+    <text x="58" y="126" fill="#f3f8fc" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="19" font-weight="700">replay decisions</text>
+    <circle cx="36" cy="166" r="8" fill="#2d2814" stroke="#f6c85f" stroke-width="2"/>
+    <text x="58" y="173" fill="#ffe39a" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="19" font-weight="700">suspend or finish</text>
+    <text x="22" y="209" fill="#9fb2c1" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18">wait / hook / retry</text>
+  </g>
+
+  <path d="M298 231h34M582 231h34" fill="none" stroke="#4fd1c5" stroke-width="2.5" marker-end="url(#arrow-cyan)"/>
+  <path d="M866 231h34" fill="none" stroke="#f6c85f" stroke-width="2.5" marker-end="url(#arrow-amber)"/>
+
+  <g id="ownership-boundary">
+    <rect x="48" y="374" width="352" height="62" rx="12" fill="#0d1c2a" stroke="#28516b"/>
+    <text x="68" y="399" fill="#8ca4b6" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" font-weight="700">AUTHORING TOOL OWNS</text>
+    <text x="68" y="423" fill="#d9e8f1" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="18">editing / layout / UI adapters</text>
+
+    <rect x="424" y="374" width="352" height="62" rx="12" fill="#102635" stroke="#4fd1c5"/>
+    <text x="444" y="399" fill="#4fd1c5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" font-weight="700">FLOW OWNS</text>
+    <text x="444" y="423" fill="#d9e8f1" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="18">syntax / graph plan / durable replay</text>
+
+    <rect x="800" y="374" width="352" height="62" rx="12" fill="#211d10" stroke="#75612d"/>
+    <text x="820" y="399" fill="#f6c85f" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" font-weight="700">HOST OWNS</text>
+    <text x="820" y="423" fill="#ffe39a" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="18">node semantics / policy / effects</text>
+  </g>
+</svg>

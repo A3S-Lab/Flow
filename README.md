@@ -12,12 +12,13 @@
 </p>
 
 <p align="center">
+  <a href="#workflow-dag">Workflow DAG</a> &middot;
   <a href="#why-flow">Why Flow</a> &middot;
   <a href="#execution-model">Execution model</a> &middot;
   <a href="#quick-start">Quick start</a> &middot;
   <a href="#durable-patterns">Patterns</a> &middot;
   <a href="#persistence-and-dispatch">Persistence</a> &middot;
-  <a href="#examples-and-guides">Guides</a>
+  <a href="#status-and-roadmap">Status</a>
 </p>
 
 **A3S Flow is an event-sourced workflow engine and Rust SDK for work that must
@@ -32,6 +33,95 @@ silently accepting drift.
 > tool access, and the logical idempotency of external side effects. A3S Cloud
 > binds imported nodes to product capabilities and policy; it does not replace
 > or duplicate Flow's graph or lifecycle machinery.
+
+## Workflow DAG
+
+The versioned portable authoring contract is `WorkflowDsl`. Its executable
+payload is a directed graph with `nodes` and `edges`. Node `data.type`
+identifies the capability that a host must bind; Flow treats the remaining node
+data as semantic input, preserves unknown fields, and owns the graph
+invariants.
+
+```json
+{
+  "nodes": [
+    { "id": "start", "data": { "type": "start" } },
+    { "id": "draft", "data": { "type": "llm" } },
+    { "id": "answer", "data": { "type": "answer" } }
+  ],
+  "edges": [
+    {
+      "id": "start-draft",
+      "source": "start",
+      "sourceHandle": "source",
+      "target": "draft",
+      "targetHandle": "target"
+    },
+    {
+      "id": "draft-answer",
+      "source": "draft",
+      "sourceHandle": "source",
+      "target": "answer",
+      "targetHandle": "target"
+    }
+  ]
+}
+```
+
+A standalone authoring tool should publish this graph under `workflow.graph`
+in a complete, versioned app document. Embedded hosts that already own the
+envelope and revision may exchange the extracted graph object directly.
+
+Compile that same wire shape into a deterministic plan and semantic identity:
+
+```rust
+use a3s_flow::WorkflowDag;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let source = std::fs::read_to_string("workflow.json")?;
+    let graph = WorkflowDag::from_json(&source)?;
+    let plan = graph.execution_plan()?;
+
+    assert_eq!(plan.top_level(), ["start", "draft", "answer"]);
+    println!("digest={}", graph.execution_digest()?);
+    Ok(())
+}
+```
+
+<p align="center">
+  <img src="assets/readme/workflow-dag.svg" width="100%" alt="A3S Flow takes nodes and edges through one structural compiler, then a host binds node capabilities before the durable runtime executes them" />
+</p>
+
+The boundary is deliberate:
+
+- **Author** remains tool-owned. Drag/drop interaction, framework adapters,
+  natural-language editing, and shared mutation APIs may change the document,
+  but they export the versioned Flow contract rather than treating
+  `RuntimeCommand` as an authoring format. Layout fields can round-trip without
+  affecting execution identity.
+- **Import** accepts a complete workflow app document (`.yml` or JSON) through
+  `WorkflowDsl`, or an extracted graph object through `WorkflowDag`. Semantic
+  YAML/JSON round trips retain fields this release does not interpret.
+- **Compile** is Flow's single structural authority. It rejects duplicate IDs,
+  missing endpoints, self-edges, cycles, invalid cross-scope edges, and
+  malformed iteration/loop containers, then emits stable per-scope topological
+  orders.
+- **Bind** stays host-owned. The host preflights every `data.type` against its
+  executor registry, credentials, authorization, tenant policy, and tool
+  access. Unsupported nodes are never silently substituted.
+- **Execute** stays Flow-owned. The host turns planned nodes into replay-safe
+  runtime commands while Flow owns history, waits, hooks, retries, scheduling,
+  and terminal state.
+
+An empty canvas remains importable as a draft but cannot produce an execution
+plan. The execution digest ignores positions, dimensions, selection, and
+viewport while binding node configuration, edge handles, dependencies, and
+semantic extensions. Hosts with another authoritative product format can call
+`WorkflowDag::new`, `WorkflowDagNode::new`, and `WorkflowDagEdge::new` directly
+and reuse the same compiler without creating another JSON parser or topology
+implementation. See the runnable
+[`workflow_dsl_import`](examples/workflow_dsl_import.rs) example and its
+[`workflow_dsl_import`](tests/workflow_dsl_import.rs) regression suite.
 
 ## Why Flow
 
@@ -72,48 +162,6 @@ This boundary produces three important guarantees:
 - The physical side-effect boundary remains at-least-once. If a process dies
   after an effect succeeds but before its output commits, the same attempt is
   redelivered. Step implementations must use a stable idempotency key.
-
-## Workflow DAG import
-
-Flow accepts both a complete workflow app DSL document (`.yml`) and the
-extracted `workflow.graph` JSON object. The stable wire shape uses
-`nodes`, `edges`, `viewport`, node `data.type`, `parentId`, and camel-case edge
-handles. Unknown fields are retained during semantic YAML/JSON round trips, so
-an importer does not destroy newer provider or editor metadata merely because
-this release does not interpret it.
-
-```rust
-use a3s_flow::{WorkflowDsl, WorkflowDslCompatibility};
-
-let source = std::fs::read_to_string("customer-support.yml")?;
-let document = WorkflowDsl::from_yaml(&source)?;
-
-match document.compatibility()? {
-    WorkflowDslCompatibility::Compatible => {}
-    WorkflowDslCompatibility::CompatibleWithWarnings => {
-        // Surface an older-minor warning to the importer.
-    }
-    WorkflowDslCompatibility::RequiresConfirmation => {
-        // Require an explicit migration decision before publication.
-    }
-}
-
-let plan = document.graph().execution_plan()?;
-let definition_digest = document.execution_digest()?;
-# Ok::<(), Box<dyn std::error::Error>>(())
-```
-
-Import and execution admission are intentionally separate. An empty workflow
-canvas can be stored as a draft, while execution planning rejects duplicate
-identities, missing endpoints, cycles, invalid cross-scope edges, and malformed
-iteration/loop containers. The execution digest ignores canvas layout but
-binds node configuration, branch handles, dependencies, and other semantic
-inputs. Product hosts must then preflight every `data.type` against their node
-executor registry before a run starts; unsupported nodes are never silently
-substituted. Hosts with an authoritative product configuration can construct
-the same compiler input directly with `WorkflowDag::new`,
-`WorkflowDagNode::new`, and `WorkflowDagEdge::new`; they do not need a second
-JSON parser or topology implementation.
 
 ## Quick start
 
@@ -436,19 +484,36 @@ gate against a real database without silently skipping store, wakeup,
 hook-token, retention, or worker-queue coverage, and executes the bundled Bun
 compiler plus a complete TypeScript workflow on Linux and Windows.
 
-## Roadmap
+## Status and roadmap
 
-- Preserve semver compatibility for the implemented runtime, store, worker, and
-  scheduler contracts.
-- Keep SQLite and PostgreSQL parity gates aligned on replay, hooks, wakeups,
-  retention, and reconnect behavior.
-- Maintain the Native TypeScript compiler, dependency-manifest protocol, and
-  artifact identity as Bun and supported targets evolve.
-- Add queue or hosted observability adapters only for a concrete deployment
-  requirement; they are extension points, not missing engine primitives.
+The core Rust SDK baseline is implemented. The roadmap protects those contracts
+and adds adapters only when a concrete deployment needs them; it does not add a
+second graph compiler, scheduler, event store, or workflow lifecycle.
 
-See the [functional plan](docs/FUNCTIONAL_PLAN.md) for capability-level status
-and non-goals.
+- **Workflow definition — implemented.** Complete app and extracted graph
+  import, version classification, lossless extensions, scoped validation,
+  deterministic plans, and semantic digests are covered by fixtures and tests.
+- **Durable runtime — implemented.** Replay, steps, batches, retries, waits,
+  hooks, cancellation, progress, child references, and typed terminal outcomes
+  are part of the public engine contract.
+- **Persistence — implemented, with feature gates.** Memory and JSONL are built
+  in; SQLite and PostgreSQL share canonical A3S ORM migrations.
+- **Dispatch and rolling builds — implemented.** A3S Boot is the recommended
+  task manager, compatibility queues remain available, and exact runtime-build
+  routing fails closed.
+- **Native TypeScript — implemented, optional.** The runtime, compiler,
+  dependency manifest, cache identity, and Bun backend remain Rust-controlled
+  adapters rather than a second workflow engine.
+- **Observability — implemented at the adapter boundary.** Post-commit
+  observers, fan-out, the A3S event bridge, and a local audit sink are present.
+
+Roadmap work is maintenance-led: preserve semver and replay compatibility, keep
+SQLite/PostgreSQL parity gates aligned, track the native compiler protocol and
+supported targets, and add queue or hosted telemetry adapters only for a
+concrete deployment requirement.
+
+The [functional plan](docs/FUNCTIONAL_PLAN.md) tracks capability-level evidence,
+maintenance gates, and explicit non-goals.
 
 ## License
 
