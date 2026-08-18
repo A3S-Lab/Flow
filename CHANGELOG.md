@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Hardened local JSONL audit recovery. `LocalFileA3sFlowEventSink` now preserves
+  a complete final record missing its newline, discards only an unterminated
+  malformed tail before the next append, and rejects terminated or interior
+  corruption without extending the damaged log. The event store and audit sink
+  share the same tail-classification and durable-append implementation.
 - Raised the crate version to 0.14.0 for the `WorkflowSpec` patch-marker
   compatibility boundary.
 - Added bounded, typed `WorkflowPatchId` markers to `WorkflowSpec`. Marker sets

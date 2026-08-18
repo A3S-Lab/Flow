@@ -1,5 +1,18 @@
 use super::*;
 
+fn audit_event(run_id: &str, sequence: u64) -> A3sFlowEvent {
+    A3sFlowEvent {
+        key: "flow.run.started".to_string(),
+        run_id: run_id.to_string(),
+        sequence,
+        event_id: Uuid::new_v4(),
+        timestamp: fixed_time(),
+        workflow: None,
+        status: Some("running".to_string()),
+        subject: None,
+    }
+}
+
 #[tokio::test]
 async fn observer_receives_committed_events_in_store_order() {
     let observer = Arc::new(InMemoryFlowEventObserver::new());
@@ -204,4 +217,96 @@ async fn local_file_a3s_event_sink_persists_jsonl_audit_events() {
         events.len(),
         "idempotent start should not append duplicate audit events"
     );
+}
+
+#[tokio::test]
+async fn local_file_a3s_event_sink_preserves_an_unterminated_complete_record() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("flow-events.jsonl");
+    let first = audit_event("audit-first", 1);
+    let second = audit_event("audit-second", 2);
+    tokio::fs::write(&path, serde_json::to_vec(&first).unwrap())
+        .await
+        .unwrap();
+
+    let sink = LocalFileA3sFlowEventSink::new(&path);
+    sink.emit(second.clone()).await;
+
+    assert!(sink.last_error().await.is_none());
+    assert_eq!(sink.events().await.unwrap(), vec![first, second]);
+    let repaired = tokio::fs::read(&path).await.unwrap();
+    assert!(repaired.ends_with(b"\n"));
+    assert_eq!(repaired.split(|byte| *byte == b'\n').count(), 3);
+}
+
+#[tokio::test]
+async fn local_file_a3s_event_sink_discards_only_an_unterminated_torn_tail() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("flow-events.jsonl");
+    let first = audit_event("audit-first", 1);
+    let second = audit_event("audit-second", 2);
+    let mut bytes = serde_json::to_vec(&first).unwrap();
+    bytes.push(b'\n');
+    bytes.extend_from_slice(br#"{"torn":"never-complete"#);
+    tokio::fs::write(&path, bytes).await.unwrap();
+
+    let sink = LocalFileA3sFlowEventSink::new(&path);
+    assert_eq!(sink.events().await.unwrap(), vec![first.clone()]);
+    sink.emit(second.clone()).await;
+
+    assert!(sink.last_error().await.is_none());
+    assert_eq!(sink.events().await.unwrap(), vec![first, second]);
+    let repaired = tokio::fs::read_to_string(&path).await.unwrap();
+    assert!(!repaired.contains("never-complete"));
+    assert_eq!(repaired.lines().count(), 2);
+}
+
+#[tokio::test]
+async fn local_file_a3s_event_sink_rejects_terminated_corruption() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("flow-events.jsonl");
+    let first = audit_event("audit-first", 1);
+    let second = audit_event("audit-second", 2);
+    let mut bytes = serde_json::to_vec(&first).unwrap();
+    bytes.extend_from_slice(b"\nnot-json\n");
+    tokio::fs::write(&path, &bytes).await.unwrap();
+
+    let sink = LocalFileA3sFlowEventSink::new(&path);
+    let error = sink.events().await.unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("failed to decode audit event line 2"));
+
+    sink.emit(second).await;
+
+    assert!(sink
+        .last_error()
+        .await
+        .is_some_and(|error| error.contains("failed to decode audit event line 2")));
+    assert_eq!(tokio::fs::read(path).await.unwrap(), bytes);
+}
+
+#[tokio::test]
+async fn local_file_a3s_event_sink_rejects_interior_corruption() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("flow-events.jsonl");
+    let first = audit_event("audit-first", 1);
+    let second = audit_event("audit-second", 2);
+    let third = audit_event("audit-third", 3);
+    let mut bytes = serde_json::to_vec(&first).unwrap();
+    bytes.extend_from_slice(b"\nnot-json\n");
+    bytes.extend_from_slice(&serde_json::to_vec(&third).unwrap());
+    bytes.push(b'\n');
+    tokio::fs::write(&path, &bytes).await.unwrap();
+
+    let sink = LocalFileA3sFlowEventSink::new(&path);
+    let error = sink.events().await.unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("failed to decode audit event line 2"));
+
+    sink.emit(second).await;
+
+    assert!(sink.last_error().await.is_some());
+    assert_eq!(tokio::fs::read(path).await.unwrap(), bytes);
 }

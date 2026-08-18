@@ -11,6 +11,7 @@
 mod context;
 mod engine;
 mod error;
+mod jsonl;
 mod model;
 mod observe;
 mod protocol;

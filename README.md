@@ -639,6 +639,8 @@ second graph compiler, scheduler, event store, or workflow lifecycle.
   adapters rather than a second workflow engine.
 - **Observability — implemented at the adapter boundary.** Post-commit
   observers, fan-out, the A3S event bridge, and a local audit sink are present.
+  The JSONL sink repairs only an unterminated torn tail and rejects terminated
+  or interior corruption before extending the audit log.
 
 Roadmap work is maintenance-led: preserve semver and replay compatibility, keep
 SQLite/PostgreSQL parity gates aligned, track the native compiler protocol and

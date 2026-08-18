@@ -5,8 +5,8 @@ use a3s_flow::PostgresEventStore;
 #[cfg(feature = "sqlite")]
 use a3s_flow::SqliteEventStore;
 use a3s_flow::{
-    A3sFlowEventBridge, FanoutFlowEventObserver, FlowEngine, FlowError, FlowEvent,
-    FlowEventEnvelope, FlowEventStore, FlowRuntime, HookMetadata, HookStatus,
+    A3sFlowEvent, A3sFlowEventBridge, A3sFlowEventSink, FanoutFlowEventObserver, FlowEngine,
+    FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore, FlowRuntime, HookMetadata, HookStatus,
     InMemoryA3sFlowEventSink, InMemoryEventStore, InMemoryFlowEventObserver,
     LocalFileA3sFlowEventSink, LocalFileEventStore, RetryPolicy, RuntimeCommand, StepFailureAction,
     StepInvocation, StepStatus, WaitStatus, WorkflowInvocation, WorkflowRunStatus,

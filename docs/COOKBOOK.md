@@ -1050,9 +1050,14 @@ let engine = FlowEngine::builder(runtime())
 ```
 
 The file sink appends one `A3sFlowEvent` per line, creates parent directories,
-and exposes `events()` for local inspection. Because observers run after store
-commit, write errors are recorded in `last_error()` instead of rolling back the
-workflow event. See `examples/local_audit_log.rs` for a runnable audit-log flow.
+and exposes `events()` for local inspection. After a crash, the next append
+preserves a complete final record missing only its newline and discards an
+unterminated malformed tail. Terminated or interior corruption fails closed and
+is reported through `last_error()` instead of extending the damaged log.
+Because observers run after store commit, audit write errors never roll back the
+workflow event. Share one sink instance (normally through `Arc`) per path; the
+local sink does not coordinate separate processes. See
+`examples/local_audit_log.rs` for a runnable audit-log flow.
 
 When the host uses A3S Event as its event backbone, enable the `a3s-event`
 feature and publish bridged records through an `EventBus`:

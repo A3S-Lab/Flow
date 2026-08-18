@@ -562,7 +562,12 @@ source of truth for workflow state and cannot roll back a committed event.
 workflow identity, event key, status, subject, audit identity, and
 low-cardinality metric labels. `InMemoryA3sFlowEventSink` keeps those records in
 process for tests and examples. `LocalFileA3sFlowEventSink` appends them to
-JSONL for local audit trails and records write failures in `last_error()`.
+JSONL for local audit trails and records write failures in `last_error()`. On
+first append after startup or a write failure, it preserves a complete final
+record missing its newline, truncates only an unterminated malformed tail, and
+rejects terminated or interior corruption without extending the damaged log.
+The local event store and audit sink share this JSONL tail classifier so their
+crash-recovery rules cannot drift.
 `FanoutFlowEventObserver` composes several observers over the same committed
 event stream, so hosts can feed debugging, metrics, and audit adapters without
 changing engine persistence semantics.
