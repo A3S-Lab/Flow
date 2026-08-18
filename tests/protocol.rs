@@ -1,8 +1,9 @@
 use a3s_flow::{
     ChildWorkflowCancellationPolicy, FlowEvent, FlowEventEnvelope, NativeRuntimeKind,
     NativeRuntimeRequest, NativeRuntimeResponse, NativeTsCompilerCapabilities,
-    NativeTsDependencyManifest, RuntimeCommand, WorkflowRunSummary, WorkflowTerminalOutcome,
-    NATIVE_COMPILER_PROTOCOL, NATIVE_DEPENDENCY_MANIFEST_PROTOCOL, NATIVE_RUNTIME_PROTOCOL,
+    NativeTsDependencyManifest, RuntimeCommand, WorkflowRunSummary, WorkflowSignal, WorkflowSpec,
+    WorkflowTerminalOutcome, NATIVE_COMPILER_PROTOCOL, NATIVE_DEPENDENCY_MANIFEST_PROTOCOL,
+    NATIVE_RUNTIME_PROTOCOL,
 };
 use chrono::Utc;
 use serde_json::json;
@@ -149,6 +150,7 @@ fn run_summary_accepts_payloads_from_before_new_status_counters_were_added() {
     assert_eq!(summary.cancelling_runs, 0);
     assert_eq!(summary.continued_as_new_runs, 0);
     assert_eq!(summary.open_child_workflows, 0);
+    assert_eq!(summary.open_signal_waits, 0);
 }
 
 #[test]
@@ -235,6 +237,74 @@ fn child_workflow_events_use_stable_wire_shapes_and_event_keys() {
 }
 
 #[test]
+fn signal_contracts_commands_and_events_use_stable_wire_shapes() {
+    let legacy_spec: WorkflowSpec = serde_json::from_value(json!({
+        "name": "legacy.workflow",
+        "version": "1",
+        "runtime": {
+            "kind": "rust_embedded",
+            "entrypoint": "tests::protocol",
+            "export_name": "main"
+        }
+    }))
+    .unwrap();
+    assert!(legacy_spec.signal_names.is_empty());
+
+    let declared = WorkflowSpec::rust_embedded("signal.workflow", "1", "tests::protocol", "main")
+        .with_signal("order.released")
+        .with_signal("order.approved");
+    assert_eq!(
+        serde_json::to_value(declared).unwrap()["signal_names"],
+        json!(["order.approved", "order.released"])
+    );
+
+    let command = RuntimeCommand::WaitForSignal {
+        wait_id: "approval".to_string(),
+        signal_name: "order.approved".to_string(),
+    };
+    assert_eq!(
+        serde_json::to_value(command).unwrap(),
+        json!({
+            "type": "wait_for_signal",
+            "wait_id": "approval",
+            "signal_name": "order.approved"
+        })
+    );
+
+    let received = FlowEvent::SignalReceived {
+        signal: WorkflowSignal::new("delivery-1", "order.approved", json!({ "approved": true })),
+    };
+    assert_eq!(received.event_key(), "flow.signal.received");
+    assert_eq!(
+        serde_json::to_value(received).unwrap(),
+        json!({
+            "type": "signal_received",
+            "signal": {
+                "signal_id": "delivery-1",
+                "name": "order.approved",
+                "payload": { "approved": true }
+            }
+        })
+    );
+    assert_eq!(
+        FlowEvent::SignalWaitCreated {
+            wait_id: "approval".to_string(),
+            signal_name: "order.approved".to_string(),
+        }
+        .event_key(),
+        "flow.signal.wait.created"
+    );
+    assert_eq!(
+        FlowEvent::SignalWaitCompleted {
+            wait_id: "approval".to_string(),
+            signal_id: "delivery-1".to_string(),
+        }
+        .event_key(),
+        "flow.signal.wait.completed"
+    );
+}
+
+#[test]
 fn native_ts_authoring_types_track_runtime_protocol_shape() {
     let types = include_str!("../examples/native-ts/a3s-flow-runtime.d.ts");
     for event_type in [
@@ -252,6 +322,9 @@ fn native_ts_authoring_types_track_runtime_protocol_shape() {
         "child_operation_linked",
         "child_workflow_requested",
         "child_workflow_resolved",
+        "signal_received",
+        "signal_wait_created",
+        "signal_wait_completed",
         "step_created",
         "step_started",
         "step_completed",
@@ -273,12 +346,14 @@ fn native_ts_authoring_types_track_runtime_protocol_shape() {
     assert!(!types.contains("key: string;"));
     assert!(types.contains("runtime_build_id?: string;"));
     assert!(types.contains("patch_markers?: string[];"));
+    assert!(types.contains("signal_names?: string[];"));
     assert!(types.contains("token: string;"));
     assert!(types.contains("retry?: RetryPolicy;"));
     assert!(types.contains("retry_after: string | null;"));
     assert!(types.contains("type: \"record_progress\"; progress: WorkflowProgress"));
     assert!(types.contains("type: \"link_child_operation\"; child: ChildOperationReference"));
     assert!(types.contains("type: \"start_child_workflow\";"));
+    assert!(types.contains("type: \"wait_for_signal\";"));
     assert!(types.contains("type: \"cancel\""));
     assert!(types.contains("type: \"continue_as_new\"; input: Json"));
     assert!(!types.contains("export function stepOutput"));

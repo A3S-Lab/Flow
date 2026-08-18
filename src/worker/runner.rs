@@ -134,6 +134,12 @@ pub(super) async fn handle_flow_task(
             outcome.run_ids.push(run_id.clone());
             outcome.resumed_hook = Some((run_id, hook_id));
         }
+        FlowTask::SendSignal { run_id, signal } => {
+            let signal_id = signal.signal_id.clone();
+            let snapshot = engine.send_signal(&run_id, signal).await?;
+            outcome.run_ids.push(snapshot.run_id.clone());
+            outcome.delivered_signal = Some((snapshot.run_id, signal_id));
+        }
         FlowTask::DisposeHook { run_id, hook_id } => {
             engine.dispose_hook(&run_id, &hook_id).await?;
             outcome.run_ids.push(run_id.clone());

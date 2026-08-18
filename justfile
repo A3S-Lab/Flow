@@ -65,6 +65,7 @@ examples-non-pg:
     cargo run --quiet --no-default-features --example replay_safe_patch
     cargo run --quiet --no-default-features --example continue_as_new
     cargo run --quiet --no-default-features --example child_workflow
+    cargo run --quiet --no-default-features --example workflow_signals
     cargo run --quiet --no-default-features --example local_retention
     cargo run --quiet --no-default-features --example task_queue_durability
     cargo run --quiet --no-default-features --features boot --example boot_task_policy

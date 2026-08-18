@@ -4,9 +4,9 @@ use crate::error::{FlowError, Result};
 
 use super::{
     validate_run_id, CancellationRequestSnapshot, ChildWorkflowSnapshot, FlowEvent,
-    FlowEventEnvelope, HookSnapshot, HookStatus, StepFailureAction, StepSnapshot, StepStatus,
-    WaitSnapshot, WaitStatus, WorkflowContinuation, WorkflowRunSnapshot, WorkflowRunStatus,
-    WorkflowTerminalOutcome,
+    FlowEventEnvelope, HookSnapshot, HookStatus, SignalWaitSnapshot, SignalWaitStatus,
+    StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowContinuation,
+    WorkflowRunSnapshot, WorkflowRunStatus, WorkflowSignalSnapshot, WorkflowTerminalOutcome,
 };
 
 pub(crate) fn project_run(
@@ -39,6 +39,8 @@ pub(crate) fn project_run(
         progress: Vec::new(),
         child_operations: BTreeMap::new(),
         child_workflows: BTreeMap::new(),
+        signals: Vec::new(),
+        signal_waits: BTreeMap::new(),
         output: None,
         error: None,
         terminal_outcome: None,
@@ -136,6 +138,11 @@ pub(crate) fn project_run(
                         hook.status = HookStatus::Cancelled;
                     }
                 }
+                for wait in snapshot.signal_waits.values_mut() {
+                    if wait.status == SignalWaitStatus::Waiting {
+                        wait.status = SignalWaitStatus::Cancelled;
+                    }
+                }
             }
             FlowEvent::RunCancelled { reason } => {
                 ensure_no_blocking_child_workflows(&snapshot)?;
@@ -222,6 +229,25 @@ pub(crate) fn project_run(
                         "run_continued_as_new cannot abandon an open child workflow".to_string(),
                     ));
                 }
+                if snapshot
+                    .signal_waits
+                    .values()
+                    .any(|wait| wait.status == SignalWaitStatus::Waiting)
+                {
+                    return Err(FlowError::InvalidTransition(
+                        "run_continued_as_new cannot abandon an open signal wait".to_string(),
+                    ));
+                }
+                if let Some(signal) = snapshot
+                    .signals
+                    .iter()
+                    .find(|signal| signal.consumed_by.is_none())
+                {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "run_continued_as_new cannot abandon unconsumed signal {}",
+                        signal.signal_id
+                    )));
+                }
                 validate_run_id(successor_run_id)?;
                 snapshot.status = WorkflowRunStatus::ContinuedAsNew;
                 snapshot.output = None;
@@ -306,6 +332,122 @@ pub(crate) fn project_run(
                 child.outcome = Some(outcome.clone());
                 child.resolved_at = Some(envelope.timestamp);
                 child.resolved_sequence = Some(envelope.sequence);
+            }
+            FlowEvent::SignalReceived { signal } => {
+                if snapshot.status == WorkflowRunStatus::Pending {
+                    return Err(FlowError::InvalidTransition(
+                        "signal_received cannot precede run_started".to_string(),
+                    ));
+                }
+                signal.validate()?;
+                if !snapshot.spec.accepts_signal(&signal.name) {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "signal {} uses undeclared workflow signal name {}",
+                        signal.signal_id, signal.name
+                    )));
+                }
+                if snapshot
+                    .signals
+                    .iter()
+                    .any(|existing| existing.signal_id == signal.signal_id)
+                {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "signal_received duplicates signal {}",
+                        signal.signal_id
+                    )));
+                }
+                snapshot.signals.push(WorkflowSignalSnapshot {
+                    signal_id: signal.signal_id.clone(),
+                    name: signal.name.clone(),
+                    payload: signal.payload.clone(),
+                    received_at: envelope.timestamp,
+                    received_sequence: envelope.sequence,
+                    consumed_by: None,
+                });
+            }
+            FlowEvent::SignalWaitCreated {
+                wait_id,
+                signal_name,
+            } => {
+                if snapshot.status == WorkflowRunStatus::Pending {
+                    return Err(FlowError::InvalidTransition(
+                        "signal_wait_created cannot precede run_started".to_string(),
+                    ));
+                }
+                super::validate_signal_wait(wait_id, signal_name)?;
+                if !snapshot.spec.accepts_signal(signal_name) {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "signal wait {wait_id} uses undeclared workflow signal name {signal_name}"
+                    )));
+                }
+                if snapshot.signal_waits.contains_key(wait_id) {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "signal_wait_created duplicates wait {wait_id}"
+                    )));
+                }
+                snapshot.signal_waits.insert(
+                    wait_id.clone(),
+                    SignalWaitSnapshot {
+                        wait_id: wait_id.clone(),
+                        signal_name: signal_name.clone(),
+                        status: SignalWaitStatus::Waiting,
+                        created_at: envelope.timestamp,
+                        created_sequence: envelope.sequence,
+                        signal_id: None,
+                        completed_at: None,
+                        completed_sequence: None,
+                    },
+                );
+            }
+            FlowEvent::SignalWaitCompleted { wait_id, signal_id } => {
+                if snapshot.status == WorkflowRunStatus::Pending {
+                    return Err(FlowError::InvalidTransition(
+                        "signal_wait_completed cannot precede run_started".to_string(),
+                    ));
+                }
+                let wait = snapshot.signal_waits.get(wait_id).ok_or_else(|| {
+                    FlowError::InvalidTransition(format!(
+                        "signal_wait_completed references unknown wait {wait_id}"
+                    ))
+                })?;
+                if wait.status != SignalWaitStatus::Waiting {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "signal_wait_completed cannot follow {:?} for wait {wait_id}",
+                        wait.status
+                    )));
+                }
+                let signal_index = snapshot
+                    .signals
+                    .iter()
+                    .position(|signal| signal.signal_id == *signal_id)
+                    .ok_or_else(|| {
+                        FlowError::InvalidTransition(format!(
+                            "signal_wait_completed references unknown signal {signal_id}"
+                        ))
+                    })?;
+                let signal = &snapshot.signals[signal_index];
+                if signal.name != wait.signal_name {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "signal_wait_completed pairs wait {wait_id} for {} with signal {signal_id} named {}",
+                        wait.signal_name, signal.name
+                    )));
+                }
+                if let Some(consumed_by) = &signal.consumed_by {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "signal_wait_completed reuses signal {signal_id} consumed by wait {consumed_by}"
+                    )));
+                }
+
+                snapshot.signals[signal_index].consumed_by = Some(wait_id.clone());
+                let wait = snapshot.signal_waits.get_mut(wait_id).ok_or_else(|| {
+                    FlowError::InvalidTransition(format!(
+                        "signal_wait_completed lost wait {wait_id} during projection"
+                    ))
+                })?;
+                wait.status = SignalWaitStatus::Completed;
+                wait.signal_id = Some(signal_id.clone());
+                wait.completed_at = Some(envelope.timestamp);
+                wait.completed_sequence = Some(envelope.sequence);
             }
             FlowEvent::StepCreated {
                 step_id,

@@ -5,7 +5,7 @@ use crate::error::{FlowError, Result};
 use crate::model::{
     CancellationRequest, ChildOperationReference, ChildWorkflowCancellationPolicy, FlowEvent,
     FlowEventEnvelope, HookMetadata, JsonValue, RetryPolicy, RuntimeCommand, StepCommand,
-    WorkflowProgress, WorkflowSpec, WorkflowTerminalOutcome,
+    WorkflowProgress, WorkflowSignal, WorkflowSpec, WorkflowTerminalOutcome,
 };
 use crate::runtime::WorkflowInvocation;
 
@@ -119,6 +119,45 @@ impl<'a> WorkflowContext<'a> {
                 } if id == child_id => Some(outcome),
                 _ => None,
             })
+    }
+
+    /// Return a received signal by its caller-owned delivery identity.
+    pub fn signal(&self, signal_id: &str) -> Option<&WorkflowSignal> {
+        self.history()
+            .iter()
+            .find_map(|envelope| match &envelope.event {
+                FlowEvent::SignalReceived { signal } if signal.signal_id == signal_id => {
+                    Some(signal)
+                }
+                _ => None,
+            })
+    }
+
+    /// Return the payload paired with a completed deterministic signal wait.
+    pub fn signal_payload(&self, wait_id: &str) -> Option<&JsonValue> {
+        let signal_id = self
+            .history()
+            .iter()
+            .find_map(|envelope| match &envelope.event {
+                FlowEvent::SignalWaitCompleted {
+                    wait_id: completed_wait_id,
+                    signal_id,
+                } if completed_wait_id == wait_id => Some(signal_id.as_str()),
+                _ => None,
+            })?;
+        self.signal(signal_id).map(|signal| &signal.payload)
+    }
+
+    /// Decode the payload paired with a completed deterministic signal wait.
+    pub fn signal_payload_as<T>(&self, wait_id: &str) -> Result<Option<T>>
+    where
+        T: DeserializeOwned,
+    {
+        self.signal_payload(wait_id)
+            .cloned()
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(FlowError::from)
     }
 
     pub fn step_output(&self, step_id: &str) -> Option<&JsonValue> {
@@ -352,5 +391,18 @@ impl<'a> WorkflowContext<'a> {
         metadata: HookMetadata,
     ) -> Result<RuntimeCommand> {
         Ok(self.create_hook(hook_id, token, metadata.into_json()?))
+    }
+
+    /// Suspend until the next queued signal with `signal_name` is paired with
+    /// the stable `wait_id`.
+    pub fn wait_for_signal(
+        &self,
+        wait_id: impl Into<String>,
+        signal_name: impl Into<String>,
+    ) -> RuntimeCommand {
+        RuntimeCommand::WaitForSignal {
+            wait_id: wait_id.into(),
+            signal_name: signal_name.into(),
+        }
     }
 }

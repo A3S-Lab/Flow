@@ -92,6 +92,13 @@ pub enum FlowError {
         reason: String,
     },
 
+    #[error("signal {signal_id} for workflow run {run_id} conflicts with request: {reason}")]
+    SignalConflict {
+        run_id: String,
+        signal_id: String,
+        reason: String,
+    },
+
     #[error("invalid workflow definition: {0}")]
     InvalidWorkflow(String),
 
@@ -218,6 +225,16 @@ impl fmt::Debug for FlowError {
                 .debug_struct("HookConflict")
                 .field("run_id", run_id)
                 .field("hook_id", hook_id)
+                .field("reason", reason)
+                .finish(),
+            Self::SignalConflict {
+                run_id,
+                signal_id,
+                reason,
+            } => formatter
+                .debug_struct("SignalConflict")
+                .field("run_id", run_id)
+                .field("signal_id", signal_id)
                 .field("reason", reason)
                 .finish(),
             Self::InvalidWorkflow(message) => formatter

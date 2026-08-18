@@ -2,8 +2,9 @@
 //!
 //! `a3s-flow` models the Workflow SDK style of durable execution as a Rust
 //! core: workflow runs are event-sourced, step results are persisted, waits and
-//! hooks suspend without burning compute, first-class child runs have durable
-//! lifecycle policy, and the actual workflow interpreter is a pluggable runtime.
+//! hooks suspend without burning compute, named signals queue in history,
+//! first-class child runs have durable lifecycle policy, and the actual
+//! workflow interpreter is a pluggable runtime.
 //! The native TypeScript runtime boundary compiles source once, then invokes the
 //! compiled executable through a small JSON protocol.
 
@@ -27,10 +28,12 @@ pub use model::{
     ActiveHookSnapshot, CancellationRequest, CancellationRequestSnapshot, ChildOperationReference,
     ChildWorkflowCancellationPolicy, ChildWorkflowSnapshot, FlowEvent, FlowEventEnvelope,
     HookCallbackRoute, HookMetadata, HookSnapshot, HookStatus, JsonValue, RetryPolicy,
-    RuntimeCommand, RuntimeKind, RuntimeSpec, ScheduledWakeup, ScheduledWakeupKind, StepCommand,
-    StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowContinuation,
-    WorkflowPatchId, WorkflowProgress, WorkflowRunSnapshot, WorkflowRunStatus, WorkflowRunSummary,
-    WorkflowRunSuspension, WorkflowSpec, WorkflowTerminalOutcome, MAX_WORKFLOW_PATCH_MARKERS,
+    RuntimeCommand, RuntimeKind, RuntimeSpec, ScheduledWakeup, ScheduledWakeupKind,
+    SignalWaitSnapshot, SignalWaitStatus, StepCommand, StepFailureAction, StepSnapshot, StepStatus,
+    WaitSnapshot, WaitStatus, WorkflowContinuation, WorkflowPatchId, WorkflowProgress,
+    WorkflowRunSnapshot, WorkflowRunStatus, WorkflowRunSummary, WorkflowRunSuspension,
+    WorkflowSignal, WorkflowSignalSnapshot, WorkflowSpec, WorkflowTerminalOutcome,
+    MAX_WORKFLOW_PATCH_MARKERS,
 };
 #[cfg(feature = "a3s-event")]
 pub use observe::A3sEventBusFlowEventSink;

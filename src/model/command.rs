@@ -68,6 +68,9 @@ pub struct WorkflowSpec {
         skip_serializing_if = "BTreeSet::is_empty"
     )]
     pub patch_markers: BTreeSet<WorkflowPatchId>,
+    /// Named asynchronous message contracts accepted by this workflow.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub signal_names: BTreeSet<String>,
 }
 
 impl WorkflowSpec {
@@ -83,6 +86,7 @@ impl WorkflowSpec {
             runtime: RuntimeSpec::native_ts(entrypoint, export_name),
             runtime_build_id: None,
             patch_markers: BTreeSet::new(),
+            signal_names: BTreeSet::new(),
         }
     }
 
@@ -98,6 +102,7 @@ impl WorkflowSpec {
             runtime: RuntimeSpec::rust_embedded(entrypoint, export_name),
             runtime_build_id: None,
             patch_markers: BTreeSet::new(),
+            signal_names: BTreeSet::new(),
         }
     }
 
@@ -120,6 +125,17 @@ impl WorkflowSpec {
     /// Return whether this immutable run definition contains `patch_id`.
     pub fn has_patch_marker(&self, patch_id: &str) -> bool {
         self.patch_markers.contains(patch_id)
+    }
+
+    /// Declare one named asynchronous signal contract for this workflow.
+    pub fn with_signal(mut self, signal_name: impl Into<String>) -> Self {
+        self.signal_names.insert(signal_name.into());
+        self
+    }
+
+    /// Return whether this immutable workflow definition accepts `signal_name`.
+    pub fn accepts_signal(&self, signal_name: &str) -> bool {
+        self.signal_names.contains(signal_name)
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -148,6 +164,13 @@ impl WorkflowSpec {
                 "workflow patch marker count {} exceeds {MAX_WORKFLOW_PATCH_MARKERS}",
                 self.patch_markers.len()
             )));
+        }
+        for signal_name in &self.signal_names {
+            if signal_name.trim().is_empty() {
+                return Err(FlowError::InvalidWorkflow(
+                    "workflow signal name must not be empty".to_string(),
+                ));
+            }
         }
         Ok(())
     }
@@ -293,6 +316,12 @@ pub enum RuntimeCommand {
         token: String,
         #[serde(default)]
         metadata: JsonValue,
+    },
+    /// Suspend until the next unconsumed signal with `signal_name` is paired
+    /// with this stable wait identity.
+    WaitForSignal {
+        wait_id: String,
+        signal_name: String,
     },
 }
 

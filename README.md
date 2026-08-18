@@ -22,7 +22,7 @@
 </p>
 
 **A3S Flow is an event-sourced workflow engine and Rust SDK for work that must
-survive process restarts, delayed retries, timers, callbacks, and worker
+survive process restarts, delayed retries, timers, named signals, callbacks, and worker
 replacement.** It persists every meaningful transition, projects run state
 from append-only history, and rejects non-deterministic replay instead of
 silently accepting drift.
@@ -129,7 +129,8 @@ implementation. See the runnable
 | --- | --- |
 | Recover after a crash | Rebuild the exact `WorkflowRunSnapshot` from typed, sequence-checked events |
 | Avoid repeating completed work | Persist step output before workflow replay can observe it |
-| Pause without holding compute | Record waits, delayed retries, and external hooks as durable suspensions |
+| Pause without holding compute | Record waits, delayed retries, named signal waits, and external hooks as durable suspensions |
+| Accept asynchronous messages | Declare named signal contracts and consume idempotent queued deliveries in history order |
 | Compose durable executions | Start first-class child workflows with persisted outcomes and cancellation policy |
 | Run across workers | Route serializable `FlowTask` work through A3S Boot or the compatibility queues |
 | Roll out replay code safely | Pin new histories to `RuntimeBuildId` and reject incompatible workers before mutation |
@@ -153,12 +154,12 @@ One replay cycle has four explicit phases:
 2. `FlowRuntime` receives that projection and returns one `RuntimeCommand`.
 3. Flow validates the command and appends the resulting events with an expected
    sequence.
-4. The run replays, suspends on a wait or hook, or reaches one terminal state.
+4. The run replays, suspends on a timer, signal wait, or hook, or reaches one terminal state.
 
 This boundary produces three important guarantees:
 
-- Reusing a step, wait, or hook ID with different input, retry policy,
-  deadline, token, or metadata fails as non-deterministic replay.
+- Reusing a step, wait, signal-wait, or hook ID with different input, retry
+  policy, deadline, signal name, token, or metadata fails as non-deterministic replay.
 - A successful step is visible to workflow code only after `StepCompleted` is
   durable.
 - The physical side-effect boundary remains at-least-once. If a process dies
@@ -249,9 +250,9 @@ conflict.
 | `FlowEngine` | Start, drive, follow continuation chains, resume, inspect, cancel, and terminate runs |
 | `WorkflowDsl` / `WorkflowDag` | Lossless workflow document import, version classification, scoped DAG validation, deterministic planning, and semantic identity |
 | `FlowRuntime` | Host-provided workflow decision and step execution boundary |
-| `WorkflowContext` | Replay-safe reads plus command builders for steps, batches, waits, hooks, child workflows, continue-as-new, and terminal outcomes |
+| `WorkflowContext` | Replay-safe reads plus command builders for steps, batches, waits, named signals, hooks, child workflows, continue-as-new, and terminal outcomes |
 | `FlowEventStore` | Append-only history, expected-sequence writes, hooks, wakeups, and retention projections |
-| `WorkflowRunSnapshot` | Materialized status, steps, hooks, waits, progress, child references/workflows, continuation, and terminal outcome |
+| `WorkflowRunSnapshot` | Materialized status, steps, hooks, waits, signals, progress, child references/workflows, continuation, and terminal outcome |
 | `FlowScheduler` | Discover due waits/retries once, group them by run, preflight build routes, and dispatch work |
 | `BootFlowTaskManager` | Recommended A3S Boot queue integration and worker lifecycle |
 | `FlowWorker` | Embedded/compatibility queue consumer |
@@ -259,7 +260,8 @@ conflict.
 
 Runtime commands are deliberately small: `Complete`, `Fail`, `Cancel`,
 `Timeout`, `RecordProgress`, `LinkChildOperation`, `StartChildWorkflow`,
-`ContinueAsNew`, `ScheduleStep`, `ScheduleSteps`, `WaitUntil`, and `CreateHook`.
+`ContinueAsNew`, `ScheduleStep`, `ScheduleSteps`, `WaitUntil`, `WaitForSignal`,
+and `CreateHook`.
 
 ## Durable patterns
 
@@ -297,13 +299,46 @@ Ok(ctx.schedule_steps(vec![
 ]))
 ```
 
-### Timers and callbacks
+### Timers, signals, and callbacks
 
 Waits suspend without holding a worker:
 
 ```rust
 Ok(ctx.wait_until("approval-timeout", deadline))
 ```
+
+Named signals are queued asynchronous messages. Declare accepted names in the
+immutable spec, then wait with a stable workflow-local ID:
+
+```rust
+use a3s_flow::{WorkflowSignal, WorkflowSpec};
+
+let spec = WorkflowSpec::rust_embedded("invoice", "1", "invoice", "main")
+    .with_signal("invoice.approved");
+
+// Workflow code:
+if ctx.signal_payload("approval").is_none() {
+    return Ok(ctx.wait_for_signal("approval", "invoice.approved"));
+}
+
+// Authorized host or durable Outbox consumer:
+engine
+    .send_signal(
+        &run_id,
+        WorkflowSignal::new(
+            "decision-2026-0001",
+            "invoice.approved",
+            json!({ "reviewer": "finance@example.com" }),
+        ),
+    )
+    .await?;
+```
+
+Retry the same target run ID and `signal_id` after an uncertain acknowledgement.
+Matching redelivery is idempotent across that target's continuation descendants;
+name or payload drift returns `SignalConflict`. `FlowTask::SendSignal` provides
+the same contract through Worker and A3S Boot queues. Signal payloads are part
+of durable history, and authorization remains host-owned.
 
 Hooks suspend until an external callback is received or disposed:
 
@@ -397,7 +432,8 @@ For background work, prefer `BootFlowTaskManager` with an A3S Boot queue. It
 owns processor registration, job state, retry/timeout policy, stalled-job
 handling, logical deduplication, startup, and shutdown. `FlowWorker` plus the
 in-memory, local-file, or PostgreSQL compatibility queues remains available to
-embedded hosts.
+embedded hosts. `FlowTask::SendSignal` carries the full durable delivery and is
+deduplicated by run ID plus signal ID in Boot policy.
 
 | Optional feature | Adds |
 | --- | --- |
@@ -464,6 +500,10 @@ repairs a missing successor after a crash, cycles fail closed, and
 `with_max_continue_as_new_hops()` bounds work performed by one drive call.
 Cancellation, immediate termination, progress, and child-reference calls made
 with a predecessor ID resolve the active leaf again on each conflict retry.
+Signal delivery also resolves the active leaf and recognizes matching
+redelivery across descendants of the original target. Continue-as-new is
+rejected while a signal wait is open or a queued signal remains unconsumed, so
+segmentation cannot silently discard messages.
 Retention treats the chain as one linked component. See the
 [`continue_as_new`](examples/continue_as_new.rs) example.
 
@@ -512,6 +552,7 @@ Start with one executable path, then move to the concern you need:
 | Retry and fallback | [`retry_backoff`](examples/retry_backoff.rs), [`recoverable_step_failure`](examples/recoverable_step_failure.rs) |
 | Compensation | [`compensation`](examples/compensation.rs) |
 | Human approval | [`hook_approval`](examples/hook_approval.rs), [`hook_disposal`](examples/hook_disposal.rs) |
+| Named asynchronous messages | [`workflow_signals`](examples/workflow_signals.rs) |
 | Timers and polling | [`scheduler_worker`](examples/scheduler_worker.rs), [`polling_loop`](examples/polling_loop.rs) |
 | Cancellation | [`cancellation`](examples/cancellation.rs) |
 | Child workflows | [`child_workflow`](examples/child_workflow.rs) |
@@ -540,7 +581,7 @@ The deeper references keep operational detail out of this homepage:
 | Workflow document/graph parsing, structural invariants, deterministic plans, and semantic digests | Node semantics, capability bindings, credentials, and authoring policy |
 | Append-only run history and sequence checks | Product authorization, tenancy, and publication lifecycle |
 | Deterministic replay validation | Runtime node registry and business-data semantics |
-| Step, wait, hook, retry, child-workflow, continuation, and terminal lifecycles | Which tools and external systems a step may call |
+| Step, wait, signal, hook, retry, child-workflow, continuation, and terminal lifecycles | Which tools and external systems a step may call |
 | Runtime-build admission, pinned patch markers, and task routing | Deployment policy, compatible build declarations, and marker rollout timing |
 | Store, scheduler, worker, and observer contracts | Logical idempotency for physical side effects |
 
@@ -584,7 +625,7 @@ second graph compiler, scheduler, event store, or workflow lifecycle.
   import, version classification, lossless extensions, scoped validation,
   deterministic plans, and semantic digests are covered by fixtures and tests.
 - **Durable runtime — implemented.** Replay, steps, batches, retries, waits,
-  hooks, cancellation, progress, child references, first-class child
+  hooks, named signals, cancellation, progress, child references, first-class child
   workflows, bounded continue-as-new histories, and typed terminal outcomes
   are part of the public engine contract.
 - **Persistence — implemented, with feature gates.** Memory and JSONL are built

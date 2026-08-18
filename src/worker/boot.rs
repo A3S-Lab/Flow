@@ -312,6 +312,11 @@ fn flow_task_deduplication_id(job_name: &str, task: &FlowTask) -> String {
             hash_deduplication_field(&mut hasher, token);
             "resume_hook_by_token"
         }
+        FlowTask::SendSignal { run_id, signal } => {
+            hash_deduplication_field(&mut hasher, run_id);
+            hash_deduplication_field(&mut hasher, &signal.signal_id);
+            "send_signal"
+        }
         FlowTask::DisposeHook { run_id, hook_id } => {
             hash_deduplication_field(&mut hasher, run_id);
             hash_deduplication_field(&mut hasher, hook_id);
@@ -342,6 +347,7 @@ fn flow_task_needs_active_successor(task: &FlowTask) -> bool {
     matches!(
         task,
         FlowTask::DriveRun { .. }
+            | FlowTask::SendSignal { .. }
             | FlowTask::ResumeScheduledRun { .. }
             | FlowTask::ResumeDueWaits { .. }
             | FlowTask::ResumeDueRetries { .. }

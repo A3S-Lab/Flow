@@ -5,8 +5,8 @@ use std::collections::BTreeSet;
 use crate::error::{FlowError, Result};
 use crate::model::{
     ChildOperationReference, ChildWorkflowCancellationPolicy, ChildWorkflowSnapshot, HookSnapshot,
-    RetryPolicy, StepCommand, StepSnapshot, WaitSnapshot, WorkflowProgress, WorkflowRunSnapshot,
-    WorkflowSpec,
+    RetryPolicy, SignalWaitSnapshot, StepCommand, StepSnapshot, WaitSnapshot, WorkflowProgress,
+    WorkflowRunSnapshot, WorkflowSpec,
 };
 
 pub(super) fn ensure_same_start(
@@ -139,6 +139,24 @@ pub(super) fn ensure_hook_command_matches(
                 "hook {} metadata differs: {}",
                 hook.hook_id,
                 replay_diff(&hook.metadata, metadata)
+            ),
+        });
+    }
+    Ok(())
+}
+
+pub(super) fn ensure_signal_wait_command_matches(
+    run_id: &str,
+    wait: &SignalWaitSnapshot,
+    signal_name: &str,
+) -> Result<()> {
+    if wait.signal_name != signal_name {
+        return Err(FlowError::NonDeterministic {
+            run_id: run_id.to_string(),
+            reason: format!(
+                "signal wait {} name differs: {}",
+                wait.wait_id,
+                replay_diff(&wait.signal_name, &signal_name.to_string())
             ),
         });
     }

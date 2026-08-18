@@ -30,7 +30,7 @@ Runtime adapter layer
           |
           v
 Durable engine layer
-  FlowEngine, replay loop, runtime-build admission, patch markers, child workflows, history segmentation, waits, scheduler
+  FlowEngine, replay loop, runtime-build admission, patch markers, child workflows, named signals, history segmentation, waits, scheduler
           |
           v
 Event store layer
@@ -75,9 +75,9 @@ programmatically, then reuse this exact structural compiler.
 ## Durable Execution Model
 
 Each run starts with `flow.run.created` and `flow.run.started`. The created
-event atomically pins the workflow spec, including its runtime build and
-replay-safe patch marker set. The engine then replays the workflow runtime with
-the full event history.
+event atomically pins the workflow spec, including its runtime build,
+replay-safe patch marker set, and accepted signal names. The engine then
+replays the workflow runtime with the full event history.
 
 The runtime returns exactly one command:
 
@@ -103,6 +103,11 @@ The runtime returns exactly one command:
   disposal, including after terminal completion; payload drift and opposite
   resolutions fail with `HookConflict`. Public-token lookup intentionally
   covers only active hooks.
+- `wait_for_signal`: the engine persists a stable wait ID and declared signal
+  name. It pairs that wait with the oldest matching unconsumed
+  `signal_received` event, records `signal_wait_completed`, and replays so
+  workflow code can decode the payload by wait ID. Signals received before a
+  matching wait remain queued in history.
 - `complete`: the engine persists `run_completed`.
 - `fail`: the engine persists `run_failed`.
 - `record_progress`: the engine persists an idempotently identified progress
@@ -189,6 +194,39 @@ components, validates the child's exact persisted start, protects a parent
 whose requested child stream is still missing, and deletes a component only
 when every present history is eligible.
 
+## Named Workflow Signals
+
+Signals are durable asynchronous messages, not callback tokens. A
+`WorkflowSpec` declares every accepted name with `with_signal()`. Workflow code
+uses `wait_for_signal(wait_id, signal_name)` and reads the paired payload by the
+stable wait ID. Reusing a wait ID for another name is non-deterministic replay.
+Multiple deliveries of the same name queue in event order and distinct waits
+consume them FIFO. A delivery can arrive before the workflow creates its wait;
+the next drive persists the pairing before exposing the payload.
+
+The host calls `send_signal(target_run_id, WorkflowSignal)` or enqueues
+`FlowTask::SendSignal`. `signal_id` is the caller-owned idempotency identity.
+Retrying with the same target run ID and signal ID scans that run's persisted
+continue-as-new descendants, accepts an identical committed name/payload, and
+rejects drift with `SignalConflict`. Expected-sequence conflicts re-resolve the
+active leaf before retrying, so a continuation race cannot append to a closed
+segment. If delivery or pairing committed before a host failure, redelivery
+drives the non-terminal leaf without writing duplicate events.
+
+Signal authorization, caller authentication, payload schemas, and business
+admission remain host-owned. Flow only enforces the immutable declared name,
+durable ordering, idempotency, and replay contract. Signal payloads are stored
+in workflow history and task queues, so callers must not place secrets there
+unless those persistence layers are approved for them.
+
+Cancellation deactivates signal waits that existed before the request; cleanup
+code may use a distinct stable wait if domain policy truly requires one. A run
+cannot continue as new while a signal wait is open or a received signal remains
+unconsumed, preventing history segmentation from silently dropping queued
+messages. Unlike hooks, signals require no pre-created bearer token and support
+repeated named deliveries. Hooks remain the right primitive for a one-shot
+externally routed callback whose public token and lifecycle must be inspected.
+
 ## Continue-As-New History Segmentation
 
 Continue-as-new bounds replay history without rewriting it. The runtime returns
@@ -218,7 +256,9 @@ writes accept a predecessor ID and re-resolve the active leaf on every
 expected-sequence retry. A continuation that wins the race is therefore
 followed rather than mistaken for the final execution outcome. Wait and hook
 resolutions remain segment-addressed because their durable IDs and idempotent
-redelivery state belong to the segment that created them.
+redelivery state belong to the segment that created them. Signal delivery is
+execution-addressed: it follows the active leaf, while identical redelivery is
+recognized across descendants of the original target run ID.
 
 Retention treats predecessor/successor links as undirected connected
 components: a live, recent, held, or temporarily missing successor protects the
@@ -231,9 +271,9 @@ the input and event history. Side effects are isolated to steps and are only
 observed by the workflow after their outputs have been persisted.
 
 Replay also validates durable command definitions. If workflow code reuses an
-existing step, wait, hook, or child ID with a different step input, retry
+existing step, wait, hook, signal-wait, or child ID with a different step input, retry
 policy, timer deadline, hook token/metadata, child spec/input, or child
-cancellation policy, the engine returns a non-deterministic replay error
+cancellation policy or signal name, the engine returns a non-deterministic replay error
 instead of silently accepting the changed definition.
 
 Compatible workflow code may use `WorkflowContext::has_patch_marker(...)` to
@@ -279,8 +319,9 @@ instead of extending the terminal stream.
 Event keys are dot-separated A3S keys such as `flow.step.completed`.
 Projection preserves store order and validates event sequence continuity and
 lifecycle transitions, including duplicate step/wait/hook creation, exact step
-attempt progression, retry-budget and deadline consistency, terminal retry
-outcomes, and events appended after a terminal run state.
+attempt progression, signal delivery/wait uniqueness and pairing, retry-budget
+and deadline consistency, terminal retry outcomes, and events appended after a
+terminal run state.
 The local JSONL store keeps file order intact and projects existing history
 before append, so a corrupt local log is rejected instead of extended.
 `SqliteEventStore` stores the same envelopes as rows in one SQLite database and

@@ -298,6 +298,7 @@ The contract defines:
 - `RetryPolicy`
 - `CancellationRequest`
 - `WorkflowProgress`
+- `WorkflowSignal`
 - `ChildOperationReference`
 - `ChildWorkflowCancellationPolicy`
 - `WorkflowTerminalOutcome`
@@ -311,10 +312,11 @@ Important protocol details:
 
 - `FlowEventEnvelope` includes `event_id`, `run_id`, `sequence`, `timestamp`,
   and `event`. It does not include a derived event key.
-- `WorkflowSpec.runtime_build_id` and `WorkflowSpec.patch_markers` are optional
-  for legacy histories. A marked run receives a sorted string array and
-  workflow code may use `invocation.spec.patch_markers?.includes(id)` to select
-  its immutable replay branch.
+- `WorkflowSpec.runtime_build_id`, `WorkflowSpec.patch_markers`, and
+  `WorkflowSpec.signal_names` are optional for legacy histories. Marker and
+  signal-name sets use sorted string arrays. Workflow code may use
+  `invocation.spec.patch_markers?.includes(id)` to select its immutable replay
+  branch.
 - `create_hook` commands and `hook_created` history events include a required
   `token` because callback routing must be stable across replay.
 - `step_retrying.retry_after` is `string | null`, matching Rust's serialized
@@ -331,11 +333,17 @@ Important protocol details:
 - `child_workflow_requested.child_run_id` is generated and persisted by Flow.
   `child_workflow_resolved.outcome` is the terminal outcome of the child's
   active continuation leaf, never an intermediate `continued_as_new` outcome.
+- `wait_for_signal` carries a stable wait ID and one name declared in
+  `invocation.spec.signal_names`. Workflow replay should locate the matching
+  `signal_wait_completed`, then read its referenced `signal_received` payload.
+  Multiple same-name deliveries remain ordered by their history sequence.
 - `cancel` is valid after `run_cancellation_requested`; cleanup-aware workflows
   should run stable cleanup steps before returning it.
 - `continue_as_new` accepts only the next JSON input. Flow generates and
   persists the successor run ID, carries the exact current `WorkflowSpec`, and
   exposes the boundary as `run_continued_as_new` history on the predecessor.
+  Flow rejects this command while a signal wait is open or a received signal
+  remains unconsumed.
 - Terminal history distinguishes `run_timed_out`, `run_retry_exhausted`, and
   `run_host_shutdown` from generic `run_failed`; `run_continued_as_new` is a
   separate successful segmentation outcome rather than completion output.
@@ -372,12 +380,14 @@ Workflow exports should be deterministic:
 - return exactly one `RuntimeCommand`,
 - do not perform network, clock, random, filesystem, or shell work,
 - put side effects in step handlers,
-- use stable step IDs, wait IDs, hook IDs, and patch marker IDs,
+- use stable step IDs, timer wait IDs, signal wait IDs, hook IDs, and patch marker IDs,
+- keep every signal wait name identical on replay and treat signal payloads as
+  durable history rather than side-effecting input,
 - use stable child workflow IDs and keep their spec, input, and cancellation
   policy identical on every replay,
 - treat `spec.patch_markers` as immutable run history rather than a dynamic
   product feature flag,
-- make `continue_as_new.input` self-contained because step, wait, hook, and
+- make `continue_as_new.input` self-contained because step, wait, signal, hook, and
   progress history does not carry into the successor stream,
 - set `retry.on_exhausted` to `"continue_workflow"` only when workflow replay
   explicitly handles the resulting `step_failed` history.

@@ -751,6 +751,71 @@ deadline is non-deterministic replay.
 See `examples/polling_loop.rs` for a complete external-job polling workflow
 driven by scheduler ticks and worker resumes.
 
+## Named Workflow Signals
+
+Use signals for asynchronous messages addressed to a workflow execution when
+there may be many deliveries and no public callback token is needed. Declare
+every accepted name in the immutable run spec:
+
+```rust
+let spec = WorkflowSpec::rust_embedded("invoice", "1", "invoice", "main")
+    .with_signal("invoice.approved")
+    .with_signal("invoice.comment-added");
+```
+
+Workflow code creates a stable wait and decodes the signal paired with that
+wait during replay:
+
+```rust
+#[derive(serde::Deserialize)]
+struct Approval {
+    reviewer: String,
+}
+
+let Some(approval) = ctx.signal_payload_as::<Approval>("approval")? else {
+    return Ok(ctx.wait_for_signal("approval", "invoice.approved"));
+};
+```
+
+An authorized host or durable Outbox consumer supplies its own delivery ID:
+
+```rust
+use a3s_flow::WorkflowSignal;
+
+engine
+    .send_signal(
+        &root_run_id,
+        WorkflowSignal::new(
+            "approval-decision-2026-0001",
+            "invoice.approved",
+            serde_json::json!({ "reviewer": "finance@example.com" }),
+        ),
+    )
+    .await?;
+```
+
+Persist the exact target run ID and signal ID in the sender's Outbox. Retrying
+that pair with the same name and payload is idempotent, including when delivery
+or wait pairing committed before the worker stopped. A different name or
+payload returns `SignalConflict`. Delivery follows continue-as-new descendants
+of the original target and drives the active leaf. Use `FlowTask::SendSignal`
+for the same behavior through `FlowWorker` or A3S Boot; Boot deduplicates the
+logical target by run ID and signal ID.
+
+Signals may arrive before a matching wait and remain queued in append order.
+Each stable wait consumes the oldest matching unconsumed delivery. Cancellation
+deactivates waits created before the request. Continue-as-new fails while a
+signal wait remains open or any received signal is unconsumed, preventing a
+fresh segment from silently dropping messages.
+
+Signal names are replay contracts, not an authorization mechanism or schema
+registry. The host must authenticate the sender, authorize the run and name,
+and validate the JSON payload before calling Flow. Payloads are stored in event
+history and possibly a task queue, so do not place secrets there unless those
+stores are approved for them. See `examples/workflow_signals.rs` and use hooks
+instead when a pre-created one-shot callback with a routable bearer token is
+the actual domain primitive.
+
 ## Human Approval Or Webhook Callback
 
 Use hooks when an external system or user must call back later. The token is the
@@ -901,11 +966,12 @@ let history = engine.history(&run_ids[0]).await?;
 
 `list_run_ids()` returns sorted run IDs from the active store.
 `list_snapshots()` projects every known history into `WorkflowRunSnapshot`, so
-dashboards can group by `WorkflowRunStatus`, step counts, waits, hooks, and
+dashboards can group by `WorkflowRunStatus`, step counts, waits, signals, hooks, and
 terminal errors. `run_summary()` returns `WorkflowRunSummary` counts for status
-tiles and health probes, with open wait/hook/retry counters limited to
+tiles and health probes, with open wait/signal/hook/retry counters limited to
 non-terminal runs. `list_open_suspensions()` returns stable
-`WorkflowRunSuspension` records for open waits, hooks, and delayed retries, with
+`WorkflowRunSuspension` records for open waits, signal waits, hooks, child
+workflows, and delayed retries, with
 wait/retry due flags computed from `now`. `next_wakeup()` returns the earliest
 open wait or delayed retry by scheduled time, which lets scheduler hosts sleep
 until the next useful tick instead of polling at a fixed interval.
@@ -931,7 +997,7 @@ let observer = Arc::new(A3sFlowEventBridge::new(sink.clone()));
 ```
 
 `A3sFlowEvent` carries audit identity (`run_id`, `event_id`, sequence) plus
-workflow identity, status, and step/wait/hook subject when one exists. Use
+workflow identity, status, and step/wait/signal/hook subject when one exists. Use
 `safe_metric_labels()` for metrics and keep high-cardinality identity in logs or
 traces.
 
@@ -1022,7 +1088,7 @@ The sink publishes category `flow`, provider-built subjects such as
 
 Use `FlowEngine::request_cancellation()` when cleanup or child propagation is
 required. The durable request projects `WorkflowRunStatus::Cancelling` and
-deactivates waits, hooks, running steps, and delayed retries created before the
+deactivates waits, signal waits, hooks, running steps, and delayed retries created before the
 request. Workflow replay then takes a cancellation branch:
 
 ```rust

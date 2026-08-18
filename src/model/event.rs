@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use super::{
     CancellationRequest, ChildOperationReference, ChildWorkflowCancellationPolicy, JsonValue,
-    RetryPolicy, WorkflowProgress, WorkflowSpec, WorkflowTerminalOutcome,
+    RetryPolicy, WorkflowProgress, WorkflowSignal, WorkflowSpec, WorkflowTerminalOutcome,
 };
 
 /// Event persisted as the single source of truth for a workflow run.
@@ -61,6 +61,17 @@ pub enum FlowEvent {
     ChildWorkflowResolved {
         child_id: String,
         outcome: WorkflowTerminalOutcome,
+    },
+    SignalReceived {
+        signal: WorkflowSignal,
+    },
+    SignalWaitCreated {
+        wait_id: String,
+        signal_name: String,
+    },
+    SignalWaitCompleted {
+        wait_id: String,
+        signal_id: String,
     },
     StepCreated {
         step_id: String,
@@ -127,6 +138,9 @@ impl FlowEvent {
             Self::ChildOperationLinked { .. } => "flow.child.operation.linked",
             Self::ChildWorkflowRequested { .. } => "flow.child.workflow.requested",
             Self::ChildWorkflowResolved { .. } => "flow.child.workflow.resolved",
+            Self::SignalReceived { .. } => "flow.signal.received",
+            Self::SignalWaitCreated { .. } => "flow.signal.wait.created",
+            Self::SignalWaitCompleted { .. } => "flow.signal.wait.completed",
             Self::StepCreated { .. } => "flow.step.created",
             Self::StepStarted { .. } => "flow.step.started",
             Self::StepCompleted { .. } => "flow.step.completed",

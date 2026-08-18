@@ -10,7 +10,7 @@ use a3s_flow::{
     BootFlowTaskDeduplication, BootFlowTaskManager, BootFlowTaskPolicy, FlowEngine, FlowError,
     FlowRuntime, FlowScheduler, FlowTask, FlowTaskDispatcher, RuntimeBuildCompatibility,
     RuntimeBuildId, RuntimeCommand, StepInvocation, WorkflowInvocation, WorkflowRunStatus,
-    WorkflowSpec,
+    WorkflowSignal, WorkflowSpec,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
@@ -304,12 +304,22 @@ fn boot_task_deduplication_redacts_tokens_and_preserves_target_semantics() {
         run_id: "run-1".to_string(),
         wait_id: "wait-1".to_string(),
     });
+    let first_signal = manager.job_options_for(&FlowTask::SendSignal {
+        run_id: "run-1".to_string(),
+        signal: WorkflowSignal::new("delivery-1", "order.approved", json!({ "approved": true })),
+    });
+    let duplicate_signal = manager.job_options_for(&FlowTask::SendSignal {
+        run_id: "run-1".to_string(),
+        signal: WorkflowSignal::new("delivery-1", "order.approved", json!({ "approved": false })),
+    });
 
     let first_resume = first_resume.deduplication.unwrap();
     let duplicate_resume = duplicate_resume.deduplication.unwrap();
     let dispose = dispose.deduplication.unwrap();
     let drive = drive.deduplication.unwrap();
     let wait = wait.deduplication.unwrap();
+    let first_signal = first_signal.deduplication.unwrap();
+    let duplicate_signal = duplicate_signal.deduplication.unwrap();
     assert_eq!(first_resume.id, duplicate_resume.id);
     assert_ne!(first_resume.id, dispose.id);
     assert!(!first_resume.id.contains(token));
@@ -318,6 +328,9 @@ fn boot_task_deduplication_redacts_tokens_and_preserves_target_semantics() {
         .starts_with("a3s-flow:resume_hook_by_token:"));
     assert!(drive.keep_last_if_active);
     assert!(!wait.keep_last_if_active);
+    assert_eq!(first_signal.id, duplicate_signal.id);
+    assert!(first_signal.id.starts_with("a3s-flow:send_signal:"));
+    assert!(first_signal.keep_last_if_active);
 }
 
 #[test]

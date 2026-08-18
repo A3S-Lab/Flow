@@ -22,6 +22,13 @@ export type WorkflowSpec = {
   runtime: RuntimeSpec;
   runtime_build_id?: string;
   patch_markers?: string[];
+  signal_names?: string[];
+};
+
+export type WorkflowSignal = {
+  signal_id: string;
+  name: string;
+  payload: Json;
 };
 
 export type RetryPolicy = {
@@ -99,6 +106,11 @@ export type RuntimeCommand =
       hook_id: string;
       token: string;
       metadata: Json;
+    }
+  | {
+      type: "wait_for_signal";
+      wait_id: string;
+      signal_name: string;
     };
 
 export type StepCommand = {
@@ -142,6 +154,17 @@ export type FlowEvent =
       type: "child_workflow_resolved";
       child_id: string;
       outcome: WorkflowTerminalOutcome;
+    }
+  | { type: "signal_received"; signal: WorkflowSignal }
+  | {
+      type: "signal_wait_created";
+      wait_id: string;
+      signal_name: string;
+    }
+  | {
+      type: "signal_wait_completed";
+      wait_id: string;
+      signal_id: string;
     }
   | {
       type: "step_created";

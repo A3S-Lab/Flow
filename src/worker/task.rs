@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::model::JsonValue;
+use crate::model::{JsonValue, WorkflowSignal};
 
 /// Queueable unit of workflow engine work.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -22,6 +22,10 @@ pub enum FlowTask {
     ResumeHookByToken {
         token: String,
         payload: JsonValue,
+    },
+    SendSignal {
+        run_id: String,
+        signal: WorkflowSignal,
     },
     DisposeHook {
         run_id: String,
@@ -52,6 +56,7 @@ impl FlowTask {
             Self::DriveRun { run_id }
             | Self::ResumeWait { run_id, .. }
             | Self::ResumeHook { run_id, .. }
+            | Self::SendSignal { run_id, .. }
             | Self::DisposeHook { run_id, .. }
             | Self::ResumeScheduledRun { run_id, .. } => Some(run_id),
             Self::ResumeHookByToken { .. }
@@ -72,6 +77,8 @@ pub struct FlowTaskOutcome {
     pub resumed_hook: Option<(String, String)>,
     #[serde(default)]
     pub disposed_hook: Option<(String, String)>,
+    #[serde(default)]
+    pub delivered_signal: Option<(String, String)>,
 }
 
 impl FlowTaskOutcome {
@@ -83,6 +90,7 @@ impl FlowTaskOutcome {
             resumed_retries: Vec::new(),
             resumed_hook: None,
             disposed_hook: None,
+            delivered_signal: None,
         }
     }
 }
