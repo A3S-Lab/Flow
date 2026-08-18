@@ -7,6 +7,7 @@
 //! once, then invokes the compiled executable through a small JSON protocol.
 
 mod context;
+mod dify;
 mod engine;
 mod error;
 mod model;
@@ -19,6 +20,10 @@ mod store;
 mod worker;
 
 pub use context::WorkflowContext;
+pub use dify::{
+    DifyAppDsl, DifyAppMetadata, DifyDslCompatibility, DifyEdge, DifyExecutionPlan, DifyGraph,
+    DifyImportError, DifyNode, DifyWorkflow, DIFY_DSL_MAX_BYTES, DIFY_TESTED_DSL_VERSION,
+};
 pub use engine::{FlowEngine, FlowEngineBuilder};
 pub use error::{FlowError, Result};
 pub use model::{

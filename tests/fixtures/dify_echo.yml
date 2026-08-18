@@ -1,0 +1,85 @@
+version: 0.7.0
+kind: app
+app:
+  name: A3S Dify import fixture
+  mode: workflow
+  icon: robot
+  icon_background: '#FFFFFF'
+  description: Echo one input through an LLM-compatible node.
+  use_icon_as_answer_icon: false
+dependencies:
+  - type: marketplace
+    value:
+      marketplace_plugin_unique_identifier: langgenius/openai:1.0.0@fixture
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      enabled: false
+  graph:
+    edges:
+      - id: start-source-llm-target
+        source: start
+        sourceHandle: source
+        target: llm
+        targetHandle: target
+        type: custom
+        data:
+          sourceType: start
+          targetType: llm
+          isInIteration: false
+          isInLoop: false
+      - id: llm-source-end-target
+        source: llm
+        sourceHandle: source
+        target: end
+        targetHandle: target
+        type: custom
+        data:
+          sourceType: llm
+          targetType: end
+          isInIteration: false
+          isInLoop: false
+    nodes:
+      - id: start
+        type: custom
+        position: { x: 0, y: 0 }
+        data:
+          type: start
+          title: Start
+          variables:
+            - variable: query
+              label: Query
+              type: text-input
+              required: true
+      - id: llm
+        type: custom
+        position: { x: 300, y: 0 }
+        data:
+          type: llm
+          title: LLM
+          model:
+            provider: langgenius/openai/openai
+            name: gpt-4.1-mini
+            mode: chat
+          prompt_template:
+            - role: user
+              text: '{{#start.query#}}'
+          x-a3s-fixture-extension:
+            retained: true
+      - id: end
+        type: custom
+        position: { x: 600, y: 0 }
+        data:
+          type: end
+          title: End
+          outputs:
+            - variable: answer
+              value_selector: [llm, text]
+              value_type: string
+    viewport: { x: 0, y: 0, zoom: 1 }
+  x-a3s-workflow-extension:
+    retained: true
+x-a3s-document-extension:
+  retained: true

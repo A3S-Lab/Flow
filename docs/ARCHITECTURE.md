@@ -17,7 +17,12 @@ runtime plugin that a Rust host can compile to native executables.
 
 ```text
 Rust SDK layer
-  FlowEngine, FlowRuntime, FlowEventStore, typed snapshots
+  FlowEngine, DifyAppDsl/DifyGraph, FlowRuntime, FlowEventStore, typed snapshots
+          |
+          v
+Dify definition layer
+  lossless DSL import, version classification, scoped DAG validation,
+  deterministic execution plan, layout-independent semantic digest
           |
           v
 Runtime adapter layer
@@ -36,6 +41,34 @@ Dispatch layer
   FlowTaskDispatcher, exact-build router, FlowScheduler, A3S Boot task manager
   FlowWorker and Flow-owned queues for embedded/compatibility hosts
 ```
+
+## Dify Definition Boundary
+
+The complete Dify app DSL is a portable input contract, not a second durable
+runtime. Flow parses the top-level app document and its native
+`workflow.graph.nodes` / `workflow.graph.edges` shape, retains fields it does
+not interpret, and compiles graph structure into deterministic per-scope
+topological orders. `parentId` scopes are checked against Dify iteration and
+loop containers; invalid endpoints, cross-scope edges, duplicate identities,
+self-edges, and cycles fail before execution.
+
+Parsing deliberately permits an empty canvas so hosts can persist drafts.
+`execution_plan()` is the publication/execution gate and therefore rejects an
+empty or structurally invalid graph. Version classification is also separate:
+the Dify version tested by this Flow release is accepted directly, an older
+minor is accepted with warnings, and a newer version or different major
+requires an explicit host decision.
+
+The execution digest excludes React Flow layout state such as positions,
+dimensions, selection, and viewport. It includes node configuration, edge
+handles, dependencies, features, and preserved semantic extensions. Hosts pin
+that digest to an immutable revision and must reject definition drift during
+replay.
+
+Flow does not interpret provider credentials, model catalogues, tools,
+datasets, tenant policy, or product authorization. Those remain host-owned node
+capabilities. This prevents two graph parsers and two schedulers while keeping
+product semantics out of the durable engine.
 
 ## Durable Execution Model
 

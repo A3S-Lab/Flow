@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added native Dify app DSL and extracted graph import. The public model retains
+  unknown vendor fields, mirrors Dify's version-compatibility classes, validates
+  deterministic top-level and iteration/loop scopes before execution, and
+  derives a semantic digest that ignores React Flow canvas layout.
+- Defined the ownership boundary explicitly: Flow owns Dify syntax and generic
+  DAG invariants; hosts own node implementations, capabilities, credentials,
+  tenancy, and publication policy.
+
 ## 0.13.1 - 2026-08-15
 
 - Release note: `0.13.0` was not published to crates.io or GitHub Releases
