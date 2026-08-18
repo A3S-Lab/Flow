@@ -27,7 +27,7 @@ from append-only history, and rejects non-deterministic replay instead of
 silently accepting drift.
 
 > [!IMPORTANT]
-> Flow owns durable replay and the portable Dify DAG syntax/structural compile
+> Flow owns durable replay and the portable Workflow DAG syntax/structural compile
 > boundary. The host owns node implementations, authorization, tenant policy,
 > tool access, and the logical idempotency of external side effects. A3S Cloud
 > binds imported nodes to product capabilities and policy; it does not replace
@@ -73,27 +73,27 @@ This boundary produces three important guarantees:
   after an effect succeeds but before its output commits, the same attempt is
   redelivered. Step implementations must use a stable idempotency key.
 
-## Dify DAG import
+## Workflow DAG import
 
-Flow accepts both a complete Dify app DSL document (`.dify.yml`) and the
-extracted `workflow.graph` JSON object. The wire shape remains Dify-native:
+Flow accepts both a complete workflow app DSL document (`.yml`) and the
+extracted `workflow.graph` JSON object. The stable wire shape uses
 `nodes`, `edges`, `viewport`, node `data.type`, `parentId`, and camel-case edge
 handles. Unknown fields are retained during semantic YAML/JSON round trips, so
 an importer does not destroy newer provider or editor metadata merely because
 this release does not interpret it.
 
 ```rust
-use a3s_flow::{DifyAppDsl, DifyDslCompatibility};
+use a3s_flow::{WorkflowDsl, WorkflowDslCompatibility};
 
-let source = std::fs::read_to_string("customer-support.dify.yml")?;
-let document = DifyAppDsl::from_yaml(&source)?;
+let source = std::fs::read_to_string("customer-support.yml")?;
+let document = WorkflowDsl::from_yaml(&source)?;
 
 match document.compatibility()? {
-    DifyDslCompatibility::Compatible => {}
-    DifyDslCompatibility::CompatibleWithWarnings => {
+    WorkflowDslCompatibility::Compatible => {}
+    WorkflowDslCompatibility::CompatibleWithWarnings => {
         // Surface an older-minor warning to the importer.
     }
-    DifyDslCompatibility::RequiresConfirmation => {
+    WorkflowDslCompatibility::RequiresConfirmation => {
         // Require an explicit migration decision before publication.
     }
 }
@@ -103,7 +103,7 @@ let definition_digest = document.execution_digest()?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-Import and execution admission are intentionally separate. An empty Dify
+Import and execution admission are intentionally separate. An empty workflow
 canvas can be stored as a draft, while execution planning rejects duplicate
 identities, missing endpoints, cycles, invalid cross-scope edges, and malformed
 iteration/loop containers. The execution digest ignores canvas layout but
@@ -194,7 +194,7 @@ conflict.
 | Primitive | Responsibility |
 | --- | --- |
 | `FlowEngine` | Start, drive, resume, inspect, cancel, and terminate runs |
-| `DifyAppDsl` / `DifyGraph` | Lossless Dify document import, version classification, scoped DAG validation, deterministic planning, and semantic identity |
+| `WorkflowDsl` / `WorkflowDag` | Lossless workflow document import, version classification, scoped DAG validation, deterministic planning, and semantic identity |
 | `FlowRuntime` | Host-provided workflow decision and step execution boundary |
 | `WorkflowContext` | Replay-safe reads plus command builders for steps, batches, waits, hooks, and terminal outcomes |
 | `FlowEventStore` | Append-only history, expected-sequence writes, hooks, wakeups, and retention projections |
@@ -379,7 +379,7 @@ Start with one executable path, then move to the concern you need:
 | Shared PostgreSQL | [`postgres_durability`](examples/postgres_durability.rs), [`postgres_task_queue_durability`](examples/postgres_task_queue_durability.rs) |
 | Audit and events | [`observer_bridge`](examples/observer_bridge.rs), [`observer_fanout`](examples/observer_fanout.rs), [`local_audit_log`](examples/local_audit_log.rs) |
 | Native TypeScript | [`native_ts_preflight`](examples/native_ts_preflight.rs), [`native_ts_greeting`](examples/native_ts_greeting.rs) |
-| Dify definition import | [`dify_import`](examples/dify_import.rs) |
+| Workflow definition import | [`workflow_dsl_import`](examples/workflow_dsl_import.rs) |
 | Host recipes | [Cookbook](docs/COOKBOOK.md) |
 
 The deeper references keep operational detail out of this homepage:
@@ -396,7 +396,7 @@ The deeper references keep operational detail out of this homepage:
 
 | Flow owns | The host owns |
 | --- | --- |
-| Dify document/graph parsing, structural invariants, deterministic plans, and semantic digests | Node semantics, capability bindings, credentials, and authoring policy |
+| Workflow document/graph parsing, structural invariants, deterministic plans, and semantic digests | Node semantics, capability bindings, credentials, and authoring policy |
 | Append-only run history and sequence checks | Product authorization, tenancy, and publication lifecycle |
 | Deterministic replay validation | Runtime node registry and business-data semantics |
 | Step, wait, hook, retry, and terminal lifecycles | Which tools and external systems a step may call |

@@ -3,52 +3,52 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{DifyDslCompatibility, DifyExecutionPlan, DifyImportError};
+use super::{WorkflowDagPlan, WorkflowDslCompatibility, WorkflowDslError};
 
-pub const DIFY_DSL_MAX_BYTES: usize = 10 * 1024 * 1024;
-pub const DIFY_TESTED_DSL_VERSION: &str = "0.7.0";
+pub const WORKFLOW_DSL_MAX_BYTES: usize = 10 * 1024 * 1024;
+pub const TESTED_WORKFLOW_DSL_VERSION: &str = "0.7.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DifyAppDsl {
+pub struct WorkflowDsl {
     version: String,
     kind: String,
-    app: DifyAppMetadata,
+    app: WorkflowDslApp,
     #[serde(default)]
     dependencies: Vec<Value>,
-    workflow: DifyWorkflow,
+    workflow: WorkflowDslBody,
     #[serde(flatten)]
     extensions: BTreeMap<String, Value>,
 }
 
-impl DifyAppDsl {
-    pub fn from_yaml(source: &str) -> Result<Self, DifyImportError> {
+impl WorkflowDsl {
+    pub fn from_yaml(source: &str) -> Result<Self, WorkflowDslError> {
         check_size(source)?;
         let document: Self =
-            serde_yaml_ng::from_str(source).map_err(|error| DifyImportError::InvalidYaml {
+            serde_yaml_ng::from_str(source).map_err(|error| WorkflowDslError::InvalidYaml {
                 message: error.to_string(),
             })?;
         document.validate_document()?;
         Ok(document)
     }
 
-    pub fn from_json(source: &str) -> Result<Self, DifyImportError> {
+    pub fn from_json(source: &str) -> Result<Self, WorkflowDslError> {
         check_size(source)?;
         let document: Self =
-            serde_json::from_str(source).map_err(|error| DifyImportError::InvalidJson {
+            serde_json::from_str(source).map_err(|error| WorkflowDslError::InvalidJson {
                 message: error.to_string(),
             })?;
         document.validate_document()?;
         Ok(document)
     }
 
-    pub fn to_yaml(&self) -> Result<String, DifyImportError> {
-        serde_yaml_ng::to_string(self).map_err(|error| DifyImportError::Serialization {
+    pub fn to_yaml(&self) -> Result<String, WorkflowDslError> {
+        serde_yaml_ng::to_string(self).map_err(|error| WorkflowDslError::Serialization {
             message: error.to_string(),
         })
     }
 
-    pub fn to_json(&self) -> Result<String, DifyImportError> {
-        serde_json::to_string(self).map_err(|error| DifyImportError::Serialization {
+    pub fn to_json(&self) -> Result<String, WorkflowDslError> {
+        serde_json::to_string(self).map_err(|error| WorkflowDslError::Serialization {
             message: error.to_string(),
         })
     }
@@ -61,7 +61,7 @@ impl DifyAppDsl {
         &self.kind
     }
 
-    pub fn app(&self) -> &DifyAppMetadata {
+    pub fn app(&self) -> &WorkflowDslApp {
         &self.app
     }
 
@@ -69,11 +69,11 @@ impl DifyAppDsl {
         &self.dependencies
     }
 
-    pub fn workflow(&self) -> &DifyWorkflow {
+    pub fn workflow(&self) -> &WorkflowDslBody {
         &self.workflow
     }
 
-    pub fn graph(&self) -> &DifyGraph {
+    pub fn graph(&self) -> &WorkflowDag {
         &self.workflow.graph
     }
 
@@ -81,24 +81,24 @@ impl DifyAppDsl {
         &self.extensions
     }
 
-    pub fn execution_digest(&self) -> Result<String, DifyImportError> {
+    pub fn execution_digest(&self) -> Result<String, WorkflowDslError> {
         super::digest::document_execution_digest(self)
     }
 
-    /// Classify the imported DSL version with the same compatibility rules as
-    /// Dify: newer releases and a different major need explicit confirmation,
-    /// while an older minor remains importable with warnings.
-    pub fn compatibility(&self) -> Result<DifyDslCompatibility, DifyImportError> {
+    /// Classify the imported DSL version. Newer releases and a different major
+    /// need explicit confirmation, while an older minor remains importable
+    /// with warnings.
+    pub fn compatibility(&self) -> Result<WorkflowDslCompatibility, WorkflowDslError> {
         super::version::classify_dsl_version(&self.version)
     }
 
-    fn validate_document(&self) -> Result<(), DifyImportError> {
+    fn validate_document(&self) -> Result<(), WorkflowDslError> {
         if self.version.trim().is_empty() {
             return Err(invalid_document("version is empty"));
         }
         if self.kind != "app" {
             return Err(invalid_document(format!(
-                "kind {:?} is not a Dify app",
+                "kind {:?} is not a workflow app",
                 self.kind
             )));
         }
@@ -117,14 +117,14 @@ impl DifyAppDsl {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DifyAppMetadata {
+pub struct WorkflowDslApp {
     name: String,
     mode: String,
     #[serde(flatten)]
     extensions: BTreeMap<String, Value>,
 }
 
-impl DifyAppMetadata {
+impl WorkflowDslApp {
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -139,14 +139,14 @@ impl DifyAppMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DifyWorkflow {
-    graph: DifyGraph,
+pub struct WorkflowDslBody {
+    graph: WorkflowDag,
     #[serde(flatten)]
     extensions: BTreeMap<String, Value>,
 }
 
-impl DifyWorkflow {
-    pub fn graph(&self) -> &DifyGraph {
+impl WorkflowDslBody {
+    pub fn graph(&self) -> &WorkflowDag {
         &self.graph
     }
 
@@ -156,43 +156,43 @@ impl DifyWorkflow {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DifyGraph {
+pub struct WorkflowDag {
     #[serde(default)]
-    nodes: Vec<DifyNode>,
+    nodes: Vec<WorkflowDagNode>,
     #[serde(default)]
-    edges: Vec<DifyEdge>,
+    edges: Vec<WorkflowDagEdge>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     viewport: Option<Value>,
     #[serde(flatten)]
     extensions: BTreeMap<String, Value>,
 }
 
-impl DifyGraph {
-    pub fn from_json(source: &str) -> Result<Self, DifyImportError> {
+impl WorkflowDag {
+    pub fn from_json(source: &str) -> Result<Self, WorkflowDslError> {
         check_size(source)?;
-        serde_json::from_str(source).map_err(|error| DifyImportError::InvalidJson {
+        serde_json::from_str(source).map_err(|error| WorkflowDslError::InvalidJson {
             message: error.to_string(),
         })
     }
 
-    pub fn from_yaml(source: &str) -> Result<Self, DifyImportError> {
+    pub fn from_yaml(source: &str) -> Result<Self, WorkflowDslError> {
         check_size(source)?;
-        serde_yaml_ng::from_str(source).map_err(|error| DifyImportError::InvalidYaml {
+        serde_yaml_ng::from_str(source).map_err(|error| WorkflowDslError::InvalidYaml {
             message: error.to_string(),
         })
     }
 
-    pub fn to_json(&self) -> Result<String, DifyImportError> {
-        serde_json::to_string(self).map_err(|error| DifyImportError::Serialization {
+    pub fn to_json(&self) -> Result<String, WorkflowDslError> {
+        serde_json::to_string(self).map_err(|error| WorkflowDslError::Serialization {
             message: error.to_string(),
         })
     }
 
-    pub fn nodes(&self) -> &[DifyNode] {
+    pub fn nodes(&self) -> &[WorkflowDagNode] {
         &self.nodes
     }
 
-    pub fn edges(&self) -> &[DifyEdge] {
+    pub fn edges(&self) -> &[WorkflowDagEdge] {
         &self.edges
     }
 
@@ -204,23 +204,23 @@ impl DifyGraph {
         &self.extensions
     }
 
-    pub fn node(&self, id: &str) -> Option<&DifyNode> {
+    pub fn node(&self, id: &str) -> Option<&WorkflowDagNode> {
         self.nodes.iter().find(|node| node.id == id)
     }
 
-    pub fn execution_plan(&self) -> Result<DifyExecutionPlan, DifyImportError> {
+    pub fn execution_plan(&self) -> Result<WorkflowDagPlan, WorkflowDslError> {
         super::plan::build_execution_plan(self)
     }
 
-    /// Derive a stable identity for executable graph semantics. React Flow
-    /// canvas layout and authoring order do not affect this digest.
-    pub fn execution_digest(&self) -> Result<String, DifyImportError> {
+    /// Derive a stable identity for executable graph semantics. Canvas layout
+    /// and authoring order do not affect this digest.
+    pub fn execution_digest(&self) -> Result<String, WorkflowDslError> {
         super::digest::graph_execution_digest(self)
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DifyNode {
+pub struct WorkflowDagNode {
     id: String,
     data: Value,
     #[serde(rename = "parentId", default, skip_serializing_if = "Option::is_none")]
@@ -229,7 +229,7 @@ pub struct DifyNode {
     presentation: BTreeMap<String, Value>,
 }
 
-impl DifyNode {
+impl WorkflowDagNode {
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -252,7 +252,7 @@ impl DifyNode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DifyEdge {
+pub struct WorkflowDagEdge {
     id: String,
     source: String,
     target: String,
@@ -274,7 +274,7 @@ pub struct DifyEdge {
     presentation: BTreeMap<String, Value>,
 }
 
-impl DifyEdge {
+impl WorkflowDagEdge {
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -304,19 +304,19 @@ impl DifyEdge {
     }
 }
 
-fn check_size(source: &str) -> Result<(), DifyImportError> {
+fn check_size(source: &str) -> Result<(), WorkflowDslError> {
     let actual_bytes = source.len();
-    if actual_bytes > DIFY_DSL_MAX_BYTES {
-        return Err(DifyImportError::DocumentTooLarge {
+    if actual_bytes > WORKFLOW_DSL_MAX_BYTES {
+        return Err(WorkflowDslError::DocumentTooLarge {
             actual_bytes,
-            maximum_bytes: DIFY_DSL_MAX_BYTES,
+            maximum_bytes: WORKFLOW_DSL_MAX_BYTES,
         });
     }
     Ok(())
 }
 
-fn invalid_document(message: impl Into<String>) -> DifyImportError {
-    DifyImportError::InvalidDocument {
+fn invalid_document(message: impl Into<String>) -> WorkflowDslError {
+    WorkflowDslError::InvalidDocument {
         message: message.into(),
     }
 }

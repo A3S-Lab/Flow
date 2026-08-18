@@ -1,14 +1,14 @@
-use a3s_flow::{DifyAppDsl, DifyDslCompatibility, DifyGraph, DifyImportError};
+use a3s_flow::{WorkflowDag, WorkflowDsl, WorkflowDslCompatibility, WorkflowDslError};
 use serde_json::json;
 
-const DIFY_ECHO: &str = include_str!("fixtures/dify_echo.yml");
+const WORKFLOW_DSL_ECHO: &str = include_str!("fixtures/workflow_dsl_echo.yml");
 
 #[test]
-fn complete_dify_yaml_round_trips_without_losing_vendor_fields() {
-    let document = DifyAppDsl::from_yaml(DIFY_ECHO).expect("import current Dify DSL");
+fn complete_workflow_yaml_round_trips_without_losing_vendor_fields() {
+    let document = WorkflowDsl::from_yaml(WORKFLOW_DSL_ECHO).expect("import current workflow DSL");
 
     assert_eq!(document.version(), "0.7.0");
-    assert_eq!(document.app().name(), "A3S Dify import fixture");
+    assert_eq!(document.app().name(), "A3S workflow import fixture");
     assert_eq!(document.graph().nodes().len(), 3);
     assert_eq!(document.graph().edges().len(), 2);
     assert_eq!(
@@ -20,14 +20,14 @@ fn complete_dify_yaml_round_trips_without_losing_vendor_fields() {
         json!({"retained": true})
     );
 
-    let encoded = document.to_yaml().expect("export imported Dify DSL");
-    let reparsed = DifyAppDsl::from_yaml(&encoded).expect("re-import exported Dify DSL");
+    let encoded = document.to_yaml().expect("export imported workflow DSL");
+    let reparsed = WorkflowDsl::from_yaml(&encoded).expect("re-import exported workflow DSL");
     assert_eq!(reparsed, document);
 }
 
 #[test]
-fn extracted_graph_json_uses_the_native_dify_nodes_and_edges_shape() {
-    let graph = DifyGraph::from_json(
+fn extracted_graph_json_uses_the_native_nodes_and_edges_shape() {
+    let graph = WorkflowDag::from_json(
         &json!({
             "nodes": [
                 {"id": "start", "data": {"type": "start"}, "position": {"x": 0, "y": 0}},
@@ -47,7 +47,7 @@ fn extracted_graph_json_uses_the_native_dify_nodes_and_edges_shape() {
         })
         .to_string(),
     )
-    .expect("import extracted Dify graph");
+    .expect("import extracted workflow DAG");
 
     assert_eq!(
         graph.node("start").expect("start node").node_type(),
@@ -64,13 +64,13 @@ fn extracted_graph_json_uses_the_native_dify_nodes_and_edges_shape() {
 }
 
 #[test]
-fn empty_dify_canvas_imports_as_a_draft_but_is_not_executable() {
-    let graph = DifyGraph::from_json(r#"{"nodes":[],"edges":[]}"#)
-        .expect("empty Dify drafts are importable");
+fn empty_workflow_canvas_imports_as_a_draft_but_is_not_executable() {
+    let graph = WorkflowDag::from_json(r#"{"nodes":[],"edges":[]}"#)
+        .expect("empty workflow drafts are importable");
 
     assert!(matches!(
         graph.execution_plan(),
-        Err(DifyImportError::InvalidGraph { .. })
+        Err(WorkflowDslError::InvalidGraph { .. })
     ));
 }
 
@@ -108,7 +108,7 @@ fn execution_validation_rejects_duplicate_nodes_dangling_edges_and_cycles() {
             "cycle",
         ),
     ] {
-        let error = DifyGraph::from_json(&graph.to_string())
+        let error = WorkflowDag::from_json(&graph.to_string())
             .expect("structural import")
             .execution_plan()
             .expect_err("invalid graph must not compile");
@@ -118,13 +118,13 @@ fn execution_validation_rejects_duplicate_nodes_dangling_edges_and_cycles() {
 
 #[test]
 fn execution_digest_ignores_canvas_layout_but_binds_node_configuration() {
-    let original = DifyAppDsl::from_yaml(DIFY_ECHO).expect("fixture");
+    let original = WorkflowDsl::from_yaml(WORKFLOW_DSL_ECHO).expect("fixture");
     let mut layout_change: serde_json::Value =
-        serde_yaml_ng::from_str(DIFY_ECHO).expect("fixture YAML value");
+        serde_yaml_ng::from_str(WORKFLOW_DSL_ECHO).expect("fixture YAML value");
     layout_change["workflow"]["graph"]["nodes"][1]["position"] = json!({"x": 999, "y": -123});
     layout_change["workflow"]["graph"]["viewport"] = json!({"x": 42, "y": 42, "zoom": 0.25});
     let layout_change =
-        DifyAppDsl::from_yaml(&serde_yaml_ng::to_string(&layout_change).expect("layout YAML"))
+        WorkflowDsl::from_yaml(&serde_yaml_ng::to_string(&layout_change).expect("layout YAML"))
             .expect("layout-only import");
     assert_eq!(
         original.execution_digest().expect("original digest"),
@@ -132,11 +132,11 @@ fn execution_digest_ignores_canvas_layout_but_binds_node_configuration() {
     );
 
     let mut semantic_change: serde_json::Value =
-        serde_yaml_ng::from_str(DIFY_ECHO).expect("fixture YAML value");
+        serde_yaml_ng::from_str(WORKFLOW_DSL_ECHO).expect("fixture YAML value");
     semantic_change["workflow"]["graph"]["nodes"][1]["data"]["model"]["name"] =
         json!("different-model");
     let semantic_change =
-        DifyAppDsl::from_yaml(&serde_yaml_ng::to_string(&semantic_change).expect("semantic YAML"))
+        WorkflowDsl::from_yaml(&serde_yaml_ng::to_string(&semantic_change).expect("semantic YAML"))
             .expect("semantic import");
     assert_ne!(
         original.execution_digest().expect("original digest"),
@@ -146,7 +146,7 @@ fn execution_digest_ignores_canvas_layout_but_binds_node_configuration() {
 
 #[test]
 fn extracted_graph_digest_is_order_and_layout_independent() {
-    let first = DifyGraph::from_json(
+    let first = WorkflowDag::from_json(
         &json!({
             "nodes": [
                 {"id": "start", "position": {"x": 0, "y": 0}, "data": {"type": "start"}},
@@ -158,7 +158,7 @@ fn extracted_graph_digest_is_order_and_layout_independent() {
         .to_string(),
     )
     .expect("first graph");
-    let reordered = DifyGraph::from_json(
+    let reordered = WorkflowDag::from_json(
         &json!({
             "nodes": [
                 {"id": "end", "position": {"x": 999, "y": 999}, "data": {"type": "end", "outputs": []}},
@@ -178,33 +178,34 @@ fn extracted_graph_digest_is_order_and_layout_independent() {
 }
 
 #[test]
-fn dify_dsl_version_compatibility_matches_the_upstream_import_contract() {
-    let document = DifyAppDsl::from_yaml(DIFY_ECHO).expect("current fixture");
+fn workflow_dsl_version_compatibility_matches_the_wire_contract() {
+    let document = WorkflowDsl::from_yaml(WORKFLOW_DSL_ECHO).expect("current fixture");
     assert_eq!(
         document.compatibility().expect("current version"),
-        DifyDslCompatibility::Compatible
+        WorkflowDslCompatibility::Compatible
     );
 
     for (version, expected) in [
-        ("0.6.9", DifyDslCompatibility::CompatibleWithWarnings),
-        ("0.7.1", DifyDslCompatibility::RequiresConfirmation),
-        ("1.0.0", DifyDslCompatibility::RequiresConfirmation),
+        ("0.6.9", WorkflowDslCompatibility::CompatibleWithWarnings),
+        ("0.7.1", WorkflowDslCompatibility::RequiresConfirmation),
+        ("1.0.0", WorkflowDslCompatibility::RequiresConfirmation),
     ] {
-        let source = DIFY_ECHO.replacen("version: 0.7.0", &format!("version: {version}"), 1);
-        let imported = DifyAppDsl::from_yaml(&source).expect("well-formed Dify version");
+        let source =
+            WORKFLOW_DSL_ECHO.replacen("version: 0.7.0", &format!("version: {version}"), 1);
+        let imported = WorkflowDsl::from_yaml(&source).expect("well-formed workflow DSL version");
         assert_eq!(imported.compatibility().expect("compatibility"), expected);
     }
 
-    let invalid = DIFY_ECHO.replacen("version: 0.7.0", "version: latest", 1);
+    let invalid = WORKFLOW_DSL_ECHO.replacen("version: 0.7.0", "version: latest", 1);
     assert!(matches!(
-        DifyAppDsl::from_yaml(&invalid),
-        Err(DifyImportError::InvalidDocument { .. })
+        WorkflowDsl::from_yaml(&invalid),
+        Err(WorkflowDslError::InvalidDocument { .. })
     ));
 }
 
 #[test]
-fn nested_dify_iteration_compiles_each_react_flow_scope_deterministically() {
-    let graph = DifyGraph::from_json(
+fn nested_iteration_compiles_each_canvas_scope_deterministically() {
+    let graph = WorkflowDag::from_json(
         &json!({
             "nodes": [
                 {"id": "end", "data": {"type": "end"}},
@@ -237,7 +238,7 @@ fn nested_dify_iteration_compiles_each_react_flow_scope_deterministically() {
         })
         .to_string(),
     )
-    .expect("nested Dify graph");
+    .expect("nested workflow DAG");
 
     let plan = graph.execution_plan().expect("valid nested plan");
     assert_eq!(plan.top_level(), ["start", "iteration", "end"]);
@@ -248,7 +249,7 @@ fn nested_dify_iteration_compiles_each_react_flow_scope_deterministically() {
 }
 
 #[test]
-fn executable_dify_graph_rejects_invalid_container_references() {
+fn executable_workflow_dag_rejects_invalid_container_references() {
     for (graph, expected) in [
         (
             json!({
@@ -281,7 +282,7 @@ fn executable_dify_graph_rejects_invalid_container_references() {
             "requires an iteration-start",
         ),
     ] {
-        let error = DifyGraph::from_json(&graph.to_string())
+        let error = WorkflowDag::from_json(&graph.to_string())
             .expect("structural import")
             .execution_plan()
             .expect_err("invalid container graph must not compile");

@@ -1,16 +1,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{DifyGraph, DifyImportError};
+use super::{WorkflowDag, WorkflowDslError};
 
-const MAX_DIFY_NODES: usize = 10_000;
-const MAX_DIFY_EDGES: usize = 100_000;
+const MAX_WORKFLOW_DAG_NODES: usize = 10_000;
+const MAX_WORKFLOW_DAG_EDGES: usize = 100_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DifyExecutionPlan {
+pub struct WorkflowDagPlan {
     scopes: BTreeMap<Option<String>, Vec<String>>,
 }
 
-impl DifyExecutionPlan {
+impl WorkflowDagPlan {
     pub fn top_level(&self) -> &[String] {
         self.scopes.get(&None).map(Vec::as_slice).unwrap_or(&[])
     }
@@ -27,22 +27,22 @@ impl DifyExecutionPlan {
 }
 
 pub(super) fn build_execution_plan(
-    graph: &DifyGraph,
-) -> Result<DifyExecutionPlan, DifyImportError> {
+    graph: &WorkflowDag,
+) -> Result<WorkflowDagPlan, WorkflowDslError> {
     if graph.nodes().is_empty() {
         return Err(invalid_graph(
             "an executable graph requires at least one node",
         ));
     }
-    if graph.nodes().len() > MAX_DIFY_NODES {
+    if graph.nodes().len() > MAX_WORKFLOW_DAG_NODES {
         return Err(invalid_graph(format!(
-            "node count {} exceeds {MAX_DIFY_NODES}",
+            "node count {} exceeds {MAX_WORKFLOW_DAG_NODES}",
             graph.nodes().len()
         )));
     }
-    if graph.edges().len() > MAX_DIFY_EDGES {
+    if graph.edges().len() > MAX_WORKFLOW_DAG_EDGES {
         return Err(invalid_graph(format!(
-            "edge count {} exceeds {MAX_DIFY_EDGES}",
+            "edge count {} exceeds {MAX_WORKFLOW_DAG_EDGES}",
             graph.edges().len()
         )));
     }
@@ -102,7 +102,7 @@ pub(super) fn build_execution_plan(
         }
         if source.parent_id() != target.parent_id() {
             return Err(invalid_graph(format!(
-                "edge {:?} crosses Dify graph scopes",
+                "edge {:?} crosses workflow DAG scopes",
                 edge.id()
             )));
         }
@@ -115,7 +115,7 @@ pub(super) fn build_execution_plan(
             .ok_or_else(|| invalid_graph("validated edge target has no indegree state"))?;
         *target_indegree = target_indegree
             .checked_add(1)
-            .ok_or_else(|| invalid_graph("Dify graph indegree overflowed"))?;
+            .ok_or_else(|| invalid_graph("workflow DAG indegree overflowed"))?;
     }
 
     for targets in outgoing.values_mut() {
@@ -149,7 +149,7 @@ pub(super) fn build_execution_plan(
                 })?;
                 *count = count
                     .checked_sub(1)
-                    .ok_or_else(|| invalid_graph("Dify graph indegree underflowed"))?;
+                    .ok_or_else(|| invalid_graph("workflow DAG indegree underflowed"))?;
                 if *count == 0 {
                     ready.insert(target);
                 }
@@ -164,12 +164,12 @@ pub(super) fn build_execution_plan(
         plans.insert(scope, order);
     }
 
-    Ok(DifyExecutionPlan { scopes: plans })
+    Ok(WorkflowDagPlan { scopes: plans })
 }
 
 fn validate_container_scopes(
-    nodes: &BTreeMap<&str, &super::DifyNode>,
-) -> Result<(), DifyImportError> {
+    nodes: &BTreeMap<&str, &super::WorkflowDagNode>,
+) -> Result<(), WorkflowDslError> {
     for node in nodes.values() {
         let Some(parent_id) = node.parent_id() else {
             continue;
@@ -268,8 +268,8 @@ fn validate_container_scopes(
     Ok(())
 }
 
-fn invalid_graph(message: impl Into<String>) -> DifyImportError {
-    DifyImportError::InvalidGraph {
+fn invalid_graph(message: impl Into<String>) -> WorkflowDslError {
+    WorkflowDslError::InvalidGraph {
         message: message.into(),
     }
 }

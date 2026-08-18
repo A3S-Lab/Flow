@@ -10,7 +10,7 @@ Workflow as a Service product surfaces.
 | Capability | Current API | Current examples or tests | Notes |
 | --- | --- | --- | --- |
 | Event-sourced runs | `FlowEngine`, `FlowEventStore`, `WorkflowRunSnapshot` | `examples/sequential_steps.rs`, `tests/engine.rs` | Run state is projected from append-only typed event envelopes. |
-| Dify DAG import and structural compile | `DifyAppDsl`, `DifyGraph`, `DifyExecutionPlan`, `DifyDslCompatibility` | `examples/dify_import.rs`, `tests/dify_import.rs`, `tests/fixtures/dify_echo.yml` | Complete Dify YAML and extracted graph JSON retain unknown fields, classify DSL compatibility, validate deterministic top-level and iteration/loop scopes, and derive a layout-independent execution digest. Empty canvases remain importable drafts but cannot execute. |
+| Workflow DAG import and structural compile | `WorkflowDsl`, `WorkflowDag`, `WorkflowDagPlan`, `WorkflowDslCompatibility` | `examples/workflow_dsl_import.rs`, `tests/workflow_dsl_import.rs`, `tests/fixtures/workflow_dsl_echo.yml` | Complete workflow YAML and extracted graph JSON retain unknown fields, classify DSL compatibility, validate deterministic top-level and iteration/loop scopes, and derive a layout-independent execution digest. Empty canvases remain importable drafts but cannot execute. |
 | Run inspection | `FlowEngine::list_run_ids`, `FlowEngine::list_snapshots`, `FlowEngine::run_summary`, `FlowEngine::list_open_suspensions`, `FlowEngine::list_due_wakeups`, `FlowEngine::next_wakeup`, `FlowEngine::list_active_hooks`, `FlowEngine::history` | `examples/run_inspection.rs`, `tests/engine.rs`, `tests/store_scheduling_acceleration.rs` | Hosts can list sorted run IDs, project snapshots for dashboards, summarize status and actionable suspension counts, list open or due waits/hooks/retries, find the next scheduler wake-up, list resumable external callback hooks, and read raw event history for audit or replay debugging. |
 | Idempotent starts | `FlowEngine::start_with_id` | `examples/sequential_steps.rs`, `tests/engine.rs`, `tests/crash_recovery.rs` | Stable business IDs are safe to retry when spec and input match. Recovery fills a missing start event only while the created run remains pending and preserves a cancellation or other terminal transition that wins the sequence race. |
 | Cancellation and cleanup | `FlowEngine::request_cancellation`, `WorkflowContext::cancellation_request`, `RuntimeCommand::Cancel`, `FlowEngine::force_cancel` | `examples/cancellation.rs`, `tests/durable_operations.rs`, `tests/scheduler.rs` | Cleanup-aware cancellation first projects `Cancelling`, deactivates pre-request suspensions, and replays host-owned cleanup steps. Stable step IDs are physical at-least-once and logically idempotent. `force_cancel`/the compatibility `cancel` API intentionally skip cleanup. |
@@ -48,7 +48,7 @@ pass from the crate repository:
 
 Hosted tenancy, authorization, graph editing UI, node capability binding, and
 deployment policy remain outside this definition because A3S Cloud owns those
-product-control-plane surfaces. Dify syntax and generic DAG structure are Flow
+product-control-plane surfaces. Workflow syntax and generic DAG structure are Flow
 contracts and must not be reimplemented in Cloud.
 
 The pull-request, `main`, and release workflows encode these gates. Publishing
@@ -65,7 +65,7 @@ test helpers.
 | Example | Status | Purpose |
 | --- | --- | --- |
 | `sequential_steps` | Present | First workflow to read: deterministic replay, typed inputs, typed durable step fan-in, and ordered durable steps. |
-| `dify_import` | Present | Import a complete `.dify.yml`, compile its scoped DAG, classify DSL compatibility, and print the pinned semantic digest. |
+| `workflow_dsl_import` | Present | Import a complete workflow YAML document, compile its scoped DAG, classify DSL compatibility, and print the pinned semantic digest. |
 | `batch_steps` | Present | Fan-out within one replay command and synthesize persisted step outputs. |
 | `compensation` | Present | Model recoverable business failure as a durable compensation workflow. |
 | `retry_backoff` | Present | Delayed retry with `retry_after`, scheduler due scanning, and worker resume. |

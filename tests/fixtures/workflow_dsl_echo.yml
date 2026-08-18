@@ -1,7 +1,7 @@
 version: 0.7.0
 kind: app
 app:
-  name: A3S Dify import fixture
+  name: A3S workflow import fixture
   mode: workflow
   icon: robot
   icon_background: '#FFFFFF'

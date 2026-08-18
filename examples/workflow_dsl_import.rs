@@ -2,7 +2,7 @@ use std::error::Error;
 use std::io::{Error as IoError, ErrorKind};
 use std::path::PathBuf;
 
-use a3s_flow::DifyAppDsl;
+use a3s_flow::WorkflowDsl;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let path = std::env::args_os()
@@ -11,11 +11,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         .ok_or_else(|| {
             IoError::new(
                 ErrorKind::InvalidInput,
-                "usage: cargo run --example dify_import -- <app.dify.yml>",
+                "usage: cargo run --example workflow_dsl_import -- <workflow.yml>",
             )
         })?;
     let source = std::fs::read_to_string(&path)?;
-    let document = DifyAppDsl::from_yaml(&source)?;
+    let document = WorkflowDsl::from_yaml(&source)?;
     let plan = document.graph().execution_plan()?;
 
     println!("app={}", document.app().name());
