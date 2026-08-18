@@ -515,9 +515,11 @@ idempotently creates and drives that successor with the predecessor's exact
 the segmentation boundary.
 
 `FlowEngine::drive()` follows the chain and returns its active leaf snapshot;
-`start_with_id()` still returns the stable root ID. Use
-`continuation_chain()` to inspect every segment. A committed predecessor link
-repairs a missing successor after a crash, cycles fail closed, and
+a `FlowTask::DriveRun` worker outcome reports that same leaf in `run_ids` while
+retaining the submitted root or predecessor in `outcome.task`.
+`start_with_id()` still returns the stable root ID. Use `continuation_chain()`
+to inspect every segment. A committed predecessor link repairs a missing
+successor after a crash, cycles fail closed, and
 `with_max_continue_as_new_hops()` bounds work performed by one drive call.
 Cancellation, immediate termination, progress, and child-reference calls made
 with a predecessor ID resolve the active leaf again on each conflict retry.

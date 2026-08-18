@@ -523,7 +523,9 @@ the host can requeue or dead-letter it according to its lease policy. These
 Flow-owned queues remain useful for embedded hosts and compatibility with
 existing worker deployments; new Boot hosts should dispatch through
 `BootFlowTaskManager` instead of building a second application lifecycle around
-`FlowWorker`.
+`FlowWorker`. A `DriveRun` outcome mirrors the active continuation leaf returned
+by the engine in `run_ids`; its embedded task preserves the originally submitted
+root or predecessor ID for correlation.
 
 Lease IDs are fencing tokens. Every successful `heartbeat()` atomically refreshes
 lease age and replaces the token; only the latest token can heartbeat or

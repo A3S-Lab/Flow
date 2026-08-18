@@ -112,8 +112,8 @@ pub(super) async fn handle_flow_task(
     let mut outcome = FlowTaskOutcome::new(task.clone());
     match task {
         FlowTask::DriveRun { run_id } => {
-            engine.drive(&run_id).await?;
-            outcome.run_ids.push(run_id);
+            let snapshot = engine.drive(&run_id).await?;
+            outcome.run_ids.push(snapshot.run_id);
         }
         FlowTask::ResumeWait { run_id, wait_id } => {
             let resumed = engine.resume_wait_if_open(&run_id, &wait_id).await?;

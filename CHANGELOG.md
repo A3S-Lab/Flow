@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Made `DriveRun` worker outcomes report the active continuation leaf returned
+  by `FlowEngine::drive` instead of the closed predecessor supplied as the task
+  target. The original target remains available through `FlowTaskOutcome::task`.
 - Made `DriveRun` recover a pending run whose `run_started` append was lost
   after `run_created`. Replacement workers now persist the missing lifecycle
   event before invoking workflow code, without consuming the workflow replay

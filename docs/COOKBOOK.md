@@ -235,6 +235,9 @@ driving, and `continuation_chain(root_run_id)` returns the persisted segments in
 order for inspection. Each closed segment projects
 `WorkflowRunStatus::ContinuedAsNew`, a typed terminal outcome, and a
 `WorkflowContinuation` containing the successor ID and next input.
+`FlowTask::DriveRun` follows the same chain: its outcome reports the active leaf
+in `run_ids`, while `outcome.task` retains the submitted root or predecessor for
+queue correlation.
 
 The successor always inherits the exact `WorkflowSpec`; continue-as-new is not
 a way to change runtime builds, patch markers, or workflow versions. Flow

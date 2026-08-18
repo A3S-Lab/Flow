@@ -1,5 +1,56 @@
 use super::*;
 
+struct ContinueOnceRuntime;
+
+#[async_trait]
+impl FlowRuntime for ContinueOnceRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let context = invocation.context();
+        match context.input()["generation"].as_u64().unwrap() {
+            0 => Ok(context.continue_as_new(json!({ "generation": 1 }))),
+            1 => Ok(context.complete(json!({ "generation": 1 }))),
+            generation => unreachable!("unexpected generation {generation}"),
+        }
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        unreachable!("continue-once runtime does not schedule steps")
+    }
+}
+
+#[tokio::test]
+async fn drive_task_reports_the_active_continuation_leaf() {
+    let root_run_id = "worker-drive-continuation-root";
+    let engine = FlowEngine::in_memory(Arc::new(ContinueOnceRuntime));
+    engine
+        .start_with_id(root_run_id, spec(), json!({ "generation": 0 }))
+        .await
+        .unwrap();
+    let leaf_run_id = engine
+        .continuation_chain(root_run_id)
+        .await
+        .unwrap()
+        .last()
+        .unwrap()
+        .run_id
+        .clone();
+    assert_ne!(leaf_run_id, root_run_id);
+
+    let task = FlowTask::DriveRun {
+        run_id: root_run_id.to_string(),
+    };
+    let outcome = FlowWorker::in_memory(engine)
+        .handle(task.clone())
+        .await
+        .unwrap();
+
+    assert_eq!(outcome.task, task);
+    assert_eq!(outcome.run_ids, vec![leaf_run_id]);
+}
+
 #[tokio::test]
 async fn worker_resumes_due_waits_from_queue() {
     let now = Utc::now();
