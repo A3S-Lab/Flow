@@ -116,9 +116,11 @@ pub(super) async fn handle_flow_task(
             outcome.run_ids.push(run_id);
         }
         FlowTask::ResumeWait { run_id, wait_id } => {
-            engine.resume_wait(&run_id, &wait_id).await?;
+            let resumed = engine.resume_wait_if_open(&run_id, &wait_id).await?;
             outcome.run_ids.push(run_id.clone());
-            outcome.resumed_waits.push((run_id, wait_id));
+            if resumed {
+                outcome.resumed_waits.push((run_id, wait_id));
+            }
         }
         FlowTask::ResumeHook {
             run_id,

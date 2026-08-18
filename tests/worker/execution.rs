@@ -44,6 +44,43 @@ async fn worker_resumes_due_waits_from_queue() {
 }
 
 #[tokio::test]
+async fn worker_acknowledges_cancelled_wait_redelivery_without_reporting_resume() {
+    let engine = FlowEngine::in_memory(Arc::new(SleepRuntime));
+    let run_id = engine
+        .start(
+            spec(),
+            json!({
+                "resume_at": (Utc::now() + ChronoDuration::hours(1)).to_rfc3339()
+            }),
+        )
+        .await
+        .unwrap();
+    let queue = Arc::new(InMemoryFlowTaskQueue::new());
+    let worker = FlowWorker::new(engine.clone(), queue.clone());
+    queue
+        .enqueue(FlowTask::ResumeWait {
+            run_id: run_id.clone(),
+            wait_id: "sleep".to_string(),
+        })
+        .await
+        .unwrap();
+    engine
+        .force_cancel(&run_id, Some("timer withdrawn".to_string()))
+        .await
+        .unwrap();
+
+    let outcome = worker.run_once().await.unwrap().unwrap();
+
+    assert_eq!(outcome.run_ids, vec![run_id.clone()]);
+    assert!(outcome.resumed_waits.is_empty());
+    assert!(queue.is_empty().await.unwrap());
+    assert_eq!(
+        engine.snapshot(&run_id).await.unwrap().status,
+        WorkflowRunStatus::Cancelled
+    );
+}
+
+#[tokio::test]
 async fn worker_resumes_only_the_targeted_scheduled_run() {
     let now = Utc::now();
     let engine = FlowEngine::in_memory(Arc::new(SleepRuntime));

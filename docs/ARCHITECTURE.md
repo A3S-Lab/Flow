@@ -94,7 +94,10 @@ The runtime returns exactly one command:
 - `schedule_steps`: the engine validates a stable batch of unique step IDs, then
   applies the same durable step lifecycle to each step before replaying.
 - `wait_until`: the engine persists `wait_created` and stops driving the run
-  until `resume_wait()` records `wait_completed`.
+  until `resume_wait()` records `wait_completed`. Redelivery for an existing
+  wait is idempotent after it completed or its run became terminal. A resolved
+  wait on a non-terminal run still drives replay recovery without appending a
+  second completion event.
 - `create_hook`: the engine persists `hook_created` and stops until
   `resume_hook()` records `hook_received` or `dispose_hook()` records
   `hook_disposed`. Replay then continues so workflow code can observe
@@ -350,6 +353,10 @@ Separate SQL migrations materialize open wait timers and delayed retries into
 lexicographic deadline ordering for indexed range and earliest-row queries.
 Lifecycle triggers insert, replace, or remove projection rows for waits,
 retries, cancellation, continuation, and terminal outcomes in the event append transaction.
+Compatibility-wide due scans may race after reading the same projection rows.
+Expected-sequence appends select one completion winner; losing scans treat the
+resolved or terminal wait as a successful no-op and do not report it as their
+own resumption.
 The PostgreSQL migration locks `flow_events` against concurrent inserts while
 it reconciles the earlier active-hook projection, backfills scheduled work,
 and installs the new trigger, closing the rolling-upgrade gap between backfill

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Made wait-timer redelivery idempotent after wait completion or run
+  termination. Concurrent compatibility-wide due scans now report only waits
+  whose completion they committed, and workers acknowledge stale
+  `ResumeWait` tasks without falsely reporting a resumed timer. Engine timer
+  and delayed-retry operations now live in a dedicated scheduling module.
 - Hardened local JSONL audit recovery. `LocalFileA3sFlowEventSink` now preserves
   a complete final record missing its newline, discards only an unterminated
   malformed tail before the next append, and rejects terminated or interior
