@@ -1,7 +1,7 @@
 use crate::error::{FlowError, Result};
-use crate::model::{FlowEvent, HookStatus};
+use crate::model::{FlowEvent, HookStatus, WorkflowRunSnapshot};
 
-use super::{validation::is_event_conflict, FlowEngine};
+use super::{validation::is_event_conflict, FlowEngine, HookResolutionOutcome};
 
 impl FlowEngine {
     /// Resume a hook with an external payload.
@@ -9,7 +9,9 @@ impl FlowEngine {
     /// Redelivery through a durable outbox is idempotent when the hook already
     /// contains the same payload, including after the run becomes terminal. A
     /// different payload or a different terminal hook resolution is rejected
-    /// explicitly instead of being mistaken for the committed outcome.
+    /// explicitly instead of being mistaken for the committed outcome. When
+    /// the resolved run continued as new, matching redelivery follows and
+    /// repairs its active successor.
     pub async fn resume_hook(
         &self,
         run_id: &str,
@@ -20,13 +22,13 @@ impl FlowEngine {
         Ok(())
     }
 
-    /// Resume `hook_id` and report whether this call committed its receipt.
+    /// Resume `hook_id` and report the driven leaf plus receipt ownership.
     pub(crate) async fn resume_hook_if_active(
         &self,
         run_id: &str,
         hook_id: &str,
         payload: serde_json::Value,
-    ) -> Result<bool> {
+    ) -> Result<HookResolutionOutcome> {
         let mut resumed = false;
         for _ in 0..self.max_replay_iterations {
             let snapshot = self.snapshot(run_id).await?;
@@ -72,7 +74,13 @@ impl FlowEngine {
                         ));
                     }
                     if snapshot.status.is_terminal() {
-                        return Ok(resumed);
+                        match self.drive_resolved_hook(run_id).await {
+                            Ok(snapshot) => {
+                                return Ok(hook_resolution(run_id, hook_id, snapshot, resumed))
+                            }
+                            Err(error) if is_event_conflict(&error) => continue,
+                            Err(error) => return Err(error),
+                        }
                     }
                     self.ensure_runtime_build_available(run_id, &snapshot.spec)?;
                 }
@@ -85,7 +93,7 @@ impl FlowEngine {
             }
 
             match self.drive(run_id).await {
-                Ok(_) => return Ok(resumed),
+                Ok(snapshot) => return Ok(hook_resolution(run_id, hook_id, snapshot, resumed)),
                 Err(error) if is_event_conflict(&error) => continue,
                 Err(error) => return Err(error),
             }
@@ -99,14 +107,20 @@ impl FlowEngine {
     /// This is useful when a host withdraws an approval request, expires a
     /// webhook token, or closes an external callback route. Redelivery is
     /// idempotent when the hook was already disposed. A received or cancelled
-    /// hook conflicts with disposal and cannot be reported as successful.
+    /// hook conflicts with disposal and cannot be reported as successful. When
+    /// the resolved run continued as new, matching redelivery follows and
+    /// repairs its active successor.
     pub async fn dispose_hook(&self, run_id: &str, hook_id: &str) -> Result<()> {
         self.dispose_hook_if_active(run_id, hook_id).await?;
         Ok(())
     }
 
-    /// Dispose `hook_id` and report whether this call committed its disposal.
-    pub(crate) async fn dispose_hook_if_active(&self, run_id: &str, hook_id: &str) -> Result<bool> {
+    /// Dispose `hook_id` and report the driven leaf plus disposal ownership.
+    pub(crate) async fn dispose_hook_if_active(
+        &self,
+        run_id: &str,
+        hook_id: &str,
+    ) -> Result<HookResolutionOutcome> {
         let mut disposed = false;
         for _ in 0..self.max_replay_iterations {
             let snapshot = self.snapshot(run_id).await?;
@@ -142,7 +156,13 @@ impl FlowEngine {
                 }
                 HookStatus::Disposed => {
                     if snapshot.status.is_terminal() {
-                        return Ok(disposed);
+                        match self.drive_resolved_hook(run_id).await {
+                            Ok(snapshot) => {
+                                return Ok(hook_resolution(run_id, hook_id, snapshot, disposed))
+                            }
+                            Err(error) if is_event_conflict(&error) => continue,
+                            Err(error) => return Err(error),
+                        }
                     }
                     self.ensure_runtime_build_available(run_id, &snapshot.spec)?;
                 }
@@ -155,7 +175,7 @@ impl FlowEngine {
             }
 
             match self.drive(run_id).await {
-                Ok(_) => return Ok(disposed),
+                Ok(snapshot) => return Ok(hook_resolution(run_id, hook_id, snapshot, disposed)),
                 Err(error) if is_event_conflict(&error) => continue,
                 Err(error) => return Err(error),
             }
@@ -174,15 +194,15 @@ impl FlowEngine {
         token: &str,
         payload: serde_json::Value,
     ) -> Result<(String, String)> {
-        let (run_id, hook_id, _) = self.resume_hook_by_token_if_active(token, payload).await?;
-        Ok((run_id, hook_id))
+        let outcome = self.resume_hook_by_token_if_active(token, payload).await?;
+        Ok((outcome.hook_run_id, outcome.hook_id))
     }
 
     pub(crate) async fn resume_hook_by_token_if_active(
         &self,
         token: &str,
         payload: serde_json::Value,
-    ) -> Result<(String, String, bool)> {
+    ) -> Result<HookResolutionOutcome> {
         let mut matches = self
             .store
             .find_active_hooks_by_token(token)
@@ -195,10 +215,7 @@ impl FlowEngine {
             0 => Err(FlowError::HookTokenNotFound(token.to_string())),
             1 => {
                 let (run_id, hook_id) = matches.remove(0);
-                let resumed = self
-                    .resume_hook_if_active(&run_id, &hook_id, payload)
-                    .await?;
-                Ok((run_id, hook_id, resumed))
+                self.resume_hook_if_active(&run_id, &hook_id, payload).await
             }
             _ => Err(FlowError::InvalidTransition(
                 "hook token is active in multiple runs (value redacted)".to_string(),
@@ -211,14 +228,14 @@ impl FlowEngine {
     /// This mirrors [`resume_hook_by_token`](Self::resume_hook_by_token) for
     /// callback routers that only know the public token.
     pub async fn dispose_hook_by_token(&self, token: &str) -> Result<(String, String)> {
-        let (run_id, hook_id, _) = self.dispose_hook_by_token_if_active(token).await?;
-        Ok((run_id, hook_id))
+        let outcome = self.dispose_hook_by_token_if_active(token).await?;
+        Ok((outcome.hook_run_id, outcome.hook_id))
     }
 
     pub(crate) async fn dispose_hook_by_token_if_active(
         &self,
         token: &str,
-    ) -> Result<(String, String, bool)> {
+    ) -> Result<HookResolutionOutcome> {
         let mut matches = self
             .store
             .find_active_hooks_by_token(token)
@@ -231,13 +248,34 @@ impl FlowEngine {
             0 => Err(FlowError::HookTokenNotFound(token.to_string())),
             1 => {
                 let (run_id, hook_id) = matches.remove(0);
-                let disposed = self.dispose_hook_if_active(&run_id, &hook_id).await?;
-                Ok((run_id, hook_id, disposed))
+                self.dispose_hook_if_active(&run_id, &hook_id).await
             }
             _ => Err(FlowError::InvalidTransition(
                 "hook token is active in multiple runs (value redacted)".to_string(),
             )),
         }
+    }
+
+    async fn drive_resolved_hook(&self, run_id: &str) -> Result<WorkflowRunSnapshot> {
+        let leaf = self.ensure_continuation_leaf(run_id, false).await?;
+        if leaf.status.is_terminal() {
+            return Ok(leaf);
+        }
+        self.drive(&leaf.run_id).await
+    }
+}
+
+fn hook_resolution(
+    run_id: &str,
+    hook_id: &str,
+    snapshot: WorkflowRunSnapshot,
+    committed: bool,
+) -> HookResolutionOutcome {
+    HookResolutionOutcome {
+        hook_run_id: run_id.to_string(),
+        hook_id: hook_id.to_string(),
+        snapshot,
+        committed,
     }
 }
 

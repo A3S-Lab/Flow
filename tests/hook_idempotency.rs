@@ -1,7 +1,8 @@
 use a3s_flow::{
     ActiveHookSnapshot, FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore,
-    FlowRuntime, FlowTask, FlowWorker, HookStatus, InMemoryEventStore, RuntimeCommand,
-    StepInvocation, WorkflowInvocation, WorkflowRunStatus, WorkflowSpec,
+    FlowRuntime, FlowTask, FlowWorker, HookStatus, InMemoryEventStore, RuntimeBuildCompatibility,
+    RuntimeBuildId, RuntimeCommand, StepInvocation, WorkflowInvocation, WorkflowRunStatus,
+    WorkflowSpec,
 };
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -149,6 +150,58 @@ async fn identical_resume_redelivery_is_idempotent_after_terminal_completion() {
     assert_eq!(snapshot.hooks[HOOK_ID].status, HookStatus::Received);
     assert_eq!(engine.history(RUN_ID).await.unwrap(), committed_history);
     assert_eq!(resolution_count(&committed_history), 1);
+}
+
+#[tokio::test]
+async fn terminal_hook_redelivery_does_not_require_runtime_build_admission() {
+    let resume_run_id = "hook-terminal-resume-build";
+    let dispose_run_id = "hook-terminal-dispose-build";
+    let store = Arc::new(InMemoryEventStore::new());
+    let owner_build = RuntimeBuildId::new("hook-owner-v1").unwrap();
+    let owner = FlowEngine::builder(Arc::new(HookRuntime))
+        .with_store(store.clone())
+        .with_runtime_build_compatibility(RuntimeBuildCompatibility::new(owner_build.clone()))
+        .build();
+    let pinned_spec = spec().with_runtime_build(owner_build);
+    owner
+        .start_with_id(resume_run_id, pinned_spec.clone(), json!({}))
+        .await
+        .unwrap();
+    owner
+        .resume_hook(resume_run_id, HOOK_ID, approved_payload())
+        .await
+        .unwrap();
+    owner
+        .start_with_id(dispose_run_id, pinned_spec, json!({}))
+        .await
+        .unwrap();
+    owner.dispose_hook(dispose_run_id, HOOK_ID).await.unwrap();
+    let resume_history = owner.history(resume_run_id).await.unwrap();
+    let dispose_history = owner.history(dispose_run_id).await.unwrap();
+
+    let incompatible = FlowEngine::builder(Arc::new(HookRuntime))
+        .with_store(store)
+        .with_runtime_build_compatibility(RuntimeBuildCompatibility::new(
+            RuntimeBuildId::new("hook-worker-v2").unwrap(),
+        ))
+        .build();
+    incompatible
+        .resume_hook(resume_run_id, HOOK_ID, approved_payload())
+        .await
+        .unwrap();
+    incompatible
+        .dispose_hook(dispose_run_id, HOOK_ID)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        incompatible.history(resume_run_id).await.unwrap(),
+        resume_history
+    );
+    assert_eq!(
+        incompatible.history(dispose_run_id).await.unwrap(),
+        dispose_history
+    );
 }
 
 #[tokio::test]

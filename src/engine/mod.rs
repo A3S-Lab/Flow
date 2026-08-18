@@ -35,6 +35,13 @@ use validation::{
 const DEFAULT_MAX_CONTINUE_AS_NEW_HOPS: usize = 64;
 const DEFAULT_MAX_CHILD_WORKFLOW_DEPTH: usize = 32;
 
+pub(crate) struct HookResolutionOutcome {
+    pub(crate) hook_run_id: String,
+    pub(crate) hook_id: String,
+    pub(crate) snapshot: WorkflowRunSnapshot,
+    pub(crate) committed: bool,
+}
+
 /// Builder for a [`FlowEngine`].
 pub struct FlowEngineBuilder {
     store: Arc<dyn FlowEventStore>,

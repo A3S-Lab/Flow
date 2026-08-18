@@ -368,8 +368,10 @@ Durable consumers should retry with stable run/hook identity. Public-token
 helpers intentionally route only active hooks and redact bearer values from
 diagnostics. Worker outcomes identify durable work: `resumed_hook` or
 `disposed_hook` is populated only for the task that commits the matching Hook
-event. Stable-ID redelivery is still acknowledged and listed in `run_ids`, but
-does not claim another task's resolution.
+event. Stable-ID redelivery follows the active continuation leaf and repairs a
+missing successor if the hook-owning predecessor already continued as new.
+That leaf is listed in `run_ids`; the resolution tuple remains absent so the
+redelivery does not claim another task's commit.
 
 ### Cleanup-aware cancellation
 

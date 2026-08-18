@@ -107,7 +107,9 @@ The runtime returns exactly one command:
   resolutions fail with `HookConflict`. Public-token lookup intentionally
   covers only active hooks. Worker outcomes report `resumed_hook` or
   `disposed_hook` only for the task that commits the resolution event;
-  matching stable-ID redelivery remains a successful recovery no-op.
+  matching stable-ID redelivery follows and repairs the active continuation
+  leaf. `run_ids` reports that leaf, while the resolution tuple identifies the
+  predecessor stream only for the event-commit winner.
 - `wait_for_signal`: the engine persists a stable wait ID and declared signal
   name. It pairs that wait with the oldest matching unconsumed
   `signal_received` event, records `signal_wait_completed`, and replays so

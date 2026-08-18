@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Made stable-ID hook resume and disposal redelivery repair a missing
+  continue-as-new successor after the resolution and predecessor link were
+  already durable. Worker outcomes now report the active leaf in `run_ids`
+  while keeping `resumed_hook` or `disposed_hook` tied to the stream that owns
+  the committed resolution event.
 - Made `DriveRun` worker outcomes report the active continuation leaf returned
   by `FlowEngine::drive` instead of the closed predecessor supplied as the task
   target. The original target remains available through `FlowTaskOutcome::task`.

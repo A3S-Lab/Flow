@@ -898,11 +898,13 @@ idempotency boundary before it calls Flow.
 
 When the callback is handled through `FlowWorker`, inspect the outcome as a
 commit report. Only the task that appends `hook_received` sets `resumed_hook`;
-an identical stable-ID redelivery still succeeds, appears in `run_ids`, and
-repairs interrupted workflow drive without claiming the earlier receipt.
-`disposed_hook` follows the same rule for withdrawal or expiry. Concurrent
-token lookups can both resolve the active route, but only the event winner is
-reported as the resolver.
+an identical stable-ID redelivery still succeeds and repairs interrupted
+workflow drive without claiming the earlier receipt. If the hook-owning stream
+already committed continue-as-new but crashed before creating its successor,
+redelivery creates and drives that successor and reports the active leaf in
+`run_ids`. `disposed_hook` follows the same rule for withdrawal or expiry.
+Concurrent token lookups can both resolve the active route, but only the event
+winner is reported as the resolver.
 
 Withdrawal or expiry handler:
 

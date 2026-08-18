@@ -127,21 +127,21 @@ pub(super) async fn handle_flow_task(
             hook_id,
             payload,
         } => {
-            let resumed = engine
+            let resolution = engine
                 .resume_hook_if_active(&run_id, &hook_id, payload)
                 .await?;
-            outcome.run_ids.push(run_id.clone());
-            if resumed {
-                outcome.resumed_hook = Some((run_id, hook_id));
+            outcome.run_ids.push(resolution.snapshot.run_id);
+            if resolution.committed {
+                outcome.resumed_hook = Some((resolution.hook_run_id, resolution.hook_id));
             }
         }
         FlowTask::ResumeHookByToken { token, payload } => {
-            let (run_id, hook_id, resumed) = engine
+            let resolution = engine
                 .resume_hook_by_token_if_active(&token, payload)
                 .await?;
-            outcome.run_ids.push(run_id.clone());
-            if resumed {
-                outcome.resumed_hook = Some((run_id, hook_id));
+            outcome.run_ids.push(resolution.snapshot.run_id);
+            if resolution.committed {
+                outcome.resumed_hook = Some((resolution.hook_run_id, resolution.hook_id));
             }
         }
         FlowTask::SendSignal { run_id, signal } => {
@@ -154,18 +154,17 @@ pub(super) async fn handle_flow_task(
             }
         }
         FlowTask::DisposeHook { run_id, hook_id } => {
-            let disposed = engine.dispose_hook_if_active(&run_id, &hook_id).await?;
-            outcome.run_ids.push(run_id.clone());
-            if disposed {
-                outcome.disposed_hook = Some((run_id, hook_id));
+            let resolution = engine.dispose_hook_if_active(&run_id, &hook_id).await?;
+            outcome.run_ids.push(resolution.snapshot.run_id);
+            if resolution.committed {
+                outcome.disposed_hook = Some((resolution.hook_run_id, resolution.hook_id));
             }
         }
         FlowTask::DisposeHookByToken { token } => {
-            let (run_id, hook_id, disposed) =
-                engine.dispose_hook_by_token_if_active(&token).await?;
-            outcome.run_ids.push(run_id.clone());
-            if disposed {
-                outcome.disposed_hook = Some((run_id, hook_id));
+            let resolution = engine.dispose_hook_by_token_if_active(&token).await?;
+            outcome.run_ids.push(resolution.snapshot.run_id);
+            if resolution.committed {
+                outcome.disposed_hook = Some((resolution.hook_run_id, resolution.hook_id));
             }
         }
         FlowTask::ResumeScheduledRun { run_id, now } => {
