@@ -68,7 +68,9 @@ replay.
 Flow does not interpret provider credentials, model catalogues, tools,
 datasets, tenant policy, or product authorization. Those remain host-owned node
 capabilities. This prevents two graph parsers and two schedulers while keeping
-product semantics out of the durable engine.
+product semantics out of the durable engine. Hosts whose persisted source is a
+different authoritative format construct `WorkflowDag` nodes and edges
+programmatically, then reuse this exact structural compiler.
 
 ## Durable Execution Model
 

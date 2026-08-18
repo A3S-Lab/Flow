@@ -110,7 +110,10 @@ iteration/loop containers. The execution digest ignores canvas layout but
 binds node configuration, branch handles, dependencies, and other semantic
 inputs. Product hosts must then preflight every `data.type` against their node
 executor registry before a run starts; unsupported nodes are never silently
-substituted.
+substituted. Hosts with an authoritative product configuration can construct
+the same compiler input directly with `WorkflowDag::new`,
+`WorkflowDagNode::new`, and `WorkflowDagEdge::new`; they do not need a second
+JSON parser or topology implementation.
 
 ## Quick start
 

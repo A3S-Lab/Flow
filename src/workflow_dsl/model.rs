@@ -168,6 +168,18 @@ pub struct WorkflowDag {
 }
 
 impl WorkflowDag {
+    /// Construct a DAG programmatically. Hosts that compile an authoritative
+    /// product format can use this path without serializing through YAML or
+    /// JSON first.
+    pub fn new(nodes: Vec<WorkflowDagNode>, edges: Vec<WorkflowDagEdge>) -> Self {
+        Self {
+            nodes,
+            edges,
+            viewport: None,
+            extensions: BTreeMap::new(),
+        }
+    }
+
     pub fn from_json(source: &str) -> Result<Self, WorkflowDslError> {
         check_size(source)?;
         serde_json::from_str(source).map_err(|error| WorkflowDslError::InvalidJson {
@@ -230,6 +242,33 @@ pub struct WorkflowDagNode {
 }
 
 impl WorkflowDagNode {
+    /// Construct a node with the canonical `data.type` discriminator.
+    pub fn new(id: impl Into<String>, node_type: impl Into<String>) -> Self {
+        Self::from_data(
+            id,
+            Value::Object(serde_json::Map::from_iter([(
+                "type".to_owned(),
+                Value::String(node_type.into()),
+            )])),
+        )
+    }
+
+    /// Construct a node from its complete semantic data object.
+    pub fn from_data(id: impl Into<String>, data: Value) -> Self {
+        Self {
+            id: id.into(),
+            data,
+            parent_id: None,
+            presentation: BTreeMap::new(),
+        }
+    }
+
+    /// Place this node inside an iteration or loop container scope.
+    pub fn with_parent_id(mut self, parent_id: impl Into<String>) -> Self {
+        self.parent_id = Some(parent_id.into());
+        self
+    }
+
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -275,6 +314,38 @@ pub struct WorkflowDagEdge {
 }
 
 impl WorkflowDagEdge {
+    /// Construct a directed edge between two node identities.
+    pub fn new(
+        id: impl Into<String>,
+        source: impl Into<String>,
+        target: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            source: source.into(),
+            target: target.into(),
+            source_handle: None,
+            target_handle: None,
+            data: Value::Null,
+            presentation: BTreeMap::new(),
+        }
+    }
+
+    pub fn with_source_handle(mut self, source_handle: impl Into<String>) -> Self {
+        self.source_handle = Some(source_handle.into());
+        self
+    }
+
+    pub fn with_target_handle(mut self, target_handle: impl Into<String>) -> Self {
+        self.target_handle = Some(target_handle.into());
+        self
+    }
+
+    pub fn with_data(mut self, data: Value) -> Self {
+        self.data = data;
+        self
+    }
+
     pub fn id(&self) -> &str {
         &self.id
     }

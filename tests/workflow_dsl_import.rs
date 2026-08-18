@@ -1,4 +1,7 @@
-use a3s_flow::{WorkflowDag, WorkflowDsl, WorkflowDslCompatibility, WorkflowDslError};
+use a3s_flow::{
+    WorkflowDag, WorkflowDagEdge, WorkflowDagNode, WorkflowDsl, WorkflowDslCompatibility,
+    WorkflowDslError,
+};
 use serde_json::json;
 
 const WORKFLOW_DSL_ECHO: &str = include_str!("fixtures/workflow_dsl_echo.yml");
@@ -288,4 +291,28 @@ fn executable_workflow_dag_rejects_invalid_container_references() {
             .expect_err("invalid container graph must not compile");
         assert!(error.to_string().contains(expected), "{error}");
     }
+}
+
+#[test]
+fn programmatic_dag_construction_uses_the_same_structural_compiler() {
+    let graph = WorkflowDag::new(
+        vec![
+            WorkflowDagNode::new("output", "output"),
+            WorkflowDagNode::new("input", "input"),
+        ],
+        vec![WorkflowDagEdge::new("input-output", "input", "output").with_source_handle("success")],
+    );
+
+    assert_eq!(
+        graph
+            .execution_plan()
+            .expect("programmatic DAG")
+            .top_level(),
+        ["input", "output"]
+    );
+    assert_eq!(
+        graph.edges()[0].source_handle(),
+        Some("success"),
+        "edge metadata stays available to the product compiler"
+    );
 }

@@ -5,7 +5,9 @@
 - Added native workflow app DSL and extracted graph import. The public model retains
   unknown vendor fields, classifies DSL version compatibility, validates
   deterministic top-level and iteration/loop scopes before execution, and
-  derives a semantic digest that ignores React Flow canvas layout.
+  derives a semantic digest that ignores canvas layout.
+- Added programmatic DAG constructors so authoritative host formats can reuse
+  the same structural compiler without serializing through another parser.
 - Defined the ownership boundary explicitly: Flow owns workflow syntax and generic
   DAG invariants; hosts own node implementations, capabilities, credentials,
   tenancy, and publication policy.
