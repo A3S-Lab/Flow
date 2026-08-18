@@ -342,8 +342,12 @@ engine
 Retry the same target run ID and `signal_id` after an uncertain acknowledgement.
 Matching redelivery is idempotent across that target's continuation descendants;
 name or payload drift returns `SignalConflict`. `FlowTask::SendSignal` provides
-the same contract through Worker and A3S Boot queues. Signal payloads are part
-of durable history, and authorization remains host-owned.
+the same contract through Worker and A3S Boot queues. Its outcome populates
+`delivered_signal` only for the task that commits `SignalReceived`; matching
+redelivery is still acknowledged and lists the active leaf in `run_ids` without
+claiming another task's delivery. Its run ID is the stream containing that
+event, even if handling advances `run_ids` to a new continuation leaf. Signal
+payloads are part of durable history, and authorization remains host-owned.
 
 Hooks suspend until an external callback is received or disposed:
 

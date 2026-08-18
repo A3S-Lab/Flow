@@ -146,9 +146,12 @@ pub(super) async fn handle_flow_task(
         }
         FlowTask::SendSignal { run_id, signal } => {
             let signal_id = signal.signal_id.clone();
-            let snapshot = engine.send_signal(&run_id, signal).await?;
+            let (snapshot, committed_run_id) =
+                engine.send_signal_with_commit(&run_id, signal).await?;
             outcome.run_ids.push(snapshot.run_id.clone());
-            outcome.delivered_signal = Some((snapshot.run_id, signal_id));
+            if let Some(committed_run_id) = committed_run_id {
+                outcome.delivered_signal = Some((committed_run_id, signal_id));
+            }
         }
         FlowTask::DisposeHook { run_id, hook_id } => {
             let disposed = engine.dispose_hook_if_active(&run_id, &hook_id).await?;

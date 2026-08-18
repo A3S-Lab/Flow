@@ -216,7 +216,10 @@ continue-as-new descendants, accepts an identical committed name/payload, and
 rejects drift with `SignalConflict`. Expected-sequence conflicts re-resolve the
 active leaf before retrying, so a continuation race cannot append to a closed
 segment. If delivery or pairing committed before a host failure, redelivery
-drives the non-terminal leaf without writing duplicate events.
+drives the non-terminal leaf without writing duplicate events. Worker outcomes
+set `delivered_signal` only when that task commits `signal_received`; matching
+redelivery remains successful and reports the active leaf through `run_ids`.
+The delivery tuple retains the event stream ID if handling continues as new.
 
 Signal authorization, caller authentication, payload schemas, and business
 admission remain host-owned. Flow only enforces the immutable declared name,

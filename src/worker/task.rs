@@ -79,6 +79,7 @@ pub struct FlowTaskOutcome {
     /// Hook disposal committed by this task, excluding matching redelivery.
     #[serde(default)]
     pub disposed_hook: Option<(String, String)>,
+    /// Signal receipt committed by this task, excluding matching redelivery.
     #[serde(default)]
     pub delivered_signal: Option<(String, String)>,
 }

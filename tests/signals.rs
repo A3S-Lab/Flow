@@ -365,52 +365,6 @@ async fn concurrent_redelivery_commits_one_signal_event() {
     );
 }
 
-#[tokio::test]
-async fn queued_signal_redelivery_is_durable_and_idempotent() {
-    let engine = FlowEngine::in_memory(Arc::new(ApprovalRuntime));
-    let run_id = engine
-        .start_with_id("signal-queued-redelivery", spec(), json!({}))
-        .await
-        .unwrap();
-    let worker = FlowWorker::in_memory(engine.clone());
-    let task = FlowTask::SendSignal {
-        run_id: run_id.clone(),
-        signal: WorkflowSignal::new(
-            "approval-delivery-1",
-            APPROVAL_SIGNAL,
-            json!({ "approved": true }),
-        ),
-    };
-    assert_eq!(task.target_run_id(), Some(run_id.as_str()));
-    let encoded = serde_json::to_string(&task).unwrap();
-    assert_eq!(
-        encoded,
-        format!(
-            r#"{{"type":"send_signal","run_id":"{run_id}","signal":{{"signal_id":"approval-delivery-1","name":"order.approved","payload":{{"approved":true}}}}}}"#
-        )
-    );
-    assert_eq!(serde_json::from_str::<FlowTask>(&encoded).unwrap(), task);
-    worker.enqueue(task.clone()).await.unwrap();
-    worker.enqueue(task).await.unwrap();
-
-    let outcomes = worker.run_until_idle().await.unwrap();
-    assert_eq!(outcomes.len(), 2);
-    assert!(outcomes.iter().all(|outcome| {
-        outcome.delivered_signal.as_ref()
-            == Some(&(run_id.clone(), "approval-delivery-1".to_string()))
-    }));
-    assert_eq!(
-        engine
-            .history(&run_id)
-            .await
-            .unwrap()
-            .iter()
-            .filter(|envelope| matches!(envelope.event, FlowEvent::SignalReceived { .. }))
-            .count(),
-        1
-    );
-}
-
 struct FailAfterSignalPairingRuntime {
     fail_once: AtomicBool,
 }
@@ -770,3 +724,6 @@ async fn engine_rejects_continue_as_new_with_an_unconsumed_signal() {
         .iter()
         .any(|envelope| matches!(envelope.event, FlowEvent::RunContinuedAsNew { .. })));
 }
+
+#[path = "signals/worker_outcomes.rs"]
+mod worker_outcomes;

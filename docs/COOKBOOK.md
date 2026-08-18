@@ -807,7 +807,12 @@ or wait pairing committed before the worker stopped. A different name or
 payload returns `SignalConflict`. Delivery follows continue-as-new descendants
 of the original target and drives the active leaf. Use `FlowTask::SendSignal`
 for the same behavior through `FlowWorker` or A3S Boot; Boot deduplicates the
-logical target by run ID and signal ID.
+logical target by run ID and signal ID. Treat `FlowTaskOutcome` as a commit
+report: only the task that appends `signal_received` sets `delivered_signal`.
+An identical redelivery still succeeds, drives recovery, and reports the active
+continuation leaf in `run_ids` without claiming the earlier delivery. If signal
+handling continues as new, the delivery tuple identifies the predecessor stream
+that actually contains the receipt.
 
 Signals may arrive before a matching wait and remain queued in append order.
 Each stable wait consumes the oldest matching unconsumed delivery. Cancellation

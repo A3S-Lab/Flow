@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Made Signal worker outcomes reflect the task that actually committed
+  `signal_received`. Matching delivery-ID redelivery still acknowledges the
+  task, follows continue-as-new descendants, and drives interrupted recovery,
+  while sequential or concurrent retries no longer claim the same durable
+  delivery twice. The reported run ID identifies the stream containing the
+  receipt even when signal handling immediately continues as new.
 - Made Hook worker outcomes reflect the task that actually committed
   `hook_received` or `hook_disposed`. Matching stable-ID redelivery still
   acknowledges the task and drives interrupted recovery, while concurrent

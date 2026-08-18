@@ -27,7 +27,18 @@ impl FlowEngine {
         run_id: &str,
         signal: WorkflowSignal,
     ) -> Result<WorkflowRunSnapshot> {
+        let (snapshot, _) = self.send_signal_with_commit(run_id, signal).await?;
+        Ok(snapshot)
+    }
+
+    /// Deliver a signal and return the stream where this call committed it.
+    pub(crate) async fn send_signal_with_commit(
+        &self,
+        run_id: &str,
+        signal: WorkflowSignal,
+    ) -> Result<(WorkflowRunSnapshot, Option<String>)> {
         signal.validate()?;
+        let mut committed_run_id = None;
 
         for _ in 0..self.max_replay_iterations {
             // Repair an interrupted continuation before scanning its complete
@@ -56,11 +67,11 @@ impl FlowEngine {
             if let Some((delivery_run_id, existing)) = existing {
                 ensure_signal_matches(delivery_run_id, existing, &signal)?;
                 if delivery_run_id != leaf.run_id || leaf.status.is_terminal() {
-                    return Ok(leaf.clone());
+                    return Ok((leaf.clone(), committed_run_id));
                 }
                 self.ensure_runtime_build_available(&leaf.run_id, &leaf.spec)?;
                 match self.drive(run_id).await {
-                    Ok(snapshot) => return Ok(snapshot),
+                    Ok(snapshot) => return Ok((snapshot, committed_run_id)),
                     Err(error) if is_event_conflict(&error) => continue,
                     Err(error) => return Err(error),
                 }
@@ -86,11 +97,14 @@ impl FlowEngine {
                 )
                 .await
             {
-                Ok(_) => match self.drive(run_id).await {
-                    Ok(snapshot) => return Ok(snapshot),
-                    Err(error) if is_event_conflict(&error) => continue,
-                    Err(error) => return Err(error),
-                },
+                Ok(_) => {
+                    committed_run_id = Some(leaf.run_id.clone());
+                    match self.drive(run_id).await {
+                        Ok(snapshot) => return Ok((snapshot, committed_run_id)),
+                        Err(error) if is_event_conflict(&error) => continue,
+                        Err(error) => return Err(error),
+                    }
+                }
                 Err(error) if is_event_conflict(&error) => continue,
                 Err(error) => return Err(error),
             }
