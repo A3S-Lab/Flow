@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use std::collections::BTreeSet;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
@@ -14,8 +15,9 @@ impl FlowEngine {
     /// Request cleanup-aware cancellation and replay the workflow.
     ///
     /// The request atomically makes waits, hooks, and retrying/running steps
-    /// that existed before it non-actionable. Workflow code observes the
-    /// request through [`WorkflowContext::cancellation_request`](crate::WorkflowContext::cancellation_request),
+    /// that existed before it non-actionable and propagates persisted policy to
+    /// first-class child workflows. Workflow code observes the request through
+    /// [`WorkflowContext::cancellation_request`](crate::WorkflowContext::cancellation_request),
     /// performs host-owned cleanup with stable step identities, and returns
     /// [`RuntimeCommand::Cancel`](crate::RuntimeCommand::Cancel). Repeating the
     /// same request is idempotent. When `run_id` names a continued predecessor,
@@ -25,21 +27,51 @@ impl FlowEngine {
         run_id: &str,
         request: CancellationRequest,
     ) -> Result<WorkflowRunSnapshot> {
+        self.request_cancellation_with_context(
+            run_id,
+            request,
+            Utc::now(),
+            0,
+            &BTreeSet::new(),
+            true,
+        )
+        .await
+    }
+
+    pub(super) async fn request_cancellation_with_context(
+        &self,
+        run_id: &str,
+        request: CancellationRequest,
+        now: DateTime<Utc>,
+        child_depth: usize,
+        ancestry: &BTreeSet<String>,
+        require_same_request: bool,
+    ) -> Result<WorkflowRunSnapshot> {
         for _ in 0..self.max_replay_iterations {
             let snapshot = self.ensure_continuation_leaf(run_id, true).await?;
             let target_run_id = snapshot.run_id.clone();
+            if ancestry.contains(&target_run_id) {
+                return Err(FlowError::ChildWorkflowCycle(target_run_id));
+            }
             if snapshot.status.is_terminal() {
                 return Ok(snapshot);
             }
             self.ensure_runtime_build_available(&target_run_id, &snapshot.spec)?;
             if let Some(existing) = &snapshot.cancellation {
-                if existing.request != request {
+                if require_same_request && existing.request != request {
                     return Err(FlowError::RunConflict {
                         run_id: target_run_id.clone(),
                         reason: "cancellation request differs from the durable request".to_string(),
                     });
                 }
-                match self.drive(&target_run_id).await {
+                match Box::pin(self.drive_at_with_child_context(
+                    &target_run_id,
+                    now,
+                    child_depth,
+                    ancestry,
+                ))
+                .await
+                {
                     Ok(snapshot) => return Ok(snapshot),
                     Err(err) if is_event_conflict(&err) => continue,
                     Err(err) => return Err(err),
@@ -55,7 +87,14 @@ impl FlowEngine {
                 )
                 .await
             {
-                Ok(_) => match self.drive(&target_run_id).await {
+                Ok(_) => match Box::pin(self.drive_at_with_child_context(
+                    &target_run_id,
+                    now,
+                    child_depth,
+                    ancestry,
+                ))
+                .await
+                {
                     Ok(snapshot) => return Ok(snapshot),
                     Err(err) if is_event_conflict(&err) => continue,
                     Err(err) => return Err(err),

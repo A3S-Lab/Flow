@@ -1,11 +1,12 @@
 use chrono::{DateTime, Utc};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    project_run, validate_run_id, ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookStatus,
-    RuntimeCommand, ScheduledWakeup, ScheduledWakeupKind, StepStatus, WaitStatus,
+    project_run, validate_child_workflow_command, ActiveHookSnapshot, FlowEvent, FlowEventEnvelope,
+    HookStatus, RuntimeCommand, ScheduledWakeup, ScheduledWakeupKind, StepStatus, WaitStatus,
     WorkflowRunSnapshot, WorkflowRunStatus, WorkflowRunSummary, WorkflowRunSuspension,
     WorkflowSpec,
 };
@@ -14,19 +15,23 @@ use crate::runtime::{FlowRuntime, WorkflowInvocation};
 use crate::runtime_build::{RuntimeBuildCompatibility, RuntimeBuildId};
 use crate::store::{scheduled_wakeups_for_snapshot, FlowEventStore, InMemoryEventStore};
 
+mod child_workflows;
 mod continuation;
 mod hooks;
 mod operations;
+mod runs;
 mod steps;
 mod validation;
 use steps::{interrupted_retry_exhaustion_event, StepExecutionContext};
 use validation::{
-    ensure_child_operation_matches, ensure_hook_command_matches, ensure_progress_matches,
-    ensure_retry_policy_valid, ensure_same_start, ensure_step_batch_valid,
-    ensure_step_command_matches, ensure_wait_command_matches, is_event_conflict,
+    ensure_child_operation_matches, ensure_child_workflow_command_matches,
+    ensure_hook_command_matches, ensure_progress_matches, ensure_retry_policy_valid,
+    ensure_step_batch_valid, ensure_step_command_matches, ensure_wait_command_matches,
+    is_event_conflict,
 };
 
 const DEFAULT_MAX_CONTINUE_AS_NEW_HOPS: usize = 64;
+const DEFAULT_MAX_CHILD_WORKFLOW_DEPTH: usize = 32;
 
 /// Builder for a [`FlowEngine`].
 pub struct FlowEngineBuilder {
@@ -36,6 +41,7 @@ pub struct FlowEngineBuilder {
     runtime_build_compatibility: Option<RuntimeBuildCompatibility>,
     max_replay_iterations: usize,
     max_continue_as_new_hops: usize,
+    max_child_workflow_depth: usize,
 }
 
 impl FlowEngineBuilder {
@@ -47,6 +53,7 @@ impl FlowEngineBuilder {
             runtime_build_compatibility: None,
             max_replay_iterations: 1024,
             max_continue_as_new_hops: DEFAULT_MAX_CONTINUE_AS_NEW_HOPS,
+            max_child_workflow_depth: DEFAULT_MAX_CHILD_WORKFLOW_DEPTH,
         }
     }
 
@@ -83,6 +90,15 @@ impl FlowEngineBuilder {
         self
     }
 
+    /// Bound first-class child nesting performed by one drive call.
+    ///
+    /// The default is 32. Zero disables new child workflows; the engine
+    /// rejects a command at the boundary before appending its parent link.
+    pub fn with_max_child_workflow_depth(mut self, max_depth: usize) -> Self {
+        self.max_child_workflow_depth = max_depth;
+        self
+    }
+
     pub fn build(self) -> FlowEngine {
         FlowEngine {
             store: self.store,
@@ -91,6 +107,7 @@ impl FlowEngineBuilder {
             runtime_build_compatibility: self.runtime_build_compatibility,
             max_replay_iterations: self.max_replay_iterations,
             max_continue_as_new_hops: self.max_continue_as_new_hops,
+            max_child_workflow_depth: self.max_child_workflow_depth,
         }
     }
 }
@@ -104,6 +121,7 @@ pub struct FlowEngine {
     runtime_build_compatibility: Option<RuntimeBuildCompatibility>,
     max_replay_iterations: usize,
     max_continue_as_new_hops: usize,
+    max_child_workflow_depth: usize,
 }
 
 impl FlowEngine {
@@ -119,6 +137,7 @@ impl FlowEngine {
             runtime_build_compatibility: None,
             max_replay_iterations: 1024,
             max_continue_as_new_hops: DEFAULT_MAX_CONTINUE_AS_NEW_HOPS,
+            max_child_workflow_depth: DEFAULT_MAX_CHILD_WORKFLOW_DEPTH,
         }
     }
 
@@ -150,28 +169,6 @@ impl FlowEngine {
     /// Read the runtime build identity pinned by one run.
     pub async fn runtime_build_id(&self, run_id: &str) -> Result<Option<RuntimeBuildId>> {
         Ok(self.snapshot(run_id).await?.spec.runtime_build_id)
-    }
-
-    /// Start a workflow run and drive it until completion or suspension.
-    pub async fn start(&self, spec: WorkflowSpec, input: serde_json::Value) -> Result<String> {
-        let run_id = Uuid::new_v4().to_string();
-        self.start_with_id(run_id, spec, input).await
-    }
-
-    /// Start a workflow run using a caller-provided durable run id.
-    ///
-    /// Reusing the same `run_id` with the same workflow spec and input is
-    /// idempotent. Reusing it with different spec or input returns a conflict.
-    pub async fn start_with_id(
-        &self,
-        run_id: impl Into<String>,
-        spec: WorkflowSpec,
-        input: serde_json::Value,
-    ) -> Result<String> {
-        let run_id = run_id.into();
-        self.ensure_run_started(&run_id, &spec, &input).await?;
-        self.drive(&run_id).await?;
-        Ok(run_id)
     }
 
     /// Resume a wait once its timer has fired.
@@ -363,7 +360,7 @@ impl FlowEngine {
         Ok(WorkflowRunSummary::from_snapshots(&snapshots))
     }
 
-    /// List open waits, active hooks, and pending delayed retries.
+    /// List open waits, active hooks, pending delayed retries, and child runs.
     ///
     /// The `due` flag on wait and retry suspensions is computed against `now`.
     /// Terminal runs are skipped so cancelled histories do not produce
@@ -404,6 +401,14 @@ impl FlowEngine {
                             due: retry_after <= now,
                         });
                     }
+                }
+            }
+            for child in snapshot.child_workflows.values() {
+                if child.is_open() {
+                    suspensions.push(WorkflowRunSuspension::ChildWorkflow {
+                        run_id: run_id.clone(),
+                        child: child.clone(),
+                    });
                 }
             }
         }
@@ -478,6 +483,8 @@ impl FlowEngine {
         run_id: &str,
         now: DateTime<Utc>,
         allow_continue_as_new: bool,
+        child_depth: usize,
+        ancestry: &BTreeSet<String>,
     ) -> Result<WorkflowRunSnapshot> {
         'replay: for _ in 0..self.max_replay_iterations {
             let history = self.store.list(run_id).await?;
@@ -494,6 +501,16 @@ impl FlowEngine {
                     Ok(_) => continue,
                     Err(err) if is_event_conflict(&err) => continue,
                     Err(err) => return Err(err),
+                }
+            }
+            match self
+                .reconcile_child_workflows(&snapshot, now, child_depth, ancestry)
+                .await?
+            {
+                child_workflows::ChildReconciliation::Ready => {}
+                child_workflows::ChildReconciliation::Replay => continue,
+                child_workflows::ChildReconciliation::Waiting => {
+                    return self.snapshot(run_id).await;
                 }
             }
             if snapshot
@@ -665,6 +682,52 @@ impl FlowEngine {
                         Err(err) => return Err(err),
                     }
                 }
+                RuntimeCommand::StartChildWorkflow {
+                    child_id,
+                    spec,
+                    input,
+                    cancellation_policy,
+                } => {
+                    validate_child_workflow_command(&child_id, &spec)?;
+                    if let Some(existing) = snapshot.child_workflow(&child_id) {
+                        ensure_child_workflow_command_matches(
+                            run_id,
+                            existing,
+                            &spec,
+                            &input,
+                            cancellation_policy,
+                        )?;
+                        if existing.outcome.is_some() {
+                            return Err(FlowError::InvalidTransition(format!(
+                                "workflow rescheduled resolved child workflow {child_id} without progress"
+                            )));
+                        }
+                        continue;
+                    }
+                    if child_depth >= self.max_child_workflow_depth {
+                        return Err(FlowError::ChildWorkflowDepthExceeded(
+                            self.max_child_workflow_depth,
+                        ));
+                    }
+                    match self
+                        .record_event_at(
+                            run_id,
+                            snapshot.last_sequence,
+                            FlowEvent::ChildWorkflowRequested {
+                                child_id,
+                                child_run_id: Uuid::new_v4().to_string(),
+                                spec,
+                                input,
+                                cancellation_policy,
+                            },
+                        )
+                        .await
+                    {
+                        Ok(_) => continue,
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
                 RuntimeCommand::ScheduleStep {
                     step_id,
                     step_name,
@@ -811,88 +874,6 @@ impl FlowEngine {
                         return self.snapshot(run_id).await;
                     }
                 },
-            }
-        }
-
-        Err(FlowError::ReplayLimitExceeded(self.max_replay_iterations))
-    }
-
-    async fn terminate_run(&self, run_id: &str, event: FlowEvent) -> Result<()> {
-        for _ in 0..self.max_replay_iterations {
-            let snapshot = self.ensure_continuation_leaf(run_id, false).await?;
-            if snapshot.status.is_terminal() {
-                return Ok(());
-            }
-            match self
-                .record_event_at(&snapshot.run_id, snapshot.last_sequence, event.clone())
-                .await
-            {
-                Ok(_) => return Ok(()),
-                Err(err) if is_event_conflict(&err) => continue,
-                Err(err) => return Err(err),
-            }
-        }
-        Err(FlowError::ReplayLimitExceeded(self.max_replay_iterations))
-    }
-
-    async fn ensure_run_started(
-        &self,
-        run_id: &str,
-        spec: &WorkflowSpec,
-        input: &serde_json::Value,
-    ) -> Result<()> {
-        self.ensure_run_started_with_admission(run_id, spec, input, true)
-            .await
-    }
-
-    async fn ensure_run_started_with_admission(
-        &self,
-        run_id: &str,
-        spec: &WorkflowSpec,
-        input: &serde_json::Value,
-        require_runtime_build: bool,
-    ) -> Result<()> {
-        spec.validate()?;
-        validate_run_id(run_id)?;
-        if require_runtime_build {
-            self.ensure_runtime_build_available(run_id, spec)?;
-        }
-
-        for _ in 0..self.max_replay_iterations {
-            match self.store.list(run_id).await {
-                Ok(history) => {
-                    let snapshot = project_run(run_id, &history)?;
-                    ensure_same_start(run_id, &snapshot, spec, input)?;
-                    if snapshot.status != WorkflowRunStatus::Pending {
-                        return Ok(());
-                    }
-                    match self
-                        .record_event_at(run_id, snapshot.last_sequence, FlowEvent::RunStarted)
-                        .await
-                    {
-                        Ok(_) => return Ok(()),
-                        Err(err) if is_event_conflict(&err) => continue,
-                        Err(err) => return Err(err),
-                    }
-                }
-                Err(FlowError::RunNotFound(_)) => {
-                    match self
-                        .record_event_at(
-                            run_id,
-                            0,
-                            FlowEvent::RunCreated {
-                                spec: spec.clone(),
-                                input: input.clone(),
-                            },
-                        )
-                        .await
-                    {
-                        Ok(_) => continue,
-                        Err(err) if is_event_conflict(&err) => continue,
-                        Err(err) => return Err(err),
-                    }
-                }
-                Err(err) => return Err(err),
             }
         }
 

@@ -1,6 +1,7 @@
 use a3s_flow::{
-    FlowEvent, FlowEventEnvelope, NativeRuntimeKind, NativeRuntimeRequest, NativeRuntimeResponse,
-    NativeTsCompilerCapabilities, NativeTsDependencyManifest, RuntimeCommand, WorkflowRunSummary,
+    ChildWorkflowCancellationPolicy, FlowEvent, FlowEventEnvelope, NativeRuntimeKind,
+    NativeRuntimeRequest, NativeRuntimeResponse, NativeTsCompilerCapabilities,
+    NativeTsDependencyManifest, RuntimeCommand, WorkflowRunSummary, WorkflowTerminalOutcome,
     NATIVE_COMPILER_PROTOCOL, NATIVE_DEPENDENCY_MANIFEST_PROTOCOL, NATIVE_RUNTIME_PROTOCOL,
 };
 use chrono::Utc;
@@ -102,6 +103,30 @@ fn native_runtime_operation_commands_accept_omitted_optional_fields() {
             input: json!({ "cursor": "next-page" }),
         }
     );
+
+    let child: RuntimeCommand = serde_json::from_value(json!({
+        "type": "start_child_workflow",
+        "child_id": "invoice",
+        "spec": {
+            "name": "invoice.child",
+            "version": "1",
+            "runtime": {
+                "kind": "rust_embedded",
+                "entrypoint": "tests::protocol",
+                "export_name": "child"
+            }
+        },
+        "input": { "invoice_id": 7 }
+    }))
+    .unwrap();
+    assert!(matches!(
+        child,
+        RuntimeCommand::StartChildWorkflow {
+            child_id,
+            cancellation_policy: ChildWorkflowCancellationPolicy::RequestCancellation,
+            ..
+        } if child_id == "invoice"
+    ));
 }
 
 #[test]
@@ -123,6 +148,7 @@ fn run_summary_accepts_payloads_from_before_new_status_counters_were_added() {
     .unwrap();
     assert_eq!(summary.cancelling_runs, 0);
     assert_eq!(summary.continued_as_new_runs, 0);
+    assert_eq!(summary.open_child_workflows, 0);
 }
 
 #[test]
@@ -166,6 +192,49 @@ fn continue_as_new_event_uses_stable_wire_shape_and_event_key() {
 }
 
 #[test]
+fn child_workflow_events_use_stable_wire_shapes_and_event_keys() {
+    let requested = FlowEvent::ChildWorkflowRequested {
+        child_id: "invoice".into(),
+        child_run_id: "child-run-1".into(),
+        spec: a3s_flow::WorkflowSpec::rust_embedded(
+            "invoice.child",
+            "1",
+            "tests::protocol",
+            "child",
+        ),
+        input: json!({ "invoice_id": 7 }),
+        cancellation_policy: ChildWorkflowCancellationPolicy::RequestCancellation,
+    };
+    assert_eq!(requested.event_key(), "flow.child.workflow.requested");
+    let requested_json = serde_json::to_value(requested).unwrap();
+    assert_eq!(requested_json["type"], "child_workflow_requested");
+    assert_eq!(requested_json["child_run_id"], "child-run-1");
+    assert_eq!(
+        requested_json["cancellation_policy"],
+        "request_cancellation"
+    );
+
+    let resolved = FlowEvent::ChildWorkflowResolved {
+        child_id: "invoice".into(),
+        outcome: WorkflowTerminalOutcome::Completed {
+            output: json!({ "accepted": true }),
+        },
+    };
+    assert_eq!(resolved.event_key(), "flow.child.workflow.resolved");
+    assert_eq!(
+        serde_json::to_value(resolved).unwrap(),
+        json!({
+            "type": "child_workflow_resolved",
+            "child_id": "invoice",
+            "outcome": {
+                "type": "completed",
+                "output": { "accepted": true }
+            }
+        })
+    );
+}
+
+#[test]
 fn native_ts_authoring_types_track_runtime_protocol_shape() {
     let types = include_str!("../examples/native-ts/a3s-flow-runtime.d.ts");
     for event_type in [
@@ -181,6 +250,8 @@ fn native_ts_authoring_types_track_runtime_protocol_shape() {
         "run_continued_as_new",
         "run_progress_recorded",
         "child_operation_linked",
+        "child_workflow_requested",
+        "child_workflow_resolved",
         "step_created",
         "step_started",
         "step_completed",
@@ -207,6 +278,7 @@ fn native_ts_authoring_types_track_runtime_protocol_shape() {
     assert!(types.contains("retry_after: string | null;"));
     assert!(types.contains("type: \"record_progress\"; progress: WorkflowProgress"));
     assert!(types.contains("type: \"link_child_operation\"; child: ChildOperationReference"));
+    assert!(types.contains("type: \"start_child_workflow\";"));
     assert!(types.contains("type: \"cancel\""));
     assert!(types.contains("type: \"continue_as_new\"; input: Json"));
     assert!(!types.contains("export function stepOutput"));

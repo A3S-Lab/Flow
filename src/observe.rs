@@ -510,6 +510,8 @@ fn event_status(event: &FlowEvent) -> Option<&'static str> {
         FlowEvent::RunContinuedAsNew { .. } => Some("continued_as_new"),
         FlowEvent::RunProgressRecorded { .. } => Some("recorded"),
         FlowEvent::ChildOperationLinked { .. } => Some("linked"),
+        FlowEvent::ChildWorkflowRequested { .. } => Some("requested"),
+        FlowEvent::ChildWorkflowResolved { .. } => Some("resolved"),
         FlowEvent::StepCreated { .. } => Some("pending"),
         FlowEvent::StepStarted { .. } => Some("running"),
         FlowEvent::StepCompleted { .. } => Some("completed"),
@@ -541,6 +543,11 @@ fn event_subject(event: &FlowEvent) -> Option<A3sFlowEventSubject> {
         FlowEvent::ChildOperationLinked { child } => Some(A3sFlowEventSubject {
             kind: "child_operation".to_string(),
             id: child.reference_id.clone(),
+        }),
+        FlowEvent::ChildWorkflowRequested { child_id, .. }
+        | FlowEvent::ChildWorkflowResolved { child_id, .. } => Some(A3sFlowEventSubject {
+            kind: "child_workflow".to_string(),
+            id: child_id.clone(),
         }),
         FlowEvent::WaitCreated { wait_id, .. } | FlowEvent::WaitCompleted { wait_id } => {
             Some(A3sFlowEventSubject {

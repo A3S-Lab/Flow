@@ -7,7 +7,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
-use crate::model::{project_run, FlowEvent, FlowEventEnvelope, WorkflowContinuation};
+use crate::model::{project_run, FlowEvent, FlowEventEnvelope, WorkflowContinuation, WorkflowSpec};
+
+struct LinkedWorkflowStart {
+    run_id: String,
+    spec: WorkflowSpec,
+    input: serde_json::Value,
+}
 
 /// Bounded policy for deleting complete terminal histories.
 ///
@@ -132,6 +138,7 @@ pub(crate) fn plan_history_retention(
         .collect::<BTreeMap<_, _>>();
     let mut dangling_reference_runs = BTreeSet::new();
     let mut continuations = BTreeMap::new();
+    let mut child_workflows = BTreeMap::<String, Vec<LinkedWorkflowStart>>::new();
     for (parent_run_id, history) in histories {
         for envelope in history {
             let Some(child_run_id) = linked_flow_run_id(&envelope.event) else {
@@ -149,6 +156,22 @@ pub(crate) fn plan_history_retention(
                         input: input.clone(),
                     },
                 );
+            }
+            if let FlowEvent::ChildWorkflowRequested {
+                child_run_id,
+                spec,
+                input,
+                ..
+            } = &envelope.event
+            {
+                child_workflows
+                    .entry(parent_run_id.clone())
+                    .or_default()
+                    .push(LinkedWorkflowStart {
+                        run_id: child_run_id.clone(),
+                        spec: spec.clone(),
+                        input: input.clone(),
+                    });
             }
             if !histories.contains_key(child_run_id) {
                 dangling_reference_runs.insert(parent_run_id.clone());
@@ -183,7 +206,13 @@ pub(crate) fn plan_history_retention(
             }
         }
         visited.extend(component.iter().cloned());
-        validate_continuation_component(&component, histories, &continuations, storage_name)?;
+        validate_linked_workflow_component(
+            &component,
+            histories,
+            &continuations,
+            &child_workflows,
+            storage_name,
+        )?;
         let component_is_deletable = component.iter().all(|run_id| eligible.contains(run_id))
             && component
                 .iter()
@@ -209,10 +238,11 @@ pub(crate) fn plan_history_retention(
     })
 }
 
-fn validate_continuation_component(
+fn validate_linked_workflow_component(
     component: &BTreeSet<String>,
     histories: &BTreeMap<String, Vec<FlowEventEnvelope>>,
     continuations: &BTreeMap<String, WorkflowContinuation>,
+    child_workflows: &BTreeMap<String, Vec<LinkedWorkflowStart>>,
     storage_name: &str,
 ) -> Result<()> {
     for start in component {
@@ -228,6 +258,8 @@ fn validate_continuation_component(
             current = &continuation.successor_run_id;
         }
     }
+
+    validate_child_workflow_cycles(component, continuations, child_workflows)?;
 
     for (predecessor_run_id, continuation) in continuations {
         if !component.contains(predecessor_run_id) {
@@ -256,7 +288,113 @@ fn validate_continuation_component(
             });
         }
     }
+    for (parent_run_id, children) in child_workflows {
+        if !component.contains(parent_run_id) {
+            continue;
+        }
+        for child in children {
+            let Some(child_history) = histories.get(&child.run_id) else {
+                continue;
+            };
+            let child_snapshot = project_run(&child.run_id, child_history)?;
+            if child_snapshot.spec != child.spec {
+                return Err(FlowError::RunConflict {
+                    run_id: child.run_id.clone(),
+                    reason: "child workflow spec differs from parent request".to_string(),
+                });
+            }
+            if child_snapshot.input != child.input {
+                return Err(FlowError::RunConflict {
+                    run_id: child.run_id.clone(),
+                    reason: "child workflow input differs from parent request".to_string(),
+                });
+            }
+        }
+    }
     Ok(())
+}
+
+fn validate_child_workflow_cycles(
+    component: &BTreeSet<String>,
+    continuations: &BTreeMap<String, WorkflowContinuation>,
+    child_workflows: &BTreeMap<String, Vec<LinkedWorkflowStart>>,
+) -> Result<()> {
+    let mut outgoing = component
+        .iter()
+        .map(|run_id| (run_id.clone(), BTreeSet::new()))
+        .collect::<BTreeMap<_, _>>();
+    let mut indegree = component
+        .iter()
+        .map(|run_id| (run_id.clone(), 0_usize))
+        .collect::<BTreeMap<_, _>>();
+    for (source, continuation) in continuations {
+        add_owned_edge(
+            component,
+            &mut outgoing,
+            &mut indegree,
+            source,
+            &continuation.successor_run_id,
+        );
+    }
+    for (source, children) in child_workflows {
+        for child in children {
+            add_owned_edge(
+                component,
+                &mut outgoing,
+                &mut indegree,
+                source,
+                &child.run_id,
+            );
+        }
+    }
+
+    let mut ready = indegree
+        .iter()
+        .filter(|(_, degree)| **degree == 0)
+        .map(|(run_id, _)| run_id.clone())
+        .collect::<Vec<_>>();
+    let mut removed = 0_usize;
+    while let Some(run_id) = ready.pop() {
+        removed += 1;
+        if let Some(targets) = outgoing.get(&run_id) {
+            for target in targets {
+                if let Some(degree) = indegree.get_mut(target) {
+                    *degree -= 1;
+                    if *degree == 0 {
+                        ready.push(target.clone());
+                    }
+                }
+            }
+        }
+    }
+    if removed != component.len() {
+        let run_id = indegree
+            .into_iter()
+            .find(|(_, degree)| *degree > 0)
+            .map(|(run_id, _)| run_id)
+            .unwrap_or_else(|| "unknown".to_string());
+        return Err(FlowError::ChildWorkflowCycle(run_id));
+    }
+    Ok(())
+}
+
+fn add_owned_edge(
+    component: &BTreeSet<String>,
+    outgoing: &mut BTreeMap<String, BTreeSet<String>>,
+    indegree: &mut BTreeMap<String, usize>,
+    source: &str,
+    target: &str,
+) {
+    if !component.contains(source) || !component.contains(target) {
+        return;
+    }
+    if outgoing
+        .entry(source.to_string())
+        .or_default()
+        .insert(target.to_string())
+    {
+        *indegree.entry(target.to_string()).or_default() += 1;
+    }
 }
 
 pub(crate) fn linked_flow_run_id(event: &FlowEvent) -> Option<&str> {
@@ -265,6 +403,7 @@ pub(crate) fn linked_flow_run_id(event: &FlowEvent) -> Option<&str> {
         FlowEvent::RunContinuedAsNew {
             successor_run_id, ..
         } => Some(successor_run_id),
+        FlowEvent::ChildWorkflowRequested { child_run_id, .. } => Some(child_run_id),
         _ => None,
     }
 }

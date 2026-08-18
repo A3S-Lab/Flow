@@ -4,8 +4,9 @@ use std::collections::BTreeSet;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    ChildOperationReference, HookSnapshot, RetryPolicy, StepCommand, StepSnapshot, WaitSnapshot,
-    WorkflowProgress, WorkflowRunSnapshot, WorkflowSpec,
+    ChildOperationReference, ChildWorkflowCancellationPolicy, ChildWorkflowSnapshot, HookSnapshot,
+    RetryPolicy, StepCommand, StepSnapshot, WaitSnapshot, WorkflowProgress, WorkflowRunSnapshot,
+    WorkflowSpec,
 };
 
 pub(super) fn ensure_same_start(
@@ -174,6 +175,35 @@ pub(super) fn ensure_child_operation_matches(
                 "child operation {} differs: {}",
                 existing.reference_id,
                 replay_diff(existing, replay)
+            ),
+        });
+    }
+    Ok(())
+}
+
+pub(super) fn ensure_child_workflow_command_matches(
+    run_id: &str,
+    existing: &ChildWorkflowSnapshot,
+    spec: &WorkflowSpec,
+    input: &serde_json::Value,
+    cancellation_policy: ChildWorkflowCancellationPolicy,
+) -> Result<()> {
+    if existing.spec != *spec
+        || existing.input != *input
+        || existing.cancellation_policy != cancellation_policy
+    {
+        let replay = (spec, input, cancellation_policy);
+        let history = (
+            &existing.spec,
+            &existing.input,
+            existing.cancellation_policy,
+        );
+        return Err(FlowError::NonDeterministic {
+            run_id: run_id.to_string(),
+            reason: format!(
+                "child workflow {} differs: {}",
+                existing.child_id,
+                replay_diff(&history, &replay)
             ),
         });
     }

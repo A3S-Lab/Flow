@@ -30,7 +30,7 @@ Runtime adapter layer
           |
           v
 Durable engine layer
-  FlowEngine, replay loop, runtime-build admission, patch markers, history segmentation, waits, scheduler
+  FlowEngine, replay loop, runtime-build admission, patch markers, child workflows, history segmentation, waits, scheduler
           |
           v
 Event store layer
@@ -109,6 +109,9 @@ The runtime returns exactly one command:
   update and replays.
 - `link_child_operation`: the engine persists a parent-to-child operation
   reference and replays.
+- `start_child_workflow`: the engine persists an exact child request, creates
+  and drives the generated child run, persists its terminal outcome, then
+  replays the parent.
 - `cancel`: after a durable cancellation request and host cleanup, the engine
   persists `run_cancelled`.
 - `timeout`: the engine persists a typed timeout terminal outcome.
@@ -119,9 +122,10 @@ The runtime returns exactly one command:
 Cleanup-aware cancellation has a host entrypoint and a runtime completion
 command. `FlowEngine::request_cancellation()` persists
 `flow.run.cancellation.requested`, projects `Cancelling`, and makes work opened
-before the request non-actionable. Replay code observes the request, schedules
-host-owned cleanup with new stable step IDs, propagates policy to durable child
-references when required, and returns `cancel` only after cleanup is durable.
+before the request non-actionable. Replay code observes the request, propagates
+it to pre-request first-class child workflows according to their persisted
+policy, schedules host-owned cleanup with new stable step IDs, and returns
+`cancel` only after cleanup is durable.
 When the same cleanup path is enforcing a deadline, replay can return `timeout`
 instead, preserving a typed timeout terminal outcome after cleanup. The direct
 `terminate_for_timeout()` host API is an immediate policy control and skips
@@ -139,6 +143,51 @@ When a reference includes `flow_run_id`, every built-in store verifies that the
 same-store child history already exists before committing the link. This keeps
 parent-child retention graphs free of newly created dangling references across
 in-memory, JSONL, SQLite, and PostgreSQL adapters.
+
+## First-Class Child Workflows
+
+First-class child workflows are a separate lifecycle primitive from external
+`ChildOperationReference` values. The workflow returns
+`start_child_workflow` with a stable parent-local child ID, exact
+`WorkflowSpec`, input, and cancellation policy. Flow generates the child run ID
+and first commits `flow.child.workflow.requested` to the parent. That parent
+event is authoritative: if the process stops before child creation, replay
+idempotently creates the exact child; if it stops after child completion but
+before parent resolution, replay records the terminal outcome once. Same-start
+checks and expected-sequence appends make concurrent recovery converge and
+reject spec or input drift.
+
+The engine drives a child through any continue-as-new segments and exposes only
+the terminal leaf outcome through `flow.child.workflow.resolved`. An open child
+suspends normal parent execution under either cancellation policy. If the child
+advances independently through a hook, wait, or routed task, the host must
+enqueue or call `drive(parent)` again; Flow does not scan all histories for
+reverse parent links. Child runtime-build admission remains fail closed, so a
+worker must support the exact child build before it can invoke that code.
+
+`RequestCancellation` is the default. When the parent has a durable
+cancellation request, Flow sends the same request to every open child created
+before it and waits for terminal outcomes. `Abandon` leaves those children
+independent and lets the parent finish cancelling. If an abandoned request was
+committed before a crash but its child stream is missing, cleanup-aware
+cancellation restores it and, when the current worker admits the child build,
+drives it to an independent suspension or terminal state first. Otherwise the
+exact-build route can drive the restored run later without blocking parent
+cancellation. A child created after the parent cancellation request is cleanup
+work and runs normally rather than inheriting stale cancellation. Immediate
+parent termination recursively force-cancels open `RequestCancellation`
+children. It preserves existing abandoned children; when an abandoned stream
+is missing, it restores only `run_created`/`run_started` and does not invoke
+workflow code.
+
+Child/continuation ancestry is cycle checked, and the builder's child-depth
+limit bounds recursive work before another child link is appended. A parent
+cannot continue as new with any open child. Terminal projection also rejects
+an open `RequestCancellation` child, including histories written outside the
+engine. Retention treats child and continuation ownership links as whole
+components, validates the child's exact persisted start, protects a parent
+whose requested child stream is still missing, and deletes a component only
+when every present history is eligible.
 
 ## Continue-As-New History Segmentation
 
@@ -182,9 +231,10 @@ the input and event history. Side effects are isolated to steps and are only
 observed by the workflow after their outputs have been persisted.
 
 Replay also validates durable command definitions. If workflow code reuses an
-existing step, wait, or hook ID with a different step input, retry policy, timer
-deadline, hook token, or hook metadata, the engine returns a non-deterministic
-replay error instead of silently accepting the changed definition.
+existing step, wait, hook, or child ID with a different step input, retry
+policy, timer deadline, hook token/metadata, child spec/input, or child
+cancellation policy, the engine returns a non-deterministic replay error
+instead of silently accepting the changed definition.
 
 Compatible workflow code may use `WorkflowContext::has_patch_marker(...)` to
 select between an old and new deterministic branch. Marker membership comes
@@ -266,8 +316,8 @@ and trigger installation.
 
 Local JSONL, SQLite, and PostgreSQL retention remove whole terminal streams
 only. All three evaluate one shared eligibility planner, protecting
-non-terminal or recent runs and linked child/continuation components that are not entirely
-eligible. The local adapter evaluates one consistent view under its in-process
+non-terminal or recent runs and linked child-operation, child-workflow, and
+continuation components that are not entirely eligible. The local adapter evaluates one consistent view under its in-process
 store lock. SQLite and PostgreSQL additionally protect durable audit holds and
 run deletion inside A3S ORM transactions. SQLite uses an immediate transaction
 to serialize the scan with appends. PostgreSQL takes an exclusive retention

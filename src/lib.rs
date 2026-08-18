@@ -2,9 +2,10 @@
 //!
 //! `a3s-flow` models the Workflow SDK style of durable execution as a Rust
 //! core: workflow runs are event-sourced, step results are persisted, waits and
-//! hooks suspend without burning compute, and the actual workflow interpreter is
-//! a pluggable runtime. The native TypeScript runtime boundary compiles source
-//! once, then invokes the compiled executable through a small JSON protocol.
+//! hooks suspend without burning compute, first-class child runs have durable
+//! lifecycle policy, and the actual workflow interpreter is a pluggable runtime.
+//! The native TypeScript runtime boundary compiles source once, then invokes the
+//! compiled executable through a small JSON protocol.
 
 mod context;
 mod engine;
@@ -24,12 +25,12 @@ pub use engine::{FlowEngine, FlowEngineBuilder};
 pub use error::{FlowError, Result};
 pub use model::{
     ActiveHookSnapshot, CancellationRequest, CancellationRequestSnapshot, ChildOperationReference,
-    FlowEvent, FlowEventEnvelope, HookCallbackRoute, HookMetadata, HookSnapshot, HookStatus,
-    JsonValue, RetryPolicy, RuntimeCommand, RuntimeKind, RuntimeSpec, ScheduledWakeup,
-    ScheduledWakeupKind, StepCommand, StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot,
-    WaitStatus, WorkflowContinuation, WorkflowPatchId, WorkflowProgress, WorkflowRunSnapshot,
-    WorkflowRunStatus, WorkflowRunSummary, WorkflowRunSuspension, WorkflowSpec,
-    WorkflowTerminalOutcome, MAX_WORKFLOW_PATCH_MARKERS,
+    ChildWorkflowCancellationPolicy, ChildWorkflowSnapshot, FlowEvent, FlowEventEnvelope,
+    HookCallbackRoute, HookMetadata, HookSnapshot, HookStatus, JsonValue, RetryPolicy,
+    RuntimeCommand, RuntimeKind, RuntimeSpec, ScheduledWakeup, ScheduledWakeupKind, StepCommand,
+    StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowContinuation,
+    WorkflowPatchId, WorkflowProgress, WorkflowRunSnapshot, WorkflowRunStatus, WorkflowRunSummary,
+    WorkflowRunSuspension, WorkflowSpec, WorkflowTerminalOutcome, MAX_WORKFLOW_PATCH_MARKERS,
 };
 #[cfg(feature = "a3s-event")]
 pub use observe::A3sEventBusFlowEventSink;

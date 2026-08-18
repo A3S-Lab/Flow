@@ -299,6 +299,8 @@ The contract defines:
 - `CancellationRequest`
 - `WorkflowProgress`
 - `ChildOperationReference`
+- `ChildWorkflowCancellationPolicy`
+- `WorkflowTerminalOutcome`
 - `FlowEvent`
 - `FlowEventEnvelope`
 - `StepDefinition<Input, Output>`
@@ -321,6 +323,14 @@ Important protocol details:
   applies the default retry policy.
 - `record_progress` and `link_child_operation` use stable IDs. Replay should
   inspect matching history events before returning either command again.
+- `start_child_workflow` uses a stable parent-local `child_id` and carries the
+  exact child `spec`, `input`, and `cancellation_policy`. Omitting the policy
+  selects `request_cancellation`. Replay should inspect
+  `child_workflow_requested` and `child_workflow_resolved` before returning the
+  command again; changing the definition under an existing ID is rejected.
+- `child_workflow_requested.child_run_id` is generated and persisted by Flow.
+  `child_workflow_resolved.outcome` is the terminal outcome of the child's
+  active continuation leaf, never an intermediate `continued_as_new` outcome.
 - `cancel` is valid after `run_cancellation_requested`; cleanup-aware workflows
   should run stable cleanup steps before returning it.
 - `continue_as_new` accepts only the next JSON input. Flow generates and
@@ -363,6 +373,8 @@ Workflow exports should be deterministic:
 - do not perform network, clock, random, filesystem, or shell work,
 - put side effects in step handlers,
 - use stable step IDs, wait IDs, hook IDs, and patch marker IDs,
+- use stable child workflow IDs and keep their spec, input, and cancellation
+  policy identical on every replay,
 - treat `spec.patch_markers` as immutable run history rather than a dynamic
   product feature flag,
 - make `continue_as_new.input` self-contained because step, wait, hook, and

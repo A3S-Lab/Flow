@@ -16,6 +16,12 @@
   root-scoped host controls follow that leaf, cycles and runaway chains fail
   closed, retention protects complete lineages, and SQLite/PostgreSQL
   migrations close indexed hooks and wakeups.
+- Added first-class child workflow lifecycle and cancellation propagation.
+  Parent-first request events persist generated child identity, exact spec/input,
+  and `RequestCancellation` or `Abandon` policy; replacement workers repair
+  child-creation and parent-resolution crash windows, follow child
+  continue-as-new chains to their terminal leaf, reject drift/cycles/runaway
+  nesting, and retain complete child/continuation ownership components.
 - Added native workflow app DSL and extracted graph import. The public model retains
   unknown vendor fields, classifies DSL version compatibility, validates
   deterministic top-level and iteration/loop scopes before execution, and

@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::{
-    CancellationRequest, ChildOperationReference, JsonValue, RetryPolicy, WorkflowProgress,
-    WorkflowSpec,
+    CancellationRequest, ChildOperationReference, ChildWorkflowCancellationPolicy, JsonValue,
+    RetryPolicy, WorkflowProgress, WorkflowSpec, WorkflowTerminalOutcome,
 };
 
 /// Event persisted as the single source of truth for a workflow run.
@@ -49,6 +49,18 @@ pub enum FlowEvent {
     },
     ChildOperationLinked {
         child: ChildOperationReference,
+    },
+    ChildWorkflowRequested {
+        child_id: String,
+        child_run_id: String,
+        spec: WorkflowSpec,
+        input: JsonValue,
+        #[serde(default)]
+        cancellation_policy: ChildWorkflowCancellationPolicy,
+    },
+    ChildWorkflowResolved {
+        child_id: String,
+        outcome: WorkflowTerminalOutcome,
     },
     StepCreated {
         step_id: String,
@@ -113,6 +125,8 @@ impl FlowEvent {
             Self::RunContinuedAsNew { .. } => "flow.run.continued_as_new",
             Self::RunProgressRecorded { .. } => "flow.run.progress.recorded",
             Self::ChildOperationLinked { .. } => "flow.child.operation.linked",
+            Self::ChildWorkflowRequested { .. } => "flow.child.workflow.requested",
+            Self::ChildWorkflowResolved { .. } => "flow.child.workflow.resolved",
             Self::StepCreated { .. } => "flow.step.created",
             Self::StepStarted { .. } => "flow.step.started",
             Self::StepCompleted { .. } => "flow.step.completed",

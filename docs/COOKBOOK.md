@@ -254,6 +254,76 @@ keys. A cancelling run must finish through `cancel` or `fail`, not continue as
 new. Retention keeps the entire continuation component while any segment is
 live, recent, held, or missing. See `examples/continue_as_new.rs`.
 
+## First-Class Child Workflows
+
+Use a first-class child when another Flow run is part of the parent's durable
+execution. Keep the child ID stable across replay and branch on its persisted
+terminal outcome:
+
+```rust
+use a3s_flow::WorkflowTerminalOutcome;
+
+match ctx.child_workflow_outcome("index-batch") {
+    Some(WorkflowTerminalOutcome::Completed { output }) => {
+        Ok(ctx.complete(output.clone()))
+    }
+    Some(outcome) => Ok(ctx.fail(format!("index child failed: {outcome:?}"))),
+    None => Ok(ctx.start_child_workflow(
+        "index-batch",
+        child_spec,
+        serde_json::json!({ "batchId": batch_id }),
+    )),
+}
+```
+
+Flow commits the parent request before creating the child. The request holds an
+engine-generated run ID plus the exact spec, input, and cancellation policy, so
+replacement workers repair both failure windows: a missing child after the
+request, or a missing parent resolution after the child terminates. Reusing the
+same child ID with changed authority is non-deterministic replay. A child that
+continues as new is followed to its terminal leaf before the parent observes an
+outcome.
+
+The default policy is
+`ChildWorkflowCancellationPolicy::RequestCancellation`. A parent cancellation
+request is propagated to children opened before that request, and the parent
+remains cancelling until they terminate. Choose `Abandon` only when the child
+must remain independent:
+
+```rust
+ctx.start_child_workflow_with_policy(
+    "detached-export",
+    export_spec,
+    export_input,
+    a3s_flow::ChildWorkflowCancellationPolicy::Abandon,
+)
+```
+
+Both policies wait during normal parent execution; `Abandon` changes only
+parent-cancellation behavior. A child requested after cancellation is treated
+as cleanup work and does not inherit that request. Immediate parent termination
+force-cancels `RequestCancellation` children without invoking their cleanup
+branch. A committed abandoned request whose child stream was lost in a crash is
+restored before cleanup-aware cancellation completes. A worker that admits the
+child build drives it to suspension or completion; otherwise its exact-build
+route can drive the restored run later without blocking parent cancellation.
+Immediate termination restores only its start events, preserving the
+independent run without invoking its workflow code.
+
+An externally resumed child does not cause an all-history reverse-link scan.
+After a child hook, wait, or separately routed task advances, enqueue or call
+`drive(parent_run_id)` so the parent can persist the outcome and replay. The
+worker doing that reconciliation must admit the child's pinned runtime build.
+Use `with_max_child_workflow_depth()` to bound recursive nesting; child and
+continuation cycles fail closed. Retention keeps the linked ownership component
+until every history is terminal and eligible, and protects a committed parent
+request while its child stream is still missing.
+
+Use `ChildOperationReference` instead when the child is an external resource or
+another system's operation. That reference records identity for recovery and
+retention, but the workflow/host still owns its concrete cancellation and
+cleanup. See `examples/child_workflow.rs` for a runnable first-class example.
+
 ## Embedded Flow-Owned Queue Host
 
 For an embedded local host, pair the local JSONL event store with the local task
@@ -985,11 +1055,12 @@ engine
 ```
 
 Flow owns persistence, replay, stale-completion rejection, and the single
-terminal event. The workflow owns concrete cleanup and cancellation propagation
-for `ChildOperationReference` values. A process may die after an external cleanup
-effect but before `step_completed`; the replacement worker redelivers the same
-attempt. Use a stable domain idempotency key so physical at-least-once execution
-has one logical effect.
+terminal event. Flow automatically applies the persisted policy for first-class
+child workflows. The workflow owns concrete cleanup and cancellation
+propagation for `ChildOperationReference` values. A process may die after an
+external cleanup effect but before `step_completed`; the replacement worker
+redelivers the same attempt. Use a stable domain idempotency key so physical
+at-least-once execution has one logical effect.
 
 The same two-phase path can enforce a deadline. After cleanup, return
 `ctx.timeout(deadline, reason)` instead of `ctx.cancel()` to persist a typed
@@ -1000,7 +1071,7 @@ Use `force_cancel()` only when policy explicitly allows skipping cleanup. The
 older `cancel()` API has the same immediate behavior for compatibility. Neither
 method deletes history.
 
-## Durable Progress And Child References
+## Durable Progress And External Child References
 
 Workflow replay can persist operation checkpoints before scheduling its next
 side effect:

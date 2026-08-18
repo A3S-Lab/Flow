@@ -55,7 +55,7 @@ impl FlowEngine {
     }
 
     /// Replay and dispatch until the execution reaches a terminal state or an
-    /// open wait/hook suspension.
+    /// open wait, hook, retry, or child-workflow suspension.
     ///
     /// A continue-as-new terminal event is followed into its fresh successor
     /// segment. The returned snapshot therefore belongs to the active leaf of
@@ -69,17 +69,39 @@ impl FlowEngine {
         run_id: &str,
         now: DateTime<Utc>,
     ) -> Result<WorkflowRunSnapshot> {
+        self.drive_at_with_child_context(run_id, now, 0, &BTreeSet::new())
+            .await
+    }
+
+    pub(super) async fn drive_at_with_child_context(
+        &self,
+        run_id: &str,
+        now: DateTime<Utc>,
+        child_depth: usize,
+        ancestors: &BTreeSet<String>,
+    ) -> Result<WorkflowRunSnapshot> {
         let mut current_run_id = run_id.to_string();
         let mut visited = BTreeSet::new();
 
         for hop in 0..=self.max_continue_as_new_hops {
+            if ancestors.contains(&current_run_id) {
+                return Err(FlowError::ChildWorkflowCycle(current_run_id));
+            }
             if !visited.insert(current_run_id.clone()) {
                 return Err(FlowError::ContinueAsNewCycle(current_run_id));
             }
 
             let allow_continue_as_new = hop < self.max_continue_as_new_hops;
+            let mut active_ancestry = ancestors.clone();
+            active_ancestry.extend(visited.iter().cloned());
             let snapshot = self
-                .drive_run_at(&current_run_id, now, allow_continue_as_new)
+                .drive_run_at(
+                    &current_run_id,
+                    now,
+                    allow_continue_as_new,
+                    child_depth,
+                    &active_ancestry,
+                )
                 .await?;
             let Some(successor_run_id) = self
                 .ensure_continuation_successor(&snapshot, &visited, hop, true)

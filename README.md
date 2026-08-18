@@ -130,6 +130,7 @@ implementation. See the runnable
 | Recover after a crash | Rebuild the exact `WorkflowRunSnapshot` from typed, sequence-checked events |
 | Avoid repeating completed work | Persist step output before workflow replay can observe it |
 | Pause without holding compute | Record waits, delayed retries, and external hooks as durable suspensions |
+| Compose durable executions | Start first-class child workflows with persisted outcomes and cancellation policy |
 | Run across workers | Route serializable `FlowTask` work through A3S Boot or the compatibility queues |
 | Roll out replay code safely | Pin new histories to `RuntimeBuildId` and reject incompatible workers before mutation |
 | Introduce a compatible code path | Pin bounded `WorkflowPatchId` markers at run creation and replay old and new branches deterministically |
@@ -248,17 +249,17 @@ conflict.
 | `FlowEngine` | Start, drive, follow continuation chains, resume, inspect, cancel, and terminate runs |
 | `WorkflowDsl` / `WorkflowDag` | Lossless workflow document import, version classification, scoped DAG validation, deterministic planning, and semantic identity |
 | `FlowRuntime` | Host-provided workflow decision and step execution boundary |
-| `WorkflowContext` | Replay-safe reads plus command builders for steps, batches, waits, hooks, continue-as-new, and terminal outcomes |
+| `WorkflowContext` | Replay-safe reads plus command builders for steps, batches, waits, hooks, child workflows, continue-as-new, and terminal outcomes |
 | `FlowEventStore` | Append-only history, expected-sequence writes, hooks, wakeups, and retention projections |
-| `WorkflowRunSnapshot` | Materialized status, steps, hooks, waits, progress, child references, continuation, and terminal outcome |
+| `WorkflowRunSnapshot` | Materialized status, steps, hooks, waits, progress, child references/workflows, continuation, and terminal outcome |
 | `FlowScheduler` | Discover due waits/retries once, group them by run, preflight build routes, and dispatch work |
 | `BootFlowTaskManager` | Recommended A3S Boot queue integration and worker lifecycle |
 | `FlowWorker` | Embedded/compatibility queue consumer |
 | `FlowEventObserver` | Post-commit telemetry and audit integration without becoming state authority |
 
 Runtime commands are deliberately small: `Complete`, `Fail`, `Cancel`,
-`Timeout`, `RecordProgress`, `LinkChildOperation`, `ScheduleStep`,
-`ScheduleSteps`, `WaitUntil`, and `CreateHook`.
+`Timeout`, `RecordProgress`, `LinkChildOperation`, `StartChildWorkflow`,
+`ContinueAsNew`, `ScheduleStep`, `ScheduleSteps`, `WaitUntil`, and `CreateHook`.
 
 ## Durable patterns
 
@@ -339,6 +340,40 @@ engine
 `force_cancel()` and the compatibility `cancel()` API intentionally skip that
 cleanup path.
 
+### First-class child workflows
+
+Use a stable parent-local child ID to start another Flow workflow and replay
+the parent after its terminal outcome is durable:
+
+```rust
+match ctx.child_workflow_outcome("import") {
+    Some(WorkflowTerminalOutcome::Completed { output }) => {
+        Ok(ctx.complete(output.clone()))
+    }
+    Some(outcome) => Ok(ctx.fail(format!("child failed: {outcome:?}"))),
+    None => Ok(ctx.start_child_workflow("import", child_spec, input)),
+}
+```
+
+The parent first persists the generated child run ID, exact spec, input, and
+cancellation policy. Recovery can therefore create a missing child or record a
+completed child's outcome after either cross-stream crash window. The default
+`RequestCancellation` policy propagates parent cancellation and waits for the
+child; `Abandon` leaves an open child independent while cancelling the parent.
+A committed abandoned child missing after a crash is restored before the
+parent finishes cancelling. A child requested after cancellation is cleanup
+work and runs normally. Immediate parent termination force-cancels
+`RequestCancellation` children; it preserves abandoned children and does not
+invoke their workflow code.
+
+Flow follows a child's continue-as-new chain to its terminal leaf and rejects
+cycles or nesting beyond `with_max_child_workflow_depth()`. If external work
+suspends a child, drive the parent again after that child advances. This API is
+separate from `ChildOperationReference`, which records an external resource
+identity but deliberately leaves its cancellation semantics to the host. See
+the [`child_workflow`](examples/child_workflow.rs) example and the
+[operational recipe](docs/COOKBOOK.md#first-class-child-workflows).
+
 ## Persistence and dispatch
 
 All stores preserve the same event envelope and replay contract:
@@ -353,8 +388,8 @@ All stores preserve the same event envelope and replay contract:
 SQLite and PostgreSQL use `a3s-orm` for typed access, checksummed migrations,
 transactional appends, active-hook routing, scheduled-wakeup indexes, and
 audit-safe whole-history retention. Retention deletes only complete eligible
-linked components and leaves checksum tombstones; partial event-stream
-compaction is intentionally unsupported. Workflows that need bounded replay
+linked continuation/child components and leaves checksum tombstones; partial
+event-stream compaction is intentionally unsupported. Workflows that need bounded replay
 history use continue-as-new to create linked fresh streams instead of rewriting
 an existing stream.
 
@@ -479,6 +514,7 @@ Start with one executable path, then move to the concern you need:
 | Human approval | [`hook_approval`](examples/hook_approval.rs), [`hook_disposal`](examples/hook_disposal.rs) |
 | Timers and polling | [`scheduler_worker`](examples/scheduler_worker.rs), [`polling_loop`](examples/polling_loop.rs) |
 | Cancellation | [`cancellation`](examples/cancellation.rs) |
+| Child workflows | [`child_workflow`](examples/child_workflow.rs) |
 | Replay-safe code changes | [`replay_safe_patch`](examples/replay_safe_patch.rs) |
 | Local durability | [`local_file_durability`](examples/local_file_durability.rs), [`sqlite_durability`](examples/sqlite_durability.rs) |
 | Shared PostgreSQL | [`postgres_durability`](examples/postgres_durability.rs), [`postgres_task_queue_durability`](examples/postgres_task_queue_durability.rs) |
@@ -504,7 +540,7 @@ The deeper references keep operational detail out of this homepage:
 | Workflow document/graph parsing, structural invariants, deterministic plans, and semantic digests | Node semantics, capability bindings, credentials, and authoring policy |
 | Append-only run history and sequence checks | Product authorization, tenancy, and publication lifecycle |
 | Deterministic replay validation | Runtime node registry and business-data semantics |
-| Step, wait, hook, retry, continuation, and terminal lifecycles | Which tools and external systems a step may call |
+| Step, wait, hook, retry, child-workflow, continuation, and terminal lifecycles | Which tools and external systems a step may call |
 | Runtime-build admission, pinned patch markers, and task routing | Deployment policy, compatible build declarations, and marker rollout timing |
 | Store, scheduler, worker, and observer contracts | Logical idempotency for physical side effects |
 
@@ -548,8 +584,9 @@ second graph compiler, scheduler, event store, or workflow lifecycle.
   import, version classification, lossless extensions, scoped validation,
   deterministic plans, and semantic digests are covered by fixtures and tests.
 - **Durable runtime — implemented.** Replay, steps, batches, retries, waits,
-  hooks, cancellation, progress, child references, bounded continue-as-new
-  histories, and typed terminal outcomes are part of the public engine contract.
+  hooks, cancellation, progress, child references, first-class child
+  workflows, bounded continue-as-new histories, and typed terminal outcomes
+  are part of the public engine contract.
 - **Persistence — implemented, with feature gates.** Memory and JSONL are built
   in; SQLite and PostgreSQL share canonical A3S ORM migrations.
 - **Dispatch and rolling builds — implemented.** A3S Boot is the recommended

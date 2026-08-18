@@ -1,3 +1,4 @@
+mod child_workflow;
 mod command;
 mod event;
 mod hook;
@@ -7,6 +8,8 @@ mod projection;
 mod run;
 mod snapshot;
 
+pub(crate) use child_workflow::validate_child_workflow_command;
+pub use child_workflow::{ChildWorkflowCancellationPolicy, ChildWorkflowSnapshot};
 pub use command::{
     JsonValue, RetryPolicy, RuntimeCommand, RuntimeKind, RuntimeSpec, StepCommand,
     StepFailureAction, WorkflowSpec,

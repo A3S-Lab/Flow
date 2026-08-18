@@ -25,6 +25,12 @@ pub enum FlowError {
     #[error("continue-as-new chain exceeded the configured limit of {0} hops")]
     ContinueAsNewLimitExceeded(usize),
 
+    #[error("child workflow graph contains a cycle at workflow run {0}")]
+    ChildWorkflowCycle(String),
+
+    #[error("child workflow nesting exceeded the configured depth of {0}")]
+    ChildWorkflowDepthExceeded(usize),
+
     #[error("workflow run {run_id} conflicts with existing run: {reason}")]
     RunConflict { run_id: String, reason: String },
 
@@ -135,6 +141,14 @@ impl fmt::Debug for FlowError {
                 .finish(),
             Self::ContinueAsNewLimitExceeded(limit) => formatter
                 .debug_tuple("ContinueAsNewLimitExceeded")
+                .field(limit)
+                .finish(),
+            Self::ChildWorkflowCycle(run_id) => formatter
+                .debug_tuple("ChildWorkflowCycle")
+                .field(run_id)
+                .finish(),
+            Self::ChildWorkflowDepthExceeded(limit) => formatter
+                .debug_tuple("ChildWorkflowDepthExceeded")
                 .field(limit)
                 .finish(),
             Self::RunConflict { run_id, reason } => formatter

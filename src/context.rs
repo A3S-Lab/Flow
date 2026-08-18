@@ -3,8 +3,9 @@ use serde::de::DeserializeOwned;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    CancellationRequest, ChildOperationReference, FlowEvent, FlowEventEnvelope, HookMetadata,
-    JsonValue, RetryPolicy, RuntimeCommand, StepCommand, WorkflowProgress, WorkflowSpec,
+    CancellationRequest, ChildOperationReference, ChildWorkflowCancellationPolicy, FlowEvent,
+    FlowEventEnvelope, HookMetadata, JsonValue, RetryPolicy, RuntimeCommand, StepCommand,
+    WorkflowProgress, WorkflowSpec, WorkflowTerminalOutcome,
 };
 use crate::runtime::WorkflowInvocation;
 
@@ -88,6 +89,34 @@ impl<'a> WorkflowContext<'a> {
                 FlowEvent::ChildOperationLinked { child } if child.reference_id == reference_id => {
                     Some(child)
                 }
+                _ => None,
+            })
+    }
+
+    /// Return the engine-generated root run ID for a durable child request.
+    pub fn child_workflow_run_id(&self, child_id: &str) -> Option<&str> {
+        self.history()
+            .iter()
+            .find_map(|envelope| match &envelope.event {
+                FlowEvent::ChildWorkflowRequested {
+                    child_id: id,
+                    child_run_id,
+                    ..
+                } if id == child_id => Some(child_run_id.as_str()),
+                _ => None,
+            })
+    }
+
+    /// Return the terminal outcome durably observed for a child workflow.
+    pub fn child_workflow_outcome(&self, child_id: &str) -> Option<&WorkflowTerminalOutcome> {
+        self.history()
+            .iter()
+            .rev()
+            .find_map(|envelope| match &envelope.event {
+                FlowEvent::ChildWorkflowResolved {
+                    child_id: id,
+                    outcome,
+                } if id == child_id => Some(outcome),
                 _ => None,
             })
     }
@@ -208,6 +237,41 @@ impl<'a> WorkflowContext<'a> {
     /// Persist a child-operation reference and replay.
     pub fn link_child_operation(&self, child: ChildOperationReference) -> RuntimeCommand {
         RuntimeCommand::LinkChildOperation { child }
+    }
+
+    /// Start or await a first-class child workflow.
+    ///
+    /// The child ID is stable within this parent history. By default, a parent
+    /// cancellation request is propagated to an open child and the parent
+    /// waits for the child's terminal outcome.
+    pub fn start_child_workflow(
+        &self,
+        child_id: impl Into<String>,
+        spec: WorkflowSpec,
+        input: JsonValue,
+    ) -> RuntimeCommand {
+        self.start_child_workflow_with_policy(
+            child_id,
+            spec,
+            input,
+            ChildWorkflowCancellationPolicy::default(),
+        )
+    }
+
+    /// Start or await a child with an explicit cancellation policy.
+    pub fn start_child_workflow_with_policy(
+        &self,
+        child_id: impl Into<String>,
+        spec: WorkflowSpec,
+        input: JsonValue,
+        cancellation_policy: ChildWorkflowCancellationPolicy,
+    ) -> RuntimeCommand {
+        RuntimeCommand::StartChildWorkflow {
+            child_id: child_id.into(),
+            spec,
+            input,
+            cancellation_policy,
+        }
     }
 
     pub fn schedule_step(

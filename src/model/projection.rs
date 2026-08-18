@@ -3,9 +3,10 @@ use std::collections::BTreeMap;
 use crate::error::{FlowError, Result};
 
 use super::{
-    validate_run_id, CancellationRequestSnapshot, FlowEvent, FlowEventEnvelope, HookSnapshot,
-    HookStatus, StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus,
-    WorkflowContinuation, WorkflowRunSnapshot, WorkflowRunStatus, WorkflowTerminalOutcome,
+    validate_run_id, CancellationRequestSnapshot, ChildWorkflowSnapshot, FlowEvent,
+    FlowEventEnvelope, HookSnapshot, HookStatus, StepFailureAction, StepSnapshot, StepStatus,
+    WaitSnapshot, WaitStatus, WorkflowContinuation, WorkflowRunSnapshot, WorkflowRunStatus,
+    WorkflowTerminalOutcome,
 };
 
 pub(crate) fn project_run(
@@ -37,6 +38,7 @@ pub(crate) fn project_run(
         cancellation: None,
         progress: Vec::new(),
         child_operations: BTreeMap::new(),
+        child_workflows: BTreeMap::new(),
         output: None,
         error: None,
         terminal_outcome: None,
@@ -87,6 +89,7 @@ pub(crate) fn project_run(
                         "a cancelling run must finish as cancelled or failed".to_string(),
                     ));
                 }
+                ensure_no_blocking_child_workflows(&snapshot)?;
                 snapshot.status = WorkflowRunStatus::Completed;
                 snapshot.output = Some(output.clone());
                 snapshot.error = None;
@@ -95,6 +98,7 @@ pub(crate) fn project_run(
                 });
             }
             FlowEvent::RunFailed { error } => {
+                ensure_no_blocking_child_workflows(&snapshot)?;
                 snapshot.status = WorkflowRunStatus::Failed;
                 snapshot.error = Some(error.clone());
                 snapshot.terminal_outcome = Some(WorkflowTerminalOutcome::Failed {
@@ -134,6 +138,7 @@ pub(crate) fn project_run(
                 }
             }
             FlowEvent::RunCancelled { reason } => {
+                ensure_no_blocking_child_workflows(&snapshot)?;
                 snapshot.status = WorkflowRunStatus::Cancelled;
                 snapshot.error = reason.clone();
                 snapshot.terminal_outcome = Some(WorkflowTerminalOutcome::Cancelled {
@@ -141,6 +146,7 @@ pub(crate) fn project_run(
                 });
             }
             FlowEvent::RunTimedOut { deadline, reason } => {
+                ensure_no_blocking_child_workflows(&snapshot)?;
                 snapshot.status = WorkflowRunStatus::Failed;
                 snapshot.error = Some(
                     reason
@@ -157,6 +163,7 @@ pub(crate) fn project_run(
                 attempt,
                 error,
             } => {
+                ensure_no_blocking_child_workflows(&snapshot)?;
                 let step = snapshot.steps.get(step_id).ok_or_else(|| {
                     FlowError::InvalidTransition(format!(
                         "run_retry_exhausted references unknown step {step_id}"
@@ -186,6 +193,7 @@ pub(crate) fn project_run(
                 });
             }
             FlowEvent::RunHostShutdown { reason } => {
+                ensure_no_blocking_child_workflows(&snapshot)?;
                 snapshot.status = WorkflowRunStatus::Failed;
                 snapshot.error = Some(
                     reason
@@ -203,6 +211,15 @@ pub(crate) fn project_run(
                 if snapshot.status != WorkflowRunStatus::Running {
                     return Err(FlowError::InvalidTransition(
                         "run_continued_as_new can only follow a running run".to_string(),
+                    ));
+                }
+                if snapshot
+                    .child_workflows
+                    .values()
+                    .any(ChildWorkflowSnapshot::is_open)
+                {
+                    return Err(FlowError::InvalidTransition(
+                        "run_continued_as_new cannot abandon an open child workflow".to_string(),
                     ));
                 }
                 validate_run_id(successor_run_id)?;
@@ -242,6 +259,53 @@ pub(crate) fn project_run(
                 snapshot
                     .child_operations
                     .insert(child.reference_id.clone(), child.clone());
+            }
+            FlowEvent::ChildWorkflowRequested {
+                child_id,
+                child_run_id,
+                spec,
+                input,
+                cancellation_policy,
+            } => {
+                if snapshot.child_workflows.contains_key(child_id) {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "child_workflow_requested duplicates child {child_id}"
+                    )));
+                }
+                let child = ChildWorkflowSnapshot {
+                    child_id: child_id.clone(),
+                    run_id: child_run_id.clone(),
+                    spec: spec.clone(),
+                    input: input.clone(),
+                    cancellation_policy: *cancellation_policy,
+                    requested_at: envelope.timestamp,
+                    requested_sequence: envelope.sequence,
+                    outcome: None,
+                    resolved_at: None,
+                    resolved_sequence: None,
+                };
+                child.validate_request()?;
+                snapshot.child_workflows.insert(child_id.clone(), child);
+            }
+            FlowEvent::ChildWorkflowResolved { child_id, outcome } => {
+                if matches!(outcome, WorkflowTerminalOutcome::ContinuedAsNew { .. }) {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "child workflow {child_id} cannot resolve to a continuation segment"
+                    )));
+                }
+                let child = snapshot.child_workflows.get_mut(child_id).ok_or_else(|| {
+                    FlowError::InvalidTransition(format!(
+                        "child_workflow_resolved references unknown child {child_id}"
+                    ))
+                })?;
+                if !child.is_open() {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "child_workflow_resolved duplicates child {child_id}"
+                    )));
+                }
+                child.outcome = Some(outcome.clone());
+                child.resolved_at = Some(envelope.timestamp);
+                child.resolved_sequence = Some(envelope.sequence);
             }
             FlowEvent::StepCreated {
                 step_id,
@@ -478,4 +542,18 @@ pub(crate) fn project_run(
     }
 
     Ok(snapshot)
+}
+
+fn ensure_no_blocking_child_workflows(snapshot: &WorkflowRunSnapshot) -> Result<()> {
+    if let Some(child) = snapshot.child_workflows.values().find(|child| {
+        child.is_open()
+            && child.cancellation_policy
+                == super::ChildWorkflowCancellationPolicy::RequestCancellation
+    }) {
+        return Err(FlowError::InvalidTransition(format!(
+            "workflow run {} cannot terminate while child workflow {} is open",
+            snapshot.run_id, child.child_id
+        )));
+    }
+    Ok(())
 }

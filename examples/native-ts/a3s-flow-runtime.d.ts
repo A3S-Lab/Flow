@@ -50,6 +50,19 @@ export type ChildOperationReference = {
   metadata?: Json;
 };
 
+export type ChildWorkflowCancellationPolicy =
+  | "request_cancellation"
+  | "abandon";
+
+export type WorkflowTerminalOutcome =
+  | { type: "completed"; output: Json }
+  | { type: "failed"; error: string }
+  | { type: "cancelled"; reason?: string | null }
+  | { type: "timed_out"; deadline: string; reason?: string | null }
+  | { type: "retry_exhausted"; step_id: string; attempt: number; error: string }
+  | { type: "host_shutdown"; reason?: string | null }
+  | { type: "continued_as_new"; successor_run_id: string };
+
 export type RuntimeCommand =
   | { type: "complete"; output: Json }
   | { type: "fail"; error: string }
@@ -58,6 +71,13 @@ export type RuntimeCommand =
   | { type: "continue_as_new"; input: Json }
   | { type: "record_progress"; progress: WorkflowProgress }
   | { type: "link_child_operation"; child: ChildOperationReference }
+  | {
+      type: "start_child_workflow";
+      child_id: string;
+      spec: WorkflowSpec;
+      input: Json;
+      cancellation_policy?: ChildWorkflowCancellationPolicy;
+    }
   | {
       type: "schedule_step";
       step_id: string;
@@ -110,6 +130,19 @@ export type FlowEvent =
   | { type: "run_continued_as_new"; successor_run_id: string; input: Json }
   | { type: "run_progress_recorded"; progress: WorkflowProgress }
   | { type: "child_operation_linked"; child: ChildOperationReference }
+  | {
+      type: "child_workflow_requested";
+      child_id: string;
+      child_run_id: string;
+      spec: WorkflowSpec;
+      input: Json;
+      cancellation_policy: ChildWorkflowCancellationPolicy;
+    }
+  | {
+      type: "child_workflow_resolved";
+      child_id: string;
+      outcome: WorkflowTerminalOutcome;
+    }
   | {
       type: "step_created";
       step_id: string;

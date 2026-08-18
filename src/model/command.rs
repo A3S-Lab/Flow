@@ -9,7 +9,8 @@ use crate::runtime_build::RuntimeBuildId;
 
 use super::patch::deserialize_patch_markers;
 use super::{
-    ChildOperationReference, WorkflowPatchId, WorkflowProgress, MAX_WORKFLOW_PATCH_MARKERS,
+    ChildOperationReference, ChildWorkflowCancellationPolicy, WorkflowPatchId, WorkflowProgress,
+    MAX_WORKFLOW_PATCH_MARKERS,
 };
 
 /// JSON payload exchanged between the engine and runtimes.
@@ -264,6 +265,14 @@ pub enum RuntimeCommand {
     /// Persist a parent-to-child operation reference before replaying.
     LinkChildOperation {
         child: ChildOperationReference,
+    },
+    /// Start or await a first-class child workflow with a stable parent-local id.
+    StartChildWorkflow {
+        child_id: String,
+        spec: WorkflowSpec,
+        input: JsonValue,
+        #[serde(default)]
+        cancellation_policy: ChildWorkflowCancellationPolicy,
     },
     ScheduleStep {
         step_id: String,

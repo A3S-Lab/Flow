@@ -7,8 +7,8 @@ use crate::error::{FlowError, Result};
 use crate::runtime_build::RuntimeBuildId;
 
 use super::{
-    CancellationRequestSnapshot, ChildOperationReference, JsonValue, RetryPolicy,
-    WorkflowContinuation, WorkflowProgress, WorkflowSpec, WorkflowTerminalOutcome,
+    CancellationRequestSnapshot, ChildOperationReference, ChildWorkflowSnapshot, JsonValue,
+    RetryPolicy, WorkflowContinuation, WorkflowProgress, WorkflowSpec, WorkflowTerminalOutcome,
 };
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -193,6 +193,7 @@ pub struct WorkflowRunSummary {
     pub open_waits: usize,
     pub active_hooks: usize,
     pub pending_retries: usize,
+    pub open_child_workflows: usize,
 }
 
 impl WorkflowRunSummary {
@@ -238,6 +239,11 @@ impl WorkflowRunSummary {
             .values()
             .filter(|step| step.status == StepStatus::Pending && step.retry_after.is_some())
             .count();
+        self.open_child_workflows += snapshot
+            .child_workflows
+            .values()
+            .filter(|child| child.is_open())
+            .count();
     }
 }
 
@@ -259,14 +265,19 @@ pub enum WorkflowRunSuspension {
         step: StepSnapshot,
         due: bool,
     },
+    ChildWorkflow {
+        run_id: String,
+        child: ChildWorkflowSnapshot,
+    },
 }
 
 impl WorkflowRunSuspension {
     pub fn run_id(&self) -> &str {
         match self {
-            Self::Wait { run_id, .. } | Self::Hook { run_id, .. } | Self::Retry { run_id, .. } => {
-                run_id
-            }
+            Self::Wait { run_id, .. }
+            | Self::Hook { run_id, .. }
+            | Self::Retry { run_id, .. }
+            | Self::ChildWorkflow { run_id, .. } => run_id,
         }
     }
 
@@ -275,6 +286,7 @@ impl WorkflowRunSuspension {
             Self::Wait { wait, .. } => &wait.wait_id,
             Self::Hook { hook, .. } => &hook.hook_id,
             Self::Retry { step, .. } => &step.step_id,
+            Self::ChildWorkflow { child, .. } => &child.child_id,
         }
     }
 
@@ -283,13 +295,14 @@ impl WorkflowRunSuspension {
             Self::Wait { .. } => 0,
             Self::Hook { .. } => 1,
             Self::Retry { .. } => 2,
+            Self::ChildWorkflow { .. } => 3,
         }
     }
 
     pub fn is_due(&self) -> bool {
         match self {
             Self::Wait { due, .. } | Self::Retry { due, .. } => *due,
-            Self::Hook { .. } => false,
+            Self::Hook { .. } | Self::ChildWorkflow { .. } => false,
         }
     }
 
@@ -298,7 +311,7 @@ impl WorkflowRunSuspension {
         match self {
             Self::Wait { wait, .. } => Some(wait.resume_at),
             Self::Retry { step, .. } => step.retry_after,
-            Self::Hook { .. } => None,
+            Self::Hook { .. } | Self::ChildWorkflow { .. } => None,
         }
     }
 }
@@ -319,6 +332,8 @@ pub struct WorkflowRunSnapshot {
     pub progress: Vec<WorkflowProgress>,
     #[serde(default)]
     pub child_operations: BTreeMap<String, ChildOperationReference>,
+    #[serde(default)]
+    pub child_workflows: BTreeMap<String, ChildWorkflowSnapshot>,
     pub output: Option<JsonValue>,
     pub error: Option<String>,
     #[serde(default)]
@@ -389,6 +404,11 @@ impl WorkflowRunSnapshot {
         self.child_operations.get(reference_id)
     }
 
+    /// Return a first-class child workflow by its stable parent-local id.
+    pub fn child_workflow(&self, child_id: &str) -> Option<&ChildWorkflowSnapshot> {
+        self.child_workflows.get(child_id)
+    }
+
     /// Decode persisted hook metadata into a host-defined serde type.
     pub fn hook_metadata_as<T>(&self, hook_id: &str) -> Result<Option<T>>
     where
@@ -420,6 +440,10 @@ impl WorkflowRunSnapshot {
                 .values()
                 .any(|hook| hook.status == HookStatus::Active)
             || self.steps.values().any(|step| step.retry_after.is_some())
+            || self
+                .child_workflows
+                .values()
+                .any(ChildWorkflowSnapshot::is_open)
     }
 
     pub fn due_retries(&self, now: DateTime<Utc>) -> Vec<(String, DateTime<Utc>)> {
