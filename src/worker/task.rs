@@ -74,7 +74,9 @@ pub struct FlowTaskOutcome {
     pub run_ids: Vec<String>,
     pub resumed_waits: Vec<(String, String)>,
     pub resumed_retries: Vec<(String, String)>,
+    /// Hook receipt committed by this task, excluding matching redelivery.
     pub resumed_hook: Option<(String, String)>,
+    /// Hook disposal committed by this task, excluding matching redelivery.
     #[serde(default)]
     pub disposed_hook: Option<(String, String)>,
     #[serde(default)]

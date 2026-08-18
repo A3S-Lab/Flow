@@ -105,7 +105,9 @@ The runtime returns exactly one command:
   run/hook-identified redelivery accepts only the already committed payload or
   disposal, including after terminal completion; payload drift and opposite
   resolutions fail with `HookConflict`. Public-token lookup intentionally
-  covers only active hooks.
+  covers only active hooks. Worker outcomes report `resumed_hook` or
+  `disposed_hook` only for the task that commits the resolution event;
+  matching stable-ID redelivery remains a successful recovery no-op.
 - `wait_for_signal`: the engine persists a stable wait ID and declared signal
   name. It pairs that wait with the oldest matching unconsumed
   `signal_received` event, records `signal_wait_completed`, and replays so

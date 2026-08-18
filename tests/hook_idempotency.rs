@@ -1,12 +1,13 @@
 use a3s_flow::{
-    FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore, FlowRuntime, FlowTask,
-    FlowWorker, HookStatus, InMemoryEventStore, RuntimeCommand, StepInvocation, WorkflowInvocation,
-    WorkflowRunStatus, WorkflowSpec,
+    ActiveHookSnapshot, FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore,
+    FlowRuntime, FlowTask, FlowWorker, HookStatus, InMemoryEventStore, RuntimeCommand,
+    StepInvocation, WorkflowInvocation, WorkflowRunStatus, WorkflowSpec,
 };
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tokio::sync::Barrier;
 
 const RUN_ID: &str = "hook-idempotency-run";
 const HOOK_ID: &str = "approval";
@@ -286,7 +287,7 @@ async fn conflicting_resumes_commit_exactly_one_payload() {
 }
 
 #[tokio::test]
-async fn queued_resume_redelivery_acknowledges_both_tasks_with_one_resolution() {
+async fn queued_resume_redelivery_reports_only_the_committed_resolution() {
     let engine = FlowEngine::in_memory(Arc::new(HookRuntime));
     engine
         .start_with_id(RUN_ID, spec(), json!({}))
@@ -304,9 +305,16 @@ async fn queued_resume_redelivery_acknowledges_both_tasks_with_one_resolution() 
     let outcomes = worker.run_until_idle().await.unwrap();
 
     assert_eq!(outcomes.len(), 2);
-    assert!(outcomes.iter().all(|outcome| {
-        outcome.resumed_hook == Some((RUN_ID.to_string(), HOOK_ID.to_string()))
-    }));
+    assert!(outcomes
+        .iter()
+        .all(|outcome| outcome.run_ids == vec![RUN_ID.to_string()]));
+    assert_eq!(
+        outcomes
+            .iter()
+            .filter_map(|outcome| outcome.resumed_hook.clone())
+            .collect::<Vec<_>>(),
+        vec![(RUN_ID.to_string(), HOOK_ID.to_string())]
+    );
     let history = engine.history(RUN_ID).await.unwrap();
     assert_eq!(resolution_count(&history), 1);
     assert_eq!(
@@ -332,6 +340,42 @@ async fn identical_disposal_redelivery_is_idempotent_after_completion() {
     assert_eq!(snapshot.hooks[HOOK_ID].status, HookStatus::Disposed);
     assert_eq!(engine.history(RUN_ID).await.unwrap(), committed_history);
     assert_eq!(resolution_count(&committed_history), 1);
+}
+
+#[tokio::test]
+async fn queued_disposal_redelivery_reports_only_the_committed_resolution() {
+    let engine = FlowEngine::in_memory(Arc::new(HookRuntime));
+    engine
+        .start_with_id(RUN_ID, spec(), json!({}))
+        .await
+        .unwrap();
+    let worker = FlowWorker::in_memory(engine.clone());
+    let task = FlowTask::DisposeHook {
+        run_id: RUN_ID.to_string(),
+        hook_id: HOOK_ID.to_string(),
+    };
+    worker.enqueue(task.clone()).await.unwrap();
+    worker.enqueue(task).await.unwrap();
+
+    let outcomes = worker.run_until_idle().await.unwrap();
+
+    assert_eq!(outcomes.len(), 2);
+    assert!(outcomes
+        .iter()
+        .all(|outcome| outcome.run_ids == vec![RUN_ID.to_string()]));
+    assert_eq!(
+        outcomes
+            .iter()
+            .filter_map(|outcome| outcome.disposed_hook.clone())
+            .collect::<Vec<_>>(),
+        vec![(RUN_ID.to_string(), HOOK_ID.to_string())]
+    );
+    let history = engine.history(RUN_ID).await.unwrap();
+    assert_eq!(resolution_count(&history), 1);
+    assert_eq!(
+        engine.snapshot(RUN_ID).await.unwrap().status,
+        WorkflowRunStatus::Completed
+    );
 }
 
 #[tokio::test]
@@ -363,3 +407,6 @@ async fn opposite_terminal_hook_resolutions_are_rejected() {
         .unwrap_err();
     assert_hook_conflict(dispose_error, "was already resumed");
 }
+
+#[path = "hook_idempotency/worker_outcomes.rs"]
+mod worker_outcomes;

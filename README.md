@@ -358,7 +358,10 @@ Ok(ctx.create_hook_with_metadata("approval", approval_token, metadata)?)
 
 Durable consumers should retry with stable run/hook identity. Public-token
 helpers intentionally route only active hooks and redact bearer values from
-diagnostics.
+diagnostics. Worker outcomes identify durable work: `resumed_hook` or
+`disposed_hook` is populated only for the task that commits the matching Hook
+event. Stable-ID redelivery is still acknowledged and listed in `run_ids`, but
+does not claim another task's resolution.
 
 ### Cleanup-aware cancellation
 

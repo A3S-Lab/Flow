@@ -16,6 +16,18 @@ impl FlowEngine {
         hook_id: &str,
         payload: serde_json::Value,
     ) -> Result<()> {
+        self.resume_hook_if_active(run_id, hook_id, payload).await?;
+        Ok(())
+    }
+
+    /// Resume `hook_id` and report whether this call committed its receipt.
+    pub(crate) async fn resume_hook_if_active(
+        &self,
+        run_id: &str,
+        hook_id: &str,
+        payload: serde_json::Value,
+    ) -> Result<bool> {
+        let mut resumed = false;
         for _ in 0..self.max_replay_iterations {
             let snapshot = self.snapshot(run_id).await?;
             let Some(hook) = snapshot.hooks.get(hook_id) else {
@@ -46,7 +58,7 @@ impl FlowEngine {
                         )
                         .await
                     {
-                        Ok(_) => {}
+                        Ok(_) => resumed = true,
                         Err(error) if is_event_conflict(&error) => continue,
                         Err(error) => return Err(error),
                     }
@@ -60,7 +72,7 @@ impl FlowEngine {
                         ));
                     }
                     if snapshot.status.is_terminal() {
-                        return Ok(());
+                        return Ok(resumed);
                     }
                     self.ensure_runtime_build_available(run_id, &snapshot.spec)?;
                 }
@@ -73,7 +85,7 @@ impl FlowEngine {
             }
 
             match self.drive(run_id).await {
-                Ok(_) => return Ok(()),
+                Ok(_) => return Ok(resumed),
                 Err(error) if is_event_conflict(&error) => continue,
                 Err(error) => return Err(error),
             }
@@ -89,6 +101,13 @@ impl FlowEngine {
     /// idempotent when the hook was already disposed. A received or cancelled
     /// hook conflicts with disposal and cannot be reported as successful.
     pub async fn dispose_hook(&self, run_id: &str, hook_id: &str) -> Result<()> {
+        self.dispose_hook_if_active(run_id, hook_id).await?;
+        Ok(())
+    }
+
+    /// Dispose `hook_id` and report whether this call committed its disposal.
+    pub(crate) async fn dispose_hook_if_active(&self, run_id: &str, hook_id: &str) -> Result<bool> {
+        let mut disposed = false;
         for _ in 0..self.max_replay_iterations {
             let snapshot = self.snapshot(run_id).await?;
             let Some(hook) = snapshot.hooks.get(hook_id) else {
@@ -116,14 +135,14 @@ impl FlowEngine {
                         )
                         .await
                     {
-                        Ok(_) => {}
+                        Ok(_) => disposed = true,
                         Err(error) if is_event_conflict(&error) => continue,
                         Err(error) => return Err(error),
                     }
                 }
                 HookStatus::Disposed => {
                     if snapshot.status.is_terminal() {
-                        return Ok(());
+                        return Ok(disposed);
                     }
                     self.ensure_runtime_build_available(run_id, &snapshot.spec)?;
                 }
@@ -136,7 +155,7 @@ impl FlowEngine {
             }
 
             match self.drive(run_id).await {
-                Ok(_) => return Ok(()),
+                Ok(_) => return Ok(disposed),
                 Err(error) if is_event_conflict(&error) => continue,
                 Err(error) => return Err(error),
             }
@@ -155,6 +174,15 @@ impl FlowEngine {
         token: &str,
         payload: serde_json::Value,
     ) -> Result<(String, String)> {
+        let (run_id, hook_id, _) = self.resume_hook_by_token_if_active(token, payload).await?;
+        Ok((run_id, hook_id))
+    }
+
+    pub(crate) async fn resume_hook_by_token_if_active(
+        &self,
+        token: &str,
+        payload: serde_json::Value,
+    ) -> Result<(String, String, bool)> {
         let mut matches = self
             .store
             .find_active_hooks_by_token(token)
@@ -167,8 +195,10 @@ impl FlowEngine {
             0 => Err(FlowError::HookTokenNotFound(token.to_string())),
             1 => {
                 let (run_id, hook_id) = matches.remove(0);
-                self.resume_hook(&run_id, &hook_id, payload).await?;
-                Ok((run_id, hook_id))
+                let resumed = self
+                    .resume_hook_if_active(&run_id, &hook_id, payload)
+                    .await?;
+                Ok((run_id, hook_id, resumed))
             }
             _ => Err(FlowError::InvalidTransition(
                 "hook token is active in multiple runs (value redacted)".to_string(),
@@ -181,6 +211,14 @@ impl FlowEngine {
     /// This mirrors [`resume_hook_by_token`](Self::resume_hook_by_token) for
     /// callback routers that only know the public token.
     pub async fn dispose_hook_by_token(&self, token: &str) -> Result<(String, String)> {
+        let (run_id, hook_id, _) = self.dispose_hook_by_token_if_active(token).await?;
+        Ok((run_id, hook_id))
+    }
+
+    pub(crate) async fn dispose_hook_by_token_if_active(
+        &self,
+        token: &str,
+    ) -> Result<(String, String, bool)> {
         let mut matches = self
             .store
             .find_active_hooks_by_token(token)
@@ -193,8 +231,8 @@ impl FlowEngine {
             0 => Err(FlowError::HookTokenNotFound(token.to_string())),
             1 => {
                 let (run_id, hook_id) = matches.remove(0);
-                self.dispose_hook(&run_id, &hook_id).await?;
-                Ok((run_id, hook_id))
+                let disposed = self.dispose_hook_if_active(&run_id, &hook_id).await?;
+                Ok((run_id, hook_id, disposed))
             }
             _ => Err(FlowError::InvalidTransition(
                 "hook token is active in multiple runs (value redacted)".to_string(),

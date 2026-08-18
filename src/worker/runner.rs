@@ -127,14 +127,22 @@ pub(super) async fn handle_flow_task(
             hook_id,
             payload,
         } => {
-            engine.resume_hook(&run_id, &hook_id, payload).await?;
+            let resumed = engine
+                .resume_hook_if_active(&run_id, &hook_id, payload)
+                .await?;
             outcome.run_ids.push(run_id.clone());
-            outcome.resumed_hook = Some((run_id, hook_id));
+            if resumed {
+                outcome.resumed_hook = Some((run_id, hook_id));
+            }
         }
         FlowTask::ResumeHookByToken { token, payload } => {
-            let (run_id, hook_id) = engine.resume_hook_by_token(&token, payload).await?;
+            let (run_id, hook_id, resumed) = engine
+                .resume_hook_by_token_if_active(&token, payload)
+                .await?;
             outcome.run_ids.push(run_id.clone());
-            outcome.resumed_hook = Some((run_id, hook_id));
+            if resumed {
+                outcome.resumed_hook = Some((run_id, hook_id));
+            }
         }
         FlowTask::SendSignal { run_id, signal } => {
             let signal_id = signal.signal_id.clone();
@@ -143,14 +151,19 @@ pub(super) async fn handle_flow_task(
             outcome.delivered_signal = Some((snapshot.run_id, signal_id));
         }
         FlowTask::DisposeHook { run_id, hook_id } => {
-            engine.dispose_hook(&run_id, &hook_id).await?;
+            let disposed = engine.dispose_hook_if_active(&run_id, &hook_id).await?;
             outcome.run_ids.push(run_id.clone());
-            outcome.disposed_hook = Some((run_id, hook_id));
+            if disposed {
+                outcome.disposed_hook = Some((run_id, hook_id));
+            }
         }
         FlowTask::DisposeHookByToken { token } => {
-            let (run_id, hook_id) = engine.dispose_hook_by_token(&token).await?;
+            let (run_id, hook_id, disposed) =
+                engine.dispose_hook_by_token_if_active(&token).await?;
             outcome.run_ids.push(run_id.clone());
-            outcome.disposed_hook = Some((run_id, hook_id));
+            if disposed {
+                outcome.disposed_hook = Some((run_id, hook_id));
+            }
         }
         FlowTask::ResumeScheduledRun { run_id, now } => {
             let resumed = engine.resume_scheduled_run(&run_id, now).await?;

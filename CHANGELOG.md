@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Made Hook worker outcomes reflect the task that actually committed
+  `hook_received` or `hook_disposed`. Matching stable-ID redelivery still
+  acknowledges the task and drives interrupted recovery, while concurrent
+  token lookups converge on one reported resolution instead of claiming the
+  same durable event twice.
 - Made wait-timer redelivery idempotent after wait completion or run
   termination. Concurrent compatibility-wide due scans now report only waits
   whose completion they committed, and workers acknowledge stale
