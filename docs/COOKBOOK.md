@@ -542,9 +542,11 @@ let run_id = engine
 
 Changing the spec or input for the same run id returns a conflict. Treat that as
 a caller bug or explicit migration, not as a new run.
-If the first host stops after `run_created` but before `run_started`, a retry
-completes the start only while the run is still pending. A force-cancel, timeout,
-or other terminal transition committed in that window is returned unchanged.
+If the first host stops after `run_created` but before `run_started`, retrying
+the start or dispatching `FlowTask::DriveRun` completes the start only while the
+run is still pending. A replacement worker persists `run_started` before it
+invokes workflow code. A force-cancel, timeout, or other terminal transition
+committed in that window is returned unchanged.
 
 ## Durable Steps
 

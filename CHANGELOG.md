@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Made `DriveRun` recover a pending run whose `run_started` append was lost
+  after `run_created`. Replacement workers now persist the missing lifecycle
+  event before invoking workflow code, without consuming the workflow replay
+  budget or extending a terminal stream that won a sequence race.
 - Hardened named-signal replay validation so `signal_wait_completed` cannot
   skip an older waiting consumer or an older unconsumed delivery of the same
   signal name. Corrupt or out-of-band histories now fail closed instead of

@@ -316,9 +316,12 @@ an explicit replay signal instead of silently extending a changed history. This
 gives A3S Flow:
 
 Start recovery fills a missing `run_started` event only when the projected run
-is still pending. If cancellation, timeout, or another terminal event won the
-sequence race after `run_created`, an idempotent start preserves that outcome
-instead of extending the terminal stream.
+is still pending. Both an idempotent start and a replacement worker handling
+`DriveRun` use the same recovery path. The worker commits that lifecycle event
+before invoking workflow code, and recovery retries do not consume the bounded
+workflow replay budget. If cancellation, timeout, or another terminal event won
+the sequence race after `run_created`, recovery preserves that outcome instead
+of extending the terminal stream.
 
 - replay after process crashes,
 - idempotent re-drive across hosts,

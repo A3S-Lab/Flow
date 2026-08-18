@@ -181,12 +181,20 @@ impl FlowEngine {
         child_depth: usize,
         ancestry: &BTreeSet<String>,
     ) -> Result<WorkflowRunSnapshot> {
-        'replay: for _ in 0..self.max_replay_iterations {
+        let mut replay_iterations = 0;
+        'replay: while replay_iterations < self.max_replay_iterations {
             let history = self.store.list(run_id).await?;
             let snapshot = project_run(run_id, &history)?;
             if snapshot.status.is_terminal() {
                 return Ok(snapshot);
             }
+            if snapshot.status == WorkflowRunStatus::Pending {
+                // Repair the lifecycle before charging the workflow replay budget.
+                self.ensure_run_started(run_id, &snapshot.spec, &snapshot.input)
+                    .await?;
+                continue;
+            }
+            replay_iterations += 1;
             self.ensure_runtime_build_available(run_id, &snapshot.spec)?;
             if let Some(event) = interrupted_retry_exhaustion_event(&snapshot, &history) {
                 match self

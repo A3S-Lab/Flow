@@ -1,7 +1,8 @@
 use a3s_flow::{
     CancellationRequest, FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore,
-    FlowRuntime, InMemoryEventStore, RetryPolicy, RuntimeCommand, StepInvocation, StepStatus,
-    WorkflowInvocation, WorkflowRunStatus, WorkflowSpec, WorkflowTerminalOutcome,
+    FlowRuntime, FlowTask, FlowWorker, InMemoryEventStore, InMemoryFlowTaskQueue, RetryPolicy,
+    RuntimeCommand, StepInvocation, StepStatus, WorkflowInvocation, WorkflowRunStatus,
+    WorkflowSpec, WorkflowTerminalOutcome,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -373,6 +374,62 @@ async fn exhausted_step_failure_wins_over_a_racing_cancellation_after_restart() 
     assert!(!history
         .iter()
         .any(|event| matches!(event.event, FlowEvent::RunCancelled { .. })));
+}
+
+#[tokio::test]
+async fn drive_task_recovers_run_started_before_replaying_a_pending_run() {
+    let run_id = "drive-run-start-crash-recovery";
+    let store = Arc::new(CrashBeforeRunStartedStore::new());
+    let runtime = Arc::new(DurableEffectRuntime::default());
+    let interrupted = FlowEngine::builder(runtime.clone())
+        .with_store(store.clone())
+        .with_max_replay_iterations(2)
+        .build();
+
+    let failure = interrupted
+        .start_with_id(run_id, workflow_spec(), json!({}))
+        .await
+        .expect_err("the injected persistence loss must interrupt the initial start");
+    assert!(matches!(failure, FlowError::Store(_)));
+    assert_eq!(
+        interrupted.snapshot(run_id).await.unwrap().status,
+        WorkflowRunStatus::Pending
+    );
+    drop(interrupted);
+
+    let replacement = FlowEngine::builder(runtime.clone())
+        .with_store(store.clone())
+        .with_max_replay_iterations(2)
+        .build();
+    let worker = FlowWorker::new(replacement.clone(), Arc::new(InMemoryFlowTaskQueue::new()));
+    worker
+        .enqueue(FlowTask::DriveRun {
+            run_id: run_id.to_string(),
+        })
+        .await
+        .unwrap();
+
+    let outcome = worker.run_once().await.unwrap().unwrap();
+    assert_eq!(outcome.run_ids, vec![run_id]);
+    assert_eq!(
+        replacement.snapshot(run_id).await.unwrap().status,
+        WorkflowRunStatus::Completed
+    );
+    assert_eq!(runtime.effect_invocations.load(Ordering::SeqCst), 1);
+
+    let history = store.list(run_id).await.unwrap();
+    assert!(matches!(history[0].event, FlowEvent::RunCreated { .. }));
+    assert!(
+        matches!(history[1].event, FlowEvent::RunStarted),
+        "worker replay must recover run_started before workflow-owned events"
+    );
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| matches!(event.event, FlowEvent::RunStarted))
+            .count(),
+        1
+    );
 }
 
 #[tokio::test]

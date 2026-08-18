@@ -451,6 +451,11 @@ in-memory, local-file, or PostgreSQL compatibility queues remains available to
 embedded hosts. `FlowTask::SendSignal` carries the full durable delivery and is
 deduplicated by run ID plus signal ID in Boot policy.
 
+A replacement worker handling `FlowTask::DriveRun` also repairs the crash
+window between `run_created` and `run_started`. It persists the missing start
+event before workflow replay and leaves a terminal sequence-race winner
+unchanged.
+
 | Optional feature | Adds |
 | --- | --- |
 | `native-ts` (default) | Native TypeScript compile/invocation adapter |
