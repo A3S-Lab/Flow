@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
-use crate::model::{project_run, FlowEvent, FlowEventEnvelope};
+use crate::model::{project_run, FlowEvent, FlowEventEnvelope, WorkflowContinuation};
 
 /// Bounded policy for deleting complete terminal histories.
 ///
@@ -131,11 +131,25 @@ pub(crate) fn plan_history_retention(
         .map(|run_id| (run_id.clone(), BTreeSet::<String>::new()))
         .collect::<BTreeMap<_, _>>();
     let mut dangling_reference_runs = BTreeSet::new();
+    let mut continuations = BTreeMap::new();
     for (parent_run_id, history) in histories {
         for envelope in history {
             let Some(child_run_id) = linked_flow_run_id(&envelope.event) else {
                 continue;
             };
+            if let FlowEvent::RunContinuedAsNew {
+                successor_run_id,
+                input,
+            } = &envelope.event
+            {
+                continuations.insert(
+                    parent_run_id.clone(),
+                    WorkflowContinuation {
+                        successor_run_id: successor_run_id.clone(),
+                        input: input.clone(),
+                    },
+                );
+            }
             if !histories.contains_key(child_run_id) {
                 dangling_reference_runs.insert(parent_run_id.clone());
                 continue;
@@ -169,6 +183,7 @@ pub(crate) fn plan_history_retention(
             }
         }
         visited.extend(component.iter().cloned());
+        validate_continuation_component(&component, histories, &continuations, storage_name)?;
         let component_is_deletable = component.iter().all(|run_id| eligible.contains(run_id))
             && component
                 .iter()
@@ -194,7 +209,72 @@ pub(crate) fn plan_history_retention(
     })
 }
 
+fn validate_continuation_component(
+    component: &BTreeSet<String>,
+    histories: &BTreeMap<String, Vec<FlowEventEnvelope>>,
+    continuations: &BTreeMap<String, WorkflowContinuation>,
+    storage_name: &str,
+) -> Result<()> {
+    for start in component {
+        let mut path = BTreeSet::new();
+        let mut current = start.as_str();
+        while component.contains(current) {
+            let Some(continuation) = continuations.get(current) else {
+                break;
+            };
+            if !path.insert(current.to_string()) {
+                return Err(FlowError::ContinueAsNewCycle(current.to_string()));
+            }
+            current = &continuation.successor_run_id;
+        }
+    }
+
+    for (predecessor_run_id, continuation) in continuations {
+        if !component.contains(predecessor_run_id) {
+            continue;
+        }
+        let Some(successor_history) = histories.get(&continuation.successor_run_id) else {
+            continue;
+        };
+        let predecessor_history = histories.get(predecessor_run_id).ok_or_else(|| {
+            FlowError::Store(format!(
+                "{storage_name} continuation predecessor {predecessor_run_id} disappeared during retention"
+            ))
+        })?;
+        let predecessor = project_run(predecessor_run_id, predecessor_history)?;
+        let successor = project_run(&continuation.successor_run_id, successor_history)?;
+        if successor.spec != predecessor.spec {
+            return Err(FlowError::RunConflict {
+                run_id: continuation.successor_run_id.clone(),
+                reason: "continue-as-new successor workflow spec differs".to_string(),
+            });
+        }
+        if successor.input != continuation.input {
+            return Err(FlowError::RunConflict {
+                run_id: continuation.successor_run_id.clone(),
+                reason: "continue-as-new successor input differs".to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn linked_flow_run_id(event: &FlowEvent) -> Option<&str> {
+    match event {
+        FlowEvent::ChildOperationLinked { child } => child.flow_run_id.as_deref(),
+        FlowEvent::RunContinuedAsNew {
+            successor_run_id, ..
+        } => Some(successor_run_id),
+        _ => None,
+    }
+}
+
+/// Return a reference that must already exist when its event is appended.
+///
+/// Continue-as-new intentionally commits the predecessor link first so a
+/// replacement worker can recover a missing successor. Child-operation links
+/// retain their stronger same-store existence invariant.
+pub(crate) fn required_linked_flow_run_id(event: &FlowEvent) -> Option<&str> {
     match event {
         FlowEvent::ChildOperationLinked { child } => child.flow_run_id.as_deref(),
         _ => None,

@@ -90,10 +90,22 @@ fn native_runtime_operation_commands_accept_omitted_optional_fields() {
         }
         command => panic!("unexpected command: {command:?}"),
     }
+
+    let continuation: RuntimeCommand = serde_json::from_value(json!({
+        "type": "continue_as_new",
+        "input": { "cursor": "next-page" }
+    }))
+    .unwrap();
+    assert_eq!(
+        continuation,
+        RuntimeCommand::ContinueAsNew {
+            input: json!({ "cursor": "next-page" }),
+        }
+    );
 }
 
 #[test]
-fn run_summary_accepts_payloads_from_before_cancelling_state_was_added() {
+fn run_summary_accepts_payloads_from_before_new_status_counters_were_added() {
     let summary: WorkflowRunSummary = serde_json::from_value(json!({
         "total_runs": 0,
         "pending_runs": 0,
@@ -110,6 +122,7 @@ fn run_summary_accepts_payloads_from_before_cancelling_state_was_added() {
     }))
     .unwrap();
     assert_eq!(summary.cancelling_runs, 0);
+    assert_eq!(summary.continued_as_new_runs, 0);
 }
 
 #[test]
@@ -136,6 +149,23 @@ fn flow_event_envelope_uses_stable_native_history_field_names() {
 }
 
 #[test]
+fn continue_as_new_event_uses_stable_wire_shape_and_event_key() {
+    let event = FlowEvent::RunContinuedAsNew {
+        successor_run_id: "successor-1".to_string(),
+        input: json!({ "cursor": 2 }),
+    };
+    assert_eq!(event.event_key(), "flow.run.continued_as_new");
+    assert_eq!(
+        serde_json::to_value(event).unwrap(),
+        json!({
+            "type": "run_continued_as_new",
+            "successor_run_id": "successor-1",
+            "input": { "cursor": 2 }
+        })
+    );
+}
+
+#[test]
 fn native_ts_authoring_types_track_runtime_protocol_shape() {
     let types = include_str!("../examples/native-ts/a3s-flow-runtime.d.ts");
     for event_type in [
@@ -148,6 +178,7 @@ fn native_ts_authoring_types_track_runtime_protocol_shape() {
         "run_timed_out",
         "run_retry_exhausted",
         "run_host_shutdown",
+        "run_continued_as_new",
         "run_progress_recorded",
         "child_operation_linked",
         "step_created",
@@ -177,5 +208,6 @@ fn native_ts_authoring_types_track_runtime_protocol_shape() {
     assert!(types.contains("type: \"record_progress\"; progress: WorkflowProgress"));
     assert!(types.contains("type: \"link_child_operation\"; child: ChildOperationReference"));
     assert!(types.contains("type: \"cancel\""));
+    assert!(types.contains("type: \"continue_as_new\"; input: Json"));
     assert!(!types.contains("export function stepOutput"));
 }

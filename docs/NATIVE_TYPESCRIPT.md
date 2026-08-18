@@ -323,8 +323,12 @@ Important protocol details:
   inspect matching history events before returning either command again.
 - `cancel` is valid after `run_cancellation_requested`; cleanup-aware workflows
   should run stable cleanup steps before returning it.
+- `continue_as_new` accepts only the next JSON input. Flow generates and
+  persists the successor run ID, carries the exact current `WorkflowSpec`, and
+  exposes the boundary as `run_continued_as_new` history on the predecessor.
 - Terminal history distinguishes `run_timed_out`, `run_retry_exhausted`, and
-  `run_host_shutdown` from generic `run_failed`.
+  `run_host_shutdown` from generic `run_failed`; `run_continued_as_new` is a
+  separate successful segmentation outcome rather than completion output.
 
 The greeting source in
 [`examples/native-ts/greeting.ts`](../examples/native-ts/greeting.ts) shows the
@@ -361,6 +365,8 @@ Workflow exports should be deterministic:
 - use stable step IDs, wait IDs, hook IDs, and patch marker IDs,
 - treat `spec.patch_markers` as immutable run history rather than a dynamic
   product feature flag,
+- make `continue_as_new.input` self-contained because step, wait, hook, and
+  progress history does not carry into the successor stream,
 - set `retry.on_exhausted` to `"continue_workflow"` only when workflow replay
   explicitly handles the resulting `step_failed` history.
 

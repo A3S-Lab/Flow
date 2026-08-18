@@ -3,9 +3,9 @@ use std::collections::BTreeMap;
 use crate::error::{FlowError, Result};
 
 use super::{
-    CancellationRequestSnapshot, FlowEvent, FlowEventEnvelope, HookSnapshot, HookStatus,
-    StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowRunSnapshot,
-    WorkflowRunStatus, WorkflowTerminalOutcome,
+    validate_run_id, CancellationRequestSnapshot, FlowEvent, FlowEventEnvelope, HookSnapshot,
+    HookStatus, StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus,
+    WorkflowContinuation, WorkflowRunSnapshot, WorkflowRunStatus, WorkflowTerminalOutcome,
 };
 
 pub(crate) fn project_run(
@@ -40,6 +40,7 @@ pub(crate) fn project_run(
         output: None,
         error: None,
         terminal_outcome: None,
+        continuation: None,
         last_sequence: first.sequence,
     };
 
@@ -193,6 +194,27 @@ pub(crate) fn project_run(
                 );
                 snapshot.terminal_outcome = Some(WorkflowTerminalOutcome::HostShutdown {
                     reason: reason.clone(),
+                });
+            }
+            FlowEvent::RunContinuedAsNew {
+                successor_run_id,
+                input,
+            } => {
+                if snapshot.status != WorkflowRunStatus::Running {
+                    return Err(FlowError::InvalidTransition(
+                        "run_continued_as_new can only follow a running run".to_string(),
+                    ));
+                }
+                validate_run_id(successor_run_id)?;
+                snapshot.status = WorkflowRunStatus::ContinuedAsNew;
+                snapshot.output = None;
+                snapshot.error = None;
+                snapshot.continuation = Some(WorkflowContinuation {
+                    successor_run_id: successor_run_id.clone(),
+                    input: input.clone(),
+                });
+                snapshot.terminal_outcome = Some(WorkflowTerminalOutcome::ContinuedAsNew {
+                    successor_run_id: successor_run_id.clone(),
                 });
             }
             FlowEvent::RunProgressRecorded { progress } => {

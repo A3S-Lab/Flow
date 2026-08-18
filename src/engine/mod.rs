@@ -4,15 +4,17 @@ use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    project_run, ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookStatus, RuntimeCommand,
-    ScheduledWakeup, ScheduledWakeupKind, StepStatus, WaitStatus, WorkflowRunSnapshot,
-    WorkflowRunStatus, WorkflowRunSummary, WorkflowRunSuspension, WorkflowSpec,
+    project_run, validate_run_id, ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookStatus,
+    RuntimeCommand, ScheduledWakeup, ScheduledWakeupKind, StepStatus, WaitStatus,
+    WorkflowRunSnapshot, WorkflowRunStatus, WorkflowRunSummary, WorkflowRunSuspension,
+    WorkflowSpec,
 };
 use crate::observe::{FlowEventObserver, NoopFlowEventObserver};
 use crate::runtime::{FlowRuntime, WorkflowInvocation};
 use crate::runtime_build::{RuntimeBuildCompatibility, RuntimeBuildId};
 use crate::store::{scheduled_wakeups_for_snapshot, FlowEventStore, InMemoryEventStore};
 
+mod continuation;
 mod hooks;
 mod operations;
 mod steps;
@@ -21,8 +23,10 @@ use steps::{interrupted_retry_exhaustion_event, StepExecutionContext};
 use validation::{
     ensure_child_operation_matches, ensure_hook_command_matches, ensure_progress_matches,
     ensure_retry_policy_valid, ensure_same_start, ensure_step_batch_valid,
-    ensure_step_command_matches, ensure_wait_command_matches, is_event_conflict, validate_run_id,
+    ensure_step_command_matches, ensure_wait_command_matches, is_event_conflict,
 };
+
+const DEFAULT_MAX_CONTINUE_AS_NEW_HOPS: usize = 64;
 
 /// Builder for a [`FlowEngine`].
 pub struct FlowEngineBuilder {
@@ -31,6 +35,7 @@ pub struct FlowEngineBuilder {
     observer: Arc<dyn FlowEventObserver>,
     runtime_build_compatibility: Option<RuntimeBuildCompatibility>,
     max_replay_iterations: usize,
+    max_continue_as_new_hops: usize,
 }
 
 impl FlowEngineBuilder {
@@ -41,6 +46,7 @@ impl FlowEngineBuilder {
             observer: Arc::new(NoopFlowEventObserver),
             runtime_build_compatibility: None,
             max_replay_iterations: 1024,
+            max_continue_as_new_hops: DEFAULT_MAX_CONTINUE_AS_NEW_HOPS,
         }
     }
 
@@ -68,6 +74,15 @@ impl FlowEngineBuilder {
         self
     }
 
+    /// Bound the number of continue-as-new links one drive call may follow.
+    ///
+    /// The default is 64. Zero disables new continuations; when the limit is
+    /// reached, the engine rejects the runtime command before appending it.
+    pub fn with_max_continue_as_new_hops(mut self, max_hops: usize) -> Self {
+        self.max_continue_as_new_hops = max_hops;
+        self
+    }
+
     pub fn build(self) -> FlowEngine {
         FlowEngine {
             store: self.store,
@@ -75,6 +90,7 @@ impl FlowEngineBuilder {
             observer: self.observer,
             runtime_build_compatibility: self.runtime_build_compatibility,
             max_replay_iterations: self.max_replay_iterations,
+            max_continue_as_new_hops: self.max_continue_as_new_hops,
         }
     }
 }
@@ -87,6 +103,7 @@ pub struct FlowEngine {
     observer: Arc<dyn FlowEventObserver>,
     runtime_build_compatibility: Option<RuntimeBuildCompatibility>,
     max_replay_iterations: usize,
+    max_continue_as_new_hops: usize,
 }
 
 impl FlowEngine {
@@ -101,6 +118,7 @@ impl FlowEngine {
             observer: Arc::new(NoopFlowEventObserver),
             runtime_build_compatibility: None,
             max_replay_iterations: 1024,
+            max_continue_as_new_hops: DEFAULT_MAX_CONTINUE_AS_NEW_HOPS,
         }
     }
 
@@ -150,67 +168,10 @@ impl FlowEngine {
         spec: WorkflowSpec,
         input: serde_json::Value,
     ) -> Result<String> {
-        spec.validate()?;
         let run_id = run_id.into();
-        validate_run_id(&run_id)?;
-        self.ensure_runtime_build_available(&run_id, &spec)?;
-
-        for _ in 0..self.max_replay_iterations {
-            match self.store.list(&run_id).await {
-                Ok(history) => {
-                    let snapshot = project_run(&run_id, &history)?;
-                    ensure_same_start(&run_id, &snapshot, &spec, &input)?;
-                    if snapshot.status == WorkflowRunStatus::Pending {
-                        match self
-                            .record_event_at(&run_id, snapshot.last_sequence, FlowEvent::RunStarted)
-                            .await
-                        {
-                            Ok(_) => {}
-                            Err(err) if is_event_conflict(&err) => continue,
-                            Err(err) => return Err(err),
-                        }
-                    }
-                    match self.drive(&run_id).await {
-                        Ok(_) => return Ok(run_id),
-                        Err(err) if is_event_conflict(&err) => continue,
-                        Err(err) => return Err(err),
-                    }
-                }
-                Err(FlowError::RunNotFound(_)) => {
-                    let created = match self
-                        .record_event_at(
-                            &run_id,
-                            0,
-                            FlowEvent::RunCreated {
-                                spec: spec.clone(),
-                                input: input.clone(),
-                            },
-                        )
-                        .await
-                    {
-                        Ok(created) => created,
-                        Err(err) if is_event_conflict(&err) => continue,
-                        Err(err) => return Err(err),
-                    };
-                    match self
-                        .record_event_at(&run_id, created.sequence, FlowEvent::RunStarted)
-                        .await
-                    {
-                        Ok(_) => {}
-                        Err(err) if is_event_conflict(&err) => continue,
-                        Err(err) => return Err(err),
-                    }
-                    match self.drive(&run_id).await {
-                        Ok(_) => return Ok(run_id),
-                        Err(err) if is_event_conflict(&err) => continue,
-                        Err(err) => return Err(err),
-                    }
-                }
-                Err(err) => return Err(err),
-            }
-        }
-
-        Err(FlowError::ReplayLimitExceeded(self.max_replay_iterations))
+        self.ensure_run_started(&run_id, &spec, &input).await?;
+        self.drive(&run_id).await?;
+        Ok(run_id)
     }
 
     /// Resume a wait once its timer has fired.
@@ -512,13 +473,12 @@ impl FlowEngine {
         self.store.list_active_hooks().await
     }
 
-    /// Replay and dispatch until the run reaches a terminal state or an open
-    /// wait/hook suspension.
-    pub async fn drive(&self, run_id: &str) -> Result<WorkflowRunSnapshot> {
-        self.drive_at(run_id, Utc::now()).await
-    }
-
-    async fn drive_at(&self, run_id: &str, now: DateTime<Utc>) -> Result<WorkflowRunSnapshot> {
+    async fn drive_run_at(
+        &self,
+        run_id: &str,
+        now: DateTime<Utc>,
+        allow_continue_as_new: bool,
+    ) -> Result<WorkflowRunSnapshot> {
         'replay: for _ in 0..self.max_replay_iterations {
             let history = self.store.list(run_id).await?;
             let snapshot = project_run(run_id, &history)?;
@@ -623,6 +583,35 @@ impl FlowEngine {
                             run_id,
                             snapshot.last_sequence,
                             FlowEvent::RunTimedOut { deadline, reason },
+                        )
+                        .await
+                    {
+                        Ok(_) => {}
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                    return self.snapshot(run_id).await;
+                }
+                RuntimeCommand::ContinueAsNew { input } => {
+                    if snapshot.status == WorkflowRunStatus::Cancelling {
+                        return Err(FlowError::InvalidTransition(format!(
+                            "workflow run {run_id} continued as new after cancellation was requested; cleanup-aware cancellation must return cancel or fail"
+                        )));
+                    }
+                    if !allow_continue_as_new {
+                        return Err(FlowError::ContinueAsNewLimitExceeded(
+                            self.max_continue_as_new_hops,
+                        ));
+                    }
+                    let successor_run_id = Uuid::new_v4().to_string();
+                    match self
+                        .record_event_at(
+                            run_id,
+                            snapshot.last_sequence,
+                            FlowEvent::RunContinuedAsNew {
+                                successor_run_id,
+                                input,
+                            },
                         )
                         .await
                     {
@@ -830,12 +819,12 @@ impl FlowEngine {
 
     async fn terminate_run(&self, run_id: &str, event: FlowEvent) -> Result<()> {
         for _ in 0..self.max_replay_iterations {
-            let snapshot = self.snapshot(run_id).await?;
+            let snapshot = self.ensure_continuation_leaf(run_id, false).await?;
             if snapshot.status.is_terminal() {
                 return Ok(());
             }
             match self
-                .record_event_at(run_id, snapshot.last_sequence, event.clone())
+                .record_event_at(&snapshot.run_id, snapshot.last_sequence, event.clone())
                 .await
             {
                 Ok(_) => return Ok(()),
@@ -843,6 +832,70 @@ impl FlowEngine {
                 Err(err) => return Err(err),
             }
         }
+        Err(FlowError::ReplayLimitExceeded(self.max_replay_iterations))
+    }
+
+    async fn ensure_run_started(
+        &self,
+        run_id: &str,
+        spec: &WorkflowSpec,
+        input: &serde_json::Value,
+    ) -> Result<()> {
+        self.ensure_run_started_with_admission(run_id, spec, input, true)
+            .await
+    }
+
+    async fn ensure_run_started_with_admission(
+        &self,
+        run_id: &str,
+        spec: &WorkflowSpec,
+        input: &serde_json::Value,
+        require_runtime_build: bool,
+    ) -> Result<()> {
+        spec.validate()?;
+        validate_run_id(run_id)?;
+        if require_runtime_build {
+            self.ensure_runtime_build_available(run_id, spec)?;
+        }
+
+        for _ in 0..self.max_replay_iterations {
+            match self.store.list(run_id).await {
+                Ok(history) => {
+                    let snapshot = project_run(run_id, &history)?;
+                    ensure_same_start(run_id, &snapshot, spec, input)?;
+                    if snapshot.status != WorkflowRunStatus::Pending {
+                        return Ok(());
+                    }
+                    match self
+                        .record_event_at(run_id, snapshot.last_sequence, FlowEvent::RunStarted)
+                        .await
+                    {
+                        Ok(_) => return Ok(()),
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
+                Err(FlowError::RunNotFound(_)) => {
+                    match self
+                        .record_event_at(
+                            run_id,
+                            0,
+                            FlowEvent::RunCreated {
+                                spec: spec.clone(),
+                                input: input.clone(),
+                            },
+                        )
+                        .await
+                    {
+                        Ok(_) => continue,
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
+                Err(err) => return Err(err),
+            }
+        }
+
         Err(FlowError::ReplayLimitExceeded(self.max_replay_iterations))
     }
 

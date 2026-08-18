@@ -55,6 +55,51 @@ async fn create_run(store: &SqliteEventStore, run_id: &str) {
 }
 
 #[tokio::test]
+async fn sqlite_continue_as_new_closes_indexed_hooks_and_wakeups() {
+    let store = SqliteEventStore::connect("sqlite::memory:").await.unwrap();
+    let run_id = "sqlite-continue-as-new-cleanup";
+    create_run(&store, run_id).await;
+    store
+        .append(
+            run_id,
+            FlowEvent::HookCreated {
+                hook_id: "approval".into(),
+                token: "sqlite-continue-token".into(),
+                metadata: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            run_id,
+            FlowEvent::WaitCreated {
+                wait_id: "timer".into(),
+                resume_at: timestamp("2200-08-07T00:00:01Z"),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            run_id,
+            FlowEvent::RunContinuedAsNew {
+                successor_run_id: "sqlite-continue-successor".into(),
+                input: json!({ "generation": 1 }),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(store.list_active_hooks().await.unwrap().is_empty());
+    assert!(store
+        .list_due_wakeups(timestamp("2300-01-01T00:00:00Z"))
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test]
 async fn sqlite_indexed_wakeups_include_the_persisted_runtime_build() {
     let store = SqliteEventStore::connect("sqlite::memory:").await.unwrap();
     let run_id = "sqlite-build-routed-wakeup";
@@ -456,6 +501,50 @@ async fn sqlite_scheduled_wakeup_migration_backfills_and_tracks_legacy_writers()
         },
     )
     .await;
+
+    let continued_run = "sqlite-wakeup-upgrade-continued";
+    insert_raw_event(
+        &executor,
+        continued_run,
+        1,
+        FlowEvent::RunCreated {
+            spec: spec(),
+            input: json!({}),
+        },
+    )
+    .await;
+    insert_raw_event(&executor, continued_run, 2, FlowEvent::RunStarted).await;
+    insert_raw_event(
+        &executor,
+        continued_run,
+        3,
+        FlowEvent::HookCreated {
+            hook_id: "legacy-hook".into(),
+            token: "sqlite-upgrade-continued-token".into(),
+            metadata: json!({}),
+        },
+    )
+    .await;
+    insert_raw_event(
+        &executor,
+        continued_run,
+        4,
+        FlowEvent::WaitCreated {
+            wait_id: "legacy-continued-wait".into(),
+            resume_at: timestamp("2026-08-07T01:00:04Z"),
+        },
+    )
+    .await;
+    insert_raw_event(
+        &executor,
+        continued_run,
+        5,
+        FlowEvent::RunContinuedAsNew {
+            successor_run_id: "sqlite-wakeup-upgrade-successor".into(),
+            input: json!({ "generation": 1 }),
+        },
+    )
+    .await;
     drop(executor);
 
     let store = SqliteEventStore::connect(format!("sqlite://{}", database_path.display()))
@@ -480,6 +569,13 @@ async fn sqlite_scheduled_wakeup_migration_backfills_and_tracks_legacy_writers()
         .any(|row| row.0 == cancelling_run && row.2 == "cleanup"));
     assert!(!rows.iter().any(|row| row.2 == "pre-cancellation"));
     assert!(!rows.iter().any(|row| row.2 == "already-completed"));
+    assert!(!rows.iter().any(|row| row.0 == continued_run));
+    assert!(store
+        .list_active_hooks()
+        .await
+        .unwrap()
+        .into_iter()
+        .all(|active| active.run_id != continued_run));
 
     insert_raw_event(
         store.executor(),

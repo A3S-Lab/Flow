@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::error::{FlowError, Result};
 use crate::model::{FlowEvent, FlowEventEnvelope};
 
-use super::{retention::linked_flow_run_id, FlowEventStore};
+use super::{retention::required_linked_flow_run_id, FlowEventStore};
 
 /// In-memory event store for tests, local development, and embedded hosts.
 #[derive(Debug, Default)]
@@ -72,7 +72,7 @@ fn ensure_linked_flow_run_exists(
     runs: &HashMap<String, Vec<FlowEventEnvelope>>,
     event: &FlowEvent,
 ) -> Result<()> {
-    let Some(linked_run_id) = linked_flow_run_id(event) else {
+    let Some(linked_run_id) = required_linked_flow_run_id(event) else {
         return Ok(());
     };
     if runs.get(linked_run_id).is_none_or(Vec::is_empty) {

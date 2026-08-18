@@ -192,6 +192,14 @@ impl<'a> WorkflowContext<'a> {
         RuntimeCommand::Timeout { deadline, reason }
     }
 
+    /// Close this history segment and continue with fresh history and `input`.
+    ///
+    /// The engine persists the successor identity before creating it and
+    /// carries the exact current [`WorkflowSpec`] into the new run.
+    pub fn continue_as_new(&self, input: JsonValue) -> RuntimeCommand {
+        RuntimeCommand::ContinueAsNew { input }
+    }
+
     /// Persist an idempotently identified progress update and replay.
     pub fn record_progress(&self, progress: WorkflowProgress) -> RuntimeCommand {
         RuntimeCommand::RecordProgress { progress }

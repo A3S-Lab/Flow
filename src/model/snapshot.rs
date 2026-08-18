@@ -7,8 +7,8 @@ use crate::error::{FlowError, Result};
 use crate::runtime_build::RuntimeBuildId;
 
 use super::{
-    CancellationRequestSnapshot, ChildOperationReference, JsonValue, RetryPolicy, WorkflowProgress,
-    WorkflowSpec, WorkflowTerminalOutcome,
+    CancellationRequestSnapshot, ChildOperationReference, JsonValue, RetryPolicy,
+    WorkflowContinuation, WorkflowProgress, WorkflowSpec, WorkflowTerminalOutcome,
 };
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -21,11 +21,15 @@ pub enum WorkflowRunStatus {
     Completed,
     Failed,
     Cancelled,
+    ContinuedAsNew,
 }
 
 impl WorkflowRunStatus {
     pub fn is_terminal(self) -> bool {
-        matches!(self, Self::Completed | Self::Failed | Self::Cancelled)
+        matches!(
+            self,
+            Self::Completed | Self::Failed | Self::Cancelled | Self::ContinuedAsNew
+        )
     }
 }
 
@@ -183,6 +187,7 @@ pub struct WorkflowRunSummary {
     pub completed_runs: usize,
     pub failed_runs: usize,
     pub cancelled_runs: usize,
+    pub continued_as_new_runs: usize,
     pub terminal_runs: usize,
     pub non_terminal_runs: usize,
     pub open_waits: usize,
@@ -209,6 +214,7 @@ impl WorkflowRunSummary {
             WorkflowRunStatus::Completed => self.completed_runs += 1,
             WorkflowRunStatus::Failed => self.failed_runs += 1,
             WorkflowRunStatus::Cancelled => self.cancelled_runs += 1,
+            WorkflowRunStatus::ContinuedAsNew => self.continued_as_new_runs += 1,
         }
 
         if snapshot.status.is_terminal() {
@@ -317,6 +323,8 @@ pub struct WorkflowRunSnapshot {
     pub error: Option<String>,
     #[serde(default)]
     pub terminal_outcome: Option<WorkflowTerminalOutcome>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continuation: Option<WorkflowContinuation>,
     pub last_sequence: u64,
 }
 

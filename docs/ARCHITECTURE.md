@@ -30,7 +30,7 @@ Runtime adapter layer
           |
           v
 Durable engine layer
-  FlowEngine, replay loop, runtime-build admission, patch markers, inspection, waits, scheduler
+  FlowEngine, replay loop, runtime-build admission, patch markers, history segmentation, waits, scheduler
           |
           v
 Event store layer
@@ -112,6 +112,9 @@ The runtime returns exactly one command:
 - `cancel`: after a durable cancellation request and host cleanup, the engine
   persists `run_cancelled`.
 - `timeout`: the engine persists a typed timeout terminal outcome.
+- `continue_as_new`: the engine closes the current stream with a durable
+  successor link, creates a fresh run with the exact same spec and new input,
+  and keeps driving the execution chain.
 
 Cleanup-aware cancellation has a host entrypoint and a runtime completion
 command. `FlowEngine::request_cancellation()` persists
@@ -136,6 +139,43 @@ When a reference includes `flow_run_id`, every built-in store verifies that the
 same-store child history already exists before committing the link. This keeps
 parent-child retention graphs free of newly created dangling references across
 in-memory, JSONL, SQLite, and PostgreSQL adapters.
+
+## Continue-As-New History Segmentation
+
+Continue-as-new bounds replay history without rewriting it. The runtime returns
+new input; Flow generates the successor run ID and first commits
+`run_continued_as_new` to the predecessor. That terminal event is the source of
+truth for the transition. The successor inherits the complete predecessor
+`WorkflowSpec`, including runtime build identity and patch markers, so history
+segmentation cannot silently become a code migration.
+
+The two streams are reconciled rather than pretending every custom event store
+can provide a cross-stream transaction. If a host stops after the predecessor
+event but before successor creation, task redelivery or `drive(predecessor)`
+reads the committed link, idempotently creates and starts the exact successor,
+then follows it. Concurrent recovery converges through expected-sequence writes
+and same-start spec/input checks. A conflicting pre-existing successor fails
+closed.
+
+`drive()` returns the active leaf snapshot, while the original root ID remains
+the stable identity returned by `start_with_id()`. `continuation_chain()` follows
+persisted links for inspection. A visited-run set rejects cycles, and the
+builder's continue-as-new hop limit bounds one drive call. When that limit is
+reached, the runtime command is rejected before a new terminal link is
+appended.
+
+Host cancellation, immediate terminal controls, progress, and child-reference
+writes accept a predecessor ID and re-resolve the active leaf on every
+expected-sequence retry. A continuation that wins the race is therefore
+followed rather than mistaken for the final execution outcome. Wait and hook
+resolutions remain segment-addressed because their durable IDs and idempotent
+redelivery state belong to the segment that created them.
+
+Retention treats predecessor/successor links as undirected connected
+components: a live, recent, held, or temporarily missing successor protects the
+closed predecessor. SQL continuation migrations backfill cleanup and
+transactionally remove active-hook and scheduled-wakeup rows when a segment
+closes.
 
 The workflow function is deterministic because it derives its next decision from
 the input and event history. Side effects are isolated to steps and are only
@@ -204,7 +244,7 @@ run existence check as both database adapters.
 
 SQL migrations materialize `flow_active_hooks` from existing event history and
 install event-insert triggers for hook creation, receipt, disposal,
-cancellation, and terminal outcomes. The event stream remains authoritative;
+cancellation, continuation, and terminal outcomes. The event stream remains authoritative;
 the projection contains only currently routable hooks. SQLite immediate
 transactions serialize token ownership checks. PostgreSQL adds a token-scoped
 advisory lock so competing new writers return a typed conflict, while the
@@ -218,7 +258,7 @@ Separate SQL migrations materialize open wait timers and delayed retries into
 `flow_scheduled_wakeups`. Fixed-width UTC nanosecond timestamp keys preserve
 lexicographic deadline ordering for indexed range and earliest-row queries.
 Lifecycle triggers insert, replace, or remove projection rows for waits,
-retries, cancellation, and terminal outcomes in the event append transaction.
+retries, cancellation, continuation, and terminal outcomes in the event append transaction.
 The PostgreSQL migration locks `flow_events` against concurrent inserts while
 it reconciles the earlier active-hook projection, backfills scheduled work,
 and installs the new trigger, closing the rolling-upgrade gap between backfill
@@ -226,7 +266,7 @@ and trigger installation.
 
 Local JSONL, SQLite, and PostgreSQL retention remove whole terminal streams
 only. All three evaluate one shared eligibility planner, protecting
-non-terminal or recent runs and linked components that are not entirely
+non-terminal or recent runs and linked child/continuation components that are not entirely
 eligible. The local adapter evaluates one consistent view under its in-process
 store lock. SQLite and PostgreSQL additionally protect durable audit holds and
 run deletion inside A3S ORM transactions. SQLite uses an immediate transaction

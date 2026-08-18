@@ -245,12 +245,12 @@ conflict.
 
 | Primitive | Responsibility |
 | --- | --- |
-| `FlowEngine` | Start, drive, resume, inspect, cancel, and terminate runs |
+| `FlowEngine` | Start, drive, follow continuation chains, resume, inspect, cancel, and terminate runs |
 | `WorkflowDsl` / `WorkflowDag` | Lossless workflow document import, version classification, scoped DAG validation, deterministic planning, and semantic identity |
 | `FlowRuntime` | Host-provided workflow decision and step execution boundary |
-| `WorkflowContext` | Replay-safe reads plus command builders for steps, batches, waits, hooks, and terminal outcomes |
+| `WorkflowContext` | Replay-safe reads plus command builders for steps, batches, waits, hooks, continue-as-new, and terminal outcomes |
 | `FlowEventStore` | Append-only history, expected-sequence writes, hooks, wakeups, and retention projections |
-| `WorkflowRunSnapshot` | Materialized status, steps, hooks, waits, progress, child references, and terminal outcome |
+| `WorkflowRunSnapshot` | Materialized status, steps, hooks, waits, progress, child references, continuation, and terminal outcome |
 | `FlowScheduler` | Discover due waits/retries once, group them by run, preflight build routes, and dispatch work |
 | `BootFlowTaskManager` | Recommended A3S Boot queue integration and worker lifecycle |
 | `FlowWorker` | Embedded/compatibility queue consumer |
@@ -354,7 +354,9 @@ SQLite and PostgreSQL use `a3s-orm` for typed access, checksummed migrations,
 transactional appends, active-hook routing, scheduled-wakeup indexes, and
 audit-safe whole-history retention. Retention deletes only complete eligible
 linked components and leaves checksum tombstones; partial event-stream
-compaction is intentionally unsupported.
+compaction is intentionally unsupported. Workflows that need bounded replay
+history use continue-as-new to create linked fresh streams instead of rewriting
+an existing stream.
 
 For background work, prefer `BootFlowTaskManager` with an A3S Boot queue. It
 owns processor registration, job state, retry/timeout policy, stalled-job
@@ -410,6 +412,25 @@ specs default to no markers. Markers are not mutable feature flags and their
 IDs must never be reused for another behavior. See the
 [`replay_safe_patch`](examples/replay_safe_patch.rs) example and the
 [rollout recipe](docs/COOKBOOK.md#replay-safe-workflow-patches).
+
+### Continue as new
+
+Long-running workflows can close one event stream and resume from fresh
+history with `WorkflowContext::continue_as_new(input)`. Flow first commits
+`flow.run.continued_as_new` with an engine-generated successor ID, then
+idempotently creates and drives that successor with the predecessor's exact
+`WorkflowSpec`. Runtime build pins and patch markers therefore cannot drift at
+the segmentation boundary.
+
+`FlowEngine::drive()` follows the chain and returns its active leaf snapshot;
+`start_with_id()` still returns the stable root ID. Use
+`continuation_chain()` to inspect every segment. A committed predecessor link
+repairs a missing successor after a crash, cycles fail closed, and
+`with_max_continue_as_new_hops()` bounds work performed by one drive call.
+Cancellation, immediate termination, progress, and child-reference calls made
+with a predecessor ID resolve the active leaf again on each conflict retry.
+Retention treats the chain as one linked component. See the
+[`continue_as_new`](examples/continue_as_new.rs) example.
 
 ## Native TypeScript
 
@@ -483,7 +504,7 @@ The deeper references keep operational detail out of this homepage:
 | Workflow document/graph parsing, structural invariants, deterministic plans, and semantic digests | Node semantics, capability bindings, credentials, and authoring policy |
 | Append-only run history and sequence checks | Product authorization, tenancy, and publication lifecycle |
 | Deterministic replay validation | Runtime node registry and business-data semantics |
-| Step, wait, hook, retry, and terminal lifecycles | Which tools and external systems a step may call |
+| Step, wait, hook, retry, continuation, and terminal lifecycles | Which tools and external systems a step may call |
 | Runtime-build admission, pinned patch markers, and task routing | Deployment policy, compatible build declarations, and marker rollout timing |
 | Store, scheduler, worker, and observer contracts | Logical idempotency for physical side effects |
 
@@ -527,8 +548,8 @@ second graph compiler, scheduler, event store, or workflow lifecycle.
   import, version classification, lossless extensions, scoped validation,
   deterministic plans, and semantic digests are covered by fixtures and tests.
 - **Durable runtime — implemented.** Replay, steps, batches, retries, waits,
-  hooks, cancellation, progress, child references, and typed terminal outcomes
-  are part of the public engine contract.
+  hooks, cancellation, progress, child references, bounded continue-as-new
+  histories, and typed terminal outcomes are part of the public engine contract.
 - **Persistence — implemented, with feature gates.** Memory and JSONL are built
   in; SQLite and PostgreSQL share canonical A3S ORM migrations.
 - **Dispatch and rolling builds — implemented.** A3S Boot is the recommended

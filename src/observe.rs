@@ -507,6 +507,7 @@ fn event_status(event: &FlowEvent) -> Option<&'static str> {
         FlowEvent::RunTimedOut { .. } => Some("timed_out"),
         FlowEvent::RunRetryExhausted { .. } => Some("retry_exhausted"),
         FlowEvent::RunHostShutdown { .. } => Some("host_shutdown"),
+        FlowEvent::RunContinuedAsNew { .. } => Some("continued_as_new"),
         FlowEvent::RunProgressRecorded { .. } => Some("recorded"),
         FlowEvent::ChildOperationLinked { .. } => Some("linked"),
         FlowEvent::StepCreated { .. } => Some("pending"),
@@ -558,7 +559,8 @@ fn event_subject(event: &FlowEvent) -> Option<A3sFlowEventSubject> {
         | FlowEvent::RunCompleted { .. }
         | FlowEvent::RunFailed { .. }
         | FlowEvent::RunCancellationRequested { .. }
-        | FlowEvent::RunCancelled { .. } => None,
+        | FlowEvent::RunCancelled { .. }
+        | FlowEvent::RunContinuedAsNew { .. } => None,
         FlowEvent::RunTimedOut { .. } | FlowEvent::RunHostShutdown { .. } => None,
     }
 }

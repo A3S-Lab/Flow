@@ -16,7 +16,7 @@ use crate::store::{
     FlowHistoryHold, FlowHistoryRetentionPolicy, FlowHistoryRetentionReport, FlowHistoryTombstone,
 };
 
-pub(super) use crate::store::retention::linked_flow_run_id;
+pub(super) use crate::store::retention::required_linked_flow_run_id;
 
 const RETENTION_GUARD_LOCK_ID: &str = "a3s-flow-history-retention-guard";
 

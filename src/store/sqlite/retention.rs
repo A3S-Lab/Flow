@@ -15,7 +15,7 @@ use super::{
     map_sqlite_transaction, row_to_envelope, SqliteEventStore,
 };
 
-pub(super) use crate::store::retention::linked_flow_run_id;
+pub(super) use crate::store::retention::required_linked_flow_run_id;
 
 impl SqliteEventStore {
     /// Persist an audit hold that prevents a run history from being pruned.

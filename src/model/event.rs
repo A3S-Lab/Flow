@@ -40,6 +40,10 @@ pub enum FlowEvent {
     RunHostShutdown {
         reason: Option<String>,
     },
+    RunContinuedAsNew {
+        successor_run_id: String,
+        input: JsonValue,
+    },
     RunProgressRecorded {
         progress: WorkflowProgress,
     },
@@ -106,6 +110,7 @@ impl FlowEvent {
             Self::RunTimedOut { .. } => "flow.run.timed_out",
             Self::RunRetryExhausted { .. } => "flow.run.retry_exhausted",
             Self::RunHostShutdown { .. } => "flow.run.host_shutdown",
+            Self::RunContinuedAsNew { .. } => "flow.run.continued_as_new",
             Self::RunProgressRecorded { .. } => "flow.run.progress.recorded",
             Self::ChildOperationLinked { .. } => "flow.child.operation.linked",
             Self::StepCreated { .. } => "flow.step.created",

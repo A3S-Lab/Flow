@@ -79,7 +79,8 @@ impl SqliteEventStore {
             .executor
             .transaction(|transaction| {
                 Box::pin(async move {
-                    let linked_run_id = retention::linked_flow_run_id(&event).map(str::to_string);
+                    let linked_run_id =
+                        retention::required_linked_flow_run_id(&event).map(str::to_string);
                     retention::ensure_sqlite_history_not_tombstoned(transaction, &run_id).await?;
                     if let Some(linked_run_id) = linked_run_id.as_deref() {
                         retention::ensure_sqlite_history_not_tombstoned(transaction, linked_run_id)

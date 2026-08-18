@@ -207,6 +207,53 @@ Patch markers are not tenant flags or kill switches. Product rollout policy
 stays with the host; Flow only persists and replays the resulting immutable
 decision. See `examples/replay_safe_patch.rs` for a runnable minimal example.
 
+## Bounded History With Continue-As-New
+
+Use continue-as-new when a polling, ingestion, or recurring workflow would
+otherwise replay an ever-growing event stream. Carry only the durable cursor or
+aggregate needed by the next segment:
+
+```rust
+# fn next(
+#     ctx: &a3s_flow::WorkflowContext<'_>,
+#     cursor: u64,
+#     total: u64,
+# ) -> a3s_flow::RuntimeCommand {
+if cursor < total {
+    ctx.continue_as_new(serde_json::json!({
+        "cursor": cursor + 1,
+        "total": total,
+    }))
+} else {
+    ctx.complete(serde_json::json!({ "processed": total }))
+}
+# }
+```
+
+`start_with_id()` returns the root run ID. Flow follows successors while
+driving, and `continuation_chain(root_run_id)` returns the persisted segments in
+order for inspection. Each closed segment projects
+`WorkflowRunStatus::ContinuedAsNew`, a typed terminal outcome, and a
+`WorkflowContinuation` containing the successor ID and next input.
+
+The successor always inherits the exact `WorkflowSpec`; continue-as-new is not
+a way to change runtime builds, patch markers, or workflow versions. Flow
+persists the predecessor link before creating the successor, so a replacement
+worker can repair that crash window idempotently. Do not pre-create or mutate
+the generated successor. Cycles fail closed, and
+`with_max_continue_as_new_hops()` limits how many boundaries one drive call may
+cross; at the limit Flow rejects the command before appending another link.
+Cancellation, immediate terminal controls, progress, and child-reference
+writes may use the root or another predecessor ID; Flow re-resolves the active
+leaf after sequence races. Wait and hook callbacks keep using the exact segment
+ID that created them so their redelivery checks inspect the correct history.
+
+Stable step IDs may repeat in different segments because each successor has a
+fresh stream, but external side effects still need business-level idempotency
+keys. A cancelling run must finish through `cancel` or `fail`, not continue as
+new. Retention keeps the entire continuation component while any segment is
+live, recent, held, or missing. See `examples/continue_as_new.rs`.
+
 ## Embedded Flow-Owned Queue Host
 
 For an embedded local host, pair the local JSONL event store with the local task
@@ -997,13 +1044,14 @@ let removed = store
 
 `LocalFileEventStore::prune_terminal_runs_older_than()` validates every run and
 uses the shared retention planner before deleting anything. A connected
-parent-child component is removed only when every history is completed, failed,
-or cancelled and its terminal event timestamp is before the cutoff. A running,
-suspended, recent, or dangling member protects the eligible histories linked to
-it. Corrupt histories return an error instead of being deleted. Every built-in
+child/continuation component is removed only when every history is terminal and
+its terminal event timestamp is before the cutoff. A running, suspended,
+recent, or dangling member protects the eligible histories linked to it.
+Corrupt histories return an error instead of being deleted. Every built-in
 store also rejects a new `flow_run_id` child reference unless that run already
-exists in the same store. See `examples/local_retention.rs` for a runnable
-cleanup example.
+exists in the same store; continuation links deliberately commit first so a
+missing generated successor can be recovered. See `examples/local_retention.rs`
+for a runnable cleanup example.
 
 ## SQL Audit-Safe Retention
 
@@ -1026,7 +1074,7 @@ store.release_history_hold(&run_id, "audit-export").await?;
 ```
 
 The A3S ORM transaction preserves active/recent runs, held histories, and a
-linked Flow run whenever its connected parent/child component is not entirely
+linked Flow run whenever its connected child/continuation component is not entirely
 eligible. SQLite uses an immediate transaction to serialize retention with
 appends; PostgreSQL adds a database-wide retention guard and stable per-run
 advisory locks for multi-process hosts. A successful deletion leaves

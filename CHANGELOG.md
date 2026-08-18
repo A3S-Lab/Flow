@@ -9,6 +9,13 @@
   to no markers, compatible runtimes can replay old and new branches through
   `WorkflowContext::has_patch_marker`, and idempotent starts reject marker
   drift.
+- Added bounded continue-as-new history segmentation. A terminal predecessor
+  event persists the generated successor and new input before the engine
+  idempotently creates a fresh run with the exact inherited spec. Drive follows
+  the active leaf, replacement workers repair the cross-stream crash window,
+  root-scoped host controls follow that leaf, cycles and runaway chains fail
+  closed, retention protects complete lineages, and SQLite/PostgreSQL
+  migrations close indexed hooks and wakeups.
 - Added native workflow app DSL and extracted graph import. The public model retains
   unknown vendor fields, classifies DSL version compatibility, validates
   deterministic top-level and iteration/loop scopes before execution, and

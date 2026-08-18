@@ -19,6 +19,12 @@ pub enum FlowError {
     #[error("workflow run id is invalid: {0}")]
     InvalidRunId(String),
 
+    #[error("continue-as-new chain contains a cycle at workflow run {0}")]
+    ContinueAsNewCycle(String),
+
+    #[error("continue-as-new chain exceeded the configured limit of {0} hops")]
+    ContinueAsNewLimitExceeded(usize),
+
     #[error("workflow run {run_id} conflicts with existing run: {reason}")]
     RunConflict { run_id: String, reason: String },
 
@@ -123,6 +129,14 @@ impl fmt::Debug for FlowError {
             Self::InvalidRunId(run_id) => {
                 formatter.debug_tuple("InvalidRunId").field(run_id).finish()
             }
+            Self::ContinueAsNewCycle(run_id) => formatter
+                .debug_tuple("ContinueAsNewCycle")
+                .field(run_id)
+                .finish(),
+            Self::ContinueAsNewLimitExceeded(limit) => formatter
+                .debug_tuple("ContinueAsNewLimitExceeded")
+                .field(limit)
+                .finish(),
             Self::RunConflict { run_id, reason } => formatter
                 .debug_struct("RunConflict")
                 .field("run_id", run_id)

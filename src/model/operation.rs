@@ -1,9 +1,31 @@
 use chrono::{DateTime, Utc};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{FlowError, Result};
 
 use super::JsonValue;
+
+/// Durable link from a closed history segment to its successor run.
+///
+/// The successor inherits the predecessor's complete [`super::WorkflowSpec`].
+/// Only input changes across the boundary, so replay-code admission and patch
+/// markers cannot drift while an execution is segmented.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WorkflowContinuation {
+    pub successor_run_id: String,
+    pub input: JsonValue,
+}
+
+impl WorkflowContinuation {
+    /// Decode the successor input into a host-defined serde type.
+    pub fn input_as<T>(&self) -> Result<T>
+    where
+        T: DeserializeOwned,
+    {
+        serde_json::from_value(self.input.clone()).map_err(FlowError::from)
+    }
+}
 
 /// Durable request for a workflow to stop through its cleanup-aware path.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -184,5 +206,8 @@ pub enum WorkflowTerminalOutcome {
     HostShutdown {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
+    },
+    ContinuedAsNew {
+        successor_run_id: String,
     },
 }

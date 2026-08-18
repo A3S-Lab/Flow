@@ -55,6 +55,7 @@ export type RuntimeCommand =
   | { type: "fail"; error: string }
   | { type: "cancel" }
   | { type: "timeout"; deadline: string; reason: string | null }
+  | { type: "continue_as_new"; input: Json }
   | { type: "record_progress"; progress: WorkflowProgress }
   | { type: "link_child_operation"; child: ChildOperationReference }
   | {
@@ -106,6 +107,7 @@ export type FlowEvent =
       error: string;
     }
   | { type: "run_host_shutdown"; reason: string | null }
+  | { type: "run_continued_as_new"; successor_run_id: string; input: Json }
   | { type: "run_progress_recorded"; progress: WorkflowProgress }
   | { type: "child_operation_linked"; child: ChildOperationReference }
   | {

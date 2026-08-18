@@ -18,26 +18,28 @@ impl FlowEngine {
     /// request through [`WorkflowContext::cancellation_request`](crate::WorkflowContext::cancellation_request),
     /// performs host-owned cleanup with stable step identities, and returns
     /// [`RuntimeCommand::Cancel`](crate::RuntimeCommand::Cancel). Repeating the
-    /// same request is idempotent.
+    /// same request is idempotent. When `run_id` names a continued predecessor,
+    /// the request follows durable links to the active successor.
     pub async fn request_cancellation(
         &self,
         run_id: &str,
         request: CancellationRequest,
     ) -> Result<WorkflowRunSnapshot> {
         for _ in 0..self.max_replay_iterations {
-            let snapshot = self.snapshot(run_id).await?;
+            let snapshot = self.ensure_continuation_leaf(run_id, true).await?;
+            let target_run_id = snapshot.run_id.clone();
             if snapshot.status.is_terminal() {
                 return Ok(snapshot);
             }
-            self.ensure_runtime_build_available(run_id, &snapshot.spec)?;
+            self.ensure_runtime_build_available(&target_run_id, &snapshot.spec)?;
             if let Some(existing) = &snapshot.cancellation {
                 if existing.request != request {
                     return Err(FlowError::RunConflict {
-                        run_id: run_id.to_string(),
+                        run_id: target_run_id.clone(),
                         reason: "cancellation request differs from the durable request".to_string(),
                     });
                 }
-                match self.drive(run_id).await {
+                match self.drive(&target_run_id).await {
                     Ok(snapshot) => return Ok(snapshot),
                     Err(err) if is_event_conflict(&err) => continue,
                     Err(err) => return Err(err),
@@ -45,7 +47,7 @@ impl FlowEngine {
             }
             match self
                 .record_event_at(
-                    run_id,
+                    &target_run_id,
                     snapshot.last_sequence,
                     FlowEvent::RunCancellationRequested {
                         request: request.clone(),
@@ -53,7 +55,7 @@ impl FlowEngine {
                 )
                 .await
             {
-                Ok(_) => match self.drive(run_id).await {
+                Ok(_) => match self.drive(&target_run_id).await {
                     Ok(snapshot) => return Ok(snapshot),
                     Err(err) if is_event_conflict(&err) => continue,
                     Err(err) => return Err(err),
@@ -66,7 +68,7 @@ impl FlowEngine {
         Err(FlowError::ReplayLimitExceeded(self.max_replay_iterations))
     }
 
-    /// Immediately terminate a run as cancelled without replaying cleanup.
+    /// Immediately terminate the active continuation leaf without cleanup.
     pub async fn force_cancel(&self, run_id: &str, reason: Option<String>) -> Result<()> {
         self.terminate_run(run_id, FlowEvent::RunCancelled { reason })
             .await
@@ -103,21 +105,22 @@ impl FlowEngine {
             .await
     }
 
-    /// Persist a host-reported progress update exactly once by `progress_id`.
+    /// Persist a host-reported progress update exactly once on the active leaf.
     pub async fn record_progress(&self, run_id: &str, progress: WorkflowProgress) -> Result<()> {
         progress.validate()?;
         for _ in 0..self.max_replay_iterations {
-            let snapshot = self.snapshot(run_id).await?;
+            let snapshot = self.ensure_continuation_leaf(run_id, false).await?;
+            let target_run_id = snapshot.run_id.clone();
             if snapshot.status.is_terminal() {
-                return Err(FlowError::RunTerminal(run_id.to_string()));
+                return Err(FlowError::RunTerminal(target_run_id));
             }
             if let Some(existing) = snapshot.progress(&progress.progress_id) {
-                ensure_progress_matches(run_id, existing, &progress)?;
+                ensure_progress_matches(&target_run_id, existing, &progress)?;
                 return Ok(());
             }
             match self
                 .record_event_at(
-                    run_id,
+                    &target_run_id,
                     snapshot.last_sequence,
                     FlowEvent::RunProgressRecorded {
                         progress: progress.clone(),
@@ -133,7 +136,7 @@ impl FlowEngine {
         Err(FlowError::ReplayLimitExceeded(self.max_replay_iterations))
     }
 
-    /// Persist a parent-to-child operation reference exactly once by id.
+    /// Persist a parent-to-child reference exactly once on the active leaf.
     pub async fn link_child_operation(
         &self,
         run_id: &str,
@@ -141,17 +144,18 @@ impl FlowEngine {
     ) -> Result<()> {
         child.validate()?;
         for _ in 0..self.max_replay_iterations {
-            let snapshot = self.snapshot(run_id).await?;
+            let snapshot = self.ensure_continuation_leaf(run_id, false).await?;
+            let target_run_id = snapshot.run_id.clone();
             if snapshot.status.is_terminal() {
-                return Err(FlowError::RunTerminal(run_id.to_string()));
+                return Err(FlowError::RunTerminal(target_run_id));
             }
             if let Some(existing) = snapshot.child_operation(&child.reference_id) {
-                ensure_child_operation_matches(run_id, existing, &child)?;
+                ensure_child_operation_matches(&target_run_id, existing, &child)?;
                 return Ok(());
             }
             match self
                 .record_event_at(
-                    run_id,
+                    &target_run_id,
                     snapshot.last_sequence,
                     FlowEvent::ChildOperationLinked {
                         child: child.clone(),

@@ -61,6 +61,61 @@ async fn create_run(store: &PostgresEventStore, run_id: &str) {
 }
 
 #[tokio::test]
+async fn postgres_continue_as_new_closes_indexed_hooks_and_wakeups() {
+    let Some(postgres_url) = postgres_url_from_env() else {
+        return;
+    };
+    let store = PostgresEventStore::connect(&postgres_url).await.unwrap();
+    let scope = Uuid::new_v4();
+    let run_id = format!("postgres-continue-cleanup-{scope}");
+    create_run(&store, &run_id).await;
+    store
+        .append(
+            &run_id,
+            FlowEvent::HookCreated {
+                hook_id: "approval".into(),
+                token: format!("postgres-continue-token-{scope}"),
+                metadata: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &run_id,
+            FlowEvent::WaitCreated {
+                wait_id: "timer".into(),
+                resume_at: timestamp("2200-08-07T00:00:01Z"),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &run_id,
+            FlowEvent::RunContinuedAsNew {
+                successor_run_id: format!("postgres-continue-successor-{scope}"),
+                input: json!({ "generation": 1 }),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(store
+        .list_active_hooks()
+        .await
+        .unwrap()
+        .into_iter()
+        .all(|active| active.run_id != run_id));
+    assert!(store
+        .list_due_wakeups(timestamp("2300-01-01T00:00:00Z"))
+        .await
+        .unwrap()
+        .into_iter()
+        .all(|wakeup| wakeup.run_id != run_id));
+}
+
+#[tokio::test]
 async fn postgres_indexed_wakeups_include_the_persisted_runtime_build() {
     let Some(postgres_url) = postgres_url_from_env() else {
         return;
@@ -259,11 +314,62 @@ async fn postgres_scheduled_wakeup_migration_backfills_legacy_history() {
     )
     .await;
 
+    let continued_run = format!("postgres-upgrade-continued-{}", Uuid::new_v4());
+    insert_raw_event(
+        &scoped_executor,
+        &continued_run,
+        1,
+        FlowEvent::RunCreated {
+            spec: spec(),
+            input: json!({}),
+        },
+    )
+    .await;
+    insert_raw_event(&scoped_executor, &continued_run, 2, FlowEvent::RunStarted).await;
+    insert_raw_event(
+        &scoped_executor,
+        &continued_run,
+        3,
+        FlowEvent::HookCreated {
+            hook_id: "legacy-hook".into(),
+            token: format!("postgres-upgrade-continued-token-{}", Uuid::new_v4()),
+            metadata: json!({}),
+        },
+    )
+    .await;
+    insert_raw_event(
+        &scoped_executor,
+        &continued_run,
+        4,
+        FlowEvent::WaitCreated {
+            wait_id: "legacy-continued-wait".into(),
+            resume_at: timestamp("2200-08-07T01:00:02Z"),
+        },
+    )
+    .await;
+    insert_raw_event(
+        &scoped_executor,
+        &continued_run,
+        5,
+        FlowEvent::RunContinuedAsNew {
+            successor_run_id: format!("postgres-upgrade-successor-{}", Uuid::new_v4()),
+            input: json!({ "generation": 1 }),
+        },
+    )
+    .await;
+
     let store = PostgresEventStore::from_executor(scoped_executor.clone())
         .await
         .unwrap();
     let wait_rows = scheduled_rows(&store, &wait_run).await;
     let retry_rows = scheduled_rows(&store, &retry_run).await;
+    let continued_rows = scheduled_rows(&store, &continued_run).await;
+    let continued_hook_exists = store
+        .list_active_hooks()
+        .await
+        .unwrap()
+        .into_iter()
+        .any(|active| active.run_id == continued_run);
     let due_before_wait = store
         .list_due_wakeups(timestamp("2200-08-07T01:00:00.123456788Z"))
         .await
@@ -288,6 +394,8 @@ async fn postgres_scheduled_wakeup_migration_backfills_legacy_history() {
     assert_eq!(retry_rows[0].1, 2);
     assert_eq!(retry_rows[0].2, "legacy-retry");
     assert_eq!(retry_rows[0].3, "2200-08-07T01:00:01.987654321Z");
+    assert!(continued_rows.is_empty());
+    assert!(!continued_hook_exists);
     assert!(!due_before_wait
         .iter()
         .any(|wakeup| wakeup.run_id == wait_run));

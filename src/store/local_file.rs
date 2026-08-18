@@ -9,10 +9,10 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
-use crate::model::{project_run, FlowEvent, FlowEventEnvelope};
+use crate::model::{project_run, validate_run_id, FlowEvent, FlowEventEnvelope};
 
 use super::{
-    retention::{linked_flow_run_id, plan_history_retention, FlowHistoryRetentionPolicy},
+    retention::{plan_history_retention, required_linked_flow_run_id, FlowHistoryRetentionPolicy},
     FlowEventStore,
 };
 
@@ -222,7 +222,7 @@ impl LocalFileEventStore {
     }
 
     async fn ensure_linked_flow_run_exists(&self, event: &FlowEvent) -> Result<()> {
-        let Some(linked_run_id) = linked_flow_run_id(event) else {
+        let Some(linked_run_id) = required_linked_flow_run_id(event) else {
             return Ok(());
         };
         let events = self.list_inner(linked_run_id, false).await?;
@@ -378,8 +378,5 @@ fn checked_file_offset(current: u64, bytes_read: usize, path: &Path) -> Result<u
 }
 
 fn is_safe_run_id(run_id: &str) -> bool {
-    !run_id.is_empty()
-        && run_id
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    validate_run_id(run_id).is_ok()
 }

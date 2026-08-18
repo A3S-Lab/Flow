@@ -73,7 +73,8 @@ impl PostgresEventStore {
             .transaction(|transaction| {
                 Box::pin(async move {
                     retention::lock_postgres_retention_guard_shared(transaction).await?;
-                    let linked_run_id = retention::linked_flow_run_id(&event).map(str::to_string);
+                    let linked_run_id =
+                        retention::required_linked_flow_run_id(&event).map(str::to_string);
                     let mut locked_run_ids = vec![run_id.as_str()];
                     if let Some(linked_run_id) = linked_run_id.as_deref() {
                         locked_run_ids.push(linked_run_id);

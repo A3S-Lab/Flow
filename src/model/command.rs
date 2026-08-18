@@ -253,6 +253,10 @@ pub enum RuntimeCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
     },
+    /// Close this history segment and start a successor with the same spec.
+    ContinueAsNew {
+        input: JsonValue,
+    },
     /// Persist progress before replaying the workflow.
     RecordProgress {
         progress: WorkflowProgress,

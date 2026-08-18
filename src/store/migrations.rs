@@ -347,6 +347,69 @@ CREATE TABLE IF NOT EXISTS flow_history_tombstones (
 "#;
 
 #[cfg(feature = "sqlite")]
+const SQLITE_CONTINUE_AS_NEW_SQL: &str = r#"
+DELETE FROM flow_active_hooks
+WHERE run_id IN (
+    SELECT run_id
+    FROM flow_events
+    WHERE json_extract(event_json, '$.type') = 'run_continued_as_new'
+);
+
+DELETE FROM flow_scheduled_wakeups
+WHERE run_id IN (
+    SELECT run_id
+    FROM flow_events
+    WHERE json_extract(event_json, '$.type') = 'run_continued_as_new'
+);
+
+CREATE TRIGGER IF NOT EXISTS flow_continue_as_new_cleanup_after_event
+AFTER INSERT ON flow_events
+WHEN json_extract(NEW.event_json, '$.type') = 'run_continued_as_new'
+BEGIN
+    DELETE FROM flow_active_hooks WHERE run_id = NEW.run_id;
+    DELETE FROM flow_scheduled_wakeups WHERE run_id = NEW.run_id;
+END;
+"#;
+
+#[cfg(feature = "postgres")]
+const POSTGRES_CONTINUE_AS_NEW_SQL: &str = r#"
+LOCK TABLE flow_events IN SHARE ROW EXCLUSIVE MODE;
+
+DELETE FROM flow_active_hooks
+WHERE run_id IN (
+    SELECT run_id
+    FROM flow_events
+    WHERE event_json::jsonb ->> 'type' = 'run_continued_as_new'
+);
+
+DELETE FROM flow_scheduled_wakeups
+WHERE run_id IN (
+    SELECT run_id
+    FROM flow_events
+    WHERE event_json::jsonb ->> 'type' = 'run_continued_as_new'
+);
+
+CREATE OR REPLACE FUNCTION a3s_flow_cleanup_continued_run()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    DELETE FROM flow_active_hooks WHERE run_id = NEW.run_id;
+    DELETE FROM flow_scheduled_wakeups WHERE run_id = NEW.run_id;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS flow_continue_as_new_cleanup_after_event ON flow_events;
+
+CREATE TRIGGER flow_continue_as_new_cleanup_after_event
+AFTER INSERT ON flow_events
+FOR EACH ROW
+WHEN ((NEW.event_json::jsonb ->> 'type') = 'run_continued_as_new')
+EXECUTE FUNCTION a3s_flow_cleanup_continued_run();
+"#;
+
+#[cfg(feature = "sqlite")]
 pub(crate) fn sqlite_migrations() -> Vec<Migration> {
     vec![
         Migration::new(
@@ -368,6 +431,11 @@ pub(crate) fn sqlite_migrations() -> Vec<Migration> {
             "a3s-flow-0004-scheduled-wakeups",
             "create the indexed scheduled wakeup projection",
             SQLITE_SCHEDULED_WAKEUPS_SQL,
+        ),
+        Migration::new(
+            "a3s-flow-0005-continue-as-new",
+            "close indexed run resources when history continues as new",
+            SQLITE_CONTINUE_AS_NEW_SQL,
         ),
     ]
 }
@@ -399,6 +467,11 @@ pub(crate) fn postgres_migrations() -> Vec<Migration> {
             "a3s-flow-0005-scheduled-wakeups",
             "reconcile active hooks and create the scheduled wakeup projection",
             POSTGRES_SCHEDULED_WAKEUPS_SQL,
+        ),
+        Migration::new(
+            "a3s-flow-0006-continue-as-new",
+            "close indexed run resources when history continues as new",
+            POSTGRES_CONTINUE_AS_NEW_SQL,
         ),
     ]
 }
