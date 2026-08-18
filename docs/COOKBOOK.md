@@ -819,9 +819,11 @@ that actually contains the receipt.
 
 Signals may arrive before a matching wait and remain queued in append order.
 Each stable wait consumes the oldest matching unconsumed delivery. Cancellation
-deactivates waits created before the request. Continue-as-new fails while a
-signal wait remains open or any received signal is unconsumed, preventing a
-fresh segment from silently dropping messages.
+deactivates waits created before the request. Replay rejects imported or
+custom-store histories that skip an older same-name wait or delivery, so FIFO
+is an event-history invariant rather than only an engine write-path behavior.
+Continue-as-new fails while a signal wait remains open or any received signal
+is unconsumed, preventing a fresh segment from silently dropping messages.
 
 Signal names are replay contracts, not an authorization mechanism or schema
 registry. The host must authenticate the sender, authorize the run and name,

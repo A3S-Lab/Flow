@@ -195,6 +195,55 @@ async fn projection_rejects_unknown_mismatched_and_reused_signal_pairings() {
 }
 
 #[tokio::test]
+async fn projection_rejects_skipping_an_older_wait_for_the_same_signal_name() {
+    let error = snapshot_error(vec![
+        FlowEvent::SignalWaitCreated {
+            wait_id: "approval-1".to_string(),
+            signal_name: APPROVAL_SIGNAL.to_string(),
+        },
+        FlowEvent::SignalWaitCreated {
+            wait_id: "approval-2".to_string(),
+            signal_name: APPROVAL_SIGNAL.to_string(),
+        },
+        signal("delivery-1", APPROVAL_SIGNAL),
+        FlowEvent::SignalWaitCompleted {
+            wait_id: "approval-2".to_string(),
+            signal_id: "delivery-1".to_string(),
+        },
+    ])
+    .await;
+
+    assert!(matches!(
+        error,
+        FlowError::InvalidTransition(message)
+            if message.contains("skips older wait approval-1")
+    ));
+}
+
+#[tokio::test]
+async fn projection_rejects_skipping_an_older_unconsumed_signal_delivery() {
+    let error = snapshot_error(vec![
+        FlowEvent::SignalWaitCreated {
+            wait_id: "approval".to_string(),
+            signal_name: APPROVAL_SIGNAL.to_string(),
+        },
+        signal("delivery-1", APPROVAL_SIGNAL),
+        signal("delivery-2", APPROVAL_SIGNAL),
+        FlowEvent::SignalWaitCompleted {
+            wait_id: "approval".to_string(),
+            signal_id: "delivery-2".to_string(),
+        },
+    ])
+    .await;
+
+    assert!(matches!(
+        error,
+        FlowError::InvalidTransition(message)
+            if message.contains("skips older signal delivery-1")
+    ));
+}
+
+#[tokio::test]
 async fn projection_prevents_continue_as_new_from_abandoning_signal_state() {
     let open_wait = snapshot_error(vec![
         FlowEvent::SignalWaitCreated {

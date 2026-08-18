@@ -207,7 +207,9 @@ uses `wait_for_signal(wait_id, signal_name)` and reads the paired payload by the
 stable wait ID. Reusing a wait ID for another name is non-deterministic replay.
 Multiple deliveries of the same name queue in event order and distinct waits
 consume them FIFO. A delivery can arrive before the workflow creates its wait;
-the next drive persists the pairing before exposing the payload.
+the next drive persists the pairing before exposing the payload. Projection
+validates both sides of that ordering and rejects a `signal_wait_completed`
+event that skips an older same-name waiting consumer or unconsumed delivery.
 
 The host calls `send_signal(target_run_id, WorkflowSignal)` or enqueues
 `FlowTask::SendSignal`. `signal_id` is the caller-owned idempotency identity.

@@ -350,6 +350,8 @@ redelivery is still acknowledged and lists the active leaf in `run_ids` without
 claiming another task's delivery. Its run ID is the stream containing that
 event, even if handling advances `run_ids` to a new continuation leaf. Signal
 payloads are part of durable history, and authorization remains host-owned.
+Replay also rejects histories that pair a newer same-name wait or delivery
+ahead of an older one, preserving FIFO even for imported or custom-store data.
 
 Hooks suspend until an external callback is received or disposed:
 

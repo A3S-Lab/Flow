@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Hardened named-signal replay validation so `signal_wait_completed` cannot
+  skip an older waiting consumer or an older unconsumed delivery of the same
+  signal name. Corrupt or out-of-band histories now fail closed instead of
+  projecting a state that violates the engine's documented FIFO contract.
 - Made targeted scheduler worker outcomes report only wait completions that
   their task committed. Concurrent `ResumeScheduledRun` tasks still
   acknowledge and drive the same run, but no longer claim one durable

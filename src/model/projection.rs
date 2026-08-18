@@ -437,6 +437,7 @@ pub(crate) fn project_run(
                         "signal_wait_completed reuses signal {signal_id} consumed by wait {consumed_by}"
                     )));
                 }
+                ensure_signal_pair_is_fifo(&snapshot, wait, signal)?;
 
                 snapshot.signals[signal_index].consumed_by = Some(wait_id.clone());
                 let wait = snapshot.signal_waits.get_mut(wait_id).ok_or_else(|| {
@@ -684,6 +685,41 @@ pub(crate) fn project_run(
     }
 
     Ok(snapshot)
+}
+
+fn ensure_signal_pair_is_fifo(
+    snapshot: &WorkflowRunSnapshot,
+    wait: &SignalWaitSnapshot,
+    signal: &WorkflowSignalSnapshot,
+) -> Result<()> {
+    let oldest_wait = snapshot
+        .signal_waits
+        .values()
+        .filter(|candidate| {
+            candidate.status == SignalWaitStatus::Waiting
+                && candidate.signal_name == wait.signal_name
+        })
+        .min_by_key(|candidate| candidate.created_sequence);
+    if let Some(older) = oldest_wait.filter(|candidate| candidate.wait_id != wait.wait_id) {
+        return Err(FlowError::InvalidTransition(format!(
+            "signal_wait_completed for wait {} skips older wait {} for signal name {}",
+            wait.wait_id, older.wait_id, wait.signal_name
+        )));
+    }
+
+    let oldest_signal = snapshot
+        .signals
+        .iter()
+        .filter(|candidate| candidate.consumed_by.is_none() && candidate.name == signal.name)
+        .min_by_key(|candidate| candidate.received_sequence);
+    if let Some(older) = oldest_signal.filter(|candidate| candidate.signal_id != signal.signal_id) {
+        return Err(FlowError::InvalidTransition(format!(
+            "signal_wait_completed for wait {} skips older signal {} for signal name {}",
+            wait.wait_id, older.signal_id, wait.signal_name
+        )));
+    }
+
+    Ok(())
 }
 
 fn ensure_no_blocking_child_workflows(snapshot: &WorkflowRunSnapshot) -> Result<()> {
