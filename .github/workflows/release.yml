@@ -118,6 +118,23 @@ jobs:
           cargo test --test native_ts_bun_smoke --features native-ts --
           --ignored --exact native_ts_compiler_executes_real_bun_workflow
 
+  msrv:
+    name: Rust 1.88 MSRV
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust 1.88
+        uses: dtolnay/rust-toolchain@1.88.0
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-msrv-1.88
+
+      - name: Check all targets and features on the MSRV
+        run: cargo check --all-targets --all-features --locked
+
   native-ts-windows:
     name: Native TypeScript Windows
     runs-on: windows-latest
@@ -167,6 +184,7 @@ jobs:
     name: Publish to crates.io
     needs:
       - ci
+      - msrv
       - native-ts-windows
       - package
     runs-on: ubuntu-latest

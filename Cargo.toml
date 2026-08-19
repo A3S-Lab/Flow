@@ -2,6 +2,7 @@
 name = "a3s-flow"
 version = "0.14.0"
 edition = "2021"
+rust-version = "1.88"
 authors = ["A3S Lab"]
 license = "MIT"
 description = "Durable workflow engine and Rust SDK for A3S"
@@ -10,6 +11,9 @@ documentation = "https://docs.rs/a3s-flow"
 readme = "README.md"
 keywords = ["workflow", "durable", "event-sourcing", "async", "sdk"]
 categories = ["asynchronous", "development-tools"]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [lib]
 name = "a3s_flow"

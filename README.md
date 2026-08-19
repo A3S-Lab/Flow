@@ -616,6 +616,8 @@ The deeper references keep operational detail out of this homepage:
 | [Cookbook](docs/COOKBOOK.md) | Stable IDs, stores, batches, retries, timers, hooks, compensation, and observability recipes |
 | [Native TypeScript](docs/NATIVE_TYPESCRIPT.md) | Compiler contract, cache identity, process limits, and JSON protocol |
 | [Functional plan](docs/FUNCTIONAL_PLAN.md) | Capability coverage, completion gates, and non-goals |
+| [API stability](docs/API_STABILITY.md) | SemVer, durable compatibility, MSRV, and the `1.0.0` release contract |
+| [Security policy](SECURITY.md) | Private reporting, supported releases, trust boundaries, and advisory handling |
 | [API docs](https://docs.rs/a3s-flow) | Public Rust types and methods |
 
 ## Ownership boundary
@@ -637,12 +639,17 @@ without turning it into a hosted product control plane.
 From this crate:
 
 ```sh
+cargo +1.88.0 check --all-targets --all-features --locked
 cargo fmt --all -- --check
 cargo check --all-targets
 cargo test --all-targets
 cargo clippy --all-targets --all-features -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps
 ```
+
+Rust 1.88 is the minimum supported Rust version. Stable CI uses the current
+toolchain for linting and tests, while a separate job verifies the complete
+all-target, all-feature graph on the declared MSRV.
 
 Repository recipes provide the supported matrices:
 

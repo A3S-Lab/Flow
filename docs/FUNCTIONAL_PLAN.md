@@ -60,6 +60,16 @@ cannot start until the release workflow passes real PostgreSQL behavior, public
 API compatibility, package verification, and real Bun execution on both Linux
 and Windows.
 
+### Additional `1.0.0` Completion Gates
+
+The stable release also follows `API_STABILITY.md`. It is not ready until the
+public Rust surface has extensible enum and struct boundaries, strict
+missing-documentation linting passes, Rust 1.88 builds every target with all
+features, dependency advisories have an automated disposition, and Cloud,
+Code, and Use validate the same candidate revision. Compatibility checks must
+be forced against the frozen pre-1.0 baseline rather than skipped because the
+version number implies a major release.
+
 ## Example Coverage Goals
 
 Examples should be small, runnable, and aligned with one workflow concept each.

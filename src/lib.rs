@@ -8,6 +8,8 @@
 //! The native TypeScript runtime boundary compiles source once, then invokes the
 //! compiled executable through a small JSON protocol.
 
+#![forbid(unsafe_code)]
+
 mod context;
 mod engine;
 mod error;

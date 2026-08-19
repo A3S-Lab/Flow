@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Declared Rust 1.88 as the minimum supported Rust version, added dedicated
+  all-target/all-feature MSRV gates to `main` and release CI, enabled
+  all-feature docs.rs builds, and forbade unsafe code in the crate.
+- Added explicit API stability and security policies for the `1.0.0` line,
+  covering SemVer, durable and wire compatibility, extensible public types,
+  downstream lockstep validation, private vulnerability reporting, and
+  evidence required for dependency-advisory exceptions.
+
 ## 0.14.0 - 2026-08-19
 
 - Made `start_with_id` validate persisted start authority before runtime-build
