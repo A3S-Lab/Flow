@@ -82,7 +82,7 @@ try {
         Write-GitHubErrorAnnotation -Title "MSRV check failed" -Message $summary
 
         if (
-            $summary -match "lock file .+ needs to be updated" -and
+            $summary.Contains("needs to be updated but --locked was passed") -and
             (Test-Path -LiteralPath "Cargo.lock")
         ) {
             $lockBackupPath = "$logPath.lock"
@@ -118,18 +118,20 @@ try {
                 Remove-Item -LiteralPath $lockBackupPath -Force -ErrorAction Stop
             }
 
-            if (-not [string]::IsNullOrWhiteSpace($lockDiff)) {
-                $chunkLength = 7000
-                $chunkCount = [Math]::Ceiling($lockDiff.Length / $chunkLength)
-                $emittedChunkCount = [Math]::Min($chunkCount, 8)
+            if ([string]::IsNullOrWhiteSpace($lockDiff)) {
+                $lockDiff = "Unlocked offline check exited with code $resolveStatus and produced no Cargo.lock diff."
+            }
 
-                for ($index = 0; $index -lt $emittedChunkCount; $index++) {
-                    $offset = $index * $chunkLength
-                    $length = [Math]::Min($chunkLength, $lockDiff.Length - $offset)
-                    $chunk = $lockDiff.Substring($offset, $length)
-                    $title = "MSRV lockfile diff {0}/{1}" -f ($index + 1), $chunkCount
-                    Write-GitHubErrorAnnotation -Title $title -Message $chunk
-                }
+            $chunkLength = 7000
+            $chunkCount = [Math]::Ceiling($lockDiff.Length / $chunkLength)
+            $emittedChunkCount = [Math]::Min($chunkCount, 8)
+
+            for ($index = 0; $index -lt $emittedChunkCount; $index++) {
+                $offset = $index * $chunkLength
+                $length = [Math]::Min($chunkLength, $lockDiff.Length - $offset)
+                $chunk = $lockDiff.Substring($offset, $length)
+                $title = "MSRV lockfile diff {0}/{1}" -f ($index + 1), $chunkCount
+                Write-GitHubErrorAnnotation -Title $title -Message $chunk
             }
         }
     }
