@@ -25,6 +25,7 @@ jobs:
     permissions:
       contents: read
       checks: write
+      issues: write
 
   ci:
     name: CI Checks
