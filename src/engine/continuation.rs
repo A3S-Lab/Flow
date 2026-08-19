@@ -73,6 +73,29 @@ impl FlowEngine {
             .await
     }
 
+    /// Repair a committed continuation boundary before replaying its active
+    /// leaf. A fully terminal execution remains readable without runtime-build
+    /// admission because no workflow code will run.
+    pub(super) async fn recover_and_drive_continuation_leaf(
+        &self,
+        run_id: &str,
+    ) -> Result<WorkflowRunSnapshot> {
+        self.recover_and_drive_continuation_leaf_at(run_id, Utc::now())
+            .await
+    }
+
+    pub(super) async fn recover_and_drive_continuation_leaf_at(
+        &self,
+        run_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<WorkflowRunSnapshot> {
+        let leaf = self.ensure_continuation_leaf(run_id, false).await?;
+        if leaf.status.is_terminal() {
+            return Ok(leaf);
+        }
+        self.drive_at(&leaf.run_id, now).await
+    }
+
     pub(super) async fn drive_at_with_child_context(
         &self,
         run_id: &str,

@@ -249,7 +249,8 @@ cross; at the limit Flow rejects the command before appending another link.
 Cancellation, immediate terminal controls, progress, and child-reference
 writes may use the root or another predecessor ID; Flow re-resolves the active
 leaf after sequence races. Wait and hook callbacks keep using the exact segment
-ID that created them so their redelivery checks inspect the correct history.
+ID that created them so their redelivery checks inspect the correct history,
+then matching redelivery repairs and drives any committed successor.
 
 Stable step IDs may repeat in different segments because each successor has a
 fresh stream, but external side effects still need business-level idempotency
@@ -751,13 +752,16 @@ Ok(ctx.wait_until("approval-timeout", resume_at))
 
 Treat timer work as at-least-once delivery. Repeating `resume_wait()` for an
 existing wait after it completed or its run terminated is safe and appends no
-new event. If multiple hosts call `resume_due_waits()` from overlapping scans,
-only the host that commits `wait_completed` receives that wait in its returned
-list. A compatibility `ResumeWait` task left behind by cancellation is
-acknowledged without being reported as resumed. The targeted
-`ResumeScheduledRun` worker path follows the same commit-report rule when
-duplicate tasks race, while `FlowEngine::resume_scheduled_run()` itself still
-returns the wakeups that were due when the call began.
+new event. If wait handling already committed continue-as-new but stopped before
+successor creation, stable `ResumeWait` or targeted `ResumeScheduledRun`
+redelivery repairs and drives that successor. Its worker outcome lists the
+active leaf in `run_ids` without claiming the earlier completion. If multiple
+hosts call `resume_due_waits()` from overlapping scans, only the host that
+commits `wait_completed` receives that wait in its returned list. A compatibility
+`ResumeWait` task left behind by cancellation is acknowledged without being
+reported as resumed. The targeted scheduler path follows the same commit-report
+rule when duplicate tasks race, while `FlowEngine::resume_scheduled_run()` itself
+still returns the wakeups that were due when the call began.
 
 For polling, give each wait a deterministic ID derived from the poll attempt,
 for example `poll-1`, `poll-2`, and so on. Reusing a completed wait ID for a new

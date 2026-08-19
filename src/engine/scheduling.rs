@@ -4,21 +4,38 @@ use crate::error::{FlowError, Result};
 use crate::model::{project_run, FlowEvent, ScheduledWakeup, ScheduledWakeupKind, WaitStatus};
 use crate::store::scheduled_wakeups_for_snapshot;
 
-use super::{validation::is_event_conflict, FlowEngine};
+use super::{
+    validation::is_event_conflict, FlowEngine, ScheduledRunOutcome, WaitResolutionOutcome,
+};
 
 impl FlowEngine {
     /// Resume a wait once its timer has fired.
     ///
     /// Redelivery is idempotent after the existing wait has completed or its
-    /// run has become terminal. A resolved wait on a non-terminal run still
-    /// drives recovery, but no second `wait_completed` event is appended.
+    /// run has become terminal. A resolved wait still drives recovery through
+    /// any committed continue-as-new boundary, but no second `wait_completed`
+    /// event is appended.
     pub async fn resume_wait(&self, run_id: &str, wait_id: &str) -> Result<()> {
         self.resume_wait_if_open(run_id, wait_id).await?;
         Ok(())
     }
 
-    /// Resume `wait_id` and report whether this call committed its completion.
-    pub(crate) async fn resume_wait_if_open(&self, run_id: &str, wait_id: &str) -> Result<bool> {
+    /// Resume `wait_id` and report the driven leaf plus completion ownership.
+    pub(crate) async fn resume_wait_if_open(
+        &self,
+        run_id: &str,
+        wait_id: &str,
+    ) -> Result<WaitResolutionOutcome> {
+        self.resume_wait_if_open_at(run_id, wait_id, Utc::now())
+            .await
+    }
+
+    async fn resume_wait_if_open_at(
+        &self,
+        run_id: &str,
+        wait_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<WaitResolutionOutcome> {
         let mut resumed = false;
         for _ in 0..self.max_replay_iterations {
             let snapshot = self.snapshot(run_id).await?;
@@ -31,7 +48,14 @@ impl FlowEngine {
                 )));
             };
             if snapshot.status.is_terminal() {
-                return Ok(resumed);
+                match self
+                    .recover_and_drive_continuation_leaf_at(run_id, now)
+                    .await
+                {
+                    Ok(snapshot) => return Ok(wait_resolution(run_id, wait_id, snapshot, resumed)),
+                    Err(error) if is_event_conflict(&error) => continue,
+                    Err(error) => return Err(error),
+                }
             }
 
             match wait.status {
@@ -57,8 +81,11 @@ impl FlowEngine {
                 }
             }
 
-            match self.drive(run_id).await {
-                Ok(_) => return Ok(resumed),
+            match self
+                .recover_and_drive_continuation_leaf_at(run_id, now)
+                .await
+            {
+                Ok(snapshot) => return Ok(wait_resolution(run_id, wait_id, snapshot, resumed)),
                 Err(error) if is_event_conflict(&error) => continue,
                 Err(error) => return Err(error),
             }
@@ -92,8 +119,9 @@ impl FlowEngine {
         let due = self.list_due_waits(now).await?;
         let mut resumed = Vec::with_capacity(due.len());
         for (run_id, wait_id) in due {
-            if self.resume_wait_if_open(&run_id, &wait_id).await? {
-                resumed.push((run_id, wait_id));
+            let resolution = self.resume_wait_if_open_at(&run_id, &wait_id, now).await?;
+            if resolution.committed {
+                resumed.push((resolution.wait_run_id, resolution.wait_id));
             }
         }
         Ok(resumed)
@@ -151,10 +179,10 @@ impl FlowEngine {
         run_id: &str,
         now: DateTime<Utc>,
     ) -> Result<Vec<ScheduledWakeup>> {
-        let (due, _) = self
+        let outcome = self
             .resume_scheduled_run_with_committed_waits(run_id, now)
             .await?;
-        Ok(due)
+        Ok(outcome.due)
     }
 
     /// Resume one scheduled run and report wait completions committed here.
@@ -162,11 +190,18 @@ impl FlowEngine {
         &self,
         run_id: &str,
         now: DateTime<Utc>,
-    ) -> Result<(Vec<ScheduledWakeup>, Vec<(String, String)>)> {
+    ) -> Result<ScheduledRunOutcome> {
         let history = self.store.list(run_id).await?;
         let snapshot = project_run(run_id, &history)?;
         if snapshot.status.is_terminal() {
-            return Ok((Vec::new(), Vec::new()));
+            let snapshot = self
+                .recover_and_drive_continuation_leaf_at(run_id, now)
+                .await?;
+            return Ok(ScheduledRunOutcome {
+                snapshot,
+                due: Vec::new(),
+                resumed_waits: Vec::new(),
+            });
         }
         self.ensure_runtime_build_available(run_id, &snapshot.spec)?;
         let due = scheduled_wakeups_for_snapshot(&snapshot)
@@ -184,15 +219,38 @@ impl FlowEngine {
             .any(|wakeup| wakeup.kind == ScheduledWakeupKind::Retry);
 
         let mut resumed_waits = Vec::with_capacity(due_wait_ids.len());
+        let mut driven_snapshot = snapshot;
         for wait_id in due_wait_ids {
-            if self.resume_wait_if_open(run_id, &wait_id).await? {
-                resumed_waits.push((run_id.to_string(), wait_id));
+            let resolution = self.resume_wait_if_open_at(run_id, &wait_id, now).await?;
+            driven_snapshot = resolution.snapshot;
+            if resolution.committed {
+                resumed_waits.push((resolution.wait_run_id, resolution.wait_id));
             }
         }
         if has_due_retries {
-            self.drive_at(run_id, now).await?;
+            driven_snapshot = self
+                .recover_and_drive_continuation_leaf_at(run_id, now)
+                .await?;
         }
 
-        Ok((due, resumed_waits))
+        Ok(ScheduledRunOutcome {
+            snapshot: driven_snapshot,
+            due,
+            resumed_waits,
+        })
+    }
+}
+
+fn wait_resolution(
+    run_id: &str,
+    wait_id: &str,
+    snapshot: crate::WorkflowRunSnapshot,
+    committed: bool,
+) -> WaitResolutionOutcome {
+    WaitResolutionOutcome {
+        wait_run_id: run_id.to_string(),
+        wait_id: wait_id.to_string(),
+        snapshot,
+        committed,
     }
 }

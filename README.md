@@ -308,11 +308,12 @@ Ok(ctx.wait_until("approval-timeout", deadline))
 ```
 
 Timer delivery is safe to retry. Calling `resume_wait()` again for an existing
-wait after it completed or its run became terminal is a no-op. Concurrent
-`resume_due_waits()` scans report only the waits whose completion that caller
-committed. Targeted `ResumeScheduledRun` worker outcomes apply the same rule
-when duplicate scheduler tasks race, so accounting does not claim another
-caller's work.
+wait after it completed or its run became terminal appends no second completion
+event. Stable `ResumeWait` and targeted `ResumeScheduledRun` redelivery follows
+the segment's continuation, repairs a missing successor, and reports the active
+leaf in `run_ids`. `resumed_waits` remains a commit report: concurrent
+`resume_due_waits()` scans and duplicate scheduler tasks report only the waits
+whose completion they committed.
 
 Named signals are queued asynchronous messages. Declare accepted names in the
 immutable spec, then wait with a stable workflow-local ID:
@@ -525,6 +526,8 @@ successor after a crash, cycles fail closed, and
 `with_max_continue_as_new_hops()` bounds work performed by one drive call.
 Cancellation, immediate termination, progress, and child-reference calls made
 with a predecessor ID resolve the active leaf again on each conflict retry.
+Stable timer and hook redelivery first inspect the exact segment that owns the
+durable wait or callback, then repair and report its active continuation leaf.
 Signal delivery also resolves the active leaf and recognizes matching
 redelivery across descendants of the original target. Continue-as-new is
 rejected while a signal wait is open or a queued signal remains unconsumed, so

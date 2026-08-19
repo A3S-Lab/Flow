@@ -204,3 +204,5 @@ mod postgres_queue;
 mod scheduled_outcomes;
 #[path = "worker/task_protocol.rs"]
 mod task_protocol;
+#[path = "worker/wait_continuation.rs"]
+mod wait_continuation;

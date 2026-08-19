@@ -95,9 +95,11 @@ The runtime returns exactly one command:
   applies the same durable step lifecycle to each step before replaying.
 - `wait_until`: the engine persists `wait_created` and stops driving the run
   until `resume_wait()` records `wait_completed`. Redelivery for an existing
-  wait is idempotent after it completed or its run became terminal. A resolved
-  wait on a non-terminal run still drives replay recovery without appending a
-  second completion event.
+  wait is idempotent after it completed or its run became terminal. Matching
+  redelivery repairs and drives a committed continuation leaf without appending
+  a second completion event; a fully terminal leaf does not require runtime-build
+  admission. Worker `run_ids` reports that leaf, while `resumed_waits` identifies
+  the segment-local completion only for the event-commit winner.
 - `create_hook`: the engine persists `hook_created` and stops until
   `resume_hook()` records `hook_received` or `dispose_hook()` records
   `hook_disposed`. Replay then continues so workflow code can observe
@@ -268,9 +270,11 @@ writes accept a predecessor ID and re-resolve the active leaf on every
 expected-sequence retry. A continuation that wins the race is therefore
 followed rather than mistaken for the final execution outcome. Wait and hook
 resolutions remain segment-addressed because their durable IDs and idempotent
-redelivery state belong to the segment that created them. Signal delivery is
-execution-addressed: it follows the active leaf, while identical redelivery is
-recognized across descendants of the original target run ID.
+redelivery state belong to the segment that created them. After validating that
+segment-local state, matching redelivery repairs and drives its continuation
+leaf. Signal delivery is execution-addressed: it follows the active leaf, while
+identical redelivery is recognized across descendants of the original target
+run ID.
 
 Retention treats predecessor/successor links as undirected connected
 components: a live, recent, held, or temporarily missing successor protects the
@@ -443,8 +447,10 @@ route from producing a partially enqueued tick; transport failures after
 preflight retain ordinary at-least-once dispatch semantics and cannot be made
 atomic across independent queue backends. Duplicate targeted tasks may race,
 but `FlowTaskOutcome.resumed_waits` reports only waits whose `wait_completed`
-event that task commits. The public engine method separately retains its
-documented due-at-start return value for scheduler hosts.
+event that task commits. Matching task redelivery repairs a successor missing
+after a committed continue-as-new boundary and reports that leaf in `run_ids`.
+The public engine method separately retains its documented due-at-start return
+value for scheduler hosts.
 
 `RuntimeBuildTaskRouter` owns an immutable map from exact build IDs to concrete
 dispatchers plus a separate optional unpinned route. A plain `FlowTaskQueue`
@@ -525,9 +531,10 @@ the host can requeue or dead-letter it according to its lease policy. These
 Flow-owned queues remain useful for embedded hosts and compatibility with
 existing worker deployments; new Boot hosts should dispatch through
 `BootFlowTaskManager` instead of building a second application lifecycle around
-`FlowWorker`. A `DriveRun` outcome mirrors the active continuation leaf returned
-by the engine in `run_ids`; its embedded task preserves the originally submitted
-root or predecessor ID for correlation.
+`FlowWorker`. Run-targeted drive, wait, scheduler, signal, and stable-hook
+outcomes report the active continuation leaf reached by handling in `run_ids`;
+the embedded task preserves the originally submitted root or predecessor ID for
+correlation, while event-specific fields remain commit-ownership reports.
 
 Lease IDs are fencing tokens. Every successful `heartbeat()` atomically refreshes
 lease age and replaces the token; only the latest token can heartbeat or

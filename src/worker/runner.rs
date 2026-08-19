@@ -116,10 +116,12 @@ pub(super) async fn handle_flow_task(
             outcome.run_ids.push(snapshot.run_id);
         }
         FlowTask::ResumeWait { run_id, wait_id } => {
-            let resumed = engine.resume_wait_if_open(&run_id, &wait_id).await?;
-            outcome.run_ids.push(run_id.clone());
-            if resumed {
-                outcome.resumed_waits.push((run_id, wait_id));
+            let resolution = engine.resume_wait_if_open(&run_id, &wait_id).await?;
+            outcome.run_ids.push(resolution.snapshot.run_id);
+            if resolution.committed {
+                outcome
+                    .resumed_waits
+                    .push((resolution.wait_run_id, resolution.wait_id));
             }
         }
         FlowTask::ResumeHook {
@@ -168,12 +170,12 @@ pub(super) async fn handle_flow_task(
             }
         }
         FlowTask::ResumeScheduledRun { run_id, now } => {
-            let (due, resumed_waits) = engine
+            let scheduled = engine
                 .resume_scheduled_run_with_committed_waits(&run_id, now)
                 .await?;
-            outcome.run_ids.push(run_id);
-            outcome.resumed_waits = resumed_waits;
-            for wakeup in due {
+            outcome.run_ids.push(scheduled.snapshot.run_id);
+            outcome.resumed_waits = scheduled.resumed_waits;
+            for wakeup in scheduled.due {
                 if wakeup.kind == crate::ScheduledWakeupKind::Retry {
                     outcome
                         .resumed_retries

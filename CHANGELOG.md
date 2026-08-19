@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Made stable wait and targeted scheduler redelivery repair a missing
+  continue-as-new successor after `wait_completed` and the predecessor link
+  were already durable. Timer worker outcomes now report the active leaf in
+  `run_ids`, while `resumed_waits` remains tied to the task that committed the
+  completion event; fully terminal redelivery still needs no runtime-build
+  admission.
 - Made stable-ID hook resume and disposal redelivery repair a missing
   continue-as-new successor after the resolution and predecessor link were
   already durable. Worker outcomes now report the active leaf in `run_ids`

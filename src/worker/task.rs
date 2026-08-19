@@ -71,6 +71,10 @@ impl FlowTask {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FlowTaskOutcome {
     pub task: FlowTask,
+    /// Runs affected while handling this task.
+    ///
+    /// Run-targeted tasks report the active continuation leaf. Compatibility-wide
+    /// scan tasks retain their legacy scan and commit-report semantics.
     pub run_ids: Vec<String>,
     /// Wait completions committed by this task.
     pub resumed_waits: Vec<(String, String)>,

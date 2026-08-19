@@ -74,7 +74,7 @@ impl FlowEngine {
                         ));
                     }
                     if snapshot.status.is_terminal() {
-                        match self.drive_resolved_hook(run_id).await {
+                        match self.recover_and_drive_continuation_leaf(run_id).await {
                             Ok(snapshot) => {
                                 return Ok(hook_resolution(run_id, hook_id, snapshot, resumed))
                             }
@@ -156,7 +156,7 @@ impl FlowEngine {
                 }
                 HookStatus::Disposed => {
                     if snapshot.status.is_terminal() {
-                        match self.drive_resolved_hook(run_id).await {
+                        match self.recover_and_drive_continuation_leaf(run_id).await {
                             Ok(snapshot) => {
                                 return Ok(hook_resolution(run_id, hook_id, snapshot, disposed))
                             }
@@ -254,14 +254,6 @@ impl FlowEngine {
                 "hook token is active in multiple runs (value redacted)".to_string(),
             )),
         }
-    }
-
-    async fn drive_resolved_hook(&self, run_id: &str) -> Result<WorkflowRunSnapshot> {
-        let leaf = self.ensure_continuation_leaf(run_id, false).await?;
-        if leaf.status.is_terminal() {
-            return Ok(leaf);
-        }
-        self.drive(&leaf.run_id).await
     }
 }
 

@@ -6,7 +6,8 @@ use uuid::Uuid;
 use crate::error::{FlowError, Result};
 use crate::model::{
     project_run, validate_child_workflow_command, FlowEvent, FlowEventEnvelope, HookStatus,
-    RuntimeCommand, StepStatus, WaitStatus, WorkflowRunSnapshot, WorkflowRunStatus, WorkflowSpec,
+    RuntimeCommand, ScheduledWakeup, StepStatus, WaitStatus, WorkflowRunSnapshot,
+    WorkflowRunStatus, WorkflowSpec,
 };
 use crate::observe::{FlowEventObserver, NoopFlowEventObserver};
 use crate::runtime::{FlowRuntime, WorkflowInvocation};
@@ -40,6 +41,19 @@ pub(crate) struct HookResolutionOutcome {
     pub(crate) hook_id: String,
     pub(crate) snapshot: WorkflowRunSnapshot,
     pub(crate) committed: bool,
+}
+
+pub(crate) struct WaitResolutionOutcome {
+    pub(crate) wait_run_id: String,
+    pub(crate) wait_id: String,
+    pub(crate) snapshot: WorkflowRunSnapshot,
+    pub(crate) committed: bool,
+}
+
+pub(crate) struct ScheduledRunOutcome {
+    pub(crate) snapshot: WorkflowRunSnapshot,
+    pub(crate) due: Vec<ScheduledWakeup>,
+    pub(crate) resumed_waits: Vec<(String, String)>,
 }
 
 /// Builder for a [`FlowEngine`].
