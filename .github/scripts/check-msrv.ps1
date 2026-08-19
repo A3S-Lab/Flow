@@ -31,39 +31,27 @@ function ConvertFrom-NativeOutput {
     }
 }
 
-function Write-GitHubErrorAnnotation {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string] $Title,
-
-        [Parameter(Mandatory = $true)]
-        [string] $Message
-    )
-
-    $escapedTitle = $Title.Replace("%", "%25")
-    $escapedTitle = $escapedTitle.Replace("`r", "%0D")
-    $escapedTitle = $escapedTitle.Replace("`n", "%0A")
-    $escapedTitle = $escapedTitle.Replace(":", "%3A")
-    $escapedTitle = $escapedTitle.Replace(",", "%2C")
-
-    $escapedMessage = $Message.Replace("%", "%25")
-    $escapedMessage = $escapedMessage.Replace("`r", "%0D")
-    $escapedMessage = $escapedMessage.Replace("`n", "%0A")
-    Write-Output "::error title=$escapedTitle::$escapedMessage"
-}
-
 $repositoryRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "../..") -ErrorAction Stop).Path
 $manifestPath = Join-Path $repositoryRoot "Cargo.toml"
-$lockPath = Join-Path $repositoryRoot "Cargo.lock"
 $logPath = Join-Path ([System.IO.Path]::GetTempPath()) (
     "a3s-flow-msrv-{0}.log" -f [System.Guid]::NewGuid().ToString("N")
 )
+$checkArguments = @(
+    "+$Toolchain",
+    "check",
+    "--manifest-path", $manifestPath,
+    "--all-targets",
+    "--all-features",
+    "--locked"
+)
 
 try {
-    Write-Host "Checking with $(cargo "+$Toolchain" --version)"
-    Write-Host "Compiler: $(rustc "+$Toolchain" --version)"
+    $cargoVersion = @(& cargo "+$Toolchain" --version 2>&1 | ConvertFrom-NativeOutput)
+    $rustVersion = @(& rustc "+$Toolchain" --version 2>&1 | ConvertFrom-NativeOutput)
+    Write-Host "Checking with $($cargoVersion -join ' ')"
+    Write-Host "Compiler: $($rustVersion -join ' ')"
 
-    & cargo "+$Toolchain" check --manifest-path $manifestPath --all-targets --all-features --locked 2>&1 |
+    & cargo @checkArguments 2>&1 |
         ConvertFrom-NativeOutput |
         Tee-Object -FilePath $logPath
     $status = $LASTEXITCODE
@@ -83,55 +71,10 @@ try {
             $summary = $summary.Substring($summary.Length - 8000)
         }
 
-        $lockBackupPath = "$logPath.lock"
-        $lockBackedUp = $false
-        try {
-            Copy-Item -LiteralPath $lockPath -Destination $lockBackupPath -ErrorAction Stop
-            $lockBackedUp = $true
-
-            Write-Host "::group::Resolve exact MSRV lockfile diagnostic"
-            $resolveOutput = @(
-                & cargo "+$Toolchain" check --manifest-path $manifestPath --all-targets --all-features --offline 2>&1 |
-                    ConvertFrom-NativeOutput
-            )
-            $resolveStatus = $LASTEXITCODE
-            $resolveOutput | ForEach-Object { Write-Host $_ }
-
-            $lockDiffLines = @(
-                & git -C $repositoryRoot diff --no-ext-diff --unified=1 -- "Cargo.lock" 2>&1 |
-                    ConvertFrom-NativeOutput
-            )
-            $lockDiagnostic = $lockDiffLines -join "`n"
-
-            if ($resolveStatus -ne 0) {
-                $resolveTail = $resolveOutput | Select-Object -Last $AnnotationLineLimit
-                $resolutionFailure = @(
-                    "Unlocked offline check failed with exit code $resolveStatus."
-                    $resolveTail
-                ) -join "`n"
-                $lockDiagnostic = @($lockDiagnostic, $resolutionFailure) -join "`n`n"
-            }
-            elseif ([string]::IsNullOrWhiteSpace($lockDiagnostic)) {
-                $lockDiagnostic = "Unlocked offline check succeeded but produced no Cargo.lock diff."
-            }
-            Write-Host "::endgroup::"
-        }
-        catch {
-            $lockDiagnostic = "MSRV lockfile diagnostic failed: $($_.Exception.Message)"
-        }
-        finally {
-            if ($lockBackedUp) {
-                Copy-Item -LiteralPath $lockBackupPath -Destination $lockPath -Force -ErrorAction Stop
-                Remove-Item -LiteralPath $lockBackupPath -Force -ErrorAction Stop
-            }
-        }
-
-        $annotation = @($summary, $lockDiagnostic) -join "`n`n"
-        $annotation = $annotation -replace $ansiEscape, ""
-        if ($annotation.Length -gt 8000) {
-            $annotation = $annotation.Substring(0, 8000)
-        }
-        Write-GitHubErrorAnnotation -Title "MSRV check failed" -Message $annotation
+        $summary = $summary.Replace("%", "%25")
+        $summary = $summary.Replace("`r", "%0D")
+        $summary = $summary.Replace("`n", "%0A")
+        Write-Output "::error title=MSRV check failed::$summary"
     }
 
     exit $status

@@ -5,7 +5,8 @@
 - Declared Rust 1.88 as the minimum supported Rust version, added dedicated
   all-target/all-feature MSRV gates to `main` and release CI, enabled
   all-feature docs.rs builds, forbade unsafe code in the crate, and made MSRV
-  failures emit bounded, actionable CI annotations.
+  failures emit bounded, actionable CI annotations. The release lockfile is now
+  committed so `--locked` gates are reproducible from clean checkouts.
 - Added explicit API stability and security policies for the `1.0.0` line,
   covering SemVer, durable and wire compatibility, extensible public types,
   downstream lockstep validation, private vulnerability reporting, and
