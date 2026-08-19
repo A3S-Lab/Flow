@@ -133,7 +133,8 @@ jobs:
           key: release-msrv-1.88
 
       - name: Check all targets and features on the MSRV
-        run: cargo check --all-targets --all-features --locked
+        shell: pwsh
+        run: ./.github/scripts/check-msrv.ps1
 
   native-ts-windows:
     name: Native TypeScript Windows
