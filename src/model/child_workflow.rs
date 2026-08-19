@@ -21,22 +21,33 @@ pub enum ChildWorkflowCancellationPolicy {
 /// Parent-owned projection of one first-class child workflow execution.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ChildWorkflowSnapshot {
+    /// Replay-stable parent-local identity of the child.
     pub child_id: String,
+    /// Globally addressable Flow run identifier assigned to the child.
     pub run_id: String,
+    /// Immutable workflow definition used to create the child.
     pub spec: WorkflowSpec,
+    /// Initial JSON input supplied to the child.
     pub input: JsonValue,
+    /// Policy applied when the parent is cancelled or terminated.
     pub cancellation_policy: ChildWorkflowCancellationPolicy,
+    /// UTC time at which the request was persisted.
     pub requested_at: DateTime<Utc>,
+    /// Event sequence that recorded the request.
     pub requested_sequence: u64,
+    /// Terminal child outcome observed by the parent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outcome: Option<WorkflowTerminalOutcome>,
+    /// UTC time at which the terminal outcome was recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_at: Option<DateTime<Utc>>,
+    /// Event sequence that recorded the terminal outcome.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_sequence: Option<u64>,
 }
 
 impl ChildWorkflowSnapshot {
+    /// Returns whether the child has no durable terminal outcome yet.
     pub fn is_open(&self) -> bool {
         self.outcome.is_none()
     }
