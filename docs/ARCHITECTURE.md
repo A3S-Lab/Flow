@@ -425,6 +425,14 @@ the migration lock, or write history. Migrating convenience constructors reuse
 the same function for embedded single-process hosts, so the event store and
 queue do not maintain independent migration protocols.
 
+The v1 compatibility floor is the canonical schema shipped by `v0.5.0`.
+Release tests pin every published migration checksum, create real databases at
+each distinct pre-v1 migration prefix, preserve old event JSON through the
+upgrade, verify hook and wakeup backfills, and exercise transactional failure
+rollback. Migrations are forward-only: restarting a pre-v1 binary after a v1
+migration requires restoring the pre-upgrade database backup. The supported
+matrix and operator sequence are documented in `UPGRADING_TO_V1.md`.
+
 Inspection APIs stay on this boundary: `history()` returns committed envelopes,
 while `snapshot()`, `list_snapshots()`, `run_summary()`,
 `list_open_suspensions()`, and `next_wakeup()` project envelopes for dashboards,

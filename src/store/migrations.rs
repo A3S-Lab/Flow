@@ -2,6 +2,8 @@ use a3s_orm::Migration;
 
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod scheduled_wakeups;
+#[cfg(all(test, any(feature = "postgres", feature = "sqlite")))]
+mod tests;
 #[cfg(feature = "postgres")]
 use scheduled_wakeups::POSTGRES_SCHEDULED_WAKEUPS_SQL;
 #[cfg(feature = "sqlite")]

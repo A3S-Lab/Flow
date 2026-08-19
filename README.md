@@ -461,7 +461,9 @@ audit-safe whole-history retention. Retention deletes only complete eligible
 linked continuation/child components and leaves checksum tombstones; partial
 event-stream compaction is intentionally unsupported. Workflows that need bounded replay
 history use continue-as-new to create linked fresh streams instead of rewriting
-an existing stream.
+an existing stream. The supported pre-v1 schema matrix, backup requirement,
+runtime-build rollout, and restore-based rollback procedure are in
+[Upgrading to Flow 1.0](docs/UPGRADING_TO_V1.md).
 
 Production PostgreSQL hosts separate migration authority from serving. A
 terminating migration process calls `migrate_postgres_flow` once with its DDL
@@ -627,6 +629,7 @@ The deeper references keep operational detail out of this homepage:
 | [Native TypeScript](docs/NATIVE_TYPESCRIPT.md) | Compiler contract, cache identity, process limits, and JSON protocol |
 | [Functional plan](docs/FUNCTIONAL_PLAN.md) | Capability coverage, completion gates, and non-goals |
 | [API stability](docs/API_STABILITY.md) | SemVer, durable compatibility, MSRV, and the `1.0.0` release contract |
+| [Upgrading to Flow 1.0](docs/UPGRADING_TO_V1.md) | Supported pre-v1 histories and schemas, rollout, verification, and rollback |
 | [Security policy](SECURITY.md) | Private reporting, supported releases, trust boundaries, and advisory handling |
 | [API docs](https://docs.rs/a3s-flow) | Public Rust types and methods |
 

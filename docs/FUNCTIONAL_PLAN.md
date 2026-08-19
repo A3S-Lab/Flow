@@ -68,7 +68,10 @@ missing-documentation linting passes, Rust 1.88 builds every target with all
 features, dependency advisories have an automated disposition, and Cloud,
 Code, and Use validate the same candidate revision. Compatibility checks must
 be forced against the frozen pre-1.0 baseline rather than skipped because the
-version number implies a major release.
+version number implies a major release. Retained `v0.5.0` and `v0.13.1`
+histories must replay and resume, every distinct supported pre-v1 SQLite and
+PostgreSQL schema must upgrade in a real database, and migration-failure
+rollback must preserve both schema and history.
 
 ## Example Coverage Goals
 

@@ -35,6 +35,11 @@
   CI and release checks force stable-compatible SemVer rules against it, so a
   `1.0.0` version bump cannot hide a breaking API lint. The latest published
   release remains a second baseline for APIs added later in the `1.x` line.
+- Added immutable histories produced by `v0.5.0` and `v0.13.1` and made the v1
+  gate deterministically resume their interrupted steps. Added real SQLite and
+  PostgreSQL upgrades from every distinct supported pre-v1 migration prefix,
+  pinned all published migration checksums, verified failed migrations roll
+  back without losing history, and documented the backup-based rollback path.
 
 - Made `start_with_id` validate persisted start authority before runtime-build
   admission. Exact retries can now acknowledge a fully terminal root or

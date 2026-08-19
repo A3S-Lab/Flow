@@ -90,6 +90,13 @@ must continue to deserialize and project supported earlier events, including
 legacy defaults introduced before a field existed. New writers may add
 versioned data only when older retained histories remain unambiguous.
 
+The `1.0.0` automated durable-history and SQL upgrade floor is `v0.5.0`.
+Qualification replays immutable histories produced by that release and by
+`v0.13.1`, the final published pre-v1 release, and upgrades every distinct
+published SQLite and PostgreSQL migration prefix in between. Older durable
+state requires an application-specific staged migration. The exact baseline
+matrix and operational procedure live in `UPGRADING_TO_V1.md`.
+
 Database migrations are forward-only and checksummed. A release must validate
 upgrades from every supported schema baseline against real SQLite and
 PostgreSQL databases. Rollback means restoring the previous binary against a
@@ -126,7 +133,9 @@ functional completion gates:
    relevant integration suites. Cloud's gitlink, exact Cargo dependency,
    lockfile, and `compat/cloud-stack.acl` entry move together.
 6. A `1.0.0-rc` candidate replays and resumes retained pre-1.0 histories and
-   upgrades real SQLite and PostgreSQL databases.
+   upgrades real SQLite and PostgreSQL databases from every supported schema
+   baseline. Published migration checksums remain immutable, and an injected
+   migration failure proves schema and history transaction rollback.
 
 The immutable pre-1.0 Rust API baseline is recorded as a full commit SHA in
 `.github/v1-api-baseline.txt`. CI and release automation compare all features
