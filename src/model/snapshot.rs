@@ -334,6 +334,34 @@ pub struct WorkflowRunSnapshot {
 }
 
 impl WorkflowRunSnapshot {
+    /// Create the empty pending projection for a newly persisted workflow run.
+    ///
+    /// Custom event stores and downstream tests should start from this
+    /// constructor instead of a struct literal so new projection fields can be
+    /// added without breaking callers.
+    pub fn new(run_id: impl Into<String>, spec: WorkflowSpec, input: JsonValue) -> Self {
+        Self {
+            run_id: run_id.into(),
+            spec,
+            input,
+            status: WorkflowRunStatus::Pending,
+            steps: BTreeMap::new(),
+            waits: BTreeMap::new(),
+            hooks: BTreeMap::new(),
+            cancellation: None,
+            progress: Vec::new(),
+            child_operations: BTreeMap::new(),
+            child_workflows: BTreeMap::new(),
+            signals: Vec::new(),
+            signal_waits: BTreeMap::new(),
+            output: None,
+            error: None,
+            terminal_outcome: None,
+            continuation: None,
+            last_sequence: 0,
+        }
+    }
+
     /// Decode the workflow input into a host-defined serde type.
     pub fn input_as<T>(&self) -> Result<T>
     where
