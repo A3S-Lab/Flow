@@ -15,6 +15,7 @@ pub struct FlowWorker {
 }
 
 impl FlowWorker {
+    /// Creates a worker for one engine and dynamic task queue.
     pub fn new(engine: FlowEngine, queue: Arc<dyn FlowTaskQueue>) -> Self {
         Self {
             engine,
@@ -23,14 +24,17 @@ impl FlowWorker {
         }
     }
 
+    /// Creates a worker backed by a new in-memory queue.
     pub fn in_memory(engine: FlowEngine) -> Self {
         Self::new(engine, Arc::new(InMemoryFlowTaskQueue::new()))
     }
 
+    /// Returns the Flow engine used to handle tasks.
     pub fn engine(&self) -> &FlowEngine {
         &self.engine
     }
 
+    /// Returns the configured task queue.
     pub fn queue(&self) -> Arc<dyn FlowTaskQueue> {
         Arc::clone(&self.queue)
     }
@@ -50,14 +54,17 @@ impl FlowWorker {
         Ok(self)
     }
 
+    /// Returns the configured periodic heartbeat interval.
     pub fn heartbeat_interval(&self) -> Option<Duration> {
         self.heartbeat_interval
     }
 
+    /// Enqueues one task on the worker's queue.
     pub async fn enqueue(&self, task: FlowTask) -> Result<()> {
         self.queue.enqueue(task).await
     }
 
+    /// Handles one task directly without queue leasing or acknowledgement.
     pub async fn handle(&self, task: FlowTask) -> Result<FlowTaskOutcome> {
         handle_flow_task(&self.engine, task).await
     }
@@ -88,6 +95,7 @@ impl FlowWorker {
         Ok(outcome)
     }
 
+    /// Leases, handles, and acknowledges at most one task.
     pub async fn run_once(&self) -> Result<Option<FlowTaskOutcome>> {
         let Some(lease) = self.queue.lease().await? else {
             return Ok(None);
@@ -96,6 +104,7 @@ impl FlowWorker {
         Ok(Some(outcome))
     }
 
+    /// Handles queued tasks until no pending task remains.
     pub async fn run_until_idle(&self) -> Result<Vec<FlowTaskOutcome>> {
         let mut outcomes = Vec::new();
         while let Some(outcome) = self.run_once().await? {

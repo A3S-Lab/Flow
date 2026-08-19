@@ -36,6 +36,7 @@ impl fmt::Debug for PostgresFlowTaskQueue {
 }
 
 impl PostgresFlowTaskQueue {
+    /// Connects to PostgreSQL, migrates the schema, and uses the default queue.
     pub async fn connect(database_url: impl AsRef<str>) -> Result<Self> {
         Self::connect_with_queue(database_url, "default").await
     }
@@ -54,10 +55,12 @@ impl PostgresFlowTaskQueue {
         Self::from_executor_with_queue(executor, queue_name).await
     }
 
+    /// Uses a configured executor, migrates the schema, and uses the default queue.
     pub async fn from_executor(executor: PostgresExecutor) -> Result<Self> {
         Self::from_executor_with_queue(executor, "default").await
     }
 
+    /// Uses a configured executor and migrates the named queue schema.
     pub async fn from_executor_with_queue(
         executor: PostgresExecutor,
         queue_name: impl AsRef<str>,
@@ -80,18 +83,22 @@ impl PostgresFlowTaskQueue {
         })
     }
 
+    /// Returns the configured A3S ORM executor.
     pub fn executor(&self) -> &PostgresExecutor {
         &self.executor
     }
 
+    /// Returns the logical queue name used to scope rows.
     pub fn queue_name(&self) -> &str {
         &self.queue_name
     }
 
+    /// Returns the number of currently leased tasks.
     pub async fn inflight_len(&self) -> Result<usize> {
         self.count_by_status("inflight").await
     }
 
+    /// Returns the number of dead-lettered tasks.
     pub async fn dead_letter_len(&self) -> Result<usize> {
         let count = fetch_one_query(
             &self.executor,
@@ -104,6 +111,7 @@ impl PostgresFlowTaskQueue {
         postgres_count_to_usize(count)
     }
 
+    /// Loads dead-lettered tasks in durable insertion order.
     pub async fn dead_lettered_tasks(&self) -> Result<Vec<PostgresDeadLetteredTask>> {
         let rows = fetch_all_query(
             &self.executor,
@@ -118,6 +126,7 @@ impl PostgresFlowTaskQueue {
         rows.into_iter().map(dead_letter_row).collect()
     }
 
+    /// Returns leases at or before `cutoff` to pending dispatch.
     pub async fn requeue_inflight_older_than(&self, cutoff: DateTime<Utc>) -> Result<usize> {
         let rows = execute_query(
             &self.executor,
@@ -135,6 +144,7 @@ impl PostgresFlowTaskQueue {
         postgres_rows_affected_to_usize(rows)
     }
 
+    /// Atomically moves leases at or before `cutoff` to the dead-letter table.
     pub async fn dead_letter_inflight_older_than(
         &self,
         cutoff: DateTime<Utc>,

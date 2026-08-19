@@ -28,6 +28,7 @@ pub struct LocalFileFlowTaskQueue {
 }
 
 impl LocalFileFlowTaskQueue {
+    /// Creates a local durable queue rooted at `root`.
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self {
             root: root.into(),
@@ -35,6 +36,7 @@ impl LocalFileFlowTaskQueue {
         }
     }
 
+    /// Returns the queue root directory.
     pub fn root(&self) -> &Path {
         &self.root
     }
@@ -188,16 +190,19 @@ impl LocalFileFlowTaskQueue {
             .collect())
     }
 
+    /// Returns the number of currently leased task files.
     pub async fn inflight_len(&self) -> Result<usize> {
         let _guard = self.lock.lock().await;
         Ok(self.inflight_files().await?.len())
     }
 
+    /// Returns the number of dead-lettered task files.
     pub async fn dead_letter_len(&self) -> Result<usize> {
         let _guard = self.lock.lock().await;
         Ok(self.dead_letter_files().await?.len())
     }
 
+    /// Loads dead-lettered tasks in durable file order.
     pub async fn dead_lettered_tasks(&self) -> Result<Vec<LocalFileDeadLetteredTask>> {
         let _guard = self.lock.lock().await;
         let mut records = Vec::new();
@@ -214,12 +219,14 @@ impl LocalFileFlowTaskQueue {
         Ok(records)
     }
 
+    /// Returns leases at or before `cutoff` to pending dispatch.
     pub async fn requeue_inflight_older_than(&self, cutoff: DateTime<Utc>) -> Result<usize> {
         let _guard = self.lock.lock().await;
         let expired = self.expired_inflight_paths(cutoff).await?;
         self.requeue_inflight_paths(expired).await
     }
 
+    /// Moves leases at or before `cutoff` into durable dead-letter files.
     pub async fn dead_letter_inflight_older_than(
         &self,
         cutoff: DateTime<Utc>,
