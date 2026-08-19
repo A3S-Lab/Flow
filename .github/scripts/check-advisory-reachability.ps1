@@ -6,6 +6,16 @@ $expectedChronoVersion = "0.4.45"
 $expectedRustDecimalVersion = "1.42.1"
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 
+function Stop-Gate {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Message
+    )
+
+    Write-Output "::error file=.github/scripts/check-advisory-reachability.ps1::$Message"
+    throw $Message
+}
+
 function Invoke-Cargo {
     param(
         [Parameter(Mandatory = $true)]
@@ -14,7 +24,7 @@ function Invoke-Cargo {
 
     $output = @(& cargo @Arguments 2>&1)
     if ($LASTEXITCODE -ne 0) {
-        throw "cargo $($Arguments -join ' ') failed:`n$($output -join "`n")"
+        Stop-Gate "cargo $($Arguments -join ' ') failed: $($output -join ' ')"
     }
 
     return $output
@@ -27,7 +37,7 @@ try {
         [regex]::Matches($auditConfig, [regex]::Escape($advisoryId))
     )
     if ($configuredExceptions.Count -ne 1) {
-        throw ".cargo/audit.toml must contain exactly one $advisoryId exception."
+        Stop-Gate ".cargo/audit.toml must contain exactly one $advisoryId exception."
     }
 
     $metadataJson = (Invoke-Cargo @(
@@ -45,7 +55,7 @@ try {
     if ($rkyvPackages.Count -ne 1 -or
         $rkyvPackages[0].version -ne $expectedRkyvVersion) {
         $versions = ($rkyvPackages | ForEach-Object { $_.version }) -join ", "
-        throw "The $advisoryId exception expects only rkyv $expectedRkyvVersion in Cargo.lock; found: $versions. Remove or re-review the exception."
+        Stop-Gate "The $advisoryId exception expects only rkyv $expectedRkyvVersion in Cargo.lock; found: $versions. Remove or re-review the exception."
     }
 
     $rustDecimalPackages = @(
@@ -55,7 +65,7 @@ try {
         }
     )
     if ($rustDecimalPackages.Count -ne 1) {
-        throw "The $advisoryId exception expects rust_decimal $expectedRustDecimalVersion. Remove or re-review the exception."
+        Stop-Gate "The $advisoryId exception expects rust_decimal $expectedRustDecimalVersion. Remove or re-review the exception."
     }
 
     $rkyvOwners = @(
@@ -80,7 +90,7 @@ try {
     ) | Sort-Object
     $ownerDrift = @(Compare-Object $expectedOwners $owners)
     if ($ownerDrift.Count -gt 0) {
-        throw "The lock-only rkyv owners changed; found: $($owners -join ', '). Remove or re-review the $advisoryId exception."
+        Stop-Gate "The lock-only rkyv owners changed; found: $($owners -join ', '). Remove or re-review the $advisoryId exception."
     }
 
     $rkyvDependencies = @(
@@ -94,7 +104,7 @@ try {
     )
     if ($rkyvDependencies.Count -ne 2 -or
         @($rkyvDependencies | Where-Object { -not $_.optional }).Count -gt 0) {
-        throw "The rkyv 0.7 dependencies are no longer exactly two optional normal dependencies. Remove the $advisoryId exception."
+        Stop-Gate "The rkyv 0.7 dependencies are no longer exactly two optional normal dependencies. Remove the $advisoryId exception."
     }
 
     $activePackages = Invoke-Cargo @(
@@ -112,7 +122,7 @@ try {
         $activePackages | Where-Object { $_ -match '^rkyv v' }
     )
     if ($activeRkyv.Count -gt 0) {
-        throw "$advisoryId is reachable in a supported all-feature/all-target build: $($activeRkyv -join ', ')"
+        Stop-Gate "$advisoryId is reachable in a supported all-feature/all-target build: $($activeRkyv -join ', ')"
     }
 
     $activeFeatures = Invoke-Cargo @(
@@ -133,7 +143,7 @@ try {
         }
     )
     if ($activeRkyvFeatures.Count -gt 0) {
-        throw "$advisoryId is reachable through an enabled dependency feature: $($activeRkyvFeatures -join ', ')"
+        Stop-Gate "$advisoryId is reachable through an enabled dependency feature: $($activeRkyvFeatures -join ', ')"
     }
 
     Write-Output "::notice::Verified $advisoryId is limited to inactive optional rkyv $expectedRkyvVersion lock metadata."
