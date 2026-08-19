@@ -97,6 +97,7 @@ pub trait FlowRuntime: Send + Sync {
 
 /// Source-identity policy for native TypeScript artifacts.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum NativeTsDependencyMode {
     /// Preserve the original entrypoint-plus-deployment-version identity.
     #[default]

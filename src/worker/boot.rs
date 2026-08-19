@@ -21,6 +21,7 @@ const DEFAULT_FLOW_JOB_NAME: &str = "a3s.flow.task";
 /// scheduled run, or compatibility-wide due scan. IDs are SHA-256 digests, so
 /// callback tokens are not exposed in queue metadata.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum BootFlowTaskDeduplication {
     /// Submit every dispatch as a distinct Boot job.
     #[default]

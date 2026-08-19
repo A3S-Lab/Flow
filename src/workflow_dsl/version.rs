@@ -5,6 +5,7 @@ use super::{WorkflowDslError, TESTED_WORKFLOW_DSL_VERSION};
 /// Compatibility of an imported workflow DSL with the version exercised by
 /// this release of A3S Flow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum WorkflowDslCompatibility {
     /// The imported DSL can be consumed directly.
     Compatible,

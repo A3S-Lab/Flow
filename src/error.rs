@@ -9,6 +9,7 @@ pub type Result<T> = std::result::Result<T, FlowError>;
 
 /// Errors surfaced by the workflow engine and runtime adapters.
 #[derive(Error)]
+#[non_exhaustive]
 pub enum FlowError {
     /// A requested workflow run does not exist.
     #[error("workflow run not found: {0}")]

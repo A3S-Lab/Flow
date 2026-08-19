@@ -5,6 +5,7 @@ use crate::model::{JsonValue, WorkflowSignal};
 
 /// Queueable unit of workflow engine work.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum FlowTask {
     /// Replays a run until it suspends or reaches a terminal state.

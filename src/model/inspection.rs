@@ -104,6 +104,7 @@ impl WorkflowRunSummary {
 
 /// Open suspension projected for host dashboards and operator consoles.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WorkflowRunSuspension {
     /// A durable timer wait.

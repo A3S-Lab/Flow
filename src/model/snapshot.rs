@@ -14,6 +14,7 @@ use super::{
 
 /// Materialized lifecycle state of a workflow run.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowRunStatus {
     /// The run exists but has not started replay.
@@ -46,6 +47,7 @@ impl WorkflowRunStatus {
 
 /// Materialized lifecycle state of a durable step.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 #[serde(rename_all = "snake_case")]
 pub enum StepStatus {
     /// The step is ready now or after a retry deadline.
@@ -99,6 +101,7 @@ impl StepSnapshot {
 
 /// Materialized lifecycle state of a durable timer wait.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 #[serde(rename_all = "snake_case")]
 pub enum WaitStatus {
     /// The timer deadline has not been completed.
@@ -122,6 +125,7 @@ pub struct WaitSnapshot {
 
 /// Materialized lifecycle state of an external callback hook.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 #[serde(rename_all = "snake_case")]
 pub enum HookStatus {
     /// The hook can accept one external resolution.
@@ -192,6 +196,7 @@ impl ActiveHookSnapshot {
 
 /// Kind of durable timer that can wake a suspended workflow run.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
 #[serde(rename_all = "snake_case")]
 pub enum ScheduledWakeupKind {
     /// A durable timer wait.

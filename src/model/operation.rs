@@ -205,6 +205,7 @@ impl ChildOperationReference {
 
 /// Typed terminal result projected from the final run event.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WorkflowTerminalOutcome {
     /// The workflow returned a successful output.

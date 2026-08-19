@@ -14,6 +14,10 @@
 - Documented the complete all-feature public Rust API and made missing
   documentation a crate-level compile error for both the library and native
   compiler binary.
+- Marked extensible engine, lifecycle, task, DSL, and error enums as
+  non-exhaustive ahead of the `1.0.0` compatibility freeze. The closed native
+  runtime v1 discriminator remains exhaustive and requires protocol versioning
+  for future expansion.
 
 ## 0.14.0 - 2026-08-19
 

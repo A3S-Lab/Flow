@@ -8,6 +8,7 @@ use super::{validate_run_id, JsonValue, WorkflowSpec, WorkflowTerminalOutcome};
 
 /// Action applied to an open child when its parent enters cancellation.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 #[serde(rename_all = "snake_case")]
 pub enum ChildWorkflowCancellationPolicy {
     /// Request cleanup-aware cancellation and keep the parent cancelling until

@@ -70,6 +70,7 @@ impl WorkflowSignalSnapshot {
 
 /// Materialized lifecycle state of a deterministic signal wait.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 #[serde(rename_all = "snake_case")]
 pub enum SignalWaitStatus {
     /// The wait has not consumed a signal.

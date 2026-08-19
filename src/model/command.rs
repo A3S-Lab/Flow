@@ -18,6 +18,7 @@ pub type JsonValue = Value;
 
 /// Runtime family used to execute workflow code.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeKind {
     /// TypeScript compiled to a native executable through a native toolchain.
@@ -189,6 +190,7 @@ impl WorkflowSpec {
 
 /// What the engine should do after a step exhausts its retry attempts.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 #[serde(rename_all = "snake_case")]
 pub enum StepFailureAction {
     /// Record `step_failed`, then fail the workflow run.
@@ -283,6 +285,7 @@ impl Default for RetryPolicy {
 
 /// Command emitted by the workflow runtime after replay.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RuntimeCommand {
     /// Completes the workflow run successfully.

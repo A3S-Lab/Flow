@@ -2,6 +2,7 @@ use thiserror::Error;
 
 /// Failure returned while parsing, validating, planning, or encoding workflow DSL.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum WorkflowDslError {
     /// The source exceeds the bounded parser input size.
     #[error("workflow DSL document is {actual_bytes} bytes; maximum is {maximum_bytes} bytes")]

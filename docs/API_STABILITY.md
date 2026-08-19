@@ -62,6 +62,13 @@ The API review must distinguish construction types, read-only projections,
 wire types, extension traits, and host adapters. Applying one mechanical
 visibility rule to every category is not sufficient.
 
+Flow's engine, lifecycle, task, DSL, and error enums are non-exhaustive so a
+compatible `1.x` release can add a state or operation without breaking source
+compatibility. Consumers must include a fallback arm when matching them.
+`NativeRuntimeKind` is the deliberate exception: it belongs to the closed
+`a3s.flow.native_ts.v1` protocol. Extending that protocol requires a new
+versioned envelope rather than silently adding a v1 discriminator.
+
 ## Durable And Wire Compatibility
 
 Stored history is an append-only replay source of truth. A compatible release

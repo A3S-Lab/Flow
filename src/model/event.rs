@@ -9,6 +9,7 @@ use super::{
 
 /// Event persisted as the single source of truth for a workflow run.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum FlowEvent {
     /// Creates a run with its immutable definition and initial input.
