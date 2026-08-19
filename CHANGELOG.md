@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.14.0 - 2026-08-19
+
 - Made `start_with_id` validate persisted start authority before runtime-build
   admission. Exact retries can now acknowledge a fully terminal root or
   continuation chain without loading its old build, while pending root writes
