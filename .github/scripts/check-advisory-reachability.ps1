@@ -22,12 +22,47 @@ function Invoke-Cargo {
         [string[]]$Arguments
     )
 
-    $output = @(& cargo @Arguments 2>&1)
-    if ($LASTEXITCODE -ne 0) {
-        Stop-Gate "cargo $($Arguments -join ' ') failed: $($output -join ' ')"
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = (Get-Command cargo).Source
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+
+    if ($startInfo.PSObject.Properties.Name -contains "ArgumentList") {
+        foreach ($argument in $Arguments) {
+            $startInfo.ArgumentList.Add($argument)
+        }
+    }
+    else {
+        # Windows PowerShell 5.1 uses .NET Framework and has no ArgumentList.
+        # These Cargo arguments contain no whitespace or quotes.
+        $startInfo.Arguments = $Arguments -join " "
     }
 
-    return $output
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        if (-not $process.Start()) {
+            Stop-Gate "Could not start cargo $($Arguments -join ' ')."
+        }
+
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        $exitCode = $process.ExitCode
+    }
+    finally {
+        $process.Dispose()
+    }
+
+    if ($exitCode -ne 0) {
+        Stop-Gate "cargo $($Arguments -join ' ') failed: $stderr"
+    }
+
+    return @($stdout -split "\r?\n" | Where-Object { $_.Length -gt 0 })
 }
 
 Push-Location $repositoryRoot
@@ -47,7 +82,12 @@ try {
         "--format-version",
         "1"
     )) -join "`n"
-    $metadata = $metadataJson | ConvertFrom-Json
+    try {
+        $metadata = $metadataJson | ConvertFrom-Json
+    }
+    catch {
+        Stop-Gate "cargo metadata returned invalid JSON: $($_.Exception.Message)"
+    }
 
     $rkyvPackages = @(
         $metadata.packages | Where-Object { $_.name -eq "rkyv" }
