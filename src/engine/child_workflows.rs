@@ -4,7 +4,8 @@ use chrono::{DateTime, Utc};
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    ChildWorkflowCancellationPolicy, FlowEvent, WorkflowRunSnapshot, WorkflowTerminalOutcome,
+    ChildWorkflowCancellationPolicy, FlowEvent, WorkflowRunSnapshot, WorkflowRunStatus,
+    WorkflowTerminalOutcome,
 };
 
 use super::validation::is_event_conflict;
@@ -44,50 +45,72 @@ impl FlowEngine {
                 return Err(FlowError::ChildWorkflowCycle(child.run_id.clone()));
             }
 
-            self.ensure_run_started_with_admission(
-                &child.run_id,
-                &child.spec,
-                &child.input,
-                !abandoned_during_cancellation,
-            )
-            .await?;
-            if abandoned_during_cancellation
-                && !self.supports_runtime_build(child.spec.runtime_build_id.as_ref())
+            let mut child_snapshot = match self.ensure_continuation_leaf(&child.run_id, false).await
             {
-                continue;
-            }
-            let child_snapshot = if existed_before_cancellation
-                && child.cancellation_policy == ChildWorkflowCancellationPolicy::RequestCancellation
-            {
-                let request = parent
-                    .cancellation
-                    .as_ref()
-                    .ok_or_else(|| {
-                        FlowError::InvalidTransition(format!(
-                            "child workflow {} was classified as pre-cancellation without a durable parent request",
-                            child.child_id
-                        ))
-                    })?
-                    .request
-                    .clone();
-                Box::pin(self.request_cancellation_with_context(
-                    &child.run_id,
-                    request,
-                    now,
-                    child_depth + 1,
-                    ancestry,
-                    false,
-                ))
-                .await?
-            } else {
-                Box::pin(self.drive_at_with_child_context(
-                    &child.run_id,
-                    now,
-                    child_depth + 1,
-                    ancestry,
-                ))
-                .await?
+                Ok(snapshot) => snapshot,
+                Err(FlowError::RunNotFound(missing_run_id)) if missing_run_id == child.run_id => {
+                    self.ensure_run_started_with_admission(
+                        &child.run_id,
+                        &child.spec,
+                        &child.input,
+                        !abandoned_during_cancellation,
+                    )
+                    .await?;
+                    self.ensure_continuation_leaf(&child.run_id, false).await?
+                }
+                Err(error) => return Err(error),
             };
+            if abandoned_during_cancellation && child_snapshot.status == WorkflowRunStatus::Pending
+            {
+                self.ensure_run_started_with_admission(
+                    &child.run_id,
+                    &child.spec,
+                    &child.input,
+                    false,
+                )
+                .await?;
+                child_snapshot = self.ensure_continuation_leaf(&child.run_id, false).await?;
+            }
+            if !child_snapshot.status.is_terminal() {
+                if abandoned_during_cancellation
+                    && !self.supports_runtime_build(child.spec.runtime_build_id.as_ref())
+                {
+                    continue;
+                }
+                child_snapshot = if existed_before_cancellation
+                    && child.cancellation_policy
+                        == ChildWorkflowCancellationPolicy::RequestCancellation
+                {
+                    let request = parent
+                        .cancellation
+                        .as_ref()
+                        .ok_or_else(|| {
+                            FlowError::InvalidTransition(format!(
+                                "child workflow {} was classified as pre-cancellation without a durable parent request",
+                                child.child_id
+                            ))
+                        })?
+                        .request
+                        .clone();
+                    Box::pin(self.request_cancellation_with_context(
+                        &child.run_id,
+                        request,
+                        now,
+                        child_depth + 1,
+                        ancestry,
+                        false,
+                    ))
+                    .await?
+                } else {
+                    Box::pin(self.drive_at_with_child_context(
+                        &child.run_id,
+                        now,
+                        child_depth + 1,
+                        ancestry,
+                    ))
+                    .await?
+                };
+            }
 
             if !child_snapshot.status.is_terminal() {
                 if abandoned_during_cancellation {

@@ -286,7 +286,10 @@ replacement workers repair both failure windows: a missing child after the
 request, or a missing parent resolution after the child terminates. Reusing the
 same child ID with changed authority is non-deterministic replay. A child that
 continues as new is followed to its terminal leaf before the parent observes an
-outcome.
+outcome. Existing child continuation lifecycle gaps can be repaired without
+loading child code. Once the leaf is terminal, a worker that admits only the
+parent build can persist that outcome; an active leaf still requires its exact
+child build, and a missing child root is not created by an incompatible worker.
 
 The default policy is
 `ChildWorkflowCancellationPolicy::RequestCancellation`. A parent cancellation
@@ -317,8 +320,9 @@ independent run without invoking its workflow code.
 An externally resumed child does not cause an all-history reverse-link scan.
 After a child hook, wait, or separately routed task advances, enqueue or call
 `drive(parent_run_id)` so the parent can persist the outcome and replay. The
-worker doing that reconciliation must admit the child's pinned runtime build.
-Use `with_max_child_workflow_depth()` to bound recursive nesting; child and
+worker doing that reconciliation needs the child's pinned runtime build only
+while the active child leaf still requires replay. Use
+`with_max_child_workflow_depth()` to bound recursive nesting; child and
 continuation cycles fail closed. Retention keeps the linked ownership component
 until every history is terminal and eligible, and protects a committed parent
 request while its child stream is still missing.

@@ -418,7 +418,11 @@ match ctx.child_workflow_outcome("import") {
 
 The parent first persists the generated child run ID, exact spec, input, and
 cancellation policy. Recovery can therefore create a missing child or record a
-completed child's outcome after either cross-stream crash window. The default
+completed child's outcome after either cross-stream crash window. An existing
+child chain is repaired and inspected without loading child replay code, so a
+worker that admits the parent build can record an already terminal leaf's
+outcome. A non-terminal child leaf still requires its exact child build before
+replay; creating a missing child root remains fenced by that build. The default
 `RequestCancellation` policy propagates parent cancellation and waits for the
 child; `Abandon` leaves an open child independent while cancelling the parent.
 A committed abandoned child missing after a crash is restored before the

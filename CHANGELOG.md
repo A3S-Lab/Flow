@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Made parent reconciliation inspect and repair an existing child continuation
+  chain before applying child runtime-build admission. A parent-only worker can
+  now persist an already terminal child leaf's outcome after a crash, while an
+  active leaf still fails closed on its exact child build without mutating
+  parent or child history.
 - Made the release workflow rerun all-target, all-feature Clippy and strict
   all-feature rustdoc checks before publishing, matching the documented SDK
   completion gates instead of relying only on the preceding `main` workflow.

@@ -181,8 +181,11 @@ the terminal leaf outcome through `flow.child.workflow.resolved`. An open child
 suspends normal parent execution under either cancellation policy. If the child
 advances independently through a hook, wait, or routed task, the host must
 enqueue or call `drive(parent)` again; Flow does not scan all histories for
-reverse parent links. Child runtime-build admission remains fail closed, so a
-worker must support the exact child build before it can invoke that code.
+reverse parent links. Reconciliation repairs and inspects an existing child
+continuation chain without runtime code. A parent worker can therefore persist
+an already terminal leaf's outcome after a resolution crash. A non-terminal
+leaf still requires exact child-build admission before replay, and creating a
+missing requested child remains fenced before its history is written.
 
 `RequestCancellation` is the default. When the parent has a durable
 cancellation request, Flow sends the same request to every open child created
