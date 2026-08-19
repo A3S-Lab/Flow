@@ -237,6 +237,7 @@ impl FlowEvent {
 
 /// Stored event with per-run sequence and timestamp.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct FlowEventEnvelope {
     /// Run whose history owns this event.
     pub run_id: String,
@@ -248,4 +249,23 @@ pub struct FlowEventEnvelope {
     pub timestamp: DateTime<Utc>,
     /// Durable event payload.
     pub event: FlowEvent,
+}
+
+impl FlowEventEnvelope {
+    /// Create an envelope from the identity assigned by a durable event store.
+    pub fn new(
+        run_id: impl Into<String>,
+        sequence: u64,
+        event_id: Uuid,
+        timestamp: DateTime<Utc>,
+        event: FlowEvent,
+    ) -> Self {
+        Self {
+            run_id: run_id.into(),
+            sequence,
+            event_id,
+            timestamp,
+            event,
+        }
+    }
 }

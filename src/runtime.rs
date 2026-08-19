@@ -34,6 +34,7 @@ use native_ts::{
 
 /// Workflow replay request passed to a runtime implementation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct WorkflowInvocation {
     /// Durable identifier of the workflow run being replayed.
     pub run_id: String,
@@ -46,6 +47,21 @@ pub struct WorkflowInvocation {
 }
 
 impl WorkflowInvocation {
+    /// Create a workflow invocation from its complete durable replay input.
+    pub fn new(
+        run_id: impl Into<String>,
+        spec: WorkflowSpec,
+        input: JsonValue,
+        history: Vec<FlowEventEnvelope>,
+    ) -> Self {
+        Self {
+            run_id: run_id.into(),
+            spec,
+            input,
+            history,
+        }
+    }
+
     /// Build a deterministic helper view over this workflow invocation.
     pub fn context(&self) -> WorkflowContext<'_> {
         WorkflowContext::new(self)
@@ -62,6 +78,7 @@ impl WorkflowInvocation {
 
 /// Step execution request passed to a runtime implementation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct StepInvocation {
     /// Durable identifier of the workflow run that scheduled the step.
     pub run_id: String,
@@ -76,6 +93,23 @@ pub struct StepInvocation {
 }
 
 impl StepInvocation {
+    /// Create a step invocation from its complete durable execution input.
+    pub fn new(
+        run_id: impl Into<String>,
+        step_id: impl Into<String>,
+        step_name: impl Into<String>,
+        input: JsonValue,
+        history: Vec<FlowEventEnvelope>,
+    ) -> Self {
+        Self {
+            run_id: run_id.into(),
+            step_id: step_id.into(),
+            step_name: step_name.into(),
+            input,
+            history,
+        }
+    }
+
     /// Decode the step input into a host-defined serde type.
     pub fn input_as<T>(&self) -> Result<T>
     where
@@ -108,6 +142,7 @@ pub enum NativeTsDependencyMode {
 
 /// Configuration for the native TypeScript runtime adapter.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct NativeTsRuntimeConfig {
     /// Compiler executable. Bare names use `PATH`; relative paths with a
     /// directory component are resolved against the host process directory.

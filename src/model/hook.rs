@@ -7,6 +7,7 @@ use super::JsonValue;
 
 /// HTTP route metadata for external hook callbacks.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct HookCallbackRoute {
     /// Uppercase HTTP method expected by the callback route.
     pub method: String,
@@ -35,6 +36,7 @@ impl HookCallbackRoute {
 /// type only gives Rust workflow authors a stable shape for audit and callback
 /// routing fields.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct HookMetadata {
     /// Application-defined hook kind used for routing and audit.
     pub kind: String,

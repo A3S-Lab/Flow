@@ -155,13 +155,13 @@ fn run_summary_accepts_payloads_from_before_new_status_counters_were_added() {
 
 #[test]
 fn flow_event_envelope_uses_stable_native_history_field_names() {
-    let envelope = FlowEventEnvelope {
-        run_id: "run-1".to_string(),
-        sequence: 7,
-        event_id: Uuid::new_v4(),
-        timestamp: Utc::now(),
-        event: FlowEvent::RunCancelled { reason: None },
-    };
+    let envelope = FlowEventEnvelope::new(
+        "run-1",
+        7,
+        Uuid::new_v4(),
+        Utc::now(),
+        FlowEvent::RunCancelled { reason: None },
+    );
 
     let encoded = serde_json::to_value(envelope).unwrap();
     assert_eq!(encoded["run_id"], "run-1");

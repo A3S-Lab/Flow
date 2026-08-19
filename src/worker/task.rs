@@ -139,11 +139,22 @@ impl FlowTaskOutcome {
 /// token. Callers that renew leases manually must acknowledge with the latest
 /// returned token.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct FlowTaskLease {
     /// Current fencing token required for heartbeat and acknowledgement.
     pub lease_id: String,
     /// Leased Flow task payload.
     pub task: FlowTask,
+}
+
+impl FlowTaskLease {
+    /// Create a leased task with the queue's current fencing token.
+    pub fn new(lease_id: impl Into<String>, task: FlowTask) -> Self {
+        Self {
+            lease_id: lease_id.into(),
+            task,
+        }
+    }
 }
 
 /// Task moved out of inflight dispatch after exceeding a local lease policy.

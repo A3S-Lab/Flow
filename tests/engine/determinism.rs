@@ -364,12 +364,12 @@ async fn dispose_hook_records_disposal_and_drives_workflow() {
     assert_eq!(completed.hooks["approval"].status, HookStatus::Disposed);
     assert_eq!(completed.output.as_ref().unwrap()["status"], "disposed");
 
-    let invocation = WorkflowInvocation {
-        run_id: run_id.clone(),
-        spec: completed.spec.clone(),
-        input: completed.input.clone(),
-        history: engine.history(&run_id).await.unwrap(),
-    };
+    let invocation = WorkflowInvocation::new(
+        run_id.clone(),
+        completed.spec.clone(),
+        completed.input.clone(),
+        engine.history(&run_id).await.unwrap(),
+    );
     assert!(invocation.context().hook_disposed("approval"));
     assert!(disposed_hook(&invocation, "approval"));
 }

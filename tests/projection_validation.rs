@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use a3s_flow::{
     FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore, FlowRuntime, RetryPolicy,
-    RuntimeCommand, StepFailureAction, StepInvocation, StepStatus, WorkflowInvocation,
-    WorkflowRunStatus, WorkflowSpec,
+    RuntimeCommand, StepInvocation, StepStatus, WorkflowInvocation, WorkflowRunStatus,
+    WorkflowSpec,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -75,13 +75,13 @@ impl FlowRuntime for SnapshotOnlyRuntime {
 }
 
 fn envelope(sequence: u64, event: FlowEvent) -> FlowEventEnvelope {
-    FlowEventEnvelope {
-        run_id: RUN_ID.to_string(),
+    FlowEventEnvelope::new(
+        RUN_ID,
         sequence,
-        event_id: Uuid::new_v4(),
-        timestamp: "2026-01-01T00:00:00Z".parse().unwrap(),
+        Uuid::new_v4(),
+        "2026-01-01T00:00:00Z".parse().unwrap(),
         event,
-    }
+    )
 }
 
 fn history(retry: RetryPolicy, lifecycle: Vec<FlowEvent>) -> Vec<FlowEventEnvelope> {
@@ -190,11 +190,7 @@ async fn accepts_a_consistent_exhausted_retry_history() {
 async fn rejects_an_unrepresentable_persisted_retry_delay() {
     assert_invalid(
         history(
-            RetryPolicy {
-                max_attempts: 2,
-                delay_ms: u64::MAX,
-                on_exhausted: StepFailureAction::FailRun,
-            },
+            RetryPolicy::fixed(2, Duration::from_millis(u64::MAX)),
             Vec::new(),
         ),
         "retry delay 18446744073709551615ms cannot be represented as a UTC deadline",

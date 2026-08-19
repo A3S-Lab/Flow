@@ -31,6 +31,7 @@ impl WorkflowContinuation {
 
 /// Durable request for a workflow to stop through its cleanup-aware path.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CancellationRequest {
     /// Optional operator- or application-supplied reason.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -57,6 +58,7 @@ pub struct CancellationRequestSnapshot {
 
 /// A durable, idempotently identified progress update.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct WorkflowProgress {
     /// Caller-chosen idempotency identity for this update.
     pub progress_id: String,
@@ -128,6 +130,7 @@ impl WorkflowProgress {
 /// reference itself does not imply automatic cancellation; the parent
 /// workflow owns propagation through durable, idempotent cleanup steps.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct ChildOperationReference {
     /// Replay-stable parent-local identity of the reference.
     pub reference_id: String,

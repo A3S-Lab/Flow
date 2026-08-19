@@ -35,13 +35,7 @@ fn run_created_event() -> FlowEvent {
 }
 
 fn envelope(run_id: &str, sequence: u64, event: FlowEvent) -> FlowEventEnvelope {
-    FlowEventEnvelope {
-        run_id: run_id.to_string(),
-        sequence,
-        event_id: Uuid::new_v4(),
-        timestamp: Utc::now(),
-        event,
-    }
+    FlowEventEnvelope::new(run_id, sequence, Uuid::new_v4(), Utc::now(), event)
 }
 
 fn fixed_time() -> DateTime<Utc> {

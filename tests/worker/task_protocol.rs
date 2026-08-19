@@ -45,4 +45,11 @@ fn flow_task_serializes_for_external_queues() {
 
     let decoded: FlowTask = serde_json::from_str(&encoded).unwrap();
     assert_eq!(decoded, task);
+
+    let lease = FlowTaskLease::new("lease-1", task);
+    assert_eq!(lease.lease_id, "lease-1");
+    assert!(matches!(
+        lease.task,
+        FlowTask::DisposeHookByToken { token } if token == "approval-token"
+    ));
 }

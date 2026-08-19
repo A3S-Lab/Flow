@@ -1,9 +1,10 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use a3s_flow::{
     FlowEngine, FlowError, FlowEvent, FlowRuntime, RetryPolicy, RuntimeCommand, StepCommand,
-    StepFailureAction, StepInvocation, WorkflowInvocation, WorkflowSpec,
+    StepInvocation, WorkflowInvocation, WorkflowSpec,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -30,11 +31,7 @@ impl InvalidRetryRuntime {
     }
 
     fn retry_policy(&self) -> RetryPolicy {
-        RetryPolicy {
-            max_attempts: 2,
-            delay_ms: self.delay_ms,
-            on_exhausted: StepFailureAction::FailRun,
-        }
+        RetryPolicy::fixed(2, Duration::from_millis(self.delay_ms))
     }
 }
 
@@ -44,12 +41,8 @@ impl FlowRuntime for InvalidRetryRuntime {
         &self,
         _invocation: WorkflowInvocation,
     ) -> a3s_flow::Result<RuntimeCommand> {
-        let step = StepCommand {
-            step_id: "bounded-retry".to_string(),
-            step_name: "boundedRetry".to_string(),
-            input: json!({}),
-            retry: self.retry_policy(),
-        };
+        let step = StepCommand::new("bounded-retry", "boundedRetry", json!({}))
+            .with_retry(self.retry_policy());
         Ok(match self.shape {
             RetryCommandShape::Single => RuntimeCommand::ScheduleStep {
                 step_id: step.step_id,

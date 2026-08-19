@@ -69,6 +69,13 @@ compatibility. Consumers must include a fallback arm when matching them.
 `a3s.flow.native_ts.v1` protocol. Extending that protocol requires a new
 versioned envelope rather than silently adding a v1 discriminator.
 
+Construction types that may gain optional policy or metadata fields are also
+non-exhaustive and expose a constructor plus typed builder methods. This
+includes workflow/runtime definitions, invocations, retry and step commands,
+signals, hooks, operation metadata, retention policy, event envelopes, and
+queue leases. Native compiler/runtime v1 envelope structs are intentionally
+frozen wire DTOs; an incompatible field change requires a new protocol version.
+
 ## Durable And Wire Compatibility
 
 Stored history is an append-only replay source of truth. A compatible release

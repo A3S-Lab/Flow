@@ -23,13 +23,7 @@ fn event(
     timestamp: DateTime<Utc>,
     event: FlowEvent,
 ) -> FlowEventEnvelope {
-    FlowEventEnvelope {
-        run_id: run_id.to_string(),
-        sequence,
-        event_id: Uuid::new_v4(),
-        timestamp,
-        event,
-    }
+    FlowEventEnvelope::new(run_id, sequence, Uuid::new_v4(), timestamp, event)
 }
 
 struct IndexedScheduleStore {

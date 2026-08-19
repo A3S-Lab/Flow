@@ -29,6 +29,7 @@ pub enum RuntimeKind {
 
 /// Runtime metadata stored with a run so replay can happen on another process.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct RuntimeSpec {
     /// Runtime family responsible for executing the entrypoint.
     pub kind: RuntimeKind,
@@ -60,6 +61,7 @@ impl RuntimeSpec {
 
 /// Durable workflow definition.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct WorkflowSpec {
     /// Stable workflow type name used for registration and inspection.
     pub name: String,
@@ -210,6 +212,7 @@ impl StepFailureAction {
 
 /// Retry behavior for a step command.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct RetryPolicy {
     /// Maximum number of attempts, including the first execution.
     pub max_attempts: u32,
@@ -381,6 +384,7 @@ pub enum RuntimeCommand {
 
 /// Step definition returned by workflow replay.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct StepCommand {
     /// Replay-stable identity of the step.
     pub step_id: String,

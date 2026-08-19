@@ -22,6 +22,7 @@ struct LinkedWorkflowStart {
 /// `terminal_before`, has no durable audit hold, and belongs to a linked-run
 /// component whose other histories are eligible in the same scan.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FlowHistoryRetentionPolicy {
     /// Delete only histories whose terminal event predates this instant.
     pub terminal_before: DateTime<Utc>,

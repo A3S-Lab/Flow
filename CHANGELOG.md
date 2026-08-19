@@ -18,6 +18,10 @@
   non-exhaustive ahead of the `1.0.0` compatibility freeze. The closed native
   runtime v1 discriminator remains exhaustive and requires protocol versioning
   for future expansion.
+- Made extensible construction DTOs non-exhaustive and added explicit
+  constructors for runtime invocations, durable event envelopes, and queue
+  leases. Versioned native compiler/runtime v1 envelopes remain intentionally
+  frozen wire shapes.
 
 ## 0.14.0 - 2026-08-19
 

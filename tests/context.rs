@@ -191,22 +191,22 @@ async fn workflow_context_drives_step_wait_and_hook_flow() {
 
 #[test]
 fn typed_input_helpers_surface_serialization_errors() {
-    let invocation = WorkflowInvocation {
-        run_id: "typed-input-error".to_string(),
-        spec: spec(),
-        input: json!({ "userId": 42 }),
-        history: Vec::new(),
-    };
+    let invocation = WorkflowInvocation::new(
+        "typed-input-error",
+        spec(),
+        json!({ "userId": 42 }),
+        Vec::new(),
+    );
     let workflow_error = invocation.context().input_as::<ContextInput>().unwrap_err();
     assert!(matches!(workflow_error, FlowError::Serialization(_)));
 
-    let step = StepInvocation {
-        run_id: "typed-input-error".to_string(),
-        step_id: "load-user".to_string(),
-        step_name: "loadUser".to_string(),
-        input: json!({ "userId": 42 }),
-        history: Vec::new(),
-    };
+    let step = StepInvocation::new(
+        "typed-input-error",
+        "load-user",
+        "loadUser",
+        json!({ "userId": 42 }),
+        Vec::new(),
+    );
     let step_error = step.input_as::<LoadUserInput>().unwrap_err();
     assert!(matches!(step_error, FlowError::Serialization(_)));
 }

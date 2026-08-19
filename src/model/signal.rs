@@ -11,6 +11,7 @@ use super::JsonValue;
 /// `signal_id` is the caller-owned idempotency identity. A caller must reuse
 /// both the target run ID and this value when retrying an uncertain delivery.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct WorkflowSignal {
     /// Caller-owned idempotency identity.
     pub signal_id: String,
