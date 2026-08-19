@@ -77,5 +77,5 @@ examples-non-pg:
 
 # Verify the crate package and publish payload without uploading it
 package-dry-run:
-    cargo package --locked --allow-dirty
+    pwsh -NoProfile -File ./.github/scripts/check-package.ps1 -AllowDirty
     cargo publish --locked --dry-run --allow-dirty

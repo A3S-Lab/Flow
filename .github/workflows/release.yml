@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Tag name to release, for example v1.0.0-rc.1"
+        description: "Tag name to release, for example v1.0.0"
         required: false
         type: string
 
@@ -212,7 +212,8 @@ jobs:
       - name: Verify package
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/a3s-flow-package-target
-        run: cargo package --locked
+        shell: pwsh
+        run: ./.github/scripts/check-package.ps1
 
   publish-crate:
     name: Publish to crates.io

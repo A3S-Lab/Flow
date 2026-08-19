@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 1.0.0-rc.1 - 2026-08-19
+## 1.0.0 - 2026-08-19
 
 - Declared Rust 1.88 as the minimum supported Rust version, added dedicated
   all-target/all-feature MSRV gates to `main` and release CI, enabled
@@ -54,6 +54,9 @@
 - Made the release workflow rerun all-target, all-feature Clippy and strict
   all-feature rustdoc checks before publishing, matching the documented SDK
   completion gates instead of relying only on the preceding `main` workflow.
+- Made package qualification compile every target and feature from Cargo's
+  normalized publish artifact against crates.io dependencies, preventing a
+  Git-only development dependency from producing an unusable public crate.
 - Made cleanup-aware cancellation repair a successor missing after a committed
   continue-as-new link before applying runtime-build admission. Already
   terminal leaves can now acknowledge a late cancellation request without

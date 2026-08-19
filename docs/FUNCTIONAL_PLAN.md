@@ -48,7 +48,7 @@ pass from the crate repository:
 | Durable behavior | All unit and integration suites, including crash, corruption, cancellation, routing, retention, and queue fencing |
 | Database behavior | Real PostgreSQL store, hook, wakeup, retention, queue, reconnect, and process-death gates; SQLite integration suite |
 | Native TypeScript | Compiler unit tests, manifest drift tests, Linux compile checking, and `tests/native_ts_bun_smoke.rs` executing cold/warm preflight plus a complete workflow with real Bun on Linux and Windows |
-| Public artifact | Rustdoc with warnings denied plus `cargo package --locked` verification containing the compiler binary and required docs/examples |
+| Public artifact | Rustdoc with warnings denied plus `cargo package --locked` verification containing the compiler binary and required docs/examples; the normalized package compiles every target and feature against registry dependencies |
 
 Hosted tenancy, authorization, graph editing UI, node capability binding, and
 deployment policy remain outside this definition because A3S Cloud owns those

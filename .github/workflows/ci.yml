@@ -70,7 +70,8 @@ jobs:
         env:
           # Avoid placing a nested packaged workspace inside rust-cache's target tree.
           CARGO_TARGET_DIR: ${{ runner.temp }}/a3s-flow-package-target
-        run: cargo package --locked
+        shell: pwsh
+        run: ./.github/scripts/check-package.ps1
 
   msrv:
     name: Rust 1.88 MSRV

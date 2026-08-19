@@ -136,6 +136,8 @@ functional completion gates:
    upgrades real SQLite and PostgreSQL databases from every supported schema
    baseline. Published migration checksums remain immutable, and an injected
    migration failure proves schema and history transaction rollback.
+7. Cargo's normalized publish artifact compiles every target and feature using
+   registry dependencies rather than the repository's pinned Git sources.
 
 The immutable pre-1.0 Rust API baseline is recorded as a full commit SHA in
 `.github/v1-api-baseline.txt`. CI and release automation compare all features

@@ -37,7 +37,7 @@ dependencies = [
 
 [[package]]
 name = "a3s-flow"
-version = "1.0.0-rc.1"
+version = "1.0.0"
 dependencies = [
  "a3s-boot",
  "a3s-event",
@@ -77,8 +77,8 @@ dependencies = [
 
 [[package]]
 name = "a3s-orm"
-version = "0.3.0"
-source = "git+https://github.com/A3S-Lab/ORM.git?rev=f178da81872eeccb8aa62d3a86617b95b791aa32#f178da81872eeccb8aa62d3a86617b95b791aa32"
+version = "0.3.1"
+source = "git+https://github.com/A3S-Lab/ORM.git?rev=52944002dc84b07d88a85f2a4a87f913655e62b5#52944002dc84b07d88a85f2a4a87f913655e62b5"
 dependencies = [
  "async-trait",
  "bytes",
