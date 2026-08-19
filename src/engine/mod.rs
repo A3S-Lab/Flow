@@ -68,6 +68,7 @@ pub struct FlowEngineBuilder {
 }
 
 impl FlowEngineBuilder {
+    /// Create a builder with an in-memory store and no-op observer.
     pub fn new(runtime: Arc<dyn FlowRuntime>) -> Self {
         Self {
             store: Arc::new(InMemoryEventStore::new()),
@@ -80,11 +81,13 @@ impl FlowEngineBuilder {
         }
     }
 
+    /// Use `store` for durable workflow histories.
     pub fn with_store(mut self, store: Arc<dyn FlowEventStore>) -> Self {
         self.store = store;
         self
     }
 
+    /// Observe each event after it has been durably appended.
     pub fn with_observer(mut self, observer: Arc<dyn FlowEventObserver>) -> Self {
         self.observer = observer;
         self
@@ -99,6 +102,9 @@ impl FlowEngineBuilder {
         self
     }
 
+    /// Set the maximum workflow replay iterations per drive operation.
+    ///
+    /// Values below one are clamped to one.
     pub fn with_max_replay_iterations(mut self, max_replay_iterations: usize) -> Self {
         self.max_replay_iterations = max_replay_iterations.max(1);
         self
@@ -122,6 +128,7 @@ impl FlowEngineBuilder {
         self
     }
 
+    /// Build the configured workflow engine.
     pub fn build(self) -> FlowEngine {
         FlowEngine {
             store: self.store,
@@ -148,10 +155,12 @@ pub struct FlowEngine {
 }
 
 impl FlowEngine {
+    /// Create an engine builder for `runtime`.
     pub fn builder(runtime: Arc<dyn FlowRuntime>) -> FlowEngineBuilder {
         FlowEngineBuilder::new(runtime)
     }
 
+    /// Create an engine with the supplied store, runtime, and default limits.
     pub fn new(store: Arc<dyn FlowEventStore>, runtime: Arc<dyn FlowRuntime>) -> Self {
         Self {
             store,
@@ -164,14 +173,17 @@ impl FlowEngine {
         }
     }
 
+    /// Create an engine backed by a new in-memory event store.
     pub fn in_memory(runtime: Arc<dyn FlowRuntime>) -> Self {
         Self::new(Arc::new(InMemoryEventStore::new()), runtime)
     }
 
+    /// Clone the engine's event-store handle.
     pub fn store(&self) -> Arc<dyn FlowEventStore> {
         Arc::clone(&self.store)
     }
 
+    /// Clone the engine's event-observer handle.
     pub fn observer(&self) -> Arc<dyn FlowEventObserver> {
         Arc::clone(&self.observer)
     }

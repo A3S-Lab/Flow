@@ -12,12 +12,16 @@ use crate::worker::{FlowTask, FlowTaskDispatcher};
 /// Result of one scheduler scan and its targeted per-run dispatches.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FlowSchedulerTick {
+    /// Due `(run_id, wait_id)` pairs observed during the scan.
     pub due_waits: Vec<(String, String)>,
+    /// Due `(run_id, step_id)` retry pairs observed during the scan.
     pub due_retries: Vec<(String, String)>,
+    /// Number of distinct per-run tasks dispatched by the scan.
     pub enqueued_tasks: usize,
 }
 
 impl FlowSchedulerTick {
+    /// Return whether the scan found at least one due wait or retry.
     pub fn has_due_work(&self) -> bool {
         !self.due_waits.is_empty() || !self.due_retries.is_empty()
     }
@@ -31,14 +35,17 @@ pub struct FlowScheduler {
 }
 
 impl FlowScheduler {
+    /// Create a scheduler for an engine and task dispatcher.
     pub fn new(engine: FlowEngine, dispatcher: Arc<dyn FlowTaskDispatcher>) -> Self {
         Self { engine, dispatcher }
     }
 
+    /// Return the workflow engine inspected by this scheduler.
     pub fn engine(&self) -> &FlowEngine {
         &self.engine
     }
 
+    /// Clone the dispatcher used for due-work tasks.
     pub fn dispatcher(&self) -> Arc<dyn FlowTaskDispatcher> {
         Arc::clone(&self.dispatcher)
     }
@@ -74,6 +81,7 @@ impl FlowScheduler {
         ))
     }
 
+    /// Scan due waits and retries and dispatch one task per affected run.
     pub async fn enqueue_due_work(&self, now: DateTime<Utc>) -> Result<FlowSchedulerTick> {
         let due = self.engine.list_due_wakeups(now).await?;
         let due_waits = due

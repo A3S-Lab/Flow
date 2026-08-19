@@ -9,6 +9,7 @@
 //! compiled executable through a small JSON protocol.
 
 #![forbid(unsafe_code)]
+#![deny(missing_docs)]
 
 mod context;
 mod engine;

@@ -1,3 +1,7 @@
+//! Native TypeScript compiler and dependency-manifest command-line adapter.
+
+#![deny(missing_docs)]
+
 mod compiler;
 
 use std::ffi::OsString;

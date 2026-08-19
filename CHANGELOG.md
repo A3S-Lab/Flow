@@ -11,6 +11,9 @@
   covering SemVer, durable and wire compatibility, extensible public types,
   downstream lockstep validation, private vulnerability reporting, and
   evidence required for dependency-advisory exceptions.
+- Documented the complete all-feature public Rust API and made missing
+  documentation a crate-level compile error for both the library and native
+  compiler binary.
 
 ## 0.14.0 - 2026-08-19
 

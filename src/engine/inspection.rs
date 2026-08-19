@@ -9,19 +9,23 @@ use crate::model::{
 use super::FlowEngine;
 
 impl FlowEngine {
+    /// Project the current snapshot for `run_id` from its durable history.
     pub async fn snapshot(&self, run_id: &str) -> Result<WorkflowRunSnapshot> {
         let history = self.store.list(run_id).await?;
         project_run(run_id, &history)
     }
 
+    /// Load the complete durable event history for `run_id`.
     pub async fn history(&self, run_id: &str) -> Result<Vec<crate::model::FlowEventEnvelope>> {
         self.store.list(run_id).await
     }
 
+    /// List all workflow run IDs known to the engine's store.
     pub async fn list_run_ids(&self) -> Result<Vec<String>> {
         self.store.list_run_ids().await
     }
 
+    /// Project current snapshots for every workflow run in the store.
     pub async fn list_snapshots(&self) -> Result<Vec<WorkflowRunSnapshot>> {
         let mut snapshots = Vec::new();
         for run_id in self.store.list_run_ids().await? {

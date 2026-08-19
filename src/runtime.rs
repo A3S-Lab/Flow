@@ -35,9 +35,13 @@ use native_ts::{
 /// Workflow replay request passed to a runtime implementation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowInvocation {
+    /// Durable identifier of the workflow run being replayed.
     pub run_id: String,
+    /// Workflow definition recorded when the run was created.
     pub spec: WorkflowSpec,
+    /// Original workflow input.
     pub input: JsonValue,
+    /// Complete persisted event history in sequence order.
     pub history: Vec<FlowEventEnvelope>,
 }
 
@@ -59,10 +63,15 @@ impl WorkflowInvocation {
 /// Step execution request passed to a runtime implementation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepInvocation {
+    /// Durable identifier of the workflow run that scheduled the step.
     pub run_id: String,
+    /// Replay-stable identifier of this step invocation.
     pub step_id: String,
+    /// Host-defined step handler name.
     pub step_name: String,
+    /// Input supplied by the workflow command.
     pub input: JsonValue,
+    /// Complete persisted workflow history in sequence order.
     pub history: Vec<FlowEventEnvelope>,
 }
 
@@ -111,6 +120,7 @@ pub struct NativeTsRuntimeConfig {
 }
 
 impl NativeTsRuntimeConfig {
+    /// Create a native TypeScript configuration from explicit host paths.
     pub fn new(
         compiler_binary: impl Into<PathBuf>,
         cache_dir: impl Into<PathBuf>,
@@ -198,6 +208,7 @@ impl NativeTsRuntime {
     /// Default maximum bytes retained from a compiler or runtime stderr pipe.
     pub const DEFAULT_MAX_STDERR_BYTES: usize = 256 * 1024;
 
+    /// Create a native TypeScript runtime with default limits and cache policy.
     pub fn new(config: NativeTsRuntimeConfig) -> Self {
         Self {
             config,
@@ -213,6 +224,7 @@ impl NativeTsRuntime {
         }
     }
 
+    /// Return the compiler, cache, and working-directory configuration.
     pub fn config(&self) -> &NativeTsRuntimeConfig {
         &self.config
     }
@@ -286,6 +298,7 @@ impl NativeTsRuntime {
     }
 
     #[cfg(feature = "native-ts")]
+    /// Validate the workflow specification and ensure its native artifact is ready.
     pub async fn preflight(&self, spec: &WorkflowSpec) -> Result<NativeTsRuntimePreflight> {
         let (artifact, cache_hit) = self.compile_if_needed(spec).await?;
         Ok(NativeTsRuntimePreflight {
@@ -297,6 +310,7 @@ impl NativeTsRuntime {
     }
 
     #[cfg(not(feature = "native-ts"))]
+    /// Return an error because native TypeScript support is not compiled in.
     pub async fn preflight(&self, _spec: &WorkflowSpec) -> Result<NativeTsRuntimePreflight> {
         Err(FlowError::Runtime(
             "native-ts feature is disabled for NativeTsRuntime".to_string(),
