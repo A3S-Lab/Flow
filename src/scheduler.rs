@@ -11,6 +11,7 @@ use crate::worker::{FlowTask, FlowTaskDispatcher};
 
 /// Result of one scheduler scan and its targeted per-run dispatches.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FlowSchedulerTick {
     /// Due `(run_id, wait_id)` pairs observed during the scan.
     pub due_waits: Vec<(String, String)>,

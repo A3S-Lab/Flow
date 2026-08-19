@@ -64,6 +64,7 @@ pub enum StepStatus {
 
 /// Materialized state of one durable step.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct StepSnapshot {
     /// Replay-stable identity of the step.
     pub step_id: String,
@@ -114,6 +115,7 @@ pub enum WaitStatus {
 
 /// Materialized state of one durable timer wait.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct WaitSnapshot {
     /// Replay-stable identity of the wait.
     pub wait_id: String,
@@ -140,6 +142,7 @@ pub enum HookStatus {
 
 /// Materialized state of one external callback hook.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct HookSnapshot {
     /// Replay-stable identity of the hook.
     pub hook_id: String,
@@ -154,6 +157,23 @@ pub struct HookSnapshot {
 }
 
 impl HookSnapshot {
+    /// Create a materialized hook value for a custom event-store projection.
+    pub fn new(
+        hook_id: impl Into<String>,
+        token: impl Into<String>,
+        status: HookStatus,
+        metadata: JsonValue,
+        payload: Option<JsonValue>,
+    ) -> Self {
+        Self {
+            hook_id: hook_id.into(),
+            token: token.into(),
+            status,
+            metadata,
+            payload,
+        }
+    }
+
     /// Decode the persisted hook metadata into a host-defined serde type.
     pub fn metadata_as<T>(&self) -> Result<T>
     where
@@ -177,6 +197,7 @@ impl HookSnapshot {
 
 /// Active external callback hook with the run that owns it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct ActiveHookSnapshot {
     /// Run that owns the active hook.
     pub run_id: String,
@@ -185,6 +206,14 @@ pub struct ActiveHookSnapshot {
 }
 
 impl ActiveHookSnapshot {
+    /// Associate a materialized active hook with its owning run.
+    pub fn new(run_id: impl Into<String>, hook: HookSnapshot) -> Self {
+        Self {
+            run_id: run_id.into(),
+            hook,
+        }
+    }
+
     /// Decode the active hook metadata into a host-defined serde type.
     pub fn metadata_as<T>(&self) -> Result<T>
     where
@@ -220,6 +249,7 @@ impl ScheduledWakeupKind {
 
 /// Minimal indexed record for a wait timer or delayed step retry.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ScheduledWakeup {
     /// Run that owns the scheduled work.
     pub run_id: String,
@@ -234,8 +264,28 @@ pub struct ScheduledWakeup {
     pub runtime_build_id: Option<RuntimeBuildId>,
 }
 
+impl ScheduledWakeup {
+    /// Create an indexed scheduled-work record for a custom event store.
+    pub fn new(
+        run_id: impl Into<String>,
+        kind: ScheduledWakeupKind,
+        subject_id: impl Into<String>,
+        scheduled_at: DateTime<Utc>,
+        runtime_build_id: Option<RuntimeBuildId>,
+    ) -> Self {
+        Self {
+            run_id: run_id.into(),
+            kind,
+            subject_id: subject_id.into(),
+            scheduled_at,
+            runtime_build_id,
+        }
+    }
+}
+
 /// Materialized state of a workflow run.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct WorkflowRunSnapshot {
     /// Stable identifier of the run.
     pub run_id: String,

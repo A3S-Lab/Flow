@@ -8,6 +8,7 @@ use super::{
 
 /// Aggregated run counts for host dashboards and health probes.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 #[serde(default)]
 pub struct WorkflowRunSummary {
     /// Number of runs included in the aggregation.

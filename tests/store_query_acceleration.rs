@@ -16,16 +16,16 @@ struct IndexedOnlyStore {
 impl IndexedOnlyStore {
     fn new() -> Self {
         Self {
-            hooks: vec![ActiveHookSnapshot {
-                run_id: "indexed-run".into(),
-                hook: HookSnapshot {
-                    hook_id: "approval".into(),
-                    token: "indexed-token".into(),
-                    status: HookStatus::Active,
-                    metadata: json!({ "source": "projection" }),
-                    payload: None,
-                },
-            }],
+            hooks: vec![ActiveHookSnapshot::new(
+                "indexed-run",
+                HookSnapshot::new(
+                    "approval",
+                    "indexed-token",
+                    HookStatus::Active,
+                    json!({ "source": "projection" }),
+                    None,
+                ),
+            )],
             indexed_queries: AtomicUsize::new(0),
             history_scans: AtomicUsize::new(0),
         }

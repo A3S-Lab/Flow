@@ -76,6 +76,13 @@ signals, hooks, operation metadata, retention policy, event envelopes, and
 queue leases. Native compiler/runtime v1 envelope structs are intentionally
 frozen wire DTOs; an incompatible field change requires a new protocol version.
 
+Read-only snapshots, summaries, inspection records, audit records, scheduler
+results, and worker outcomes are non-exhaustive projections. Their public
+fields remain readable, while consumers must avoid struct literals and use
+constructors where an extension trait requires producing a value. Custom event
+stores can construct envelopes, hook projections, and scheduled wakeups through
+the corresponding `new` functions.
+
 ## Durable And Wire Compatibility
 
 Stored history is an append-only replay source of truth. A compatible release

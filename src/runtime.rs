@@ -226,6 +226,7 @@ enum NativeProcessOutputError {
 
 /// Result of validating and compiling a native TypeScript workflow source.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct NativeTsRuntimePreflight {
     /// Resolved workflow source entrypoint used by the compiler.
     pub entrypoint: PathBuf,

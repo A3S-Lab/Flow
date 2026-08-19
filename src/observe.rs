@@ -130,6 +130,7 @@ impl FlowEventObserver for InMemoryFlowEventObserver {
 
 /// Low-cardinality workflow identity copied from the run-created event.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FlowWorkflowIdentity {
     /// Stable workflow type name.
     pub name: String,
@@ -137,17 +138,25 @@ pub struct FlowWorkflowIdentity {
     pub version: String,
 }
 
+impl FlowWorkflowIdentity {
+    /// Create a low-cardinality workflow identity.
+    pub fn new(name: impl Into<String>, version: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            version: version.into(),
+        }
+    }
+}
+
 impl From<&WorkflowSpec> for FlowWorkflowIdentity {
     fn from(spec: &WorkflowSpec) -> Self {
-        Self {
-            name: spec.name.clone(),
-            version: spec.version.clone(),
-        }
+        Self::new(spec.name.clone(), spec.version.clone())
     }
 }
 
 /// Subject touched by a workflow event.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct A3sFlowEventSubject {
     /// Low-cardinality subject kind such as `step` or `hook`.
     pub kind: String,
@@ -161,6 +170,7 @@ pub struct A3sFlowEventSubject {
 /// `event_id`, but [`safe_metric_labels`](Self::safe_metric_labels) intentionally
 /// returns only low-cardinality labels.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct A3sFlowEvent {
     /// Dot-separated A3S event routing key.
     pub key: String,

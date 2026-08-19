@@ -1,16 +1,16 @@
 use super::*;
 
 fn audit_event(run_id: &str, sequence: u64) -> A3sFlowEvent {
-    A3sFlowEvent {
-        key: "flow.run.started".to_string(),
-        run_id: run_id.to_string(),
-        sequence,
-        event_id: Uuid::new_v4(),
-        timestamp: fixed_time(),
-        workflow: None,
-        status: Some("running".to_string()),
-        subject: None,
-    }
+    A3sFlowEvent::from_envelope(
+        &FlowEventEnvelope::new(
+            run_id,
+            sequence,
+            Uuid::new_v4(),
+            fixed_time(),
+            FlowEvent::RunStarted,
+        ),
+        None,
+    )
 }
 
 #[tokio::test]

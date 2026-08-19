@@ -97,6 +97,7 @@ impl FlowTask {
 
 /// Result of handling one queued [`FlowTask`].
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct FlowTaskOutcome {
     /// Task whose durable effects are summarized.
     pub task: FlowTask,
@@ -159,6 +160,7 @@ impl FlowTaskLease {
 
 /// Task moved out of inflight dispatch after exceeding a local lease policy.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct LocalFileDeadLetteredTask {
     /// Final lease token owned before dead-lettering.
     pub lease_id: String,
@@ -173,6 +175,7 @@ pub struct LocalFileDeadLetteredTask {
 /// Task moved out of Postgres inflight dispatch after exceeding a lease policy.
 #[cfg(feature = "postgres")]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct PostgresDeadLetteredTask {
     /// Final lease token owned before dead-lettering.
     pub lease_id: String,

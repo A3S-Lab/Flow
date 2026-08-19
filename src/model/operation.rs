@@ -12,6 +12,7 @@ use super::JsonValue;
 /// Only input changes across the boundary, so replay-code admission and patch
 /// markers cannot drift while an execution is segmented.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct WorkflowContinuation {
     /// Run identifier assigned to the successor history segment.
     pub successor_run_id: String,
@@ -47,6 +48,7 @@ impl CancellationRequest {
 
 /// Projected cancellation request with its durable event position.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CancellationRequestSnapshot {
     /// Immutable request delivered during cleanup replay.
     pub request: CancellationRequest,

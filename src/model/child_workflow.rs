@@ -21,6 +21,7 @@ pub enum ChildWorkflowCancellationPolicy {
 
 /// Parent-owned projection of one first-class child workflow execution.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct ChildWorkflowSnapshot {
     /// Replay-stable parent-local identity of the child.
     pub child_id: String,

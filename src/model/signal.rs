@@ -43,6 +43,7 @@ impl WorkflowSignal {
 
 /// A received signal together with its durable history position.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct WorkflowSignalSnapshot {
     /// Caller-owned idempotency identity.
     pub signal_id: String,
@@ -84,6 +85,7 @@ pub enum SignalWaitStatus {
 
 /// A deterministic workflow wait for the next unconsumed signal of one name.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct SignalWaitSnapshot {
     /// Replay-stable identity of the wait.
     pub wait_id: String,

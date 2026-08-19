@@ -64,6 +64,7 @@ impl FlowHistoryRetentionPolicy {
 /// Persistent reason that prevents a run history from being pruned.
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FlowHistoryHold {
     /// Run whose history is protected.
     pub run_id: String,
@@ -78,6 +79,7 @@ pub struct FlowHistoryHold {
 /// Minimal audit record retained after a complete event history is deleted.
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FlowHistoryTombstone {
     /// Run whose event history was deleted.
     pub run_id: String,
@@ -95,6 +97,7 @@ pub struct FlowHistoryTombstone {
 
 /// Detailed result of a terminal-history retention scan.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FlowHistoryRetentionReport {
     /// Histories deleted by this scan.
     pub deleted_run_ids: Vec<String>,

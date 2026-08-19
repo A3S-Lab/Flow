@@ -22,6 +22,9 @@
   constructors for runtime invocations, durable event envelopes, and queue
   leases. Versioned native compiler/runtime v1 envelopes remain intentionally
   frozen wire shapes.
+- Made public snapshots, summaries, inspection and audit records, scheduler
+  results, and worker outcomes non-exhaustive read-only projections. Added
+  constructors for workflow identity and custom-store hook/wakeup projections.
 
 ## 0.14.0 - 2026-08-19
 
