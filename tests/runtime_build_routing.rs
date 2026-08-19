@@ -11,6 +11,8 @@ use std::sync::{Arc, Mutex};
 
 #[path = "runtime_build_routing/cancellation_continuation.rs"]
 mod cancellation_continuation;
+#[path = "runtime_build_routing/idempotent_start.rs"]
+mod idempotent_start;
 
 const TIMER_ID: &str = "runtime-build-timer";
 

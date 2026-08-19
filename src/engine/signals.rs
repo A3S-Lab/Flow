@@ -43,7 +43,7 @@ impl FlowEngine {
         for _ in 0..self.max_replay_iterations {
             // Repair an interrupted continuation before scanning its complete
             // descendant chain for an earlier delivery attempt.
-            let candidate = self.ensure_continuation_leaf(run_id, false).await?;
+            let candidate = self.ensure_continuation_leaf(run_id).await?;
             if candidate.status == WorkflowRunStatus::Pending {
                 self.ensure_run_started_with_admission(
                     &candidate.run_id,

@@ -77,7 +77,10 @@ programmatically, then reuse this exact structural compiler.
 Each run starts with `flow.run.created` and `flow.run.started`. The created
 event atomically pins the workflow spec, including its runtime build,
 replay-safe patch marker set, and accepted signal names. The engine then
-replays the workflow runtime with the full event history.
+replays the workflow runtime with the full event history. An idempotent start
+retry first compares the persisted spec and input. Exact retries of fully
+terminal executions need no runtime code; pending root lifecycle writes and
+active-leaf replay still require the pinned build.
 
 The runtime returns exactly one command:
 
@@ -264,9 +267,11 @@ The two streams are reconciled rather than pretending every custom event store
 can provide a cross-stream transaction. If a host stops after the predecessor
 event but before successor creation, task redelivery or `drive(predecessor)`
 reads the committed link, idempotently creates and starts the exact successor,
-then follows it. Concurrent recovery converges through expected-sequence writes
-and same-start spec/input checks. A conflicting pre-existing successor fails
-closed.
+then follows it. This lifecycle repair uses only the predecessor's durable
+authority and does not invoke workflow code; a non-terminal successor must pass
+runtime-build admission before replay. Concurrent recovery converges through
+expected-sequence writes and same-start spec/input checks. A conflicting
+pre-existing successor fails closed.
 
 `drive()` returns the active leaf snapshot, while the original root ID remains
 the stable identity returned by `start_with_id()`. `continuation_chain()` follows
@@ -446,8 +451,11 @@ acknowledging it. Code-free recovery may still create and start a successor
 whose exact identity, spec, and input were already committed by its predecessor;
 a compatible worker later replays that repaired leaf. Normal lease expiry or
 explicit requeue can then deliver the same task to a compatible worker.
-Terminal inspection and immediate administrative terminal operations remain
-available because they intentionally do not invoke workflow code.
+Terminal inspection, exact `start_with_id` retries of fully terminal
+executions, and immediate administrative terminal operations remain available
+because they intentionally do not invoke workflow code. Start retries still
+compare persisted spec and input first, so admission-free acknowledgement does
+not weaken run authority.
 
 The `ScheduledWakeup` query result carries the owning run's persisted build.
 Default stores derive it while replaying the snapshot; SQLite and PostgreSQL

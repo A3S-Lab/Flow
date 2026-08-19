@@ -45,8 +45,7 @@ impl FlowEngine {
                 return Err(FlowError::ChildWorkflowCycle(child.run_id.clone()));
             }
 
-            let mut child_snapshot = match self.ensure_continuation_leaf(&child.run_id, false).await
-            {
+            let mut child_snapshot = match self.ensure_continuation_leaf(&child.run_id).await {
                 Ok(snapshot) => snapshot,
                 Err(FlowError::RunNotFound(missing_run_id)) if missing_run_id == child.run_id => {
                     self.ensure_run_started_with_admission(
@@ -56,7 +55,7 @@ impl FlowEngine {
                         !abandoned_during_cancellation,
                     )
                     .await?;
-                    self.ensure_continuation_leaf(&child.run_id, false).await?
+                    self.ensure_continuation_leaf(&child.run_id).await?
                 }
                 Err(error) => return Err(error),
             };
@@ -69,7 +68,7 @@ impl FlowEngine {
                     false,
                 )
                 .await?;
-                child_snapshot = self.ensure_continuation_leaf(&child.run_id, false).await?;
+                child_snapshot = self.ensure_continuation_leaf(&child.run_id).await?;
             }
             if !child_snapshot.status.is_terminal() {
                 if abandoned_during_cancellation
@@ -184,7 +183,7 @@ impl FlowEngine {
                 ancestry,
             ))
             .await?;
-            let child_snapshot = self.ensure_continuation_leaf(&child.run_id, false).await?;
+            let child_snapshot = self.ensure_continuation_leaf(&child.run_id).await?;
             let outcome = child_snapshot.terminal_outcome.clone().ok_or_else(|| {
                 FlowError::InvalidTransition(format!(
                     "terminal child workflow {} has no terminal outcome",

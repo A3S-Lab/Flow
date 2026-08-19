@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Made `start_with_id` validate persisted start authority before runtime-build
+  admission. Exact retries can now acknowledge a fully terminal root or
+  continuation chain without loading its old build, while pending root writes
+  and active-leaf replay remain fenced and missing continuation successors are
+  repaired from their durable predecessor links before leaf admission.
 - Made parent reconciliation inspect and repair an existing child continuation
   chain before applying child runtime-build admission. A parent-only worker can
   now persist an already terminal child leaf's outcome after a crash, while an

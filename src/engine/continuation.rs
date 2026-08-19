@@ -89,7 +89,7 @@ impl FlowEngine {
         run_id: &str,
         now: DateTime<Utc>,
     ) -> Result<WorkflowRunSnapshot> {
-        let leaf = self.ensure_continuation_leaf(run_id, false).await?;
+        let leaf = self.ensure_continuation_leaf(run_id).await?;
         if leaf.status.is_terminal() {
             return Ok(leaf);
         }
@@ -127,7 +127,7 @@ impl FlowEngine {
                 )
                 .await?;
             let Some(successor_run_id) = self
-                .ensure_continuation_successor(&snapshot, &visited, hop, true)
+                .ensure_continuation_successor(&snapshot, &visited, hop)
                 .await?
             else {
                 return Ok(snapshot);
@@ -143,7 +143,6 @@ impl FlowEngine {
     pub(super) async fn ensure_continuation_leaf(
         &self,
         run_id: &str,
-        require_runtime_build: bool,
     ) -> Result<WorkflowRunSnapshot> {
         validate_run_id(run_id)?;
         let mut current_run_id = run_id.to_string();
@@ -155,7 +154,7 @@ impl FlowEngine {
             }
             let snapshot = self.snapshot(&current_run_id).await?;
             let Some(successor_run_id) = self
-                .ensure_continuation_successor(&snapshot, &visited, hop, require_runtime_build)
+                .ensure_continuation_successor(&snapshot, &visited, hop)
                 .await?
             else {
                 return Ok(snapshot);
@@ -173,7 +172,6 @@ impl FlowEngine {
         snapshot: &WorkflowRunSnapshot,
         visited: &BTreeSet<String>,
         hop: usize,
-        require_runtime_build: bool,
     ) -> Result<Option<String>> {
         let Some(continuation) = snapshot.continuation.as_ref() else {
             return Ok(None);
@@ -188,11 +186,14 @@ impl FlowEngine {
                 continuation.successor_run_id.clone(),
             ));
         }
+        // The predecessor already committed the successor's exact identity,
+        // spec, and input. Repair that lifecycle without runtime code; the
+        // replay loop admits any non-terminal successor before invoking it.
         self.ensure_run_started_with_admission(
             &continuation.successor_run_id,
             &snapshot.spec,
             &continuation.input,
-            require_runtime_build,
+            false,
         )
         .await?;
         Ok(Some(continuation.successor_run_id.clone()))

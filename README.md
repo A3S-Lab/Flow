@@ -241,7 +241,11 @@ async fn main() -> a3s_flow::Result<()> {
 
 `start_with_id()` makes creation safe to retry. The same run ID, workflow
 specification, and input return the existing run; authority drift returns a
-conflict.
+conflict. Persisted authority is checked before runtime-build admission. An
+exact retry can therefore acknowledge a fully terminal root or continuation
+chain without its old replay code. A pending root still requires admission
+before `flow.run.started`, and a non-terminal continuation leaf requires its
+exact build before replay.
 
 ## Core primitives
 
@@ -533,7 +537,8 @@ a `FlowTask::DriveRun` worker outcome reports that same leaf in `run_ids` while
 retaining the submitted root or predecessor in `outcome.task`.
 `start_with_id()` still returns the stable root ID. Use `continuation_chain()`
 to inspect every segment. A committed predecessor link repairs a missing
-successor after a crash, cycles fail closed, and
+successor after a crash without invoking workflow code; an active repaired
+leaf then passes runtime-build admission before replay. Cycles fail closed, and
 `with_max_continue_as_new_hops()` bounds work performed by one drive call.
 Cancellation, immediate termination, progress, and child-reference calls made
 with a predecessor ID resolve the active leaf again on each conflict retry.

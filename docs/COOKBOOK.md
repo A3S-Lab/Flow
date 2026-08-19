@@ -554,7 +554,13 @@ If the first host stops after `run_created` but before `run_started`, retrying
 the start or dispatching `FlowTask::DriveRun` completes the start only while the
 run is still pending. A replacement worker persists `run_started` before it
 invokes workflow code. A force-cancel, timeout, or other terminal transition
-committed in that window is returned unchanged.
+committed in that window is returned unchanged. Flow compares the persisted
+spec and input before runtime-build admission. An exact retry can therefore
+acknowledge a fully terminal root or continuation chain without its old build;
+authority drift still conflicts, pending root writes remain fenced, and an
+active continuation leaf must pass its exact build before replay. A missing
+successor whose authority is already durable in its predecessor is repaired
+code-free before that leaf admission.
 
 ## Durable Steps
 

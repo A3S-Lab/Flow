@@ -18,7 +18,9 @@ impl FlowEngine {
     /// Start a workflow run using a caller-provided durable run id.
     ///
     /// Reusing the same `run_id` with the same workflow spec and input is
-    /// idempotent. Reusing it with different spec or input returns a conflict.
+    /// idempotent. A fully terminal execution is acknowledged without runtime
+    /// build admission; an active leaf still requires its pinned build before
+    /// replay. Reusing the id with different spec or input returns a conflict.
     pub async fn start_with_id(
         &self,
         run_id: impl Into<String>,
@@ -44,7 +46,7 @@ impl FlowEngine {
         ancestry: &BTreeSet<String>,
     ) -> Result<()> {
         for _ in 0..self.max_replay_iterations {
-            let snapshot = self.ensure_continuation_leaf(run_id, false).await?;
+            let snapshot = self.ensure_continuation_leaf(run_id).await?;
             if ancestry.contains(&snapshot.run_id) {
                 return Err(FlowError::ChildWorkflowCycle(snapshot.run_id));
             }
@@ -96,9 +98,6 @@ impl FlowEngine {
     ) -> Result<()> {
         spec.validate()?;
         validate_run_id(run_id)?;
-        if require_runtime_build {
-            self.ensure_runtime_build_available(run_id, spec)?;
-        }
 
         for _ in 0..self.max_replay_iterations {
             match self.store.list(run_id).await {
@@ -107,6 +106,11 @@ impl FlowEngine {
                     ensure_same_start(run_id, &snapshot, spec, input)?;
                     if snapshot.status != WorkflowRunStatus::Pending {
                         return Ok(());
+                    }
+                    // Starting a pending root enables replay, so keep this
+                    // lifecycle write behind the root's build admission.
+                    if require_runtime_build {
+                        self.ensure_runtime_build_available(run_id, spec)?;
                     }
                     match self
                         .record_event_at(run_id, snapshot.last_sequence, FlowEvent::RunStarted)
@@ -118,6 +122,11 @@ impl FlowEngine {
                     }
                 }
                 Err(FlowError::RunNotFound(_)) => {
+                    // New root authority must not be persisted by a worker
+                    // that cannot replay the requested build.
+                    if require_runtime_build {
+                        self.ensure_runtime_build_available(run_id, spec)?;
+                    }
                     match self
                         .record_event_at(
                             run_id,

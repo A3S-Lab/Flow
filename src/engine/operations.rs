@@ -51,7 +51,7 @@ impl FlowEngine {
         require_same_request: bool,
     ) -> Result<WorkflowRunSnapshot> {
         for _ in 0..self.max_replay_iterations {
-            let snapshot = self.ensure_continuation_leaf(run_id, false).await?;
+            let snapshot = self.ensure_continuation_leaf(run_id).await?;
             let target_run_id = snapshot.run_id.clone();
             if ancestry.contains(&target_run_id) {
                 return Err(FlowError::ChildWorkflowCycle(target_run_id));
@@ -151,7 +151,7 @@ impl FlowEngine {
     pub async fn record_progress(&self, run_id: &str, progress: WorkflowProgress) -> Result<()> {
         progress.validate()?;
         for _ in 0..self.max_replay_iterations {
-            let snapshot = self.ensure_continuation_leaf(run_id, false).await?;
+            let snapshot = self.ensure_continuation_leaf(run_id).await?;
             let target_run_id = snapshot.run_id.clone();
             if snapshot.status.is_terminal() {
                 return Err(FlowError::RunTerminal(target_run_id));
@@ -186,7 +186,7 @@ impl FlowEngine {
     ) -> Result<()> {
         child.validate()?;
         for _ in 0..self.max_replay_iterations {
-            let snapshot = self.ensure_continuation_leaf(run_id, false).await?;
+            let snapshot = self.ensure_continuation_leaf(run_id).await?;
             let target_run_id = snapshot.run_id.clone();
             if snapshot.status.is_terminal() {
                 return Err(FlowError::RunTerminal(target_run_id));
