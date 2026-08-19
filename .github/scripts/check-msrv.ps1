@@ -52,6 +52,9 @@ function Write-GitHubErrorAnnotation {
     Write-Output "::error title=$escapedTitle::$escapedMessage"
 }
 
+$repositoryRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "../..") -ErrorAction Stop).Path
+$manifestPath = Join-Path $repositoryRoot "Cargo.toml"
+$lockPath = Join-Path $repositoryRoot "Cargo.lock"
 $logPath = Join-Path ([System.IO.Path]::GetTempPath()) (
     "a3s-flow-msrv-{0}.log" -f [System.Guid]::NewGuid().ToString("N")
 )
@@ -60,7 +63,7 @@ try {
     Write-Host "Checking with $(cargo "+$Toolchain" --version)"
     Write-Host "Compiler: $(rustc "+$Toolchain" --version)"
 
-    & cargo "+$Toolchain" check --all-targets --all-features --locked 2>&1 |
+    & cargo "+$Toolchain" check --manifest-path $manifestPath --all-targets --all-features --locked 2>&1 |
         ConvertFrom-NativeOutput |
         Tee-Object -FilePath $logPath
     $status = $LASTEXITCODE
@@ -79,58 +82,56 @@ try {
         if ($summary.Length -gt 8000) {
             $summary = $summary.Substring($summary.Length - 8000)
         }
-        Write-GitHubErrorAnnotation -Title "MSRV check failed" -Message $summary
 
-        if (Test-Path -LiteralPath "Cargo.lock") {
-            $lockBackupPath = "$logPath.lock"
-            Copy-Item -LiteralPath "Cargo.lock" -Destination $lockBackupPath -ErrorAction Stop
+        $lockBackupPath = "$logPath.lock"
+        $lockBackedUp = $false
+        try {
+            Copy-Item -LiteralPath $lockPath -Destination $lockBackupPath -ErrorAction Stop
+            $lockBackedUp = $true
 
-            try {
-                Write-Host "::group::Resolve exact MSRV lockfile diagnostic"
-                $resolveOutput = @(
-                    & cargo "+$Toolchain" check --all-targets --all-features --offline 2>&1 |
-                        ConvertFrom-NativeOutput
-                )
-                $resolveStatus = $LASTEXITCODE
-                $resolveOutput | ForEach-Object { Write-Host $_ }
+            Write-Host "::group::Resolve exact MSRV lockfile diagnostic"
+            $resolveOutput = @(
+                & cargo "+$Toolchain" check --manifest-path $manifestPath --all-targets --all-features --offline 2>&1 |
+                    ConvertFrom-NativeOutput
+            )
+            $resolveStatus = $LASTEXITCODE
+            $resolveOutput | ForEach-Object { Write-Host $_ }
 
-                $lockDiffLines = @(
-                    & git diff --no-ext-diff --unified=1 -- "Cargo.lock" 2>&1 |
-                        ConvertFrom-NativeOutput
-                )
-                $lockDiff = $lockDiffLines -join "`n"
+            $lockDiffLines = @(
+                & git -C $repositoryRoot diff --no-ext-diff --unified=1 -- "Cargo.lock" 2>&1 |
+                    ConvertFrom-NativeOutput
+            )
+            $lockDiagnostic = $lockDiffLines -join "`n"
 
-                if ($resolveStatus -ne 0) {
-                    $resolveTail = $resolveOutput | Select-Object -Last $AnnotationLineLimit
-                    $resolutionFailure = @(
-                        "Unlocked offline check failed with exit code $resolveStatus."
-                        $resolveTail
-                    ) -join "`n"
-                    $lockDiff = @($lockDiff, $resolutionFailure) -join "`n`n"
-                }
-                Write-Host "::endgroup::"
+            if ($resolveStatus -ne 0) {
+                $resolveTail = $resolveOutput | Select-Object -Last $AnnotationLineLimit
+                $resolutionFailure = @(
+                    "Unlocked offline check failed with exit code $resolveStatus."
+                    $resolveTail
+                ) -join "`n"
+                $lockDiagnostic = @($lockDiagnostic, $resolutionFailure) -join "`n`n"
             }
-            finally {
-                Copy-Item -LiteralPath $lockBackupPath -Destination "Cargo.lock" -Force -ErrorAction Stop
+            elseif ([string]::IsNullOrWhiteSpace($lockDiagnostic)) {
+                $lockDiagnostic = "Unlocked offline check succeeded but produced no Cargo.lock diff."
+            }
+            Write-Host "::endgroup::"
+        }
+        catch {
+            $lockDiagnostic = "MSRV lockfile diagnostic failed: $($_.Exception.Message)"
+        }
+        finally {
+            if ($lockBackedUp) {
+                Copy-Item -LiteralPath $lockBackupPath -Destination $lockPath -Force -ErrorAction Stop
                 Remove-Item -LiteralPath $lockBackupPath -Force -ErrorAction Stop
             }
-
-            if ([string]::IsNullOrWhiteSpace($lockDiff)) {
-                $lockDiff = "Unlocked offline check exited with code $resolveStatus and produced no Cargo.lock diff."
-            }
-
-            $chunkLength = 7000
-            $chunkCount = [Math]::Ceiling($lockDiff.Length / $chunkLength)
-            $emittedChunkCount = [Math]::Min($chunkCount, 8)
-
-            for ($index = 0; $index -lt $emittedChunkCount; $index++) {
-                $offset = $index * $chunkLength
-                $length = [Math]::Min($chunkLength, $lockDiff.Length - $offset)
-                $chunk = $lockDiff.Substring($offset, $length)
-                $title = "MSRV lockfile diff {0}/{1}" -f ($index + 1), $chunkCount
-                Write-GitHubErrorAnnotation -Title $title -Message $chunk
-            }
         }
+
+        $annotation = @($summary, $lockDiagnostic) -join "`n`n"
+        $annotation = $annotation -replace $ansiEscape, ""
+        if ($annotation.Length -gt 8000) {
+            $annotation = $annotation.Substring(0, 8000)
+        }
+        Write-GitHubErrorAnnotation -Title "MSRV check failed" -Message $annotation
     }
 
     exit $status
