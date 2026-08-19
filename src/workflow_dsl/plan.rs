@@ -5,22 +5,26 @@ use super::{WorkflowDag, WorkflowDslError};
 const MAX_WORKFLOW_DAG_NODES: usize = 10_000;
 const MAX_WORKFLOW_DAG_EDGES: usize = 100_000;
 
+/// Deterministic topological node order grouped by container scope.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkflowDagPlan {
     scopes: BTreeMap<Option<String>, Vec<String>>,
 }
 
 impl WorkflowDagPlan {
+    /// Returns deterministic execution order for top-level nodes.
     pub fn top_level(&self) -> &[String] {
         self.scopes.get(&None).map(Vec::as_slice).unwrap_or(&[])
     }
 
+    /// Returns deterministic execution order inside one container.
     pub fn scope(&self, parent_id: &str) -> Option<&[String]> {
         self.scopes
             .get(&Some(parent_id.to_owned()))
             .map(Vec::as_slice)
     }
 
+    /// Returns all top-level and container-scoped execution orders.
     pub fn scopes(&self) -> &BTreeMap<Option<String>, Vec<String>> {
         &self.scopes
     }
