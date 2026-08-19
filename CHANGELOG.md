@@ -94,6 +94,11 @@
   child-creation and parent-resolution crash windows, follow child
   continue-as-new chains to their terminal leaf, reject drift/cycles/runaway
   nesting, and retain complete child/continuation ownership components.
+- Added first-class durable named workflow signals. Immutable specs declare
+  accepted names; caller-owned delivery IDs queue before or after stable waits,
+  pair in FIFO order, survive replacement workers and continue-as-new recovery,
+  expose typed payload and inspection APIs, and remain explicitly
+  host-authorized.
 - Added native workflow app DSL and extracted graph import. The public model retains
   unknown vendor fields, classifies DSL version compatibility, validates
   deterministic top-level and iteration/loop scopes before execution, and
