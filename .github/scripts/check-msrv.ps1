@@ -89,26 +89,27 @@ try {
             Copy-Item -LiteralPath "Cargo.lock" -Destination $lockBackupPath -ErrorAction Stop
 
             try {
-                Write-Host "::group::Resolve MSRV all-feature lockfile diagnostic"
+                Write-Host "::group::Resolve exact MSRV lockfile diagnostic"
                 $resolveOutput = @(
-                    & cargo "+$Toolchain" metadata --all-features --format-version 1 2>&1 |
+                    & cargo "+$Toolchain" check --all-targets --all-features --offline 2>&1 |
                         ConvertFrom-NativeOutput
                 )
                 $resolveStatus = $LASTEXITCODE
+                $resolveOutput | ForEach-Object { Write-Host $_ }
 
-                if ($resolveStatus -eq 0) {
-                    $lockDiffLines = @(
-                        & git diff --no-ext-diff --unified=1 -- "Cargo.lock" 2>&1 |
-                            ConvertFrom-NativeOutput
-                    )
-                    $lockDiff = $lockDiffLines -join "`n"
-                }
-                else {
+                $lockDiffLines = @(
+                    & git diff --no-ext-diff --unified=1 -- "Cargo.lock" 2>&1 |
+                        ConvertFrom-NativeOutput
+                )
+                $lockDiff = $lockDiffLines -join "`n"
+
+                if ($resolveStatus -ne 0) {
                     $resolveTail = $resolveOutput | Select-Object -Last $AnnotationLineLimit
-                    $lockDiff = @(
-                        "Lockfile resolution failed with exit code $resolveStatus."
+                    $resolutionFailure = @(
+                        "Unlocked offline check failed with exit code $resolveStatus."
                         $resolveTail
                     ) -join "`n"
+                    $lockDiff = @($lockDiff, $resolutionFailure) -join "`n`n"
                 }
                 Write-Host "::endgroup::"
             }
