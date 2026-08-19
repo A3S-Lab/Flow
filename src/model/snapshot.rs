@@ -12,20 +12,30 @@ use super::{
     WorkflowSignalSnapshot, WorkflowSpec, WorkflowTerminalOutcome,
 };
 
+/// Materialized lifecycle state of a workflow run.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowRunStatus {
+    /// The run exists but has not started replay.
     Pending,
+    /// The workflow runtime is actively replaying or dispatching work.
     Running,
+    /// The run is waiting for durable external work or a timer.
     Suspended,
+    /// A cancellation request is replaying the workflow's cleanup path.
     Cancelling,
+    /// The run completed successfully.
     Completed,
+    /// The run terminated with an error.
     Failed,
+    /// The run completed cancellation.
     Cancelled,
+    /// The run closed after creating a successor history segment.
     ContinuedAsNew,
 }
 
 impl WorkflowRunStatus {
+    /// Returns whether no further events may be appended to this run segment.
     pub fn is_terminal(self) -> bool {
         matches!(
             self,
@@ -34,26 +44,42 @@ impl WorkflowRunStatus {
     }
 }
 
+/// Materialized lifecycle state of a durable step.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum StepStatus {
+    /// The step is ready now or after a retry deadline.
     Pending,
+    /// A worker has started the current attempt.
     Running,
+    /// The step produced a durable output.
     Completed,
+    /// The step exhausted its retry policy.
     Failed,
+    /// The owning run cancelled the step before completion.
     Cancelled,
 }
 
+/// Materialized state of one durable step.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StepSnapshot {
+    /// Replay-stable identity of the step.
     pub step_id: String,
+    /// Registered step implementation name.
     pub step_name: String,
+    /// Current lifecycle state.
     pub status: StepStatus,
+    /// JSON input pinned when the step was created.
     pub input: JsonValue,
+    /// Retry behavior pinned when the step was created.
     pub retry: RetryPolicy,
+    /// Durable JSON output, when completed successfully.
     pub output: Option<JsonValue>,
+    /// Final or most recent attempt error.
     pub error: Option<String>,
+    /// Latest one-based attempt number observed in history.
     pub attempt: u32,
+    /// Earliest UTC time for a delayed retry.
     pub retry_after: Option<DateTime<Utc>>,
 }
 
@@ -71,36 +97,55 @@ impl StepSnapshot {
     }
 }
 
+/// Materialized lifecycle state of a durable timer wait.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum WaitStatus {
+    /// The timer deadline has not been completed.
     Waiting,
+    /// The timer deadline was durably completed.
     Completed,
+    /// The owning run cancelled the timer.
     Cancelled,
 }
 
+/// Materialized state of one durable timer wait.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WaitSnapshot {
+    /// Replay-stable identity of the wait.
     pub wait_id: String,
+    /// Current lifecycle state.
     pub status: WaitStatus,
+    /// UTC time at which the wait becomes ready.
     pub resume_at: DateTime<Utc>,
 }
 
+/// Materialized lifecycle state of an external callback hook.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum HookStatus {
+    /// The hook can accept one external resolution.
     Active,
+    /// A callback payload was received.
     Received,
+    /// The hook was explicitly closed without a payload.
     Disposed,
+    /// The owning run cancelled the hook.
     Cancelled,
 }
 
+/// Materialized state of one external callback hook.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HookSnapshot {
+    /// Replay-stable identity of the hook.
     pub hook_id: String,
+    /// Secret bearer token used to resolve the hook.
     pub token: String,
+    /// Current lifecycle state.
     pub status: HookStatus,
+    /// Application metadata pinned when the hook was created.
     pub metadata: JsonValue,
+    /// JSON payload received from the external caller.
     pub payload: Option<JsonValue>,
 }
 
@@ -129,7 +174,9 @@ impl HookSnapshot {
 /// Active external callback hook with the run that owns it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ActiveHookSnapshot {
+    /// Run that owns the active hook.
     pub run_id: String,
+    /// Materialized active hook state.
     pub hook: HookSnapshot,
 }
 
@@ -147,7 +194,9 @@ impl ActiveHookSnapshot {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum ScheduledWakeupKind {
+    /// A durable timer wait.
     Wait,
+    /// A delayed step retry.
     Retry,
 }
 
@@ -167,9 +216,13 @@ impl ScheduledWakeupKind {
 /// Minimal indexed record for a wait timer or delayed step retry.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ScheduledWakeup {
+    /// Run that owns the scheduled work.
     pub run_id: String,
+    /// Kind of durable work that becomes ready.
     pub kind: ScheduledWakeupKind,
+    /// Step or wait identifier within the run.
     pub subject_id: String,
+    /// UTC time at which the work becomes ready.
     pub scheduled_at: DateTime<Utc>,
     /// Runtime build persisted by the owning run, used for indexed dispatch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -179,31 +232,49 @@ pub struct ScheduledWakeup {
 /// Materialized state of a workflow run.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WorkflowRunSnapshot {
+    /// Stable identifier of the run.
     pub run_id: String,
+    /// Immutable workflow definition pinned at creation.
     pub spec: WorkflowSpec,
+    /// Initial JSON input supplied to the workflow.
     pub input: JsonValue,
+    /// Current materialized run state.
     pub status: WorkflowRunStatus,
+    /// Durable steps indexed by their stable identifiers.
     pub steps: BTreeMap<String, StepSnapshot>,
+    /// Durable timer waits indexed by their stable identifiers.
     pub waits: BTreeMap<String, WaitSnapshot>,
+    /// External callback hooks indexed by their stable identifiers.
     pub hooks: BTreeMap<String, HookSnapshot>,
+    /// Active or completed cleanup-aware cancellation request.
     #[serde(default)]
     pub cancellation: Option<CancellationRequestSnapshot>,
+    /// Durable progress updates in event order.
     #[serde(default)]
     pub progress: Vec<WorkflowProgress>,
+    /// Linked child operations indexed by parent-local identifiers.
     #[serde(default)]
     pub child_operations: BTreeMap<String, ChildOperationReference>,
+    /// First-class child workflows indexed by parent-local identifiers.
     #[serde(default)]
     pub child_workflows: BTreeMap<String, ChildWorkflowSnapshot>,
+    /// Received signals in durable delivery order.
     #[serde(default)]
     pub signals: Vec<WorkflowSignalSnapshot>,
+    /// Deterministic signal waits indexed by stable wait identifiers.
     #[serde(default)]
     pub signal_waits: BTreeMap<String, SignalWaitSnapshot>,
+    /// Final JSON output for a successfully completed run.
     pub output: Option<JsonValue>,
+    /// Terminal error for a failed run.
     pub error: Option<String>,
+    /// Typed terminal result projected from the closing event.
     #[serde(default)]
     pub terminal_outcome: Option<WorkflowTerminalOutcome>,
+    /// Link to a successor history segment created by continue-as-new.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub continuation: Option<WorkflowContinuation>,
+    /// Last event sequence included in this materialized state.
     pub last_sequence: u64,
 }
 
@@ -228,6 +299,7 @@ impl WorkflowRunSnapshot {
             .map_err(FlowError::from)
     }
 
+    /// Returns the durable JSON output of a completed step.
     pub fn step_output(&self, step_id: &str) -> Option<&JsonValue> {
         self.steps
             .get(step_id)
@@ -245,6 +317,7 @@ impl WorkflowRunSnapshot {
         }
     }
 
+    /// Returns the JSON payload received by a hook.
     pub fn hook_payload(&self, hook_id: &str) -> Option<&JsonValue> {
         self.hooks
             .get(hook_id)
@@ -320,6 +393,7 @@ impl WorkflowRunSnapshot {
         }
     }
 
+    /// Returns whether durable work is still preventing terminal completion.
     pub fn has_open_suspension(&self) -> bool {
         self.waits
             .values()
@@ -339,6 +413,7 @@ impl WorkflowRunSnapshot {
                 .any(|wait| wait.status == SignalWaitStatus::Waiting)
     }
 
+    /// Returns delayed step retries ready at or before `now`.
     pub fn due_retries(&self, now: DateTime<Utc>) -> Vec<(String, DateTime<Utc>)> {
         self.steps
             .values()
@@ -351,6 +426,7 @@ impl WorkflowRunSnapshot {
             .collect()
     }
 
+    /// Returns whether any pending step has a retry deadline after `now`.
     pub fn has_future_retry(&self, now: DateTime<Utc>) -> bool {
         self.steps.values().any(|step| {
             step.status == StepStatus::Pending

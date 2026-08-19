@@ -13,7 +13,9 @@ use super::JsonValue;
 /// markers cannot drift while an execution is segmented.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WorkflowContinuation {
+    /// Run identifier assigned to the successor history segment.
     pub successor_run_id: String,
+    /// Initial JSON input supplied to the successor.
     pub input: JsonValue,
 }
 
@@ -30,11 +32,13 @@ impl WorkflowContinuation {
 /// Durable request for a workflow to stop through its cleanup-aware path.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CancellationRequest {
+    /// Optional operator- or application-supplied reason.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
 
 impl CancellationRequest {
+    /// Creates a cancellation request with an optional reason.
     pub fn new(reason: Option<String>) -> Self {
         Self { reason }
     }
@@ -43,25 +47,34 @@ impl CancellationRequest {
 /// Projected cancellation request with its durable event position.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CancellationRequestSnapshot {
+    /// Immutable request delivered during cleanup replay.
     pub request: CancellationRequest,
+    /// UTC time at which the request was persisted.
     pub requested_at: DateTime<Utc>,
+    /// Event sequence that introduced the request.
     pub sequence: u64,
 }
 
 /// A durable, idempotently identified progress update.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WorkflowProgress {
+    /// Caller-chosen idempotency identity for this update.
     pub progress_id: String,
+    /// Number of completed work units.
     pub completed: u64,
+    /// Optional total number of work units.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub total: Option<u64>,
+    /// Optional human-readable progress message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// Application-defined structured progress details.
     #[serde(default, skip_serializing_if = "JsonValue::is_null")]
     pub details: JsonValue,
 }
 
 impl WorkflowProgress {
+    /// Creates a progress update without a total, message, or details.
     pub fn new(progress_id: impl Into<String>, completed: u64) -> Self {
         Self {
             progress_id: progress_id.into(),
@@ -72,16 +85,19 @@ impl WorkflowProgress {
         }
     }
 
+    /// Sets the total number of work units.
     pub fn with_total(mut self, total: u64) -> Self {
         self.total = Some(total);
         self
     }
 
+    /// Sets a human-readable progress message.
     pub fn with_message(mut self, message: impl Into<String>) -> Self {
         self.message = Some(message.into());
         self
     }
 
+    /// Sets application-defined structured details.
     pub fn with_details(mut self, details: JsonValue) -> Self {
         self.details = details;
         self
@@ -113,16 +129,22 @@ impl WorkflowProgress {
 /// workflow owns propagation through durable, idempotent cleanup steps.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ChildOperationReference {
+    /// Replay-stable parent-local identity of the reference.
     pub reference_id: String,
+    /// Application-defined operation kind.
     pub kind: String,
+    /// Identifier assigned by the child operation's owner.
     pub operation_id: String,
+    /// Linked A3S Flow run identifier, when the child is a workflow run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flow_run_id: Option<String>,
+    /// Application-defined structured metadata.
     #[serde(default, skip_serializing_if = "JsonValue::is_null")]
     pub metadata: JsonValue,
 }
 
 impl ChildOperationReference {
+    /// Creates a child-operation reference without Flow ownership or metadata.
     pub fn new(
         reference_id: impl Into<String>,
         kind: impl Into<String>,
@@ -137,11 +159,13 @@ impl ChildOperationReference {
         }
     }
 
+    /// Associates the operation with an A3S Flow run.
     pub fn with_flow_run_id(mut self, flow_run_id: impl Into<String>) -> Self {
         self.flow_run_id = Some(flow_run_id.into());
         self
     }
 
+    /// Sets application-defined structured metadata.
     pub fn with_metadata(mut self, metadata: JsonValue) -> Self {
         self.metadata = metadata;
         self
@@ -183,31 +207,48 @@ impl ChildOperationReference {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WorkflowTerminalOutcome {
+    /// The workflow returned a successful output.
     Completed {
+        /// Final JSON value returned by the workflow.
         output: JsonValue,
     },
+    /// The workflow terminated with an application or runtime error.
     Failed {
+        /// Human-readable failure description.
         error: String,
     },
+    /// The workflow completed cancellation.
     Cancelled {
+        /// Optional operator- or application-supplied cancellation reason.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
     },
+    /// The workflow exceeded its deadline.
     TimedOut {
+        /// UTC deadline that caused the timeout.
         deadline: DateTime<Utc>,
+        /// Optional context for the timeout decision.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
     },
+    /// A step exhausted every permitted attempt.
     RetryExhausted {
+        /// Stable identifier of the exhausted step.
         step_id: String,
+        /// Final attempt number that failed.
         attempt: u32,
+        /// Error returned by the final attempt.
         error: String,
     },
+    /// The owning host terminated the run during shutdown.
     HostShutdown {
+        /// Optional host shutdown reason.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
     },
+    /// This history segment closed after creating a successor.
     ContinuedAsNew {
+        /// Identifier assigned to the successor run.
         successor_run_id: String,
     },
 }
