@@ -463,6 +463,15 @@ event-stream compaction is intentionally unsupported. Workflows that need bounde
 history use continue-as-new to create linked fresh streams instead of rewriting
 an existing stream.
 
+Production PostgreSQL hosts separate migration authority from serving. A
+terminating migration process calls `migrate_postgres_flow` once with its DDL
+executor. Event-store and compatibility-queue workers then use
+`from_executor_verified` or `from_executor_verified_with_queue` with their
+serving executor. Those constructors only admit the canonical A3S ORM ledger;
+they do not create tables, acquire a migration lock, or write migration
+history. The existing `connect` and `from_executor` constructors remain the
+single-process convenience path that applies the same manifest.
+
 For background work, prefer `BootFlowTaskManager` with an A3S Boot queue. It
 owns processor registration, job state, retry/timeout policy, stalled-job
 handling, logical deduplication, startup, and shutdown. `FlowWorker` plus the

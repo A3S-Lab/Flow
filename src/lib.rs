@@ -57,10 +57,10 @@ pub use runtime::{
 };
 pub use runtime_build::{RuntimeBuildCompatibility, RuntimeBuildId};
 pub use scheduler::{FlowScheduler, FlowSchedulerTick};
-#[cfg(feature = "postgres")]
-pub use store::PostgresEventStore;
 #[cfg(feature = "sqlite")]
 pub use store::SqliteEventStore;
+#[cfg(feature = "postgres")]
+pub use store::{migrate_postgres_flow, PostgresEventStore};
 pub use store::{FlowEventStore, InMemoryEventStore, LocalFileEventStore};
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use store::{

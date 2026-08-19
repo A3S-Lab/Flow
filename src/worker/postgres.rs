@@ -1,15 +1,15 @@
 use std::fmt;
 
 use a3s_orm::{
-    sql_query, Executor, FromRow, Migrator, PostgresDialect, PostgresError, PostgresExecutor,
-    PostgresRow, PostgresTransactionError, Query, SqlQuery,
+    sql_query, Executor, FromRow, PostgresDialect, PostgresError, PostgresExecutor, PostgresRow,
+    PostgresTransactionError, Query, SqlQuery,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
-use crate::store::postgres_migrations;
+use crate::store::{migrate_postgres_flow, verify_postgres_flow};
 
 pub use super::task::PostgresDeadLetteredTask;
 use super::{timestamp_nanos_saturating, FlowTask, FlowTaskLease, FlowTaskQueue};
@@ -41,6 +41,12 @@ impl PostgresFlowTaskQueue {
         Self::connect_with_queue(database_url, "default").await
     }
 
+    /// Connects to PostgreSQL, verifies a separately migrated schema, and uses
+    /// the default queue without acquiring DDL authority.
+    pub async fn connect_verified(database_url: impl AsRef<str>) -> Result<Self> {
+        Self::connect_verified_with_queue(database_url, "default").await
+    }
+
     /// Connect with the ORM's bounded non-TLS pool and run Flow migrations.
     ///
     /// Production hosts that require TLS or custom pool controls should create
@@ -55,9 +61,26 @@ impl PostgresFlowTaskQueue {
         Self::from_executor_with_queue(executor, queue_name).await
     }
 
+    /// Connect with the ORM's bounded non-TLS pool and verify a separately
+    /// migrated Flow schema for the named queue.
+    pub async fn connect_verified_with_queue(
+        database_url: impl AsRef<str>,
+        queue_name: impl AsRef<str>,
+    ) -> Result<Self> {
+        let executor = PostgresExecutor::connect_no_tls(database_url.as_ref(), 5)
+            .map_err(postgres_queue_driver_error)?;
+        Self::from_executor_verified_with_queue(executor, queue_name).await
+    }
+
     /// Uses a configured executor, migrates the schema, and uses the default queue.
     pub async fn from_executor(executor: PostgresExecutor) -> Result<Self> {
         Self::from_executor_with_queue(executor, "default").await
+    }
+
+    /// Uses a configured executor, verifies the Flow schema without mutation,
+    /// and uses the default queue.
+    pub async fn from_executor_verified(executor: PostgresExecutor) -> Result<Self> {
+        Self::from_executor_verified_with_queue(executor, "default").await
     }
 
     /// Uses a configured executor and migrates the named queue schema.
@@ -65,22 +88,27 @@ impl PostgresFlowTaskQueue {
         executor: PostgresExecutor,
         queue_name: impl AsRef<str>,
     ) -> Result<Self> {
-        let queue_name = queue_name.as_ref().trim();
-        if queue_name.is_empty() {
-            return Err(FlowError::Store(
-                "PostgreSQL task queue name cannot be empty".to_string(),
-            ));
-        }
-        Migrator::new(executor.clone())
-            .run(postgres_migrations())
-            .await
-            .map_err(|error| {
-                FlowError::Store(format!("PostgreSQL Flow migration failed: {error}"))
-            })?;
-        Ok(Self {
+        let queue_name = validated_queue_name(queue_name.as_ref())?;
+        migrate_postgres_flow(&executor).await?;
+        Ok(Self::new(executor, queue_name))
+    }
+
+    /// Uses a configured executor and verifies the complete Flow schema for a
+    /// named queue without applying migrations.
+    pub async fn from_executor_verified_with_queue(
+        executor: PostgresExecutor,
+        queue_name: impl AsRef<str>,
+    ) -> Result<Self> {
+        let queue_name = validated_queue_name(queue_name.as_ref())?;
+        verify_postgres_flow(&executor).await?;
+        Ok(Self::new(executor, queue_name))
+    }
+
+    fn new(executor: PostgresExecutor, queue_name: String) -> Self {
+        Self {
             executor,
-            queue_name: queue_name.to_string(),
-        })
+            queue_name,
+        }
     }
 
     /// Returns the configured A3S ORM executor.
@@ -448,6 +476,16 @@ fn postgres_rows_affected_to_usize(rows: u64) -> Result<usize> {
             "PostgreSQL Flow affected row count {rows} exceeds usize range: {error}"
         ))
     })
+}
+
+fn validated_queue_name(queue_name: &str) -> Result<String> {
+    let queue_name = queue_name.trim();
+    if queue_name.is_empty() {
+        return Err(FlowError::Store(
+            "PostgreSQL task queue name cannot be empty".to_string(),
+        ));
+    }
+    Ok(queue_name.to_string())
 }
 
 fn nanos_to_datetime(nanos: i64) -> Result<DateTime<Utc>> {

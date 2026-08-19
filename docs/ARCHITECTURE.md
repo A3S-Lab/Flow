@@ -417,6 +417,14 @@ hook lookup uses parameterized ORM queries rather than loading every event
 stream into the application. Scheduled due and next-wakeup discovery uses the
 same ORM query boundary and never scans all SQL histories.
 
+PostgreSQL schema ownership has one authority boundary. A terminating deploy
+step invokes `migrate_postgres_flow`; serving event stores and compatibility
+queues call their verified constructors against that exact manifest. Admission
+uses the ORM's read-only ledger contract and cannot create the ledger, acquire
+the migration lock, or write history. Migrating convenience constructors reuse
+the same function for embedded single-process hosts, so the event store and
+queue do not maintain independent migration protocols.
+
 Inspection APIs stay on this boundary: `history()` returns committed envelopes,
 while `snapshot()`, `list_snapshots()`, `run_summary()`,
 `list_open_suspensions()`, and `next_wakeup()` project envelopes for dashboards,

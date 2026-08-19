@@ -78,8 +78,7 @@ dependencies = [
 [[package]]
 name = "a3s-orm"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab2e1e9c65e10f679521451c291ff861b2715b8a09329ee064434d416df9858c"
+source = "git+https://github.com/A3S-Lab/ORM.git?rev=f178da81872eeccb8aa62d3a86617b95b791aa32#f178da81872eeccb8aa62d3a86617b95b791aa32"
 dependencies = [
  "async-trait",
  "bytes",

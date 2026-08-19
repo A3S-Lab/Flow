@@ -466,6 +466,12 @@ rolling-upgrade event writers synchronized with that projection. New Boot hosts
 normally pair this store with `BootFlowTaskManager`. The following direct queue
 shape remains for deployments that already own a `FlowWorker` lifecycle.
 
+The example below uses the migrating convenience constructors. Production
+deployments should instead run `migrate_postgres_flow` as a terminating deploy
+step, then create the event store with `from_executor_verified` and the queue
+with `from_executor_verified_with_queue`. Both serving components validate the
+same ORM ledger without DDL or migration-history writes.
+
 The same migration set backfills an indexed scheduled-wakeup projection for
 open waits and delayed retries. PostgreSQL range and earliest-row queries let a
 scheduler tick discover due work once and plan its next sleep without a global

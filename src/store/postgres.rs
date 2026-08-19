@@ -1,8 +1,8 @@
 use std::fmt;
 
 use a3s_orm::{
-    sql_query, Database, Executor, FromRow, Migrator, PostgresDialect, PostgresError,
-    PostgresExecutor, PostgresRow, PostgresTransaction, PostgresTransactionError, Query, SqlQuery,
+    sql_query, Database, Executor, FromRow, PostgresDialect, PostgresError, PostgresExecutor,
+    PostgresRow, PostgresTransaction, PostgresTransactionError, Query, SqlQuery,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -13,7 +13,10 @@ use crate::model::{
     ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookSnapshot, HookStatus, ScheduledWakeup,
 };
 
-use super::{postgres_migrations, scheduled_wakeup_from_row, scheduled_wakeup_key, FlowEventStore};
+use super::{
+    migrate_postgres_flow, scheduled_wakeup_from_row, scheduled_wakeup_key, verify_postgres_flow,
+    FlowEventStore,
+};
 
 mod retention;
 
@@ -47,14 +50,24 @@ impl PostgresEventStore {
         Self::from_executor(executor).await
     }
 
+    /// Connect and verify that the complete Flow schema was applied by a
+    /// separate migrator, without acquiring DDL authority.
+    pub async fn connect_verified(database_url: impl AsRef<str>) -> Result<Self> {
+        let executor = PostgresExecutor::connect_no_tls(database_url.as_ref(), 5)
+            .map_err(postgres_driver_error)?;
+        Self::from_executor_verified(executor).await
+    }
+
     /// Create a store from a configured executor and run Flow migrations.
     pub async fn from_executor(executor: PostgresExecutor) -> Result<Self> {
-        Migrator::new(executor.clone())
-            .run(postgres_migrations())
-            .await
-            .map_err(|error| {
-                FlowError::Store(format!("PostgreSQL Flow migration failed: {error}"))
-            })?;
+        migrate_postgres_flow(&executor).await?;
+        Ok(Self { executor })
+    }
+
+    /// Create a store from a configured executor after read-only admission of
+    /// the complete Flow schema.
+    pub async fn from_executor_verified(executor: PostgresExecutor) -> Result<Self> {
+        verify_postgres_flow(&executor).await?;
         Ok(Self { executor })
     }
 
