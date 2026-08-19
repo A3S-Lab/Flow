@@ -32,3 +32,5 @@ allow = [
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+allow-git = ["https://github.com/A3S-Lab/ORM.git"]
+required-git-spec = "rev"
