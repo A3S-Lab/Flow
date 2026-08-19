@@ -81,10 +81,7 @@ try {
         }
         Write-GitHubErrorAnnotation -Title "MSRV check failed" -Message $summary
 
-        if (
-            $summary.Contains("needs to be updated but --locked was passed") -and
-            (Test-Path -LiteralPath "Cargo.lock")
-        ) {
+        if (Test-Path -LiteralPath "Cargo.lock") {
             $lockBackupPath = "$logPath.lock"
             Copy-Item -LiteralPath "Cargo.lock" -Destination $lockBackupPath -ErrorAction Stop
 
