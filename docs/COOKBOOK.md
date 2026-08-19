@@ -824,7 +824,10 @@ report: only the task that appends `signal_received` sets `delivered_signal`.
 An identical redelivery still succeeds, drives recovery, and reports the active
 continuation leaf in `run_ids` without claiming the earlier delivery. If signal
 handling continues as new, the delivery tuple identifies the predecessor stream
-that actually contains the receipt.
+that actually contains the receipt. If that predecessor link committed before
+successor creation, redelivery repairs and drives the missing successor. A
+non-terminal recovered leaf must still pass runtime-build admission; an already
+terminal leaf can be acknowledged without replay code.
 
 Signals may arrive before a matching wait and remain queued in append order.
 Each stable wait consumes the oldest matching unconsumed delivery. Cancellation

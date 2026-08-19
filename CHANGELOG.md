@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Made matching Signal redelivery repair and drive a missing continue-as-new
+  successor instead of acknowledging it while the new leaf was only running.
+  Redelivery now applies runtime-build admission whenever the recovered leaf is
+  non-terminal, while fully terminal leaf inspection remains admission-free.
 - Made stable wait and targeted scheduler redelivery repair a missing
   continue-as-new successor after `wait_completed` and the predecessor link
   were already durable. Timer worker outcomes now report the active leaf in

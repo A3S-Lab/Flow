@@ -349,8 +349,11 @@ the same contract through Worker and A3S Boot queues. Its outcome populates
 `delivered_signal` only for the task that commits `SignalReceived`; matching
 redelivery is still acknowledged and lists the active leaf in `run_ids` without
 claiming another task's delivery. Its run ID is the stream containing that
-event, even if handling advances `run_ids` to a new continuation leaf. Signal
-payloads are part of durable history, and authorization remains host-owned.
+event, even if handling advances `run_ids` to a new continuation leaf. If the
+receipt-owning predecessor committed continue-as-new before successor creation,
+redelivery creates and drives that successor; replaying a non-terminal leaf
+still requires runtime-build admission. Signal payloads are part of durable
+history, and authorization remains host-owned.
 Replay also rejects histories that pair a newer same-name wait or delivery
 ahead of an older one, preserving FIFO even for imported or custom-store data.
 

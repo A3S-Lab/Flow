@@ -222,8 +222,10 @@ continue-as-new descendants, accepts an identical committed name/payload, and
 rejects drift with `SignalConflict`. Expected-sequence conflicts re-resolve the
 active leaf before retrying, so a continuation race cannot append to a closed
 segment. If delivery or pairing committed before a host failure, redelivery
-drives the non-terminal leaf without writing duplicate events. Worker outcomes
-set `delivered_signal` only when that task commits `signal_received`; matching
+repairs a missing continuation successor and drives the non-terminal leaf
+without writing duplicate events. That replay still passes runtime-build
+admission; a fully terminal leaf needs no runtime code. Worker outcomes set
+`delivered_signal` only when that task commits `signal_received`; matching
 redelivery remains successful and reports the active leaf through `run_ids`.
 The delivery tuple retains the event stream ID if handling continues as new.
 
