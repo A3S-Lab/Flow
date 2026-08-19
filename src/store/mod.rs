@@ -39,8 +39,14 @@ pub use sqlite::SqliteEventStore;
 /// Append-only event store for durable workflow runs.
 #[async_trait]
 pub trait FlowEventStore: Send + Sync {
+    /// Append `event` to `run_id` and return its durable envelope.
     async fn append(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope>;
 
+    /// Append `event` only when the run's latest sequence equals
+    /// `expected_sequence`.
+    ///
+    /// Implementations return [`crate::FlowError::EventConflict`] when another
+    /// writer has advanced the run.
     async fn append_if_sequence(
         &self,
         run_id: &str,
@@ -48,8 +54,10 @@ pub trait FlowEventStore: Send + Sync {
         event: FlowEvent,
     ) -> Result<FlowEventEnvelope>;
 
+    /// Load the complete event history for `run_id` in sequence order.
     async fn list(&self, run_id: &str) -> Result<Vec<FlowEventEnvelope>>;
 
+    /// List all run IDs known to the store in stable order.
     async fn list_run_ids(&self) -> Result<Vec<String>>;
 
     /// List wait timers and delayed retries due at or before `now`.

@@ -23,12 +23,15 @@ struct LinkedWorkflowStart {
 /// component whose other histories are eligible in the same scan.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FlowHistoryRetentionPolicy {
+    /// Delete only histories whose terminal event predates this instant.
     pub terminal_before: DateTime<Utc>,
+    /// Optional allowlist of run IDs to consider for deletion.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_ids: Option<BTreeSet<String>>,
 }
 
 impl FlowHistoryRetentionPolicy {
+    /// Create an unrestricted policy with the supplied terminal cutoff.
     pub fn new(terminal_before: DateTime<Utc>) -> Self {
         Self {
             terminal_before,
@@ -61,9 +64,13 @@ impl FlowHistoryRetentionPolicy {
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FlowHistoryHold {
+    /// Run whose history is protected.
     pub run_id: String,
+    /// Caller-defined identifier for this hold.
     pub hold_id: String,
+    /// Operator-facing reason for retaining the history.
     pub reason: String,
+    /// Time at which the hold was created.
     pub created_at: DateTime<Utc>,
 }
 
@@ -71,21 +78,32 @@ pub struct FlowHistoryHold {
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FlowHistoryTombstone {
+    /// Run whose event history was deleted.
     pub run_id: String,
+    /// Time at which deletion completed.
     pub deleted_at: DateTime<Utc>,
+    /// Sequence number of the deleted history's terminal event.
     pub terminal_sequence: u64,
+    /// Identifier of the deleted history's terminal event.
     pub terminal_event_id: Uuid,
+    /// Event key of the deleted history's terminal event.
     pub terminal_event_key: String,
+    /// SHA-256 digest of the serialized event history before deletion.
     pub history_sha256: String,
 }
 
 /// Detailed result of a terminal-history retention scan.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FlowHistoryRetentionReport {
+    /// Histories deleted by this scan.
     pub deleted_run_ids: Vec<String>,
+    /// Eligible histories retained because they have an audit hold.
     pub held_run_ids: Vec<String>,
+    /// Eligible histories retained because another linked history is ineligible.
     pub referenced_run_ids: Vec<String>,
+    /// Candidate histories retained because their runs are not terminal.
     pub non_terminal_run_ids: Vec<String>,
+    /// Terminal candidate histories that have not reached the cutoff.
     pub recent_terminal_run_ids: Vec<String>,
 }
 

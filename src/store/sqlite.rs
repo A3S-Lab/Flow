@@ -37,6 +37,11 @@ impl fmt::Debug for SqliteEventStore {
 }
 
 impl SqliteEventStore {
+    /// Open a SQLite database and run Flow migrations.
+    ///
+    /// The common `sqlite::memory:`, `sqlite://:memory:`, and `:memory:` forms
+    /// create an in-memory database. Other values may be paths or use a
+    /// `sqlite:` or `sqlite://` prefix.
     pub async fn connect(database_url: impl AsRef<str>) -> Result<Self> {
         let database_url = database_url.as_ref().trim();
         let executor = if matches!(
@@ -56,6 +61,7 @@ impl SqliteEventStore {
         Self::from_executor(executor).await
     }
 
+    /// Create a store from a configured executor and run Flow migrations.
     pub async fn from_executor(executor: SqliteExecutor) -> Result<Self> {
         Migrator::new(executor.clone())
             .run(sqlite_migrations())
@@ -64,6 +70,7 @@ impl SqliteEventStore {
         Ok(Self { executor })
     }
 
+    /// Return the executor used by this store.
     pub fn executor(&self) -> &SqliteExecutor {
         &self.executor
     }

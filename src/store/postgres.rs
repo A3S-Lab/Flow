@@ -47,6 +47,7 @@ impl PostgresEventStore {
         Self::from_executor(executor).await
     }
 
+    /// Create a store from a configured executor and run Flow migrations.
     pub async fn from_executor(executor: PostgresExecutor) -> Result<Self> {
         Migrator::new(executor.clone())
             .run(postgres_migrations())
@@ -57,6 +58,7 @@ impl PostgresEventStore {
         Ok(Self { executor })
     }
 
+    /// Return the executor used by this store.
     pub fn executor(&self) -> &PostgresExecutor {
         &self.executor
     }

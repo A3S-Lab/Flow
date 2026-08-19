@@ -17,6 +17,7 @@ pub struct InMemoryEventStore {
 }
 
 impl InMemoryEventStore {
+    /// Create an empty in-memory event store.
     pub fn new() -> Self {
         Self::default()
     }

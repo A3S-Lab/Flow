@@ -32,6 +32,7 @@ pub struct LocalFileEventStore {
 }
 
 impl LocalFileEventStore {
+    /// Create a local event store rooted at `root`.
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self {
             root: root.into(),
@@ -39,6 +40,7 @@ impl LocalFileEventStore {
         }
     }
 
+    /// Return the directory containing per-run JSONL histories.
     pub fn root(&self) -> &Path {
         &self.root
     }
