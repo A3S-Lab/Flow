@@ -33,6 +33,7 @@ struct LocalFileSinkState {
 }
 
 impl LocalFileA3sFlowEventSink {
+    /// Creates a JSONL audit sink at `path`.
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
@@ -41,14 +42,17 @@ impl LocalFileA3sFlowEventSink {
         }
     }
 
+    /// Returns the configured audit-log path.
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    /// Returns the most recent best-effort write error.
     pub async fn last_error(&self) -> Option<String> {
         self.last_error.lock().await.clone()
     }
 
+    /// Loads every complete audit event after validating and repairing its tail.
     pub async fn events(&self) -> Result<Vec<A3sFlowEvent>> {
         let mut state = self.state.lock().await;
         match self.load_events().await {

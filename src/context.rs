@@ -19,14 +19,17 @@ pub struct WorkflowContext<'a> {
 }
 
 impl<'a> WorkflowContext<'a> {
+    /// Creates a replay context over one immutable runtime invocation.
     pub fn new(invocation: &'a WorkflowInvocation) -> Self {
         Self { invocation }
     }
 
+    /// Returns the stable run identifier.
     pub fn run_id(&self) -> &str {
         &self.invocation.run_id
     }
 
+    /// Returns the workflow's initial JSON input.
     pub fn input(&self) -> &JsonValue {
         &self.invocation.input
     }
@@ -53,6 +56,7 @@ impl<'a> WorkflowContext<'a> {
         self.invocation.input_as()
     }
 
+    /// Returns committed history in ascending event-sequence order.
     pub fn history(&self) -> &[FlowEventEnvelope] {
         &self.invocation.history
     }
@@ -160,6 +164,7 @@ impl<'a> WorkflowContext<'a> {
             .map_err(FlowError::from)
     }
 
+    /// Returns the durable JSON output of a completed step.
     pub fn step_output(&self, step_id: &str) -> Option<&JsonValue> {
         self.history()
             .iter()
@@ -172,6 +177,7 @@ impl<'a> WorkflowContext<'a> {
             })
     }
 
+    /// Decodes a completed step output into a host-defined serde type.
     pub fn step_output_as<T>(&self, step_id: &str) -> Result<Option<T>>
     where
         T: DeserializeOwned,
@@ -183,10 +189,12 @@ impl<'a> WorkflowContext<'a> {
             .map_err(FlowError::from)
     }
 
+    /// Returns whether the step has a durable successful output.
     pub fn step_completed(&self, step_id: &str) -> bool {
         self.step_output(step_id).is_some()
     }
 
+    /// Returns the terminal error of a step that exhausted its retries.
     pub fn step_failed(&self, step_id: &str) -> Option<&str> {
         self.history()
             .iter()
@@ -199,6 +207,7 @@ impl<'a> WorkflowContext<'a> {
             })
     }
 
+    /// Returns whether a durable timer wait has completed.
     pub fn wait_completed(&self, wait_id: &str) -> bool {
         self.history().iter().any(|envelope| {
             matches!(
@@ -208,6 +217,7 @@ impl<'a> WorkflowContext<'a> {
         })
     }
 
+    /// Returns the durable JSON payload received by a hook.
     pub fn hook_payload(&self, hook_id: &str) -> Option<&JsonValue> {
         self.history()
             .iter()
@@ -220,6 +230,7 @@ impl<'a> WorkflowContext<'a> {
             })
     }
 
+    /// Decodes a received hook payload into a host-defined serde type.
     pub fn hook_payload_as<T>(&self, hook_id: &str) -> Result<Option<T>>
     where
         T: DeserializeOwned,
@@ -231,6 +242,7 @@ impl<'a> WorkflowContext<'a> {
             .map_err(FlowError::from)
     }
 
+    /// Returns whether a hook was explicitly closed without a payload.
     pub fn hook_disposed(&self, hook_id: &str) -> bool {
         self.history().iter().any(|envelope| {
             matches!(
@@ -240,10 +252,12 @@ impl<'a> WorkflowContext<'a> {
         })
     }
 
+    /// Returns a command that completes the workflow successfully.
     pub fn complete(&self, output: JsonValue) -> RuntimeCommand {
         RuntimeCommand::Complete { output }
     }
 
+    /// Returns a command that fails the workflow.
     pub fn fail(&self, error: impl Into<String>) -> RuntimeCommand {
         RuntimeCommand::Fail {
             error: error.into(),
@@ -313,6 +327,7 @@ impl<'a> WorkflowContext<'a> {
         }
     }
 
+    /// Schedules one durable step with the default retry policy.
     pub fn schedule_step(
         &self,
         step_id: impl Into<String>,
@@ -322,6 +337,7 @@ impl<'a> WorkflowContext<'a> {
         RuntimeCommand::schedule_step(step_id, step_name, input)
     }
 
+    /// Schedules one durable step with an explicit retry policy.
     pub fn schedule_step_with_retry(
         &self,
         step_id: impl Into<String>,
@@ -337,6 +353,7 @@ impl<'a> WorkflowContext<'a> {
         }
     }
 
+    /// Creates a step definition with the default retry policy.
     pub fn step(
         &self,
         step_id: impl Into<String>,
@@ -346,6 +363,7 @@ impl<'a> WorkflowContext<'a> {
         StepCommand::new(step_id, step_name, input)
     }
 
+    /// Creates a step definition with an explicit retry policy.
     pub fn step_with_retry(
         &self,
         step_id: impl Into<String>,
@@ -356,10 +374,12 @@ impl<'a> WorkflowContext<'a> {
         StepCommand::new(step_id, step_name, input).with_retry(retry)
     }
 
+    /// Atomically schedules a deterministic batch of durable steps.
     pub fn schedule_steps(&self, steps: Vec<StepCommand>) -> RuntimeCommand {
         RuntimeCommand::schedule_steps(steps)
     }
 
+    /// Suspends replay until the given UTC deadline becomes ready.
     pub fn wait_until(
         &self,
         wait_id: impl Into<String>,
@@ -371,6 +391,7 @@ impl<'a> WorkflowContext<'a> {
         }
     }
 
+    /// Creates an externally completable hook with JSON metadata.
     pub fn create_hook(
         &self,
         hook_id: impl Into<String>,
@@ -384,6 +405,7 @@ impl<'a> WorkflowContext<'a> {
         }
     }
 
+    /// Creates an externally completable hook with typed metadata.
     pub fn create_hook_with_metadata(
         &self,
         hook_id: impl Into<String>,

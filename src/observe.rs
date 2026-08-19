@@ -19,6 +19,7 @@ pub use local_file::LocalFileA3sFlowEventSink;
 /// must not be treated as the source of truth for workflow state.
 #[async_trait]
 pub trait FlowEventObserver: Send + Sync {
+    /// Handles one event after it has committed to the durable store.
     async fn observe(&self, envelope: FlowEventEnvelope);
 }
 
@@ -38,14 +39,17 @@ pub struct FanoutFlowEventObserver {
 }
 
 impl FanoutFlowEventObserver {
+    /// Creates an observer with no downstream observers.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Creates a fanout observer from dynamic downstream observers.
     pub fn from_observers(observers: Vec<Arc<dyn FlowEventObserver>>) -> Self {
         Self { observers }
     }
 
+    /// Appends a statically typed downstream observer.
     pub fn with_observer<O>(mut self, observer: Arc<O>) -> Self
     where
         O: FlowEventObserver + 'static,
@@ -54,15 +58,18 @@ impl FanoutFlowEventObserver {
         self
     }
 
+    /// Appends a dynamic downstream observer.
     pub fn with_dyn_observer(mut self, observer: Arc<dyn FlowEventObserver>) -> Self {
         self.observers.push(observer);
         self
     }
 
+    /// Returns the number of downstream observers.
     pub fn len(&self) -> usize {
         self.observers.len()
     }
 
+    /// Returns whether no downstream observers are configured.
     pub fn is_empty(&self) -> bool {
         self.observers.is_empty()
     }
@@ -93,14 +100,17 @@ pub struct InMemoryFlowEventObserver {
 }
 
 impl InMemoryFlowEventObserver {
+    /// Creates an empty in-memory observer.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Returns a snapshot of all observed envelopes in commit order.
     pub async fn events(&self) -> Vec<FlowEventEnvelope> {
         self.events.lock().await.clone()
     }
 
+    /// Returns routing keys for all observed events in commit order.
     pub async fn event_keys(&self) -> Vec<&'static str> {
         self.events
             .lock()
@@ -121,7 +131,9 @@ impl FlowEventObserver for InMemoryFlowEventObserver {
 /// Low-cardinality workflow identity copied from the run-created event.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FlowWorkflowIdentity {
+    /// Stable workflow type name.
     pub name: String,
+    /// Application-defined workflow definition version.
     pub version: String,
 }
 
@@ -137,7 +149,9 @@ impl From<&WorkflowSpec> for FlowWorkflowIdentity {
 /// Subject touched by a workflow event.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct A3sFlowEventSubject {
+    /// Low-cardinality subject kind such as `step` or `hook`.
     pub kind: String,
+    /// Durable subject identity within the run.
     pub id: String,
 }
 
@@ -148,17 +162,26 @@ pub struct A3sFlowEventSubject {
 /// returns only low-cardinality labels.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct A3sFlowEvent {
+    /// Dot-separated A3S event routing key.
     pub key: String,
+    /// Run whose history owns the event.
     pub run_id: String,
+    /// Per-run event sequence number.
     pub sequence: u64,
+    /// Globally unique event identity.
     pub event_id: Uuid,
+    /// UTC time at which the event committed.
     pub timestamp: DateTime<Utc>,
+    /// Workflow identity learned from the run-created event.
     pub workflow: Option<FlowWorkflowIdentity>,
+    /// Low-cardinality lifecycle status associated with the event.
     pub status: Option<String>,
+    /// Step, wait, hook, signal, progress, or child touched by the event.
     pub subject: Option<A3sFlowEventSubject>,
 }
 
 impl A3sFlowEvent {
+    /// Maps a committed Flow envelope to an A3S-style event record.
     pub fn from_envelope(
         envelope: &FlowEventEnvelope,
         workflow: Option<FlowWorkflowIdentity>,
@@ -175,6 +198,7 @@ impl A3sFlowEvent {
         }
     }
 
+    /// Returns the bounded labels safe for metric dimensions.
     pub fn safe_metric_labels(&self) -> BTreeMap<String, String> {
         let mut labels = BTreeMap::new();
         labels.insert("event_key".to_string(), self.key.clone());
@@ -205,6 +229,7 @@ pub struct A3sEventBusFlowEventSink {
 
 #[cfg(feature = "a3s-event")]
 impl A3sEventBusFlowEventSink {
+    /// Creates a sink using the default `flow` category and `a3s-flow` source.
     pub fn new(bus: Arc<a3s_event::EventBus>) -> Self {
         Self {
             bus,
@@ -214,32 +239,39 @@ impl A3sEventBusFlowEventSink {
         }
     }
 
+    /// Replaces the A3S Event category.
     pub fn with_category(mut self, category: impl Into<String>) -> Self {
         self.category = category.into();
         self
     }
 
+    /// Replaces the A3S Event source identity.
     pub fn with_source(mut self, source: impl Into<String>) -> Self {
         self.source = source.into();
         self
     }
 
+    /// Returns the configured A3S Event bus.
     pub fn bus(&self) -> Arc<a3s_event::EventBus> {
         Arc::clone(&self.bus)
     }
 
+    /// Returns the configured A3S Event category.
     pub fn category(&self) -> &str {
         &self.category
     }
 
+    /// Returns the configured A3S Event source identity.
     pub fn source(&self) -> &str {
         &self.source
     }
 
+    /// Returns the most recent conversion or publish error.
     pub async fn last_error(&self) -> Option<String> {
         self.last_error.lock().await.clone()
     }
 
+    /// Converts a bridged record into the A3S Event transport shape.
     pub fn to_a3s_event(
         &self,
         event: &A3sFlowEvent,
@@ -333,6 +365,7 @@ impl A3sFlowEventSink for A3sEventBusFlowEventSink {
 /// Sink for A3S-style Flow events.
 #[async_trait]
 pub trait A3sFlowEventSink: Send + Sync {
+    /// Publishes one best-effort observer record.
     async fn emit(&self, event: A3sFlowEvent);
 }
 
@@ -347,6 +380,7 @@ impl<S> A3sFlowEventBridge<S>
 where
     S: A3sFlowEventSink,
 {
+    /// Creates a bridge that forwards records to `sink`.
     pub fn new(sink: Arc<S>) -> Self {
         Self {
             sink,
@@ -354,6 +388,7 @@ where
         }
     }
 
+    /// Returns the configured downstream sink.
     pub fn sink(&self) -> Arc<S> {
         Arc::clone(&self.sink)
     }
@@ -385,10 +420,12 @@ pub struct InMemoryA3sFlowEventSink {
 }
 
 impl InMemoryA3sFlowEventSink {
+    /// Creates an empty in-memory sink.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Returns a snapshot of emitted records in observation order.
     pub async fn events(&self) -> Vec<A3sFlowEvent> {
         self.events.lock().await.clone()
     }
