@@ -61,6 +61,13 @@ export type ChildWorkflowCancellationPolicy =
   | "request_cancellation"
   | "abandon";
 
+export type ChildWorkflowCommand = {
+  child_id: string;
+  spec: WorkflowSpec;
+  input: Json;
+  cancellation_policy?: ChildWorkflowCancellationPolicy;
+};
+
 export type WorkflowTerminalOutcome =
   | { type: "completed"; output: Json }
   | { type: "failed"; error: string }
@@ -84,6 +91,10 @@ export type RuntimeCommand =
       spec: WorkflowSpec;
       input: Json;
       cancellation_policy?: ChildWorkflowCancellationPolicy;
+    }
+  | {
+      type: "start_child_workflows";
+      children: ChildWorkflowCommand[];
     }
   | {
       type: "schedule_step";

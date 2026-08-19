@@ -1,6 +1,6 @@
 use a3s_flow::{
-    ChildWorkflowCancellationPolicy, FlowEvent, FlowEventEnvelope, NativeRuntimeKind,
-    NativeRuntimeRequest, NativeRuntimeResponse, NativeTsCompilerCapabilities,
+    ChildWorkflowCancellationPolicy, ChildWorkflowCommand, FlowEvent, FlowEventEnvelope,
+    NativeRuntimeKind, NativeRuntimeRequest, NativeRuntimeResponse, NativeTsCompilerCapabilities,
     NativeTsDependencyManifest, RuntimeCommand, WorkflowRunSummary, WorkflowSignal, WorkflowSpec,
     WorkflowTerminalOutcome, NATIVE_COMPILER_PROTOCOL, NATIVE_DEPENDENCY_MANIFEST_PROTOCOL,
     NATIVE_RUNTIME_PROTOCOL,
@@ -128,6 +128,58 @@ fn native_runtime_operation_commands_accept_omitted_optional_fields() {
             ..
         } if child_id == "invoice"
     ));
+
+    let batch: RuntimeCommand = serde_json::from_value(json!({
+        "type": "start_child_workflows",
+        "children": [
+            {
+                "child_id": "invoice-1",
+                "spec": {
+                    "name": "invoice.child",
+                    "version": "1",
+                    "runtime": {
+                        "kind": "rust_embedded",
+                        "entrypoint": "tests::protocol",
+                        "export_name": "child"
+                    }
+                },
+                "input": { "invoice_id": 1 }
+            },
+            {
+                "child_id": "invoice-2",
+                "spec": {
+                    "name": "invoice.child",
+                    "version": "1",
+                    "runtime": {
+                        "kind": "rust_embedded",
+                        "entrypoint": "tests::protocol",
+                        "export_name": "child"
+                    }
+                },
+                "input": { "invoice_id": 2 },
+                "cancellation_policy": "abandon"
+            }
+        ]
+    }))
+    .unwrap();
+    assert_eq!(
+        batch,
+        RuntimeCommand::StartChildWorkflows {
+            children: vec![
+                ChildWorkflowCommand::new(
+                    "invoice-1",
+                    WorkflowSpec::rust_embedded("invoice.child", "1", "tests::protocol", "child",),
+                    json!({ "invoice_id": 1 }),
+                ),
+                ChildWorkflowCommand::new(
+                    "invoice-2",
+                    WorkflowSpec::rust_embedded("invoice.child", "1", "tests::protocol", "child",),
+                    json!({ "invoice_id": 2 }),
+                )
+                .with_cancellation_policy(ChildWorkflowCancellationPolicy::Abandon),
+            ],
+        }
+    );
 }
 
 #[test]
@@ -353,6 +405,8 @@ fn native_ts_authoring_types_track_runtime_protocol_shape() {
     assert!(types.contains("type: \"record_progress\"; progress: WorkflowProgress"));
     assert!(types.contains("type: \"link_child_operation\"; child: ChildOperationReference"));
     assert!(types.contains("type: \"start_child_workflow\";"));
+    assert!(types.contains("type: \"start_child_workflows\";"));
+    assert!(types.contains("children: ChildWorkflowCommand[];"));
     assert!(types.contains("type: \"wait_for_signal\";"));
     assert!(types.contains("type: \"cancel\""));
     assert!(types.contains("type: \"continue_as_new\"; input: Json"));

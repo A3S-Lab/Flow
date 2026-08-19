@@ -286,6 +286,48 @@ impl Default for RetryPolicy {
     }
 }
 
+/// Maximum number of first-class child workflows in one durable batch.
+///
+/// Larger fan-outs must be split into replay-stable batches. This bounds the
+/// number of child workflow executions one parent drive may activate at once.
+pub const MAX_CHILD_WORKFLOW_BATCH_SIZE: usize = 64;
+
+/// First-class child workflow definition returned as part of a durable batch.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
+pub struct ChildWorkflowCommand {
+    /// Replay-stable parent-local child identifier.
+    pub child_id: String,
+    /// Workflow definition used to create the child.
+    pub spec: WorkflowSpec,
+    /// Initial JSON input supplied to the child.
+    pub input: JsonValue,
+    /// Policy applied when the parent is cancelled or terminated.
+    #[serde(default)]
+    pub cancellation_policy: ChildWorkflowCancellationPolicy,
+}
+
+impl ChildWorkflowCommand {
+    /// Create a child definition with the default cancellation policy.
+    pub fn new(child_id: impl Into<String>, spec: WorkflowSpec, input: JsonValue) -> Self {
+        Self {
+            child_id: child_id.into(),
+            spec,
+            input,
+            cancellation_policy: ChildWorkflowCancellationPolicy::default(),
+        }
+    }
+
+    /// Replace the policy applied when the parent stops.
+    pub fn with_cancellation_policy(
+        mut self,
+        cancellation_policy: ChildWorkflowCancellationPolicy,
+    ) -> Self {
+        self.cancellation_policy = cancellation_policy;
+        self
+    }
+}
+
 /// Command emitted by the workflow runtime after replay.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[non_exhaustive]
@@ -380,6 +422,11 @@ pub enum RuntimeCommand {
         /// Declared signal contract accepted by the wait.
         signal_name: String,
     },
+    /// Request a bounded batch before any first-class child starts.
+    StartChildWorkflows {
+        /// Child definitions in deterministic request order.
+        children: Vec<ChildWorkflowCommand>,
+    },
 }
 
 /// Step definition returned by workflow replay.
@@ -433,5 +480,10 @@ impl RuntimeCommand {
     /// Creates an atomic batch scheduling command.
     pub fn schedule_steps(steps: Vec<StepCommand>) -> Self {
         Self::ScheduleSteps { steps }
+    }
+
+    /// Create a bounded batch child-workflow command.
+    pub fn start_child_workflows(children: Vec<ChildWorkflowCommand>) -> Self {
+        Self::StartChildWorkflows { children }
     }
 }

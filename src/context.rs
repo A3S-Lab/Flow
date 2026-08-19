@@ -3,9 +3,10 @@ use serde::de::DeserializeOwned;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    CancellationRequest, ChildOperationReference, ChildWorkflowCancellationPolicy, FlowEvent,
-    FlowEventEnvelope, HookMetadata, JsonValue, RetryPolicy, RuntimeCommand, StepCommand,
-    WorkflowProgress, WorkflowSignal, WorkflowSpec, WorkflowTerminalOutcome,
+    CancellationRequest, ChildOperationReference, ChildWorkflowCancellationPolicy,
+    ChildWorkflowCommand, FlowEvent, FlowEventEnvelope, HookMetadata, JsonValue, RetryPolicy,
+    RuntimeCommand, StepCommand, WorkflowProgress, WorkflowSignal, WorkflowSpec,
+    WorkflowTerminalOutcome,
 };
 use crate::runtime::WorkflowInvocation;
 
@@ -325,6 +326,33 @@ impl<'a> WorkflowContext<'a> {
             input,
             cancellation_policy,
         }
+    }
+
+    /// Create a child definition for a bounded durable batch.
+    pub fn child_workflow(
+        &self,
+        child_id: impl Into<String>,
+        spec: WorkflowSpec,
+        input: JsonValue,
+    ) -> ChildWorkflowCommand {
+        ChildWorkflowCommand::new(child_id, spec, input)
+    }
+
+    /// Create a batch child definition with an explicit cancellation policy.
+    pub fn child_workflow_with_policy(
+        &self,
+        child_id: impl Into<String>,
+        spec: WorkflowSpec,
+        input: JsonValue,
+        cancellation_policy: ChildWorkflowCancellationPolicy,
+    ) -> ChildWorkflowCommand {
+        self.child_workflow(child_id, spec, input)
+            .with_cancellation_policy(cancellation_policy)
+    }
+
+    /// Durably request a deterministic batch before any child starts.
+    pub fn start_child_workflows(&self, children: Vec<ChildWorkflowCommand>) -> RuntimeCommand {
+        RuntimeCommand::start_child_workflows(children)
     }
 
     /// Schedules one durable step with the default retry policy.

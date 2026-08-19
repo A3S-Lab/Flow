@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Added bounded concurrent first-class child workflow batches through
+  `ChildWorkflowCommand` and `start_child_workflows`. Flow validates the whole
+  batch before mutation, persists every sibling request before child replay,
+  recovers partially appended request sets without duplication, advances open
+  siblings concurrently, propagates cancellation to each child, and commits
+  parent outcomes in durable request order. Native TypeScript authoring types,
+  protocol coverage, architecture guidance, and a runnable example track the
+  additive command.
+
 ## 1.0.0 - 2026-08-19
 
 - Declared Rust 1.88 as the minimum supported Rust version, added dedicated

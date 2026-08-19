@@ -5,9 +5,9 @@ use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    project_run, validate_child_workflow_command, FlowEvent, FlowEventEnvelope, HookStatus,
-    RuntimeCommand, ScheduledWakeup, StepStatus, WaitStatus, WorkflowRunSnapshot,
-    WorkflowRunStatus, WorkflowSpec,
+    project_run, validate_child_workflow_command, ChildWorkflowCommand, FlowEvent,
+    FlowEventEnvelope, HookStatus, RuntimeCommand, ScheduledWakeup, StepStatus, WaitStatus,
+    WorkflowRunSnapshot, WorkflowRunStatus, WorkflowSpec,
 };
 use crate::observe::{FlowEventObserver, NoopFlowEventObserver};
 use crate::runtime::{FlowRuntime, WorkflowInvocation};
@@ -27,10 +27,9 @@ mod validation;
 use signals::SignalWaitCommandOutcome;
 use steps::{interrupted_retry_exhaustion_event, StepExecutionContext};
 use validation::{
-    ensure_child_operation_matches, ensure_child_workflow_command_matches,
-    ensure_hook_command_matches, ensure_progress_matches, ensure_retry_policy_valid,
-    ensure_step_batch_valid, ensure_step_command_matches, ensure_wait_command_matches,
-    is_event_conflict,
+    ensure_child_operation_matches, ensure_child_workflow_batch_valid, ensure_hook_command_matches,
+    ensure_progress_matches, ensure_retry_policy_valid, ensure_step_batch_valid,
+    ensure_step_command_matches, ensure_wait_command_matches, is_event_conflict,
 };
 
 const DEFAULT_MAX_CONTINUE_AS_NEW_HOPS: usize = 64;
@@ -445,41 +444,58 @@ impl FlowEngine {
                     cancellation_policy,
                 } => {
                     validate_child_workflow_command(&child_id, &spec)?;
-                    if let Some(existing) = snapshot.child_workflow(&child_id) {
-                        ensure_child_workflow_command_matches(
-                            run_id,
-                            existing,
-                            &spec,
-                            &input,
-                            cancellation_policy,
-                        )?;
-                        if existing.outcome.is_some() {
-                            return Err(FlowError::InvalidTransition(format!(
-                                "workflow rescheduled resolved child workflow {child_id} without progress"
-                            )));
-                        }
-                        continue;
-                    }
-                    if child_depth >= self.max_child_workflow_depth {
-                        return Err(FlowError::ChildWorkflowDepthExceeded(
-                            self.max_child_workflow_depth,
-                        ));
-                    }
+                    let child = ChildWorkflowCommand::new(child_id.clone(), spec, input)
+                        .with_cancellation_policy(cancellation_policy);
                     match self
-                        .record_event_at(
-                            run_id,
-                            snapshot.last_sequence,
-                            FlowEvent::ChildWorkflowRequested {
-                                child_id,
-                                child_run_id: Uuid::new_v4().to_string(),
-                                spec,
-                                input,
-                                cancellation_policy,
-                            },
+                        .persist_child_workflow_requests(
+                            &snapshot,
+                            std::slice::from_ref(&child),
+                            child_depth,
                         )
                         .await
                     {
-                        Ok(_) => continue,
+                        Ok(true) => continue,
+                        Ok(false) => {
+                            let existing = snapshot.child_workflow(&child_id).ok_or_else(|| {
+                                FlowError::InvalidTransition(format!(
+                                    "child workflow {child_id} disappeared after request validation"
+                                ))
+                            })?;
+                            if existing.outcome.is_some() {
+                                return Err(FlowError::InvalidTransition(format!(
+                                    "workflow rescheduled resolved child workflow {child_id} without progress"
+                                )));
+                            }
+                            continue;
+                        }
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
+                RuntimeCommand::StartChildWorkflows { children } => {
+                    ensure_child_workflow_batch_valid(&children)?;
+                    match self
+                        .persist_child_workflow_requests(&snapshot, &children, child_depth)
+                        .await
+                    {
+                        Ok(true) => continue,
+                        Ok(false) => {
+                            if children.iter().all(|child| {
+                                snapshot
+                                    .child_workflow(&child.child_id)
+                                    .is_some_and(|existing| existing.outcome.is_some())
+                            }) {
+                                let child_ids = children
+                                    .iter()
+                                    .map(|child| child.child_id.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                return Err(FlowError::InvalidTransition(format!(
+                                    "workflow rescheduled only resolved child workflows without progress: {child_ids}"
+                                )));
+                            }
+                            continue;
+                        }
                         Err(err) if is_event_conflict(&err) => continue,
                         Err(err) => return Err(err),
                     }

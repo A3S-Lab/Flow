@@ -13,8 +13,8 @@ mod snapshot;
 pub(crate) use child_workflow::validate_child_workflow_command;
 pub use child_workflow::{ChildWorkflowCancellationPolicy, ChildWorkflowSnapshot};
 pub use command::{
-    JsonValue, RetryPolicy, RuntimeCommand, RuntimeKind, RuntimeSpec, StepCommand,
-    StepFailureAction, WorkflowSpec,
+    ChildWorkflowCommand, JsonValue, RetryPolicy, RuntimeCommand, RuntimeKind, RuntimeSpec,
+    StepCommand, StepFailureAction, WorkflowSpec, MAX_CHILD_WORKFLOW_BATCH_SIZE,
 };
 pub use event::{FlowEvent, FlowEventEnvelope};
 pub use hook::{HookCallbackRoute, HookMetadata};

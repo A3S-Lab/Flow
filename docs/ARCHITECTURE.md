@@ -129,6 +129,10 @@ The runtime returns exactly one command:
 - `start_child_workflow`: the engine persists an exact child request, creates
   and drives the generated child run, persists its terminal outcome, then
   replays the parent.
+- `start_child_workflows`: the engine validates a bounded set of unique child
+  definitions, persists every generated child identity in command order before
+  starting any child, concurrently advances the open siblings, then records
+  terminal outcomes in durable request order before replaying the parent.
 - `cancel`: after a durable cancellation request and host cleanup, the engine
   persists `run_cancelled`.
 - `timeout`: the engine persists a typed timeout terminal outcome.
@@ -179,6 +183,20 @@ before parent resolution, replay records the terminal outcome once. Same-start
 checks and expected-sequence appends make concurrent recovery converge and
 reject spec or input drift.
 
+`start_child_workflows` is the bounded fan-out form of that same primitive, not
+a separate scheduler or queue. The complete command is validated for size,
+non-empty unique IDs, specs, and replay drift before any new request is
+appended. Flow then writes all missing `child_workflow_requested` events in the
+command's stable order before child creation or workflow replay. A crash after
+only part of that parent append sequence is repaired by validating the durable
+prefix and appending only the missing suffix; no child can have started across
+that crash boundary. Open siblings are polled concurrently inside the parent
+drive without spawning an independent background lifecycle. Their child
+histories may progress at different rates, but parent resolution events are
+committed by `requested_sequence`, never task completion timing. This preserves
+deterministic history while allowing suspended siblings to become independently
+actionable in one drive.
+
 The engine drives a child through any continue-as-new segments and exposes only
 the terminal leaf outcome through `flow.child.workflow.resolved`. An open child
 suspends normal parent execution under either cancellation policy. If the child
@@ -213,6 +231,13 @@ engine. Retention treats child and continuation ownership links as whole
 components, validates the child's exact persisted start, protects a parent
 whose requested child stream is still missing, and deletes a component only
 when every present history is eligible.
+
+One batch is capped by `MAX_CHILD_WORKFLOW_BATCH_SIZE`. Hosts implement a lower
+product concurrency policy by emitting smaller stable windows; Flow remains the
+only owner of durable child activation, cancellation, recovery, and outcome
+ordering. New workflow code that emits the additive command must use a runtime
+build ID admitted only by workers that implement it, so older workers fail at
+build admission rather than interpreting an unsupported decision.
 
 ## Named Workflow Signals
 
@@ -302,10 +327,12 @@ the input and event history. Side effects are isolated to steps and are only
 observed by the workflow after their outputs have been persisted.
 
 Replay also validates durable command definitions. If workflow code reuses an
-existing step, wait, hook, signal-wait, or child ID with a different step input, retry
-policy, timer deadline, hook token/metadata, child spec/input, or child
-cancellation policy or signal name, the engine returns a non-deterministic replay error
-instead of silently accepting the changed definition.
+existing step, wait, hook, signal-wait, or child ID with a different step input,
+retry policy, timer deadline, hook token/metadata, child spec/input, child
+cancellation policy, or signal name, the engine returns a non-deterministic
+replay error instead of silently accepting the changed definition. Child
+batches additionally reject an empty, duplicate-ID, or oversized command
+before appending any sibling request.
 
 Compatible workflow code may use `WorkflowContext::has_patch_marker(...)` to
 select between an old and new deterministic branch. Marker membership comes

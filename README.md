@@ -132,7 +132,7 @@ implementation. See the runnable
 | Avoid repeating completed work | Persist step output before workflow replay can observe it |
 | Pause without holding compute | Record waits, delayed retries, named signal waits, and external hooks as durable suspensions |
 | Accept asynchronous messages | Declare named signal contracts and consume idempotent queued deliveries in history order |
-| Compose durable executions | Start first-class child workflows with persisted outcomes and cancellation policy |
+| Compose durable executions | Start one or a bounded concurrent batch of first-class child workflows with persisted outcomes and cancellation policy |
 | Run across workers | Route serializable `FlowTask` work through A3S Boot or the compatibility queues |
 | Roll out replay code safely | Pin new histories to `RuntimeBuildId` and reject incompatible workers before mutation |
 | Introduce a compatible code path | Pin bounded `WorkflowPatchId` markers at run creation and replay old and new branches deterministically |
@@ -255,7 +255,7 @@ exact build before replay.
 | `FlowEngine` | Start, drive, follow continuation chains, resume, inspect, cancel, and terminate runs |
 | `WorkflowDsl` / `WorkflowDag` | Lossless workflow document import, version classification, scoped DAG validation, deterministic planning, and semantic identity |
 | `FlowRuntime` | Host-provided workflow decision and step execution boundary |
-| `WorkflowContext` | Replay-safe reads plus command builders for steps, batches, waits, named signals, hooks, child workflows, continue-as-new, and terminal outcomes |
+| `WorkflowContext` | Replay-safe reads plus command builders for steps, child batches, waits, named signals, hooks, child workflows, continue-as-new, and terminal outcomes |
 | `FlowEventStore` | Append-only history, expected-sequence writes, hooks, wakeups, and retention projections |
 | `WorkflowRunSnapshot` | Materialized status, steps, hooks, waits, signals, progress, child references/workflows, continuation, and terminal outcome |
 | `FlowScheduler` | Discover due waits/retries once, group them by run, preflight build routes, and dispatch work |
@@ -265,8 +265,8 @@ exact build before replay.
 
 Runtime commands are deliberately small: `Complete`, `Fail`, `Cancel`,
 `Timeout`, `RecordProgress`, `LinkChildOperation`, `StartChildWorkflow`,
-`ContinueAsNew`, `ScheduleStep`, `ScheduleSteps`, `WaitUntil`, `WaitForSignal`,
-and `CreateHook`.
+`StartChildWorkflows`, `ContinueAsNew`, `ScheduleStep`, `ScheduleSteps`,
+`WaitUntil`, `WaitForSignal`, and `CreateHook`.
 
 ## Durable patterns
 
@@ -444,6 +444,39 @@ identity but deliberately leaves its cancellation semantics to the host. See
 the [`child_workflow`](examples/child_workflow.rs) example and the
 [operational recipe](docs/COOKBOOK.md#first-class-child-workflows).
 
+For independent durable branches, return one bounded child batch. Flow
+validates the complete batch before mutation, persists every generated child
+run ID before starting any child, then advances the children concurrently in
+the same parent drive. Parent resolution events remain ordered by the durable
+request sequence rather than completion timing:
+
+```rust
+let children = items
+    .into_iter()
+    .enumerate()
+    .map(|(ordinal, item)| {
+        ctx.child_workflow(
+            format!("item-{ordinal:04}"),
+            child_spec.clone(),
+            json!({ "item": item }),
+        )
+    })
+    .collect();
+
+Ok(ctx.start_child_workflows(children))
+```
+
+Batch IDs must be non-empty and unique, and a batch contains at most
+`MAX_CHILD_WORKFLOW_BATCH_SIZE` children. Split larger fan-outs into stable
+windows and replay the next window only after the current outcomes are durable.
+Partial request persistence, child creation, child completion, and parent
+resolution are all recovered from the existing child events; no batch queue or
+second scheduler is introduced. Both cancellation policies retain their
+single-child meaning for every sibling. Workflow code that first emits this
+new command should pin runs to a runtime build served only by workers that
+support it. See the runnable
+[`child_workflow_batch`](examples/child_workflow_batch.rs) example.
+
 ## Persistence and dispatch
 
 All stores preserve the same event envelope and replay contract:
@@ -611,7 +644,7 @@ Start with one executable path, then move to the concern you need:
 | Named asynchronous messages | [`workflow_signals`](examples/workflow_signals.rs) |
 | Timers and polling | [`scheduler_worker`](examples/scheduler_worker.rs), [`polling_loop`](examples/polling_loop.rs) |
 | Cancellation | [`cancellation`](examples/cancellation.rs) |
-| Child workflows | [`child_workflow`](examples/child_workflow.rs) |
+| Child workflows | [`child_workflow`](examples/child_workflow.rs), [`child_workflow_batch`](examples/child_workflow_batch.rs) |
 | Replay-safe code changes | [`replay_safe_patch`](examples/replay_safe_patch.rs) |
 | Local durability | [`local_file_durability`](examples/local_file_durability.rs), [`sqlite_durability`](examples/sqlite_durability.rs) |
 | Shared PostgreSQL | [`postgres_durability`](examples/postgres_durability.rs), [`postgres_task_queue_durability`](examples/postgres_task_queue_durability.rs) |
@@ -689,9 +722,9 @@ second graph compiler, scheduler, event store, or workflow lifecycle.
   import, version classification, lossless extensions, scoped validation,
   deterministic plans, and semantic digests are covered by fixtures and tests.
 - **Durable runtime — implemented.** Replay, steps, batches, retries, waits,
-  hooks, named signals, cancellation, progress, child references, first-class child
-  workflows, bounded continue-as-new histories, and typed terminal outcomes
-  are part of the public engine contract.
+  hooks, named signals, cancellation, progress, child references, single and
+  bounded-batch first-class child workflows, bounded continue-as-new histories,
+  and typed terminal outcomes are part of the public engine contract.
 - **Persistence — implemented, with feature gates.** Memory and JSONL are built
   in; SQLite and PostgreSQL share canonical A3S ORM migrations.
 - **Dispatch and rolling builds — implemented.** A3S Boot is the recommended

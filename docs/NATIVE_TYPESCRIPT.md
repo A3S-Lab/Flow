@@ -301,6 +301,7 @@ The contract defines:
 - `WorkflowSignal`
 - `ChildOperationReference`
 - `ChildWorkflowCancellationPolicy`
+- `ChildWorkflowCommand`
 - `WorkflowTerminalOutcome`
 - `FlowEvent`
 - `FlowEventEnvelope`
@@ -330,6 +331,13 @@ Important protocol details:
   selects `request_cancellation`. Replay should inspect
   `child_workflow_requested` and `child_workflow_resolved` before returning the
   command again; changing the definition under an existing ID is rejected.
+- `start_child_workflows` carries between one and
+  `MAX_CHILD_WORKFLOW_BATCH_SIZE` child definitions in deterministic request
+  order. IDs must be non-empty and unique. Flow validates the complete command
+  and persists every missing request before it invokes any child, then advances
+  siblings concurrently and records parent outcomes in request order. New
+  workflow source that emits this additive command should pin its
+  `runtime_build_id` to workers that support it.
 - `child_workflow_requested.child_run_id` is generated and persisted by Flow.
   `child_workflow_resolved.outcome` is the terminal outcome of the child's
   active continuation leaf, never an intermediate `continued_as_new` outcome.
@@ -383,8 +391,8 @@ Workflow exports should be deterministic:
 - use stable step IDs, timer wait IDs, signal wait IDs, hook IDs, and patch marker IDs,
 - keep every signal wait name identical on replay and treat signal payloads as
   durable history rather than side-effecting input,
-- use stable child workflow IDs and keep their spec, input, and cancellation
-  policy identical on every replay,
+- use stable child workflow IDs and keep their spec, input, cancellation policy,
+  and batch order identical on every replay,
 - treat `spec.patch_markers` as immutable run history rather than a dynamic
   product feature flag,
 - make `continue_as_new.input` self-contained because step, wait, signal, hook, and

@@ -4,9 +4,10 @@ use std::collections::BTreeSet;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    ChildOperationReference, ChildWorkflowCancellationPolicy, ChildWorkflowSnapshot, HookSnapshot,
-    RetryPolicy, SignalWaitSnapshot, StepCommand, StepSnapshot, WaitSnapshot, WorkflowProgress,
-    WorkflowRunSnapshot, WorkflowSpec,
+    validate_child_workflow_command, ChildOperationReference, ChildWorkflowCancellationPolicy,
+    ChildWorkflowCommand, ChildWorkflowSnapshot, HookSnapshot, RetryPolicy, SignalWaitSnapshot,
+    StepCommand, StepSnapshot, WaitSnapshot, WorkflowProgress, WorkflowRunSnapshot, WorkflowSpec,
+    MAX_CHILD_WORKFLOW_BATCH_SIZE,
 };
 
 pub(super) fn ensure_same_start(
@@ -52,6 +53,32 @@ pub(super) fn ensure_step_batch_valid(steps: &[StepCommand]) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+pub(super) fn ensure_child_workflow_batch_valid(children: &[ChildWorkflowCommand]) -> Result<()> {
+    if children.is_empty() {
+        return Err(FlowError::InvalidTransition(
+            "start_child_workflows requires at least one child".to_string(),
+        ));
+    }
+    if children.len() > MAX_CHILD_WORKFLOW_BATCH_SIZE {
+        return Err(FlowError::InvalidTransition(format!(
+            "start_child_workflows batch size {} exceeds {MAX_CHILD_WORKFLOW_BATCH_SIZE}",
+            children.len()
+        )));
+    }
+
+    let mut ids = BTreeSet::new();
+    for child in children {
+        validate_child_workflow_command(&child.child_id, &child.spec)?;
+        if !ids.insert(child.child_id.as_str()) {
+            return Err(FlowError::InvalidTransition(format!(
+                "start_child_workflows contains duplicate child id {}",
+                child.child_id
+            )));
+        }
+    }
     Ok(())
 }
 
