@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.0.0-rc.1 - 2026-08-19
+
 - Declared Rust 1.88 as the minimum supported Rust version, added dedicated
   all-target/all-feature MSRV gates to `main` and release CI, enabled
   all-feature docs.rs builds, forbade unsafe code in the crate, and made MSRV
@@ -33,8 +35,6 @@
   CI and release checks force stable-compatible SemVer rules against it, so a
   `1.0.0` version bump cannot hide a breaking API lint. The latest published
   release remains a second baseline for APIs added later in the `1.x` line.
-
-## 0.14.0 - 2026-08-19
 
 - Made `start_with_id` validate persisted start authority before runtime-build
   admission. Exact retries can now acknowledge a fully terminal root or
@@ -106,8 +106,6 @@
   malformed tail before the next append, and rejects terminated or interior
   corruption without extending the damaged log. The event store and audit sink
   share the same tail-classification and durable-append implementation.
-- Raised the crate version to 0.14.0 for the `WorkflowSpec` patch-marker
-  compatibility boundary.
 - Added bounded, typed `WorkflowPatchId` markers to `WorkflowSpec`. Marker sets
   are sorted and persisted atomically in `run_created`, legacy histories default
   to no markers, compatible runtimes can replay old and new branches through

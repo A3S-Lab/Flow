@@ -173,7 +173,7 @@ Add the engine and an async runtime:
 
 ```toml
 [dependencies]
-a3s-flow = "0.14.0"
+a3s-flow = "=1.0.0-rc.1"
 async-trait = "0.1"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -567,7 +567,7 @@ Install the compiler from crates.io and provide Bun on `PATH` (or set
 `A3S_FLOW_BUN` to its executable):
 
 ```sh
-cargo install a3s-flow --version 0.14.0 --locked \
+cargo install a3s-flow --version 1.0.0-rc.1 --locked \
   --bin a3s-flow-native-compiler
 
 a3s-flow-native-compiler capabilities

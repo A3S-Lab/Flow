@@ -14,7 +14,7 @@ Install the compiler from crates.io. It requires Bun on `PATH`; set
 globally.
 
 ```sh
-cargo install a3s-flow --version 0.14.0 --locked \
+cargo install a3s-flow --version 1.0.0-rc.1 --locked \
   --bin a3s-flow-native-compiler
 
 a3s-flow-native-compiler --version
