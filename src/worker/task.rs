@@ -7,41 +7,68 @@ use crate::model::{JsonValue, WorkflowSignal};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum FlowTask {
+    /// Replays a run until it suspends or reaches a terminal state.
     DriveRun {
+        /// Run to replay.
         run_id: String,
     },
+    /// Completes one durable timer wait and replays its run.
     ResumeWait {
+        /// Run that owns the wait.
         run_id: String,
+        /// Stable identity of the wait.
         wait_id: String,
     },
+    /// Delivers a payload to a hook addressed within a run.
     ResumeHook {
+        /// Run that owns the hook.
         run_id: String,
+        /// Stable identity of the hook.
         hook_id: String,
+        /// JSON payload supplied by the external caller.
         payload: JsonValue,
     },
+    /// Delivers a payload to a hook addressed by its bearer token.
     ResumeHookByToken {
+        /// Secret token assigned when the hook was created.
         token: String,
+        /// JSON payload supplied by the external caller.
         payload: JsonValue,
     },
+    /// Delivers one named asynchronous signal to a run.
     SendSignal {
+        /// Root or active run targeted by the delivery.
         run_id: String,
+        /// Caller-identified signal delivery.
         signal: WorkflowSignal,
     },
+    /// Closes a hook without delivering a payload.
     DisposeHook {
+        /// Run that owns the hook.
         run_id: String,
+        /// Stable identity of the hook.
         hook_id: String,
     },
+    /// Closes a hook addressed by its bearer token.
     DisposeHookByToken {
+        /// Secret token assigned when the hook was created.
         token: String,
     },
+    /// Drives due waits and retries for one targeted run.
     ResumeScheduledRun {
+        /// Run whose scheduled work should be inspected.
         run_id: String,
+        /// UTC cutoff used to determine readiness.
         now: DateTime<Utc>,
     },
+    /// Compatibility task that scans all runs for due timer waits.
     ResumeDueWaits {
+        /// UTC cutoff used to determine readiness.
         now: DateTime<Utc>,
     },
+    /// Compatibility task that scans all runs for due delayed retries.
     ResumeDueRetries {
+        /// UTC cutoff used to determine readiness.
         now: DateTime<Utc>,
     },
 }
@@ -70,6 +97,7 @@ impl FlowTask {
 /// Result of handling one queued [`FlowTask`].
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FlowTaskOutcome {
+    /// Task whose durable effects are summarized.
     pub task: FlowTask,
     /// Runs affected while handling this task.
     ///
@@ -111,16 +139,22 @@ impl FlowTaskOutcome {
 /// returned token.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FlowTaskLease {
+    /// Current fencing token required for heartbeat and acknowledgement.
     pub lease_id: String,
+    /// Leased Flow task payload.
     pub task: FlowTask,
 }
 
 /// Task moved out of inflight dispatch after exceeding a local lease policy.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LocalFileDeadLetteredTask {
+    /// Final lease token owned before dead-lettering.
     pub lease_id: String,
+    /// Task removed from inflight dispatch.
     pub task: FlowTask,
+    /// Queue policy reason for dead-lettering.
     pub reason: String,
+    /// UTC time at which the task was moved.
     pub dead_lettered_at: DateTime<Utc>,
 }
 
@@ -128,8 +162,12 @@ pub struct LocalFileDeadLetteredTask {
 #[cfg(feature = "postgres")]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PostgresDeadLetteredTask {
+    /// Final lease token owned before dead-lettering.
     pub lease_id: String,
+    /// Task removed from inflight dispatch.
     pub task: FlowTask,
+    /// Queue policy reason for dead-lettering.
     pub reason: String,
+    /// UTC time at which the task was moved.
     pub dead_lettered_at: DateTime<Utc>,
 }

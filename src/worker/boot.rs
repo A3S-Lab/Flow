@@ -63,60 +63,73 @@ impl Default for BootFlowTaskPolicy {
 }
 
 impl BootFlowTaskPolicy {
+    /// Creates the default no-retry, no-timeout task policy.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Sets the Boot job retry policy.
     pub fn with_retry_policy(mut self, retry_policy: QueueRetryPolicy) -> Self {
         self.retry_policy = retry_policy;
         self
     }
 
+    /// Sets the maximum execution duration of each Boot job attempt.
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
     }
 
+    /// Sets how many stalled recoveries a Boot job may survive.
     pub fn with_max_stalled_count(mut self, max_stalled_count: u32) -> Self {
         self.max_stalled_count = max_stalled_count;
         self
     }
 
+    /// Configures removal of completed Boot job records.
     pub fn remove_on_complete(mut self, remove: bool) -> Self {
         self.remove_on_complete = remove;
         self
     }
 
+    /// Configures removal of failed Boot job records.
     pub fn remove_on_fail(mut self, remove: bool) -> Self {
         self.remove_on_fail = remove;
         self
     }
 
+    /// Sets logical-target deduplication behavior.
     pub fn with_deduplication(mut self, deduplication: BootFlowTaskDeduplication) -> Self {
         self.deduplication = deduplication;
         self
     }
 
+    /// Returns the Boot job retry policy.
     pub fn retry_policy(&self) -> &QueueRetryPolicy {
         &self.retry_policy
     }
 
+    /// Returns the optional per-attempt execution timeout.
     pub fn timeout(&self) -> Option<Duration> {
         self.timeout
     }
 
+    /// Returns the maximum permitted stalled recovery count.
     pub fn max_stalled_count(&self) -> u32 {
         self.max_stalled_count
     }
 
+    /// Returns whether completed Boot job records are removed.
     pub fn removes_completed_jobs(&self) -> bool {
         self.remove_on_complete
     }
 
+    /// Returns whether failed Boot job records are removed.
     pub fn removes_failed_jobs(&self) -> bool {
         self.remove_on_fail
     }
 
+    /// Returns logical-target deduplication behavior.
     pub fn deduplication(&self) -> BootFlowTaskDeduplication {
         self.deduplication
     }
@@ -181,6 +194,7 @@ impl fmt::Debug for BootFlowTaskManager {
 }
 
 impl BootFlowTaskManager {
+    /// Creates a manager for one engine and Boot queue.
     pub fn new(engine: FlowEngine, queue: Arc<Queue>) -> Self {
         Self {
             engine,
@@ -190,6 +204,7 @@ impl BootFlowTaskManager {
         }
     }
 
+    /// Replaces the Boot processor job name.
     pub fn with_job_name(mut self, job_name: impl Into<String>) -> Result<Self> {
         let job_name = job_name.into().trim().to_string();
         if job_name.is_empty() {
@@ -201,24 +216,29 @@ impl BootFlowTaskManager {
         Ok(self)
     }
 
+    /// Replaces and validates the shared task policy.
     pub fn with_task_policy(mut self, task_policy: BootFlowTaskPolicy) -> Result<Self> {
         task_policy.validate()?;
         self.task_policy = task_policy;
         Ok(self)
     }
 
+    /// Returns the Flow engine used by the registered processor.
     pub fn engine(&self) -> &FlowEngine {
         &self.engine
     }
 
+    /// Returns the backing Boot queue.
     pub fn queue(&self) -> Arc<Queue> {
         Arc::clone(&self.queue)
     }
 
+    /// Returns the registered Boot job name.
     pub fn job_name(&self) -> &str {
         &self.job_name
     }
 
+    /// Returns the shared Flow task policy.
     pub fn task_policy(&self) -> &BootFlowTaskPolicy {
         &self.task_policy
     }
@@ -251,6 +271,7 @@ impl BootFlowTaskManager {
             .map_err(boot_error)
     }
 
+    /// Enqueues one task and returns its Boot job receipt.
     pub async fn enqueue_with_receipt(&self, task: FlowTask) -> Result<QueueJobReceipt> {
         let options = self.job_options_for(&task);
         self.enqueue_with_options(task, options).await

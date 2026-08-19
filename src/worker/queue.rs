@@ -8,6 +8,7 @@ use super::{FlowTask, FlowTaskLease};
 /// Enqueue-only dispatch boundary used by schedulers and callback routers.
 #[async_trait]
 pub trait FlowTaskDispatcher: Send + Sync {
+    /// Dispatches one Flow task to the configured execution route.
     async fn dispatch(&self, task: FlowTask) -> Result<()>;
 
     /// Return whether this dispatcher has an explicit compatible route.
@@ -44,8 +45,10 @@ pub trait FlowTaskDispatcher: Send + Sync {
 /// Queue abstraction for workflow dispatch.
 #[async_trait]
 pub trait FlowTaskQueue: Send + Sync {
+    /// Appends one task to pending dispatch.
     async fn enqueue(&self, task: FlowTask) -> Result<()>;
 
+    /// Leases the next pending task without acknowledging it.
     async fn lease(&self) -> Result<Option<FlowTaskLease>>;
 
     /// Refreshes an active lease and returns its replacement fencing token.
@@ -61,10 +64,12 @@ pub trait FlowTaskQueue: Send + Sync {
     /// a dead-letter queue.
     async fn ack(&self, lease_id: &str) -> Result<()>;
 
+    /// Returns inflight tasks to pending dispatch and reports the count.
     async fn requeue_inflight(&self) -> Result<usize> {
         Ok(0)
     }
 
+    /// Leases and immediately acknowledges the next pending task.
     async fn dequeue(&self) -> Result<Option<FlowTask>> {
         let Some(lease) = self.lease().await? else {
             return Ok(None);
@@ -74,8 +79,10 @@ pub trait FlowTaskQueue: Send + Sync {
         Ok(Some(task))
     }
 
+    /// Returns the number of tasks pending dispatch.
     async fn len(&self) -> Result<usize>;
 
+    /// Returns whether no tasks are pending dispatch.
     async fn is_empty(&self) -> Result<bool> {
         Ok(self.len().await? == 0)
     }

@@ -20,10 +20,12 @@ struct InMemoryQueueState {
 }
 
 impl InMemoryFlowTaskQueue {
+    /// Creates an empty in-process queue.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Returns the number of currently leased tasks.
     pub async fn inflight_len(&self) -> Result<usize> {
         Ok(self.state.lock().await.inflight.len())
     }
