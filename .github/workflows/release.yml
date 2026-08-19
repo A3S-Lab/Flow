@@ -76,10 +76,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
-
-      - name: Clippy A3S Event feature
-        run: cargo clippy --all-targets --no-default-features --features a3s-event -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Test without default features
         run: cargo test --all-targets --no-default-features
@@ -104,6 +101,11 @@ jobs:
 
       - name: Test all features with real PostgreSQL
         run: cargo test --all-targets --all-features -- --test-threads=1
+
+      - name: Build documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --all-features --no-deps
 
       - name: Build the installable compiler
         run: cargo build --bin a3s-flow-native-compiler

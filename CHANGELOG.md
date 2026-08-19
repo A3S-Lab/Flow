@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Made the release workflow rerun all-target, all-feature Clippy and strict
+  all-feature rustdoc checks before publishing, matching the documented SDK
+  completion gates instead of relying only on the preceding `main` workflow.
 - Made cleanup-aware cancellation repair a successor missing after a committed
   continue-as-new link before applying runtime-build admission. Already
   terminal leaves can now acknowledge a late cancellation request without
