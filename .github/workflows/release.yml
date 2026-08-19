@@ -47,6 +47,8 @@ jobs:
       A3S_FLOW_POSTGRES_URL: postgres://a3s_flow:a3s_flow@127.0.0.1:5432/a3s_flow
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -75,9 +77,33 @@ jobs:
           fi
 
       - name: Check released API compatibility
-        uses: obi1kenobi/cargo-semver-checks-action@v2
+        uses: obi1kenobi/cargo-semver-checks-action@6b69fcf40e9b5fb17adeb57e4b6ecd020649a239 # v2
         with:
           feature-group: all-features
+          shared-key: release-api-compatibility
+
+      - name: Resolve frozen v1 API baseline
+        id: v1-api-baseline
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $revision = (Get-Content ".github/v1-api-baseline.txt" -Raw).Trim()
+          if ($revision -notmatch "^[0-9a-f]{40}$") {
+            throw "The frozen v1 API baseline must be a full lowercase commit SHA."
+          }
+          git cat-file -e "$revision^{commit}"
+          if ($LASTEXITCODE -ne 0) {
+            throw "The frozen v1 API baseline commit is unavailable: $revision"
+          }
+          "revision=$revision" >> $env:GITHUB_OUTPUT
+
+      - name: Enforce the frozen v1 API contract
+        uses: obi1kenobi/cargo-semver-checks-action@6b69fcf40e9b5fb17adeb57e4b6ecd020649a239 # v2
+        with:
+          baseline-rev: ${{ steps.v1-api-baseline.outputs.revision }}
+          feature-group: all-features
+          release-type: minor
+          shared-key: release-api-compatibility
 
       - name: Format check
         run: cargo fmt --all -- --check

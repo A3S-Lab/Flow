@@ -29,6 +29,10 @@
   source, ban, and wildcard-policy checks. The sole lockfile advisory exception
   now has a fail-closed all-feature/all-target reachability proof and a written
   removal condition.
+- Froze the final pre-1.0 public API baseline at an immutable commit and made
+  CI and release checks force stable-compatible SemVer rules against it, so a
+  `1.0.0` version bump cannot hide a breaking API lint. The latest published
+  release remains a second baseline for APIs added later in the `1.x` line.
 
 ## 0.14.0 - 2026-08-19
 

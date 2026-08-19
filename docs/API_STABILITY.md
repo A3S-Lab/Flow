@@ -128,6 +128,13 @@ functional completion gates:
 6. A `1.0.0-rc` candidate replays and resumes retained pre-1.0 histories and
    upgrades real SQLite and PostgreSQL databases.
 
+The immutable pre-1.0 Rust API baseline is recorded as a full commit SHA in
+`.github/v1-api-baseline.txt`. CI and release automation compare all features
+against that revision with the release type forced to `minor`; changing the
+candidate version to `1.0.0` therefore cannot make Cargo infer that API breaks
+are permitted. The ordinary latest-release comparison remains in place so API
+added during the `1.x` line is also protected after publication.
+
 Once `1.0.0` is released, every pull request and release workflow checks public
 API compatibility against the latest stable `1.x` release. A green check that
 skipped compatibility lints because Cargo inferred a major version is not
