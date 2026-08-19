@@ -9,6 +9,9 @@ use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 
+#[path = "runtime_build_routing/cancellation_continuation.rs"]
+mod cancellation_continuation;
+
 const TIMER_ID: &str = "runtime-build-timer";
 
 fn timestamp(value: &str) -> DateTime<Utc> {

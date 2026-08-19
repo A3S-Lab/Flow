@@ -21,7 +21,10 @@ impl FlowEngine {
     /// performs host-owned cleanup with stable step identities, and returns
     /// [`RuntimeCommand::Cancel`](crate::RuntimeCommand::Cancel). Repeating the
     /// same request is idempotent. When `run_id` names a continued predecessor,
-    /// the request follows durable links to the active successor.
+    /// the request repairs and follows durable links to the active successor.
+    /// A terminal leaf is returned without runtime-build admission; a
+    /// non-terminal leaf must pass admission before the cancellation event or
+    /// workflow replay.
     pub async fn request_cancellation(
         &self,
         run_id: &str,
@@ -48,7 +51,7 @@ impl FlowEngine {
         require_same_request: bool,
     ) -> Result<WorkflowRunSnapshot> {
         for _ in 0..self.max_replay_iterations {
-            let snapshot = self.ensure_continuation_leaf(run_id, true).await?;
+            let snapshot = self.ensure_continuation_leaf(run_id, false).await?;
             let target_run_id = snapshot.run_id.clone();
             if ancestry.contains(&target_run_id) {
                 return Err(FlowError::ChildWorkflowCycle(target_run_id));

@@ -382,6 +382,10 @@ redelivery does not claim another task's commit.
 `request_cancellation()` records intent and moves the run to `Cancelling`.
 Workflow replay observes the request, schedules host-owned cleanup as ordinary
 idempotent steps, then returns `ctx.cancel()` for the single terminal outcome.
+When the target is a continued predecessor, Flow repairs and resolves its
+active successor first. An already terminal leaf needs no runtime-build
+admission; a non-terminal leaf must pass admission before Flow records the
+cancellation request or invokes cleanup code.
 
 ```rust
 use a3s_flow::CancellationRequest;

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Made cleanup-aware cancellation repair a successor missing after a committed
+  continue-as-new link before applying runtime-build admission. Already
+  terminal leaves can now acknowledge a late cancellation request without
+  replay code, while non-terminal leaves remain fenced before the request or
+  workflow replay mutates their history.
 - Made matching Signal redelivery repair and drive a missing continue-as-new
   successor instead of acknowledging it while the new leaf was only running.
   Redelivery now applies runtime-build admission whenever the recovered leaf is

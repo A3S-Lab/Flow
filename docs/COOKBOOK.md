@@ -1164,6 +1164,14 @@ engine
     .await?;
 ```
 
+The run ID may name any continue-as-new predecessor. Flow repairs a successor
+missing after the durable predecessor link, then applies runtime-build
+admission only if the active leaf still needs cancellation replay. A terminal
+leaf is acknowledged without loading its old workflow build. An incompatible
+worker can therefore restore the durable chain but cannot append the
+cancellation request or execute cleanup code; route the repaired leaf to a
+compatible worker to finish the operation.
+
 Flow owns persistence, replay, stale-completion rejection, and the single
 terminal event. Flow automatically applies the persisted policy for first-class
 child workflows. The workflow owns concrete cleanup and cancellation

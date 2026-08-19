@@ -140,6 +140,11 @@ before the request non-actionable. Replay code observes the request, propagates
 it to pre-request first-class child workflows according to their persisted
 policy, schedules host-owned cleanup with new stable step IDs, and returns
 `cancel` only after cleanup is durable.
+The host entrypoint first resolves continue-as-new links and repairs a missing
+successor using only the predecessor's durable spec and input. If the resulting
+leaf is terminal it is returned without runtime-build admission. Otherwise the
+leaf's exact build is admitted before the cancellation request or workflow
+replay can extend its history.
 When the same cleanup path is enforcing a deadline, replay can return `timeout`
 instead, preserving a typed timeout terminal outcome after cleanup. The direct
 `terminate_for_timeout()` host API is an immediate policy control and skips
@@ -432,11 +437,14 @@ Engine admission is deliberately fail closed:
 
 Admission runs before workflow invocation and before writes that would cause
 replay. Incompatible execution returns `RuntimeBuildUnavailable` with the
-required and current identities, leaves history unchanged, and causes
-`FlowWorker` to retain the task lease without acknowledging it. Normal lease
-expiry or explicit requeue can then deliver the same task to a compatible
-worker. Immediate administrative terminal operations remain available because
-they intentionally do not invoke workflow code.
+required and current identities before action-specific or workflow-decision
+history is written, and causes `FlowWorker` to retain the task lease without
+acknowledging it. Code-free recovery may still create and start a successor
+whose exact identity, spec, and input were already committed by its predecessor;
+a compatible worker later replays that repaired leaf. Normal lease expiry or
+explicit requeue can then deliver the same task to a compatible worker.
+Terminal inspection and immediate administrative terminal operations remain
+available because they intentionally do not invoke workflow code.
 
 The `ScheduledWakeup` query result carries the owning run's persisted build.
 Default stores derive it while replaying the snapshot; SQLite and PostgreSQL
