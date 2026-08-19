@@ -1,0 +1,16 @@
+[advisories]
+# This exception applies to rkyv 0.7 archive validation. The package is retained
+# only as an inactive optional dependency in Cargo.lock. The bounded proof in
+# .github/scripts/check-advisory-reachability.ps1 must pass before the exception
+# is accepted by CI or release automation.
+ignore = ["RUSTSEC-2026-0235"]
+informational_warnings = ["unmaintained", "unsound", "notice"]
+
+[output]
+deny = ["warnings", "yanked"]
+quiet = false
+show_tree = true
+
+[yanked]
+enabled = true
+update_index = true

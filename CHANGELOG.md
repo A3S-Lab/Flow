@@ -25,6 +25,10 @@
 - Made public snapshots, summaries, inspection and audit records, scheduler
   results, and worker outcomes non-exhaustive read-only projections. Added
   constructors for workflow identity and custom-store hook/wakeup projections.
+- Added scheduled and release-blocking RustSec audits plus dependency license,
+  source, ban, and wildcard-policy checks. The sole lockfile advisory exception
+  now has a fail-closed all-feature/all-target reachability proof and a written
+  removal condition.
 
 ## 0.14.0 - 2026-08-19
 

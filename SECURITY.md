@@ -51,3 +51,25 @@ An advisory may be suppressed only when the repository contains a bounded,
 automated reachability check and a written explanation of why the affected
 code cannot be built or invoked by a supported feature and target. A bare
 ignore entry is not sufficient.
+
+Dependency policy also rejects unapproved licenses, unknown registries, unknown
+Git sources, and wildcard dependency requirements. The standalone security
+workflow runs these checks on changes to `main`, pull requests, a weekly
+schedule, and every release.
+
+### Bounded Exception: RUSTSEC-2026-0235
+
+`Cargo.lock` contains `rkyv` 0.7.46 through inactive optional dependency
+metadata from `chrono` 0.4.45 and `rust_decimal` 1.42.1. Flow does not enable
+Chrono's `rkyv` feature family. A3S ORM enables only `rust_decimal`'s `std` and
+`db-tokio-postgres` features for Flow; it does not enable `rkyv` or
+`rkyv-safe`. Consequently, `rkyv` is absent from Cargo's all-feature,
+all-target build graph and none of the affected archive-validation code is
+compiled into a supported Flow artifact.
+
+`.github/scripts/check-advisory-reachability.ps1` enforces that boundary before
+the RustSec exception is accepted. It fails closed if the locked versions or
+dependency owner change, if the dependency stops being optional, if `rkyv`
+enters any all-feature/all-target build, or if a corresponding `rkyv` feature
+becomes active. The exception must be removed when the lock-only dependency
+disappears; any other dependency change requires a fresh security review.

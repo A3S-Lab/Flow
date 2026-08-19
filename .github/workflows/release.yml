@@ -19,6 +19,13 @@ env:
   CRATE_NAME: a3s-flow
 
 jobs:
+  security:
+    name: Dependency security and policy
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
+      checks: write
+
   ci:
     name: CI Checks
     runs-on: ubuntu-latest
@@ -184,6 +191,7 @@ jobs:
   publish-crate:
     name: Publish to crates.io
     needs:
+      - security
       - ci
       - msrv
       - native-ts-windows

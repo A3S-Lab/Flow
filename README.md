@@ -6,6 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/A3S-Lab/Flow/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/A3S-Lab/Flow/actions/workflows/ci.yml/badge.svg?branch=main" /></a>
+  <a href="https://github.com/A3S-Lab/Flow/actions/workflows/security.yml"><img alt="Security" src="https://github.com/A3S-Lab/Flow/actions/workflows/security.yml/badge.svg?branch=main" /></a>
   <a href="https://crates.io/crates/a3s-flow"><img alt="crates.io" src="https://img.shields.io/crates/v/a3s-flow.svg" /></a>
   <a href="https://docs.rs/a3s-flow"><img alt="docs.rs" src="https://docs.rs/a3s-flow/badge.svg" /></a>
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/crates/l/a3s-flow.svg" /></a>
