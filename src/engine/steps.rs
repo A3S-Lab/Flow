@@ -153,7 +153,7 @@ impl FlowEngine {
                     return Ok(());
                 }
                 Err(err) if attempt < max_attempts => {
-                    let retry_after = retry.retry_after(Utc::now())?;
+                    let retry_after = retry.retry_after_for_step(now, attempt, run_id, &step_id)?;
                     let retrying = self
                         .record_event_at(
                             run_id,
@@ -339,7 +339,12 @@ impl FlowEngine {
                     }
                     Err(error) if *attempt < step.retry.max_attempts.max(1) => {
                         let error = error.to_string();
-                        let retry_after = step.retry.retry_after(Utc::now())?;
+                        let retry_after = step.retry.retry_after_for_step(
+                            now,
+                            *attempt,
+                            run_id,
+                            &step.step_id,
+                        )?;
                         let retrying = self
                             .record_event_at(
                                 run_id,

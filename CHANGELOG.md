@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added `RetryPolicy::exponential` with a finite attempt budget, a maximum
+  delay cap, and deterministic full jitter derived from immutable run, step,
+  and failed-attempt identities. Delayed retries now calculate their next
+  deadline from the engine's supplied clock, fixed policies preserve their
+  existing serialized history shape, and the Rust/TypeScript contracts reject
+  invalid or unrepresentable policies before step execution.
 - Added bounded concurrent first-class child workflow batches through
   `ChildWorkflowCommand` and `start_child_workflows`. Flow validates the whole
   batch before mutation, persists every sibling request before child replay,

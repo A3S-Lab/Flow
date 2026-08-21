@@ -26,6 +26,35 @@ fn retry_policy_serializes_failure_action_only_when_non_default() {
     assert_eq!(decoded.on_exhausted, StepFailureAction::ContinueWorkflow);
 }
 
+#[test]
+fn retry_policy_preserves_fixed_history_shape_and_serializes_bounded_exponential_backoff() {
+    let fixed = serde_json::to_value(RetryPolicy::fixed(3, Duration::from_secs(1))).unwrap();
+    assert_eq!(fixed, json!({ "max_attempts": 3, "delay_ms": 1_000 }));
+
+    let exponential = serde_json::to_value(RetryPolicy::exponential(
+        8,
+        Duration::from_secs(1),
+        Duration::from_secs(30),
+    ))
+    .unwrap();
+    assert_eq!(
+        exponential,
+        json!({
+            "max_attempts": 8,
+            "delay_ms": 1_000,
+            "backoff": "exponential",
+            "max_delay_ms": 30_000,
+        })
+    );
+
+    let legacy: RetryPolicy = serde_json::from_value(json!({
+        "max_attempts": 3,
+        "delay_ms": 1_000,
+    }))
+    .unwrap();
+    assert_eq!(legacy, RetryPolicy::fixed(3, Duration::from_secs(1)));
+}
+
 struct StaticHistoryStore {
     run_id: String,
     events: Vec<FlowEventEnvelope>,

@@ -283,13 +283,21 @@ Ok(ctx.schedule_step_with_retry(
     "charge-card",
     "charge_card",
     json!({ "invoiceId": ctx.input()["invoiceId"] }),
-    RetryPolicy::fixed(3, Duration::from_secs(30)),
+    RetryPolicy::exponential(
+        8,
+        Duration::from_secs(1),
+        Duration::from_secs(30),
+    ),
 ))
 ```
 
 Immediate retries stay inside the drive loop. Delayed retries persist a
 deadline and suspend. `continue_workflow_on_failure()` lets replay choose an
-explicit fallback or compensation after exhaustion.
+explicit fallback or compensation after exhaustion. Exponential policies use
+the run ID, step ID, and failed-attempt number to select deterministic full
+jitter under the current capped delay, so restart does not reset or randomize
+the durable retry decision. Existing fixed policies retain their original
+history encoding.
 
 ### Fan-out and fan-in
 

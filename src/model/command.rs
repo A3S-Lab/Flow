@@ -1,6 +1,7 @@
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::time::Duration;
 
@@ -210,14 +211,45 @@ impl StepFailureAction {
     }
 }
 
+/// Delay progression used between durable step attempts.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
+#[serde(rename_all = "snake_case")]
+pub enum RetryBackoff {
+    /// Reuse the same delay after every failed attempt.
+    #[default]
+    Fixed,
+    /// Double the delay cap after each failed attempt and select a stable,
+    /// full-jitter delay from the run, step, and attempt identities.
+    Exponential,
+}
+
+impl RetryBackoff {
+    fn is_fixed(&self) -> bool {
+        matches!(self, Self::Fixed)
+    }
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
+
 /// Retry behavior for a step command.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct RetryPolicy {
     /// Maximum number of attempts, including the first execution.
     pub max_attempts: u32,
-    /// Fixed delay between attempts in milliseconds.
+    /// Fixed delay or initial exponential delay in milliseconds.
     pub delay_ms: u64,
+    /// Delay progression. Omitted fixed policies preserve the pre-v1 history
+    /// encoding exactly.
+    #[serde(default, skip_serializing_if = "RetryBackoff::is_fixed")]
+    pub backoff: RetryBackoff,
+    /// Maximum exponential delay in milliseconds. Zero is canonical for a
+    /// fixed policy.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub max_delay_ms: u64,
     /// Action taken after the final permitted attempt fails.
     #[serde(default, skip_serializing_if = "StepFailureAction::is_fail_run")]
     pub on_exhausted: StepFailureAction,
@@ -229,6 +261,8 @@ impl RetryPolicy {
         Self {
             max_attempts: 1,
             delay_ms: 0,
+            backoff: RetryBackoff::Fixed,
+            max_delay_ms: 0,
             on_exhausted: StepFailureAction::FailRun,
         }
     }
@@ -241,6 +275,32 @@ impl RetryPolicy {
         Self {
             max_attempts: max_attempts.max(1),
             delay_ms: delay.as_millis().min(u128::from(u64::MAX)) as u64,
+            backoff: RetryBackoff::Fixed,
+            max_delay_ms: 0,
+            on_exhausted: StepFailureAction::FailRun,
+        }
+    }
+
+    /// Creates a capped exponential policy with deterministic full jitter.
+    ///
+    /// The first delay is clamped to at least one millisecond, the maximum is
+    /// clamped to at least the first delay, and every delay is selected from
+    /// `1..=current_cap` using the immutable run, step, and failed-attempt
+    /// identities. Restarts therefore retain the same backoff decision without
+    /// coordinating random state.
+    pub fn exponential(
+        max_attempts: u32,
+        initial_delay: Duration,
+        maximum_delay: Duration,
+    ) -> Self {
+        let delay_ms = initial_delay.as_millis().min(u128::from(u64::MAX)).max(1) as u64;
+        let max_delay_ms =
+            (maximum_delay.as_millis().min(u128::from(u64::MAX)) as u64).max(delay_ms);
+        Self {
+            max_attempts: max_attempts.max(1),
+            delay_ms,
+            backoff: RetryBackoff::Exponential,
+            max_delay_ms,
             on_exhausted: StepFailureAction::FailRun,
         }
     }
@@ -257,23 +317,96 @@ impl RetryPolicy {
     }
 
     pub(crate) fn retry_after(self, now: DateTime<Utc>) -> Result<Option<DateTime<Utc>>> {
-        if self.delay_ms == 0 {
-            return Ok(None);
-        }
-        let delay_ms = i64::try_from(self.delay_ms).map_err(|_| self.invalid_delay_error())?;
-        let delay =
-            ChronoDuration::try_milliseconds(delay_ms).ok_or_else(|| self.invalid_delay_error())?;
-        now.checked_add_signed(delay)
-            .map(Some)
-            .ok_or_else(|| self.invalid_delay_error())
+        let delay_ms = self.maximum_delay_ms()?;
+        self.deadline_after(now, delay_ms)
     }
 
-    fn invalid_delay_error(self) -> FlowError {
+    pub(crate) fn retry_after_for_step(
+        self,
+        now: DateTime<Utc>,
+        failed_attempt: u32,
+        run_id: &str,
+        step_id: &str,
+    ) -> Result<Option<DateTime<Utc>>> {
+        let delay_ms = self.delay_for_step(failed_attempt, run_id, step_id)?;
+        self.deadline_after(now, delay_ms)
+    }
+
+    fn maximum_delay_ms(self) -> Result<u64> {
+        match self.backoff {
+            RetryBackoff::Fixed if self.max_delay_ms == 0 => Ok(self.delay_ms),
+            RetryBackoff::Fixed => Err(FlowError::InvalidTransition(
+                "fixed retry policy cannot define max_delay_ms".to_string(),
+            )),
+            RetryBackoff::Exponential
+                if self.delay_ms > 0 && self.max_delay_ms >= self.delay_ms =>
+            {
+                Ok(self.max_delay_ms)
+            }
+            RetryBackoff::Exponential => Err(FlowError::InvalidTransition(
+                "exponential retry delays must satisfy 1 <= delay_ms <= max_delay_ms".to_string(),
+            )),
+        }
+    }
+
+    fn delay_for_step(self, failed_attempt: u32, run_id: &str, step_id: &str) -> Result<u64> {
+        self.maximum_delay_ms()?;
+        match self.backoff {
+            RetryBackoff::Fixed => Ok(self.delay_ms),
+            RetryBackoff::Exponential => {
+                let exponent = failed_attempt.saturating_sub(1).min(63);
+                let multiplier = 1_u64.checked_shl(exponent).unwrap_or(u64::MAX);
+                let cap = self
+                    .delay_ms
+                    .saturating_mul(multiplier)
+                    .min(self.max_delay_ms);
+                Ok(deterministic_full_jitter(
+                    cap,
+                    run_id,
+                    step_id,
+                    failed_attempt,
+                ))
+            }
+        }
+    }
+
+    fn deadline_after(self, now: DateTime<Utc>, delay_ms: u64) -> Result<Option<DateTime<Utc>>> {
+        if delay_ms == 0 {
+            return Ok(None);
+        }
+        let delay_ms = i64::try_from(delay_ms).map_err(|_| self.invalid_delay_error(delay_ms))?;
+        let delay = ChronoDuration::try_milliseconds(delay_ms)
+            .ok_or_else(|| self.invalid_delay_error(delay_ms as u64))?;
+        now.checked_add_signed(delay)
+            .map(Some)
+            .ok_or_else(|| self.invalid_delay_error(delay_ms as u64))
+    }
+
+    fn invalid_delay_error(self, delay_ms: u64) -> FlowError {
         FlowError::InvalidTransition(format!(
-            "retry delay {}ms cannot be represented as a UTC deadline",
-            self.delay_ms
+            "retry delay {delay_ms}ms cannot be represented as a UTC deadline"
         ))
     }
+}
+
+fn deterministic_full_jitter(cap: u64, run_id: &str, step_id: &str, failed_attempt: u32) -> u64 {
+    debug_assert!(cap > 0);
+    let mut hasher = Sha256::new();
+    hasher.update(b"a3s-flow.retry-jitter.v1");
+    hash_retry_part(&mut hasher, run_id.as_bytes());
+    hash_retry_part(&mut hasher, step_id.as_bytes());
+    hasher.update(failed_attempt.to_be_bytes());
+    let digest = hasher.finalize();
+    let sample = digest
+        .iter()
+        .take(8)
+        .fold(0_u64, |value, byte| (value << 8) | u64::from(*byte));
+    1 + sample % cap
+}
+
+fn hash_retry_part(hasher: &mut Sha256, bytes: &[u8]) {
+    hasher.update((bytes.len() as u64).to_be_bytes());
+    hasher.update(bytes);
 }
 
 impl Default for RetryPolicy {
@@ -281,8 +414,51 @@ impl Default for RetryPolicy {
         Self {
             max_attempts: 3,
             delay_ms: 0,
+            backoff: RetryBackoff::Fixed,
+            max_delay_ms: 0,
             on_exhausted: StepFailureAction::FailRun,
         }
+    }
+}
+
+#[cfg(test)]
+mod retry_policy_tests {
+    use super::*;
+
+    #[test]
+    fn exponential_delay_is_identity_stable_and_capped_per_attempt() {
+        let policy =
+            RetryPolicy::exponential(8, Duration::from_millis(100), Duration::from_millis(400));
+
+        for (attempt, cap) in [(1, 100), (2, 200), (3, 400), (20, 400)] {
+            let first = policy.delay_for_step(attempt, "run-1", "step-1").unwrap();
+            let replay = policy.delay_for_step(attempt, "run-1", "step-1").unwrap();
+            assert_eq!(first, replay);
+            assert!((1..=cap).contains(&first));
+        }
+
+        assert_ne!(
+            policy.delay_for_step(3, "run-1", "step-1").unwrap(),
+            policy.delay_for_step(3, "run-2", "step-1").unwrap()
+        );
+        assert_ne!(
+            policy.delay_for_step(3, "run-1", "step-1").unwrap(),
+            policy.delay_for_step(3, "run-1", "step-2").unwrap()
+        );
+    }
+
+    #[test]
+    fn exponential_constructor_clamps_to_a_valid_positive_range() {
+        assert_eq!(
+            RetryPolicy::exponential(0, Duration::ZERO, Duration::ZERO),
+            RetryPolicy {
+                max_attempts: 1,
+                delay_ms: 1,
+                backoff: RetryBackoff::Exponential,
+                max_delay_ms: 1,
+                on_exhausted: StepFailureAction::FailRun,
+            }
+        );
     }
 }
 

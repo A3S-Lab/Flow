@@ -33,7 +33,7 @@ impl FlowRuntime for PaymentRuntime {
                 "invoiceId": ctx.input()["invoiceId"],
                 "amount": ctx.input()["amount"],
             }),
-            RetryPolicy::fixed(2, Duration::from_secs(60)),
+            RetryPolicy::exponential(4, Duration::from_secs(5), Duration::from_secs(60)),
         ))
     }
 

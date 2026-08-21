@@ -34,6 +34,8 @@ export type WorkflowSignal = {
 export type RetryPolicy = {
   max_attempts: number;
   delay_ms: number;
+  backoff?: "fixed" | "exponential";
+  max_delay_ms?: number;
   on_exhausted?: "fail_run" | "continue_workflow";
 };
 

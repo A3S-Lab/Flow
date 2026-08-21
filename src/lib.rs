@@ -32,12 +32,12 @@ pub use model::{
     ActiveHookSnapshot, CancellationRequest, CancellationRequestSnapshot, ChildOperationReference,
     ChildWorkflowCancellationPolicy, ChildWorkflowCommand, ChildWorkflowSnapshot, FlowEvent,
     FlowEventEnvelope, HookCallbackRoute, HookMetadata, HookSnapshot, HookStatus, JsonValue,
-    RetryPolicy, RuntimeCommand, RuntimeKind, RuntimeSpec, ScheduledWakeup, ScheduledWakeupKind,
-    SignalWaitSnapshot, SignalWaitStatus, StepCommand, StepFailureAction, StepSnapshot, StepStatus,
-    WaitSnapshot, WaitStatus, WorkflowContinuation, WorkflowPatchId, WorkflowProgress,
-    WorkflowRunSnapshot, WorkflowRunStatus, WorkflowRunSummary, WorkflowRunSuspension,
-    WorkflowSignal, WorkflowSignalSnapshot, WorkflowSpec, WorkflowTerminalOutcome,
-    MAX_CHILD_WORKFLOW_BATCH_SIZE, MAX_WORKFLOW_PATCH_MARKERS,
+    RetryBackoff, RetryPolicy, RuntimeCommand, RuntimeKind, RuntimeSpec, ScheduledWakeup,
+    ScheduledWakeupKind, SignalWaitSnapshot, SignalWaitStatus, StepCommand, StepFailureAction,
+    StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowContinuation, WorkflowPatchId,
+    WorkflowProgress, WorkflowRunSnapshot, WorkflowRunStatus, WorkflowRunSummary,
+    WorkflowRunSuspension, WorkflowSignal, WorkflowSignalSnapshot, WorkflowSpec,
+    WorkflowTerminalOutcome, MAX_CHILD_WORKFLOW_BATCH_SIZE, MAX_WORKFLOW_PATCH_MARKERS,
 };
 #[cfg(feature = "a3s-event")]
 pub use observe::A3sEventBusFlowEventSink;

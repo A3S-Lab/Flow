@@ -269,6 +269,84 @@ async fn delayed_step_retry_suspends_until_due() {
     assert_eq!(completed.output.unwrap()["attempt"], 2);
 }
 
+#[derive(Default)]
+struct ExponentialFailureRuntime {
+    attempts: AtomicUsize,
+}
+
+#[async_trait]
+impl FlowRuntime for ExponentialFailureRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        Ok(invocation.context().schedule_step_with_retry(
+            "bounded-exponential",
+            "boundedExponentialStep",
+            json!({}),
+            RetryPolicy::exponential(4, Duration::from_secs(1), Duration::from_secs(4)),
+        ))
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        let attempt = self.attempts.fetch_add(1, Ordering::SeqCst) + 1;
+        Err(FlowError::Runtime(format!("failure {attempt}")))
+    }
+}
+
+#[tokio::test]
+async fn exponential_retry_suspends_with_capped_jitter_and_exhausts_its_finite_budget() {
+    let runtime = Arc::new(ExponentialFailureRuntime::default());
+    let engine = FlowEngine::in_memory(runtime.clone());
+    let run_id = engine.start(spec(), json!({})).await.unwrap();
+    let mut previous_deadline = None;
+
+    for (attempt, cap_seconds) in [(1, 1), (2, 2), (3, 4)] {
+        let snapshot = engine.snapshot(&run_id).await.unwrap();
+        let retry_after = snapshot.steps["bounded-exponential"]
+            .retry_after
+            .expect("a delayed retry must remain visible");
+        let retry_event = engine
+            .history(&run_id)
+            .await
+            .unwrap()
+            .into_iter()
+            .rev()
+            .find(|envelope| {
+                matches!(
+                    envelope.event,
+                    FlowEvent::StepRetrying {
+                        ref step_id,
+                        attempt: event_attempt,
+                        ..
+                    } if step_id == "bounded-exponential" && event_attempt == attempt
+                )
+            })
+            .expect("retry event");
+
+        assert_eq!(snapshot.status, WorkflowRunStatus::Suspended);
+        let delay_base = previous_deadline.unwrap_or(retry_event.timestamp);
+        assert!(retry_after > delay_base);
+        assert!(retry_after <= delay_base + ChronoDuration::seconds(cap_seconds));
+        previous_deadline = Some(retry_after);
+        engine.resume_due_retries(retry_after).await.unwrap();
+    }
+
+    let failed = engine.snapshot(&run_id).await.unwrap();
+    assert_eq!(runtime.attempts.load(Ordering::SeqCst), 4);
+    assert_eq!(failed.status, WorkflowRunStatus::Failed);
+    assert_eq!(failed.steps["bounded-exponential"].attempt, 4);
+    assert_eq!(failed.steps["bounded-exponential"].retry_after, None);
+    assert!(matches!(
+        failed.terminal_outcome,
+        Some(WorkflowTerminalOutcome::RetryExhausted {
+            ref step_id,
+            attempt: 4,
+            ..
+        }) if step_id == "bounded-exponential"
+    ));
+}
+
 #[tokio::test]
 async fn run_summary_counts_statuses_and_actionable_work() {
     let store = Arc::new(InMemoryEventStore::new());

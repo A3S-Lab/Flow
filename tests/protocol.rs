@@ -401,6 +401,8 @@ fn native_ts_authoring_types_track_runtime_protocol_shape() {
     assert!(types.contains("signal_names?: string[];"));
     assert!(types.contains("token: string;"));
     assert!(types.contains("retry?: RetryPolicy;"));
+    assert!(types.contains("backoff?: \"fixed\" | \"exponential\";"));
+    assert!(types.contains("max_delay_ms?: number;"));
     assert!(types.contains("retry_after: string | null;"));
     assert!(types.contains("type: \"record_progress\"; progress: WorkflowProgress"));
     assert!(types.contains("type: \"link_child_operation\"; child: ChildOperationReference"));

@@ -694,9 +694,20 @@ Ok(ctx.schedule_step_with_retry(
     "charge-card",
     "charge_card",
     serde_json::json!({ "invoiceId": ctx.input()["invoiceId"] }),
-    RetryPolicy::fixed(3, Duration::from_secs(30)),
+    RetryPolicy::exponential(
+        8,
+        Duration::from_secs(1),
+        Duration::from_secs(30),
+    ),
 ))
 ```
+
+`RetryPolicy::exponential` doubles the delay cap from the initial delay up to
+the configured maximum, then selects deterministic full jitter from the run,
+step, and failed-attempt identities. The persisted `retry_after` deadline is
+therefore bounded, spread across workers, and stable across restart. Use
+`RetryPolicy::fixed` when a constant delay is part of an existing replay
+contract.
 
 Host loop:
 
