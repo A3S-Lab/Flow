@@ -1,12 +1,12 @@
 # A3S Flow
 
 <p align="center">
-  <img src="assets/readme/hero.svg" width="100%" alt="A3S Flow compiles portable workflow graphs and replays append-only history without repeating completed work" />
+  <img src="assets/readme/hero.svg" width="100%" alt="A3S Flow commits workflow decisions to append-only history and resumes safely after worker replacement" />
 </p>
 
 <p align="center">
-  <strong>Durable workflows for Rust, built on deterministic replay.</strong><br />
-  Persist decisions, suspend without holding compute, and recover on another worker.
+  <strong>Durable execution for Rust, reconstructed from append-only history.</strong><br />
+  Commit decisions, release compute while waiting, and resume on any compatible worker.
 </p>
 
 <p align="center">

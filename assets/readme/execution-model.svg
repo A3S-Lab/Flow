@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="430" viewBox="0 0 1200 430" role="img" aria-labelledby="title desc">
   <title id="title">A3S Flow replay and durability model</title>
-  <desc id="desc">Workflow code reads projected history and returns one command. Flow appends events before replay observes results. Steps perform host-owned side effects, while waits and hooks suspend without holding compute.</desc>
+  <desc id="desc">Workflow code reads projected history and returns one command. Flow appends events before replay observes results. Steps perform host-owned side effects, while waits, signals, and hooks suspend without holding compute.</desc>
 
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
@@ -47,7 +47,7 @@
     <text x="70" y="374" fill="#9fb2c1" font-size="18">Host side effects / logical idempotency</text>
 
     <rect x="430" y="316" width="340" height="72" rx="12" fill="#0d1c2a" stroke="#28516b"/>
-    <text x="452" y="347" fill="#f3f8fc" font-size="21" font-weight="700">Waits + hooks</text>
+    <text x="452" y="347" fill="#f3f8fc" font-size="21" font-weight="700">Waits + signals + hooks</text>
     <text x="452" y="374" fill="#9fb2c1" font-size="18">Suspend durably / resume externally</text>
 
     <rect x="812" y="316" width="340" height="72" rx="12" fill="#211d10" stroke="#75612d"/>
