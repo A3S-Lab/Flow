@@ -1,0 +1,57 @@
+---
+title: Rust API map
+description: Find the stable public types that define workflow identity, runtime commands, history, stores, workers, and observation.
+---
+
+# Rust API map
+
+The complete generated API is published on [docs.rs](https://docs.rs/a3s-flow). This map groups the main entry points by responsibility.
+
+## Engine and runtime
+
+| Type                | Responsibility                                                           |
+| ------------------- | ------------------------------------------------------------------------ |
+| `FlowEngine`        | start, advance, inspect, signal, complete hooks, and cancel runs         |
+| `FlowEngineBuilder` | compose stores, runtimes, dispatch, observers, and runtime compatibility |
+| `FlowRuntime`       | separate deterministic workflow decisions from side-effecting steps      |
+| `WorkflowContext`   | read projected history and construct one typed command                   |
+| `WorkflowSpec`      | bind workflow identity, version, runtime kind, build, and entrypoint     |
+
+## Commands and projection
+
+| Type                  | Responsibility                                                            |
+| --------------------- | ------------------------------------------------------------------------- |
+| `RuntimeCommand`      | one replay decision such as schedule, wait, child, complete, or continue  |
+| `RetryPolicy`         | bounded fixed or deterministic exponential retry behavior                 |
+| `WorkflowRunSnapshot` | current projection of lifecycle, steps, waits, hooks, signals, and output |
+| `WorkflowRunStatus`   | non-exhaustive run lifecycle state                                        |
+| `FlowEvent`           | typed immutable history event                                             |
+| `FlowEventEnvelope`   | event plus run identity, sequence, and commit metadata                    |
+
+## Stores and workers
+
+| Type                  | Responsibility                                   |
+| --------------------- | ------------------------------------------------ |
+| `FlowEventStore`      | atomic history and operational query contract    |
+| `InMemoryEventStore`  | process-local test store                         |
+| `LocalFileEventStore` | durable JSONL store                              |
+| `SqliteEventStore`    | async embedded store behind the `sqlite` feature |
+| `PostgresEventStore`  | shared SQL store behind the `postgres` feature   |
+| `FlowTaskDispatcher`  | enqueue replay or step work                      |
+| `FlowTaskQueue`       | lease and complete queued work                   |
+| `FlowWorker`          | execute leased tasks against an engine           |
+
+## Graphs and compatibility
+
+| Type                        | Responsibility                       |
+| --------------------------- | ------------------------------------ |
+| `WorkflowDsl`               | versioned portable workflow document |
+| `WorkflowDag`               | validated nodes and edges            |
+| `WorkflowDagPlan`           | deterministic executable ordering    |
+| `RuntimeBuildId`            | exact worker compatibility identity  |
+| `RuntimeBuildCompatibility` | admission policy for a runtime build |
+| `WorkflowPatchId`           | immutable replay-branch marker       |
+
+## Stability policy
+
+Flow 1.x follows the repository [API stability policy](https://github.com/A3S-Lab/Flow/blob/main/docs/API_STABILITY.md). Public enums are non-exhaustive where new variants may be added. Durable event and protocol compatibility have stricter gates than ordinary source compatibility.

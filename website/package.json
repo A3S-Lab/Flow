@@ -1,0 +1,38 @@
+{
+  "name": "a3s-flow-website",
+  "version": "0.0.0",
+  "description": "Official documentation for A3S Flow.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "npm run prepare:assets && rspress build",
+    "check": "npm run typecheck && npm run check:content && npm run format:check",
+    "check:content": "node scripts/check-content.mjs",
+    "check:site": "node scripts/check-built-site.mjs",
+    "dev": "npm run prepare:assets && rspress dev",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare:assets": "node scripts/prepare-assets.mjs",
+    "preview": "rspress preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@a3s-lab/ui": "0.3.0",
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@phosphor-icons/react": "^2.1.10",
+    "@rspress/core": "^2.0.19",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.8.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "prettier": "^3.8.3",
+    "typescript": "^6.0.3"
+  }
+}

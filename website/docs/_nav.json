@@ -1,0 +1,39 @@
+[
+  {
+    "text": "Guide",
+    "link": "/guide/getting-started",
+    "activeMatch": "^/guide/"
+  },
+  {
+    "text": "Concepts",
+    "link": "/concepts/execution-model",
+    "activeMatch": "^/concepts/"
+  },
+  {
+    "text": "Operations",
+    "link": "/operations/persistence",
+    "activeMatch": "^/(operations|runtimes)/"
+  },
+  {
+    "text": "API",
+    "link": "/reference/api",
+    "activeMatch": "^/reference/"
+  },
+  {
+    "text": "Resources",
+    "items": [
+      {
+        "text": "GitHub",
+        "link": "https://github.com/A3S-Lab/Flow"
+      },
+      {
+        "text": "docs.rs",
+        "link": "https://docs.rs/a3s-flow"
+      },
+      {
+        "text": "crates.io",
+        "link": "https://crates.io/crates/a3s-flow"
+      }
+    ]
+  }
+]

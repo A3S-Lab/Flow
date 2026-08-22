@@ -1,0 +1,67 @@
+---
+title: Examples
+description: Run focused examples for durable steps, waits, child workflows, persistence, workers, rollout, and observability.
+---
+
+# Examples
+
+Every example runs from the Flow repository root with `cargo run --example <name>`. Some persistence examples require their matching feature or service.
+
+## Start and recovery
+
+| Example            | Contract demonstrated                             |
+| ------------------ | ------------------------------------------------- |
+| `sequential_steps` | deterministic two-step execution and final output |
+| `batch_steps`      | atomic fan-out and ordered fan-in                 |
+| `run_inspection`   | bounded run listing and suspension inspection     |
+| `cancellation`     | cleanup-aware graceful cancellation               |
+| `continue_as_new`  | linked history segmentation                       |
+
+## Waiting and failure
+
+| Example                    | Contract demonstrated                                          |
+| -------------------------- | -------------------------------------------------------------- |
+| `retry_backoff`            | capped exponential retry with deterministic full jitter        |
+| `recoverable_step_failure` | return control to workflow code after exhaustion               |
+| `polling_loop`             | durable repeated waits without a resident task                 |
+| `workflow_signals`         | declared named signal delivery                                 |
+| `hook_approval`            | token-routed external completion                               |
+| `hook_disposal`            | explicit hook closure                                          |
+| `compensation`             | host-owned cleanup decisions recorded through workflow history |
+
+## Child workflows
+
+| Example                | Contract demonstrated                                   |
+| ---------------------- | ------------------------------------------------------- |
+| `child_workflow`       | stable child identity and terminal adoption             |
+| `child_workflow_batch` | bounded concurrent children with request-order outcomes |
+
+## Persistence and workers
+
+| Example                 | Contract demonstrated                  |
+| ----------------------- | -------------------------------------- |
+| `local_file_durability` | JSONL history across process restart   |
+| `sqlite_durability`     | embedded SQL event history             |
+| `postgres_durability`   | shared PostgreSQL event history        |
+| `scheduler_worker`      | durable wakeups and worker advancement |
+| `boot_task_policy`      | recommended A3S Boot dispatch policy   |
+| `task_queue_durability` | compatibility queue behavior           |
+
+## Rollout and observation
+
+| Example             | Contract demonstrated            |
+| ------------------- | -------------------------------- |
+| `replay_safe_patch` | immutable patch marker selection |
+| `observer_fanout`   | post-commit observer fan-out     |
+| `observer_bridge`   | A3S Event projection boundary    |
+| `local_audit_log`   | repair-aware JSONL audit sink    |
+
+## Native TypeScript and graphs
+
+| Example               | Contract demonstrated                      |
+| --------------------- | ------------------------------------------ |
+| `native_ts_greeting`  | TypeScript workflow invocation             |
+| `native_ts_preflight` | compiler and runtime readiness             |
+| `workflow_dsl_import` | portable graph parsing and plan derivation |
+
+Browse the [examples directory](https://github.com/A3S-Lab/Flow/tree/main/examples) for complete source.
