@@ -1,0 +1,43 @@
+---
+title: Native TypeScript
+description: Compile TypeScript workflow sources into verified artifacts while Rust remains the durable authority.
+---
+
+# Native TypeScript
+
+The optional native TypeScript runtime compiles source, verifies artifact identity and dependencies, then invokes it through a versioned JSON protocol. Rust still owns history, command validation, and lifecycle projection.
+
+## Feature and runtime
+
+`native-ts` is enabled by default. Create a `NativeTsRuntimeConfig` with explicit compiler, runner, cache, timeout, and dependency policy.
+
+Run preflight before accepting production traffic:
+
+```rust
+let report = runtime.preflight().await?;
+println!("compiler={}", report.compiler_version);
+```
+
+## Artifact identity
+
+The compilation result binds:
+
+- normalized source identity;
+- compiler protocol and implementation version;
+- dependency manifest and mode;
+- generated artifact digest;
+- runtime protocol revision.
+
+A cache hit is admitted only when the full identity matches.
+
+## Protocols
+
+Flow publishes separate protocol identifiers for compilation, dependency manifests, and runtime invocation. A host must reject unsupported protocol revisions before durable execution begins.
+
+## Determinism
+
+TypeScript workflow code follows the same rules as Rust workflow code. It must not derive decisions from wall-clock time, randomness, ambient process state, or mutable configuration.
+
+External effects still belong in step handlers with host-owned authorization and idempotency.
+
+Read the complete [Native TypeScript guide](https://github.com/A3S-Lab/Flow/blob/main/docs/NATIVE_TYPESCRIPT.md) for configuration, diagnostic envelopes, authoring types, and cache policy.

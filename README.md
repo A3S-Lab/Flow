@@ -18,6 +18,7 @@
 </p>
 
 <p align="center">
+  <a href="https://a3s-lab.github.io/Flow/">Documentation</a> &middot;
   <a href="#quick-start">Quick start</a> &middot;
   <a href="#execution-model">Execution model</a> &middot;
   <a href="#capability-map">Capabilities</a> &middot;
@@ -354,6 +355,7 @@ Start with one executable path, then move to the concern you need.
 
 | Reference | What it owns |
 | --- | --- |
+| [Documentation website](https://a3s-lab.github.io/Flow/) | Guided setup, execution concepts, production operations, runtimes, examples, and API map |
 | [Architecture](docs/ARCHITECTURE.md) | Event sourcing, replay, store, scheduler, and native-runtime boundaries |
 | [Cookbook](docs/COOKBOOK.md) | Stable IDs, retries, batches, timers, hooks, signals, cancellation, and compensation |
 | [Functional plan](docs/FUNCTIONAL_PLAN.md) | Capability-level evidence, completion gates, maintenance work, and non-goals |

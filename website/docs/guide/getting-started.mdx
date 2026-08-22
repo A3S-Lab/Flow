@@ -1,0 +1,106 @@
+---
+title: Getting started
+description: Add A3S Flow, implement a runtime, and start a replay-safe workflow run.
+---
+
+# Getting started
+
+A3S Flow is a Rust SDK for work that must survive process restarts, delayed retries, timers, callbacks, asynchronous messages, and worker replacement.
+
+## Install
+
+Add Flow and an async runtime to your crate:
+
+```toml title="Cargo.toml"
+[dependencies]
+a3s-flow = "=1.0.0"
+async-trait = "0.1"
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt"] }
+```
+
+The default feature set includes the native TypeScript runtime. Disable default features if the host only needs Rust workflow code.
+
+## Implement the runtime boundary
+
+Workflow decisions and step side effects use separate methods. `run_workflow` must return the same command for the same committed history. `run_step` may call external systems and must use a stable idempotency key.
+
+```rust
+use a3s_flow::{
+    FlowEngine, FlowError, FlowRuntime, RuntimeCommand, StepInvocation,
+    WorkflowInvocation, WorkflowSpec,
+};
+use async_trait::async_trait;
+use serde_json::json;
+use std::sync::Arc;
+
+struct GreetingRuntime;
+
+#[async_trait]
+impl FlowRuntime for GreetingRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let ctx = invocation.context();
+
+        if let Some(output) = ctx.step_output("greet") {
+            return Ok(ctx.complete(output.clone()));
+        }
+
+        Ok(ctx.schedule_step(
+            "greet",
+            "greet_user",
+            json!({ "name": ctx.input()["name"] }),
+        ))
+    }
+
+    async fn run_step(
+        &self,
+        invocation: StepInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        match invocation.step_name.as_str() {
+            "greet_user" => {
+                let name = invocation.input["name"]
+                    .as_str()
+                    .unwrap_or("unknown");
+                Ok(json!({ "message": format!("hello {name}") }))
+            }
+            step => Err(FlowError::Runtime(format!("unknown step: {step}"))),
+        }
+    }
+}
+```
+
+## Start with a stable run ID
+
+```rust
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> a3s_flow::Result<()> {
+    let engine = FlowEngine::in_memory(Arc::new(GreetingRuntime));
+    let spec = WorkflowSpec::rust_embedded(
+        "demo.greeting",
+        "0.1.0",
+        "demo",
+        "main",
+    );
+
+    let run_id = engine
+        .start_with_id("greeting-ada", spec, json!({ "name": "Ada" }))
+        .await?;
+    let snapshot = engine.snapshot(&run_id).await?;
+
+    println!("status={:?} output={:?}", snapshot.status, snapshot.output);
+    Ok(())
+}
+```
+
+`start_with_id` is safe to retry when the workflow specification and input match the first call. Reusing the same ID with different authority returns a conflict.
+
+## Run the complete example
+
+```sh
+cargo run --example sequential_steps
+```
+
+Continue with the [runtime contract](./runtime-contract) before connecting real side effects.

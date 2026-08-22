@@ -1,0 +1,49 @@
+---
+title: Runtime contract
+description: Keep deterministic workflow decisions separate from host-owned side effects.
+---
+
+# Runtime contract
+
+`FlowRuntime` is the boundary between replayed workflow logic and physical side effects. The distinction is required for deterministic recovery.
+
+## `run_workflow`
+
+`run_workflow` receives a `WorkflowInvocation` with a projected `WorkflowContext`. It returns one `RuntimeCommand` such as:
+
+- schedule one step or a bounded step batch;
+- wait until a durable time;
+- wait for a declared signal or hook;
+- start one child workflow or a bounded child batch;
+- request cancellation or continue as new;
+- complete or fail the run.
+
+The decision must depend only on committed workflow history and immutable workflow authority. Do not read wall-clock time, random state, mutable configuration, or an external API inside `run_workflow`.
+
+## `run_step`
+
+`run_step` executes host-owned work. Network calls, model inference, storage writes, and tool execution belong here.
+
+The physical delivery boundary is at least once. A worker may repeat an attempt if the process exits after the external effect succeeds but before `StepCompleted` commits. Derive an idempotency key from stable run, step, and attempt identity.
+
+## One command at a time
+
+Flow asks workflow code for one command, validates it, appends its events at an expected sequence, then projects again. This narrow loop makes race outcomes and replay behavior inspectable.
+
+```text
+history -> projection -> runtime command -> validated events -> append
+   ^                                                        |
+   +--------------------------------------------------------+
+```
+
+## Ownership boundary
+
+Flow owns graph validation, append-only history, replay, scheduling state, and lifecycle projection. The host owns:
+
+- authorization and tenant policy;
+- credentials and tool access;
+- node implementations;
+- logical idempotency for external effects;
+- deployment topology and capacity.
+
+Read the [execution model](../concepts/execution-model) for the full replay cycle.

@@ -1,0 +1,41 @@
+---
+title: Execution model
+description: Understand projection, deterministic decisions, expected-sequence commits, and suspension.
+---
+
+# Execution model
+
+A3S Flow reconstructs workflow state from immutable events. It does not retain an in-memory call stack as durable authority.
+
+![A3S Flow replay and durability model](/assets/execution-model.svg)
+
+## Four phases
+
+1. Project the current `WorkflowRunSnapshot` from history.
+2. Ask `FlowRuntime` for one deterministic `RuntimeCommand`.
+3. Validate the command and append resulting events at an expected sequence.
+4. Replay, suspend on durable external state, or reach one terminal outcome.
+
+## Commit before observation
+
+A successful step becomes visible to workflow code only after `StepCompleted` is durable. The same rule applies to timers, signals, hooks, child outcomes, cancellation, and continuation links.
+
+If two workers append from the same sequence, exactly one wins. The stale writer receives a conflict and must reload history rather than overwrite the winner.
+
+## Replay drift
+
+Flow records the authority needed to repeat a decision. Reusing an identity with changed input, retry policy, deadline, signal name, callback token, metadata, runtime build, or patch path fails as non-deterministic replay.
+
+This behavior turns rollout mistakes into explicit errors instead of silent history changes.
+
+## At-least-once side effects
+
+Event history can prove which output committed. It cannot atomically include a write in an unrelated external system. Step implementations must therefore make repeated physical delivery safe.
+
+Use the stable identities from `StepInvocation` when the external service supports idempotency keys. When it does not, persist a host-owned effect receipt before acknowledging the step.
+
+## Suspension
+
+A timer, delayed retry, signal, or hook can suspend a run without holding a worker. The durable wakeup or callback later schedules another replay cycle.
+
+See [durable primitives](./durable-primitives) for the commands that create those boundaries.

@@ -1,0 +1,48 @@
+---
+title: Workflow DAG
+description: Validate portable nodes and edges, derive a deterministic plan, and bind capabilities in the host.
+---
+
+# Workflow DAG
+
+`WorkflowDsl` is the versioned portable document contract. Its executable payload is a directed graph of nodes and edges.
+
+![A3S Flow workflow DAG architecture](/assets/workflow-dag.svg)
+
+## Compile a graph
+
+```rust
+use a3s_flow::WorkflowDag;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let source = std::fs::read_to_string("workflow.json")?;
+    let graph = WorkflowDag::from_json(&source)?;
+    let plan = graph.execution_plan()?;
+
+    println!("order={:?}", plan.top_level());
+    println!("digest={}", graph.execution_digest()?);
+    Ok(())
+}
+```
+
+## Structural validation
+
+The compiler rejects:
+
+- duplicate node or edge IDs;
+- missing endpoints and self-edges;
+- cycles in executable scope;
+- invalid edges across composite regions;
+- malformed iteration and loop containers.
+
+Unknown fields round-trip so an authoring tool can preserve presentation metadata. Layout, selection, and viewport data do not affect the executable digest.
+
+## Capability binding
+
+Flow validates structure and determines execution order. The host maps each `node.data.type` to an authorized executor. Secrets, credentials, tenant policy, and product-specific node behavior stay outside the portable graph.
+
+This keeps the graph reusable without turning Flow into a second product control plane.
+
+## Compatibility
+
+Use `WorkflowDslCompatibility` before accepting a document produced by another tool version. A host should reject an unsupported executable contract before creating durable run history.
