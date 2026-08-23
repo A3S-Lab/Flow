@@ -1,173 +1,74 @@
 ---
-title: Agent Skill
-description: Boundaries between Flow and project-owned Agent Skills, a reliable SKILL.md template, version pinning, and host integration through durable steps.
+title: a3s-flow Skill
+description: Install and invoke the A3S Flow Skill so coding agents create and validate workflows against the installed node catalog.
 ---
 
-# Agent Skill
+# a3s-flow Skill
 
-Flow 1.0 does not ship a standalone Agent Skill package or installer with the crate, native TypeScript compiler, or documentation. Flow does not discover, parse, or execute `SKILL.md`. A coding agent or host-owned agent runtime reads that file to learn how to change workflows, which checks to run, and where to stop when a risk is unresolved.
+The `a3s-flow` Skill ships inside `@a3s-lab/flow-ui` under `skills/a3s-flow`. It instructs a coding agent to inspect the locally installed CLI before creating nodes, wiring ports, validating a graph, reviewing deterministic order, and producing semantic digests. The Skill does not carry a second node catalog and does not guess which fields a package version supports.
 
-A project can still maintain its own Flow Skill. It can describe repository ownership, stable identity rules, replay safety, and release validation. The running Flow engine accepts `WorkflowSpec`, durable history, and `RuntimeCommand`; Skill content does not automatically enter any of those protocols.
+## Locate and install it
 
-## Two integration paths
+```bash
+npm install @a3s-lab/flow-ui @a3s-lab/ui
+node -p "require.resolve('@a3s-lab/flow-ui/package.json')"
+```
 
-| Path          | Reader                                    | Purpose                                                       | Flow's role                                 |
-| ------------- | ----------------------------------------- | ------------------------------------------------------------- | ------------------------------------------- |
-| Coding Skill  | Coding agent in a development environment | Create or edit workflow source and run replay-safe validation | Supply the library being changed and tested |
-| Runtime Skill | Host-owned agent executor                 | Invoke a model, tool, or bounded task during a business run   | Persist one invocation as a durable step    |
-
-A coding Skill belongs to repository development. A runtime Skill belongs to application execution. They may share business guidance, but permissions, inputs, and result protocols need separate definitions.
-
-## Project-local layout
-
-This is one clear project layout. The agent product decides its discovery directories; Flow has no path requirement.
+The package contains this complete directory.
 
 ```text
-.agents/
-└── skills/
-    └── a3s-flow-workflows/
-        ├── SKILL.md
-        └── references/
-            ├── replay-safety.md
-            └── release-checklist.md
+skills/a3s-flow/
+  SKILL.md
+  agents/openai.yaml
+  references/workflow-dsl.md
 ```
 
-Commit `SKILL.md` beside the workflow conventions it describes. If an agent environment uses another discovery directory, preserve the content and adjust the outer path for that environment.
+Register the whole `a3s-flow` directory with the coding agent's Skill root. A personal Codex installation normally places it at `$CODEX_HOME/skills/a3s-flow`. A team repository can instead document a reproducible link or copy step from the installed package. Keep the reference file with the entry point because document envelopes and container-scope rules live there.
 
-## Minimal `SKILL.md` template
+## When to invoke it
 
-The template below references capabilities already present in the repository. It does not claim that Flow installs or runs the file.
+Invoke `$a3s-flow` when a task creates a workflow document, chooses nodes, edits manifest-owned settings, connects ports, repairs DAG validation, constructs an iteration or loop scope, reviews deterministic order, or records a release digest. A discussion limited to runtime concepts or ordinary Rust APIs does not need the Skill, which keeps node-authoring procedures out of unrelated work.
 
-````markdown
----
-name: a3s-flow-workflows
-description: Create, review, and validate durable A3S Flow workflows in this repository.
----
+## Write a bounded request
 
-# A3S Flow workflow development
+Name the target file, business order, identities that must remain stable, and the evidence expected at completion. This gives the agent clear boundaries without asking it to invent fields.
 
-Use this skill for changes to workflow replay code, durable steps, waits,
-signals, hooks, child workflows, continuation, and native TypeScript sources.
-
-## Before editing
-
-1. Find the crate or application that owns the workflow.
-2. Read its local AGENTS.md and existing workflow tests.
-3. Identify every stable step, wait, hook, signal-wait, and child ID touched.
-4. Confirm whether deployed histories must replay the changed path.
-
-## Implementation rules
-
-- Read durable history before returning a command.
-- Derive identities from published input or deterministic indexes.
-- Keep external effects inside registered step executors.
-- Reuse exact command properties on replay.
-- Use patch markers for replay-visible code changes.
-- Do not put credentials, callback tokens, or large payloads in history.
-
-## Validation
-
-Run focused crate tests from the Flow crate workspace.
-
-```sh
-cargo fmt --all
-cargo test -p a3s-flow
+```text
+Use $a3s-flow to add a human approval node after agent-task in
+workflow.json. Keep existing node IDs, connect valid ports, validate
+and compile the graph, then report the document and graph digests.
 ```
 
-For native TypeScript changes, also verify the compiler contract.
+For a new document, explicitly permit the CLI sample as the starting point.
 
-```sh
-a3s-flow-native-compiler capabilities
-a3s-flow-native-compiler dependencies path/to/main.ts
+```text
+Use $a3s-flow to create workflow.json from the CLI sample. Replace the
+sample task with risk.review, add a timeout path, validate every node,
+and explain the compiled order before writing the final digest.
 ```
 
-## Handoff
+## What the Skill does
 
-Report changed stable IDs, patch markers, runtime build requirements, and the
-exact commands that passed.
-````
+The workflow begins with `a3s-flow nodes --pretty`, followed by `a3s-flow node <type> --pretty` for each candidate. New nodes come from `a3s-flow new`, preserving manifest defaults. After field and edge edits, the agent runs `validate`, `compile`, and `digest` in order. If validation reports issues, it repairs the named paths or edges and repeats the entire sequence.
 
-Narrow the commands to the repository. A large monorepo will usually replace `cargo test -p a3s-flow` with a package or integration test that covers the changed workflow. A useful Skill names an observable result; a vague instruction to ensure tests pass leaves the agent without a completion criterion.
+That sequence keeps decisions aligned with the installed package and prevents a digest from being reported before the graph is executable. The final response should identify changed nodes and edges, show the compiled top-level and container order, report both digests, and name any task handlers or host integration that still needs implementation.
 
-## What a coding Skill should specify
+## Containers and durable identity
 
-| Topic             | Required guidance                                                                   |
-| ----------------- | ----------------------------------------------------------------------------------- |
-| Ownership         | Crate, application, or directory that owns workflow code and step executors         |
-| Stable identities | Inputs or indexes used to derive IDs, including legacy IDs still present in history |
-| Replay            | Fields that cannot change after commit and the patch-marker policy                  |
-| External effects  | Registered `step_name`, idempotency-key construction, and side-effect owner         |
-| Recovery          | Timer scan, task dispatch, hook resumption, and signal delivery responsibility      |
-| Versioning        | `WorkflowSpec.version`, runtime build identity, and rollout order                   |
-| Validation        | Exact test commands, required fixtures, and observable success conditions           |
+An iteration or loop has exactly one matching internal start node. Every nested node uses the container ID as `parentId`, and every nested edge remains inside that scope. The normal graph stays acyclic because repetition is expressed through `iteration` or `loop`. The Skill treats IDs for steps, hooks, progress records, child operations, and child workflows as replay-sensitive identity. It should not rename them after runs exist unless the user explicitly requests a migration.
 
-A Skill can link to longer repository references while keeping its main file focused on decision order and mandatory constraints. Commit those references and link them by relative path, so the agent does not fetch a different version from the network.
+## Security and ownership
 
-## Wrap a runtime Skill in a durable step
+A workflow document may describe task names, runtime entry points, input mappings, and callback contracts. It must not contain secrets, access tokens, production connection strings, or authorization decisions. The host still owns credentials, permissions, idempotency, compensation, task execution, event storage, and deployment. The Skill edits only files placed in scope and does not publish packages, push repositories, or call production runs without separate authorization.
 
-When a business workflow needs agent execution, the host registers an ordinary step executor such as `agent.skill.run`. Flow owns durable identity, retry, and output. The host loads the Skill, starts the agent, restricts tools, and returns JSON.
+Unknown semantic extensions in an imported document are preserved by default. Position, dimensions, title, description, and selection are editor data and can change without affecting semantic identity. The agent must never invent a digest or runtime binding, and it must not silence validation by deleting fields or edges whose purpose has not been understood.
 
-```rust
-if let Some(result) = ctx.step_output("review-order-1042") {
-    return Ok(ctx.complete(result.clone()));
-}
+## Verify the installation
 
-Ok(ctx.schedule_step_with_retry(
-    "review-order-1042",
-    "agent.skill.run",
-    json!({
-        "skill_id": "order-review",
-        "skill_revision": "sha256:6f3d...",
-        "instruction": "Review order ord-1042 against the stored policy",
-        "artifact_refs": ["policy://orders/2026-08"],
-        "allowed_tools": ["orders.read", "policy.read"]
-    }),
-    RetryPolicy::fixed(3, Duration::from_secs(5)),
-))
+```bash
+npx a3s-flow nodes --pretty
+npx a3s-flow sample --output workflow.json --pretty
+npx a3s-flow validate workflow.json --pretty
 ```
 
-The executor receives `StepInvocation` and performs host-owned work.
-
-1. Resolve `skill_id` and its pinned revision through an allowlist.
-2. Load trusted Skill content and referenced files.
-3. Create an isolated execution environment with only admitted tools.
-4. Derive an idempotency identity from `run_id` and `step_id`.
-5. Validate and return a structured JSON result.
-
-Agent output may vary across fresh invocations. The first successful output enters `StepCompleted`, and later workflow replay reads that durable value instead of invoking the agent again. A step retry can still repeat an external write, so the executor must pass the same idempotency identity into every mutating tool.
-
-## Recommended step input
-
-| Field            | Purpose                            | History rule                                          |
-| ---------------- | ---------------------------------- | ----------------------------------------------------- |
-| `skill_id`       | Select an allowed host Skill       | Use a stable logical name                             |
-| `skill_revision` | Pin exact content                  | Use a commit, artifact version, or content digest     |
-| `instruction`    | Describe the current business task | Keep it bounded and free of secrets                   |
-| `artifact_refs`  | Reference immutable inputs         | Prefer references and digests to large history values |
-| `allowed_tools`  | Narrow invocation authority        | Host intersects it with a server-side allowlist       |
-| `result_schema`  | Constrain output                   | Host validates before returning the step result       |
-
-Do not persist only `skill_id` and then read a mutable file by that name. A retry may occur after another deployment changed its content. A pinned revision or digest lets the executor load the same instructions, while runtime build identity keeps old histories on compatible code.
-
-## Failure, cancellation, and timeout
-
-When agent execution fails, the step executor returns a contextual error and lets `RetryPolicy` schedule another attempt. After exhaustion, the workflow can fail or use `continue_workflow` to enter a human hook or a safe fallback.
-
-A cancellation request makes pre-existing pending work non-actionable. The executor must also react to host cancellation and lease loss by stopping its child processes and network requests. If cleanup genuinely needs an agent, use a fresh step ID and a smaller tool set.
-
-Flow's `Timeout` command records a business deadline. The host executor owns the process limit for one agent invocation. They address different deadlines, so a step error should identify which limit fired.
-
-## Security boundary
-
-- Load Skill files from trusted, version-pinned artifacts.
-- Let the host own the tool allowlist; Skill text cannot expand authority.
-- Inject credentials through the execution environment, never command input or history.
-- Give mutating tools an idempotency identity and independent audit record.
-- Enforce result schema and size limits before Flow persists step output.
-- Include Skill revision, agent runtime version, and tool protocol in deployment compatibility checks.
-
-The current release has no official Skill installation command. Configure discovery for the project's agent environment and test that loading separately. Flow-side validation covers the wrapper step, replay equality, retries, and terminal behavior.
-
-## Validation checklist
-
-Before release, exercise a first invocation, replay of the same history, and a failed step retry. Verify that a missing Skill revision fails closed, a disallowed tool leaves a clear error, and cancellation reaps the agent child process. Finally, inspect history for only business input, stable references, and structured output, with no tokens, environment values, or complete model logs.
+The catalog should report 18 public nodes. The sample should contain start, task, and completion nodes. Once validation passes, the Skill has a complete local source of truth. Repeat these checks after upgrading `@a3s-lab/flow-ui`, and have the agent read the new manifests instead of relying on field names remembered from an earlier session.

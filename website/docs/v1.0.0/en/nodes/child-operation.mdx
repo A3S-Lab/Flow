@@ -1,0 +1,20 @@
+---
+title: Child operation reference node
+description: Record identity and metadata for a long-running operation owned by another system.
+---
+
+# Link child operation `flow.child-operation`
+
+Use this node when another service owns a long-running operation but the workflow still needs a durable reference to it. Typical examples include a render job, a data export, a cloud build, or a batch request created outside the Flow runtime. The node records the relationship in workflow history. It does not start the operation, poll its status, wait for completion, or forward cancellation. Choose a child workflow node when Flow must own those lifecycle decisions.
+
+## Reference fields
+
+`reference_id` is the stable identity of this reference inside the parent run. Keep it deterministic across replay and make its relationship to the graph node easy to inspect. `kind` is a host-defined category such as `render-job` or `export`. `operation_id` stores the identity assigned by the external system. The optional `flow_run_id` can point to another Flow run when that relationship is useful. Put only small, non-sensitive inspection data in `metadata`, such as a resource type or tenant-visible object reference.
+
+After the reference event is committed, control leaves through `linked` and the structured reference is available on `child`. Connect an explicit task, hook, or signal path if the workflow must later query status, collect a result, or request cancellation. A linked node means the identity was accepted and recorded. It makes no claim about the current health or terminal outcome of the external operation.
+
+## Ownership and release checks
+
+The host should verify that the operation exists, that the caller may reference it, and that each metadata key is safe to preserve in history. Cover duplicate submission, an unknown operation ID, an already completed operation, a temporarily unavailable owner service, and process recovery in tests. Operational views should distinguish linked, running, completed, and unavailable states instead of presenting the reference event as a result event. If the external result may be large, retain it in the owning system and pass a stable object reference through the workflow.
+
+<NodeReference type="flow.child-operation" />

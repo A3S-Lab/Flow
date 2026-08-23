@@ -1,0 +1,1633 @@
+.a3s-form-workflow-node-panel {
+  --a3s-form-bg: var(--a3s-bg, #f7f7f8);
+  --a3s-form-panel: var(--a3s-panel, #fff);
+  --a3s-form-panel-soft: var(--a3s-panel-soft, #f2f3f5);
+  --a3s-form-panel-strong: var(--a3s-panel-strong, #e9ebef);
+  --a3s-form-ink: var(--a3s-ink, #17181a);
+  --a3s-form-muted: var(--a3s-muted, #62666e);
+  --a3s-form-subtle: var(--a3s-subtle, #777c85);
+  --a3s-form-faint: var(--a3s-faint, #8a8f98);
+  --a3s-form-line: var(--a3s-line, #e2e4e8);
+  --a3s-form-line-strong: var(--a3s-line-strong, #d3d6dc);
+  --a3s-form-blue: var(--a3s-blue, #2864e8);
+  --a3s-form-green: var(--a3s-green, #14835f);
+  --a3s-form-red: var(--a3s-red, #c83f45);
+  --a3s-node-accent: var(--a3s-form-blue);
+  container: a3s-form-workflow-panel / inline-size;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--a3s-form-line);
+  border-radius: 14px;
+  background: var(--a3s-form-panel);
+  box-shadow: 0 16px 40px rgb(20 27 43 / 10%);
+  color: var(--a3s-form-ink);
+  font-family: var(
+    --a3s-ui-font,
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif
+  );
+}
+
+.a3s-form-workflow-node-panel[data-node-tone="cyan"] {
+  --a3s-node-accent: #0798bd;
+}
+
+.a3s-form-workflow-node-panel[data-node-tone="green"] {
+  --a3s-node-accent: #16845b;
+}
+
+.a3s-form-workflow-node-panel[data-node-tone="orange"] {
+  --a3s-node-accent: #e77700;
+}
+
+.a3s-form-workflow-node-panel[data-node-tone="red"] {
+  --a3s-node-accent: #c93d45;
+}
+
+.a3s-form-workflow-node-panel[data-node-tone="violet"] {
+  --a3s-node-accent: #7c5ce7;
+}
+
+.a3s-form-workflow-node-panel-header {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 22px 17px;
+  border-bottom: 1px solid var(--a3s-form-line);
+}
+
+.a3s-form-workflow-node-identity {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.a3s-form-workflow-node-identity > span:last-child {
+  min-width: 0;
+}
+
+.a3s-form-workflow-node-icon,
+.a3s-form-workflow-control-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--a3s-node-accent) 20%, var(--a3s-form-line));
+  background: color-mix(in srgb, var(--a3s-node-accent) 8%, var(--a3s-form-panel));
+  color: var(--a3s-node-accent);
+}
+
+.a3s-form-workflow-node-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+}
+
+.a3s-form-workflow-node-title-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.a3s-form-workflow-node-title-line h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 17px;
+  font-weight: 710;
+  letter-spacing: -0.025em;
+  line-height: 1.25;
+}
+
+.a3s-form-workflow-node-identity p {
+  max-width: 70ch;
+  margin: 6px 0 0;
+  color: var(--a3s-form-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.a3s-form-workflow-node-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.a3s-form-workflow-node-header-actions :is(button, a) {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 6px;
+  padding-inline: 9px;
+  color: var(--a3s-form-muted);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.a3s-form-workflow-node-tabs {
+  display: flex;
+  min-height: 37px;
+  flex: 0 0 auto;
+  align-items: end;
+  gap: 18px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--a3s-form-line);
+}
+
+.a3s-form-workflow-node-tabs > button {
+  position: relative;
+  min-height: 36px;
+  padding: 0 1px;
+  border: 0;
+  background: transparent;
+  color: var(--a3s-form-subtle);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 680;
+}
+
+.a3s-form-workflow-node-tabs > button::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: transparent;
+  content: "";
+}
+
+.a3s-form-workflow-node-tabs > button:hover,
+.a3s-form-workflow-node-tabs > button[aria-selected="true"] {
+  color: var(--a3s-form-ink);
+}
+
+.a3s-form-workflow-node-tabs > button[aria-selected="true"]::after {
+  background: var(--a3s-node-accent);
+}
+
+.a3s-form-workflow-node-tabs > button:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--a3s-node-accent);
+  outline-offset: 2px;
+}
+
+.a3s-form-workflow-node-settings {
+  min-height: 0;
+}
+
+.a3s-form-workflow-node-last-run {
+  min-height: 220px;
+  flex: 1 1 auto;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.a3s-form-workflow-node-last-run-empty {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  place-content: center;
+  gap: 9px;
+  color: var(--a3s-form-subtle);
+  text-align: center;
+}
+
+.a3s-form-workflow-node-last-run-empty > svg {
+  color: var(--a3s-node-accent);
+}
+
+.a3s-form-workflow-node-last-run-empty > p {
+  max-width: 28ch;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.a3s-form-workflow-node-settings-empty {
+  display: grid;
+  min-height: 220px;
+  padding: 28px 20px;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  color: var(--a3s-form-muted);
+  text-align: center;
+}
+
+.a3s-form-workflow-node-settings-empty > span {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  margin-bottom: 2px;
+  border: 1px solid color-mix(in srgb, var(--a3s-node-accent) 22%, var(--a3s-form-line));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--a3s-node-accent) 8%, var(--a3s-form-panel));
+  place-items: center;
+  color: var(--a3s-node-accent);
+}
+
+.a3s-form-workflow-node-settings-empty > strong {
+  color: var(--a3s-form-ink);
+  font-size: 13px;
+}
+
+.a3s-form-workflow-node-settings-empty > p {
+  max-width: 32ch;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.a3s-form-workflow-node-contract {
+  display: flex;
+  min-height: 39px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 22px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--a3s-form-line);
+  color: var(--a3s-form-muted);
+  font-size: 11px;
+  scrollbar-width: none;
+  white-space: nowrap;
+}
+
+.a3s-form-workflow-node-contract::-webkit-scrollbar {
+  display: none;
+}
+
+.a3s-form-workflow-node-contract > span:not(.badge) + span:not(.badge)::before {
+  margin-right: 8px;
+  color: var(--a3s-form-line-strong);
+  content: "·";
+}
+
+.a3s-form-workflow-node-contract > code {
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--a3s-form-panel-soft);
+  color: var(--a3s-form-subtle);
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+  font-size: 10px;
+}
+
+.a3s-form-workflow-node-ports {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-bottom: 1px solid var(--a3s-form-line);
+  background: color-mix(in srgb, var(--a3s-form-panel-soft) 52%, var(--a3s-form-panel));
+}
+
+.a3s-form-workflow-node-ports > div {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 11px 22px;
+}
+
+.a3s-form-workflow-node-ports > div + div {
+  border-left: 1px solid var(--a3s-form-line);
+}
+
+.a3s-form-workflow-node-ports > div > :where(span) {
+  padding-top: 3px;
+  color: var(--a3s-form-subtle);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.a3s-form-workflow-node-ports .item-group {
+  display: flex;
+  min-width: 0;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.a3s-form-workflow-node-ports code {
+  max-width: 100%;
+  overflow: hidden;
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+  text-overflow: ellipsis;
+}
+
+.a3s-form-workflow-node-form {
+  padding: 21px 22px 23px;
+}
+
+.a3s-form-workflow-node-form :where(.a3s-form-layout.a3s-form-root) > header {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.a3s-form-workflow-node-form .a3s-form-layout.a3s-form-flow {
+  padding: 0;
+  border: 0;
+}
+
+.a3s-form-workflow-node-form .a3s-form-layout.a3s-form-flow > header {
+  margin-bottom: 17px;
+  padding-bottom: 10px;
+}
+
+.a3s-form-workflow-node-form .a3s-form-layout.a3s-form-flow > header h2,
+.a3s-form-workflow-node-form .a3s-form-collapse > header h2 {
+  font-size: 13px;
+  font-weight: 680;
+  letter-spacing: -0.01em;
+}
+
+.a3s-form-workflow-node-form .a3s-form-layout.a3s-form-flow > header p,
+.a3s-form-workflow-node-form .a3s-form-collapse > header p {
+  font-size: 11px;
+}
+
+.a3s-form-workflow-node-form .a3s-form-group.a3s-form-flow > header {
+  margin: 4px 0 10px;
+  padding: 0 0 7px;
+  border-bottom: 1px solid color-mix(in srgb, var(--a3s-form-line) 74%, transparent);
+}
+
+.a3s-form-workflow-node-form .a3s-form-group.a3s-form-flow > header h2 {
+  color: var(--a3s-form-subtle);
+  font-size: 11px;
+  font-weight: 720;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.a3s-form-workflow-node-form .a3s-form-group.a3s-form-flow + .a3s-form-group.a3s-form-flow {
+  margin-top: 6px;
+}
+
+.a3s-form-workflow-node-form .a3s-form-grid {
+  row-gap: 12px;
+}
+
+.a3s-form-workflow-node-form .a3s-form-collapse {
+  padding: 0;
+  border: 0;
+}
+
+.a3s-form-workflow-node-form .a3s-form-collapse > header {
+  margin: 3px 0 8px;
+  padding: 15px 0 0;
+  border-top: 1px solid var(--a3s-form-line);
+  border-bottom: 0;
+}
+
+.a3s-form-workflow-node-form .a3s-form-collapse > details {
+  overflow: hidden;
+  background: color-mix(in srgb, var(--a3s-form-panel-soft) 42%, var(--a3s-form-panel));
+}
+
+.a3s-form-workflow-node-form .a3s-form-collapse > details[open] > .a3s-form-group {
+  animation: a3s-form-workflow-disclosure 170ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.a3s-form-workflow-node-form .a3s-form-actions {
+  position: sticky;
+  z-index: 2;
+  bottom: -23px;
+  margin: 7px -22px -23px;
+  padding: 13px 22px;
+  border-top: 1px solid var(--a3s-form-line);
+  background: color-mix(in srgb, var(--a3s-form-panel) 96%, transparent);
+  box-shadow: 0 -9px 24px rgb(20 27 43 / 5%);
+}
+
+.a3s-form-workflow-node-form .a3s-form-actions .a3s-form-primary {
+  min-width: 120px;
+  min-height: 44px;
+}
+
+.a3s-form-workflow-connection {
+  display: grid;
+  min-height: 54px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 9px;
+  border-color: var(--a3s-form-line-strong);
+  border-radius: 9px;
+  background: var(--a3s-form-panel);
+}
+
+.a3s-form-workflow-connection[data-connected="true"] {
+  border-color: color-mix(in srgb, var(--a3s-form-green) 35%, var(--a3s-form-line));
+  background: color-mix(in srgb, var(--a3s-form-green) 4%, var(--a3s-form-panel));
+}
+
+.a3s-form-workflow-field-accessory {
+  display: grid;
+  min-width: 0;
+  min-height: 48px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  margin: 9px 0 11px;
+  padding: 7px 8px;
+  border-color: var(--a3s-form-line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--a3s-form-panel-soft) 46%, var(--a3s-form-panel));
+}
+
+.a3s-form-workflow-field-accessory-actions {
+  --a3s-form-workflow-inline-action-size: 30px;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.a3s-form-workflow-field-accessory-actions > .btn {
+  min-height: 36px;
+  gap: 5px;
+  padding-inline: 8px;
+  color: var(--a3s-form-muted);
+  font-size: 11px;
+}
+
+.a3s-form-workflow-control-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+
+.a3s-form-workflow-control-copy,
+.a3s-form-workflow-mcp-status > span:nth-child(2) {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.a3s-form-workflow-control-copy strong,
+.a3s-form-workflow-mcp-status strong {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-form-workflow-control-copy small,
+.a3s-form-workflow-mcp-status small {
+  overflow: hidden;
+  color: var(--a3s-form-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-form-workflow-model-control,
+.a3s-form-workflow-parameter-control,
+.a3s-form-workflow-prompt-editor,
+.a3s-form-workflow-sortable,
+.a3s-form-workflow-actions-editor,
+.a3s-form-workflow-mcp-control {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.a3s-form-workflow-parameter-actions {
+  --a3s-form-workflow-inline-action-size: 28px;
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.a3s-form-workflow-parameter-actions > div:last-child {
+  display: flex;
+  margin-left: auto;
+  align-items: center;
+  gap: 3px;
+}
+
+.a3s-form-workflow-parameter-actions :where(button) {
+  min-height: 36px;
+  gap: 5px;
+  padding-inline: 7px;
+  color: var(--a3s-form-muted);
+  font-size: 11px;
+}
+
+.a3s-form-workflow-parameter-actions :where(.a3s-form-workflow-inline-action) {
+  margin: 0;
+  padding: 0;
+}
+
+.a3s-form-workflow-parameter-control:is(
+  [data-control-widget="text"],
+  [data-control-widget="password"],
+  [data-control-widget="number"],
+  [data-control-widget="select"],
+  [data-control-widget="slider"],
+  [data-control-widget="a3s.workflow.model"],
+  [data-control-widget="a3s.workflow.duration"]
+):has(> .a3s-form-workflow-parameter-actions[data-action-count="1"]) {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.a3s-form-workflow-parameter-control:is(
+    [data-control-widget="text"],
+    [data-control-widget="password"],
+    [data-control-widget="number"],
+    [data-control-widget="select"],
+    [data-control-widget="slider"],
+    [data-control-widget="a3s.workflow.model"],
+    [data-control-widget="a3s.workflow.duration"]
+  )
+  > .a3s-form-workflow-parameter-actions[data-action-count="1"] {
+  min-height: 40px;
+  align-self: end;
+}
+
+.a3s-form-workflow-node-form .a3s-form-field.is-boolean > .a3s-form-workflow-parameter-control {
+  display: grid;
+  min-height: 52px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 12px;
+  padding-block: 4px;
+}
+
+.a3s-form-workflow-node-form
+  .a3s-form-field.is-boolean
+  > .a3s-form-workflow-parameter-control
+  > input[type="checkbox"] {
+  grid-column: 2;
+  grid-row: 1;
+  margin: 0;
+}
+
+.a3s-form-workflow-node-form
+  .a3s-form-field.is-boolean
+  > .a3s-form-workflow-parameter-control
+  > section {
+  min-width: 0;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.a3s-form-workflow-node-form
+  .a3s-form-field.is-boolean
+  > .a3s-form-workflow-parameter-control
+  > section
+  > label {
+  display: block;
+  color: var(--a3s-form-ink);
+  font-size: 12px;
+  font-weight: 640;
+  cursor: pointer;
+}
+
+.a3s-form-workflow-node-form
+  .a3s-form-field.is-boolean
+  > .a3s-form-workflow-parameter-control
+  > section
+  .a3s-form-help {
+  margin: 2px 0 0;
+}
+
+.a3s-form-workflow-node-form
+  .a3s-form-field.is-boolean
+  > .a3s-form-workflow-parameter-control
+  > .a3s-form-workflow-parameter-actions {
+  grid-column: 1 / -1;
+}
+
+.a3s-form-workflow-model-control .input-group {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  border: 1px solid var(--a3s-form-line-strong);
+  border-radius: 8px;
+  background: var(--a3s-form-panel);
+}
+
+.a3s-form-workflow-model-control .input-group:focus-within {
+  border-color: var(--a3s-form-blue);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--a3s-form-blue) 12%, transparent);
+}
+
+.a3s-form-workflow-model-control :where(.input-group > span) {
+  display: grid;
+  width: 38px;
+  place-items: center;
+  color: var(--a3s-form-blue);
+}
+
+.a3s-form-field .a3s-form-workflow-model-control :is(input, select),
+.a3s-form-field .a3s-form-workflow-model-control .a3s-form-select-control {
+  height: 38px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.a3s-form-workflow-inline-action {
+  display: grid;
+  width: var(--a3s-form-workflow-inline-action-size, 34px);
+  height: var(--a3s-form-workflow-inline-action-size, 34px);
+  margin-right: 2px;
+  place-items: center;
+  color: var(--a3s-form-muted);
+}
+
+.a3s-form-workflow-field-flags {
+  display: flex;
+  gap: 5px;
+  justify-content: flex-end;
+}
+
+.a3s-form-workflow-segments {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px;
+  overflow-x: auto;
+  border-radius: 9px;
+  background: var(--a3s-form-panel-soft);
+}
+
+/* biome-ignore lint/style/noDescendingSpecificity: Segmented labels and boolean-field labels are disjoint widget structures. */
+.a3s-form-workflow-segments > label {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  padding-inline: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.a3s-form-workflow-segments > label:has(input:focus-visible) {
+  outline: 2px solid color-mix(in srgb, var(--a3s-form-blue) 75%, white);
+  outline-offset: 2px;
+}
+
+.a3s-form-workflow-segments > label:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.a3s-form-workflow-sortable ol {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.a3s-form-workflow-sortable li {
+  display: grid;
+  min-height: 44px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px 5px 9px;
+  border-radius: 8px;
+  background: var(--a3s-form-panel);
+}
+
+.a3s-form-workflow-sortable li:not([data-reorderable="true"]) {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.a3s-form-workflow-sortable li > span:nth-child(2) {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.a3s-form-workflow-sortable li strong {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-form-workflow-sortable li small,
+.a3s-form-workflow-drag-mark {
+  color: var(--a3s-form-faint);
+  font-size: 11px;
+}
+
+.a3s-form-workflow-sort-actions {
+  display: flex;
+  gap: 1px;
+}
+
+.a3s-form-workflow-sort-actions button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+}
+
+.a3s-form-workflow-empty-control {
+  margin: 0;
+  padding: 12px;
+  border: 1px dashed var(--a3s-form-line-strong);
+  border-radius: 8px;
+  color: var(--a3s-form-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.a3s-form-workflow-duration.input-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(110px, 0.55fr);
+  gap: 8px;
+}
+
+.a3s-form-workflow-actions-editor > .item-group,
+.a3s-form-workflow-editor-footer > .item-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.a3s-form-workflow-actions-editor .badge {
+  display: inline-flex;
+  min-height: 27px;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 3px 3px 9px;
+}
+
+.a3s-form-workflow-actions-editor .badge button {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+}
+
+.a3s-form-workflow-actions-editor > .input-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+}
+
+.a3s-form-workflow-source-editor {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.a3s-form-field .a3s-form-workflow-source-editor > textarea {
+  height: 220px;
+  min-height: 138px;
+  max-height: 320px;
+  padding: 11px 12px;
+  resize: vertical;
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+  font-size: 11px;
+  line-height: 1.65;
+  tab-size: 2;
+  field-sizing: fixed;
+}
+
+.a3s-form-field .a3s-form-workflow-source-editor.is-code > textarea {
+  height: 280px;
+  min-height: 220px;
+  max-height: 320px;
+}
+
+.a3s-form-field .a3s-form-workflow-source-editor.is-multiline > textarea {
+  height: 160px;
+  min-height: 128px;
+  max-height: 320px;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.a3s-form-workflow-editor-footer {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.a3s-form-workflow-editor-footer > span {
+  color: var(--a3s-form-faint);
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+  font-size: 11px;
+}
+
+.a3s-form-workflow-source-editor[data-invalid="true"] > .a3s-form-workflow-editor-footer > span {
+  color: var(--a3s-form-red);
+}
+
+.a3s-form-workflow-editor-expand {
+  min-height: 32px;
+  gap: 5px;
+  padding-inline: 8px;
+  color: var(--a3s-form-muted);
+  font-size: 11px;
+}
+
+.a3s-form-workflow-source-editor[data-expanded="true"] > textarea,
+.a3s-form-workflow-prompt-editor[data-expanded="true"] > textarea {
+  height: min(56vh, 520px);
+  max-height: 520px;
+}
+
+.a3s-form-field .a3s-form-workflow-source-editor.is-multiline[data-expanded="true"] > textarea {
+  height: min(56vh, 520px);
+  max-height: 520px;
+}
+
+.a3s-form-field .a3s-form-workflow-prompt-editor > textarea {
+  height: 220px;
+  min-height: 138px;
+  max-height: 320px;
+  field-sizing: fixed;
+  resize: vertical;
+}
+
+.a3s-form-flow-node-panel .a3s-form-field .a3s-form-workflow-source-editor > textarea {
+  height: 140px;
+  min-height: 112px;
+  max-height: 260px;
+}
+
+.a3s-form-flow-node-panel .a3s-form-field .a3s-form-workflow-source-editor.is-code > textarea {
+  height: 180px;
+  min-height: 150px;
+  max-height: 280px;
+}
+
+.a3s-form-flow-node-panel .a3s-form-field .a3s-form-workflow-source-editor.is-multiline > textarea {
+  height: 120px;
+  min-height: 96px;
+  max-height: 220px;
+}
+
+.a3s-form-flow-node-panel .a3s-form-field .a3s-form-workflow-prompt-editor > textarea {
+  height: 150px;
+  min-height: 112px;
+  max-height: 260px;
+}
+
+.a3s-form-flow-node-panel
+  .a3s-form-field
+  .a3s-form-workflow-source-editor[data-expanded="true"]
+  > textarea,
+.a3s-form-flow-node-panel
+  .a3s-form-field
+  .a3s-form-workflow-prompt-editor[data-expanded="true"]
+  > textarea {
+  height: min(56vh, 520px);
+  max-height: 520px;
+}
+
+.a3s-form-workflow-parameter-control[data-control-widget="textarea"] > textarea {
+  height: 132px;
+  min-height: 112px;
+  max-height: 240px;
+  field-sizing: fixed;
+}
+
+.a3s-form-workflow-prompt-editor code {
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+}
+
+.a3s-form-workflow-file-control {
+  display: grid;
+  min-height: 66px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 11px;
+  padding: 10px;
+  border: 1px dashed var(--a3s-form-line-strong);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--a3s-form-panel-soft) 36%, var(--a3s-form-panel));
+}
+
+/* biome-ignore lint/style/noDescendingSpecificity: File-picker labels and boolean-field labels are disjoint widget structures. */
+.a3s-form-workflow-file-control > label {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.a3s-form-workflow-file-control > span {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-form-workflow-file-control > small {
+  grid-column: 2;
+  color: var(--a3s-form-muted);
+  font-size: 11px;
+}
+
+.a3s-form-workflow-mcp-status {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.a3s-form-workflow-data-display {
+  width: 100%;
+  min-height: 74px;
+  margin: 0;
+  padding: 11px 12px;
+  overflow: auto;
+  border: 1px solid var(--a3s-form-line);
+  border-radius: 8px;
+  background: var(--a3s-form-panel-soft);
+  color: var(--a3s-form-muted);
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+  font-size: 11px;
+  line-height: 1.6;
+  resize: vertical;
+  white-space: pre-wrap;
+}
+
+.a3s-form-workflow-node-preview {
+  --a3s-form-panel: var(--a3s-panel, #fff);
+  --a3s-form-panel-soft: var(--a3s-panel-soft, #f2f3f5);
+  --a3s-form-ink: var(--a3s-ink, #17181a);
+  --a3s-form-muted: var(--a3s-muted, #62666e);
+  --a3s-form-line: var(--a3s-line, #e2e4e8);
+  --a3s-form-line-strong: var(--a3s-line-strong, #d3d6dc);
+  --a3s-form-blue: var(--a3s-blue, #2864e8);
+  --a3s-form-green: var(--a3s-green, #14835f);
+  --a3s-node-accent: var(--a3s-form-blue);
+  position: relative;
+  width: 260px;
+  min-width: 260px;
+  max-width: 100%;
+  overflow: visible;
+  padding-bottom: 0;
+  border: 1px solid var(--a3s-form-line-strong);
+  border-radius: 12px;
+  outline: none;
+  background: var(--a3s-form-panel);
+  box-shadow:
+    0 1px 2px rgb(20 27 43 / 7%),
+    0 3px 8px rgb(20 27 43 / 5%);
+  color: var(--a3s-form-ink);
+  font-family: var(
+    --a3s-ui-font,
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif
+  );
+  transition:
+    border-color 140ms ease-out,
+    box-shadow 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.a3s-form-workflow-node-preview[data-node-family="container"] {
+  width: 360px;
+  min-width: min(360px, 100%);
+  border-style: dashed;
+  background-color: color-mix(in srgb, var(--a3s-node-accent) 3%, var(--a3s-form-panel));
+}
+
+.a3s-form-workflow-node-preview[data-node-family="terminal"] {
+  width: 248px;
+  min-width: min(248px, 100%);
+  border-color: color-mix(in srgb, var(--a3s-node-accent) 38%, var(--a3s-form-line));
+}
+
+.a3s-form-workflow-node-preview[data-node-family="suspension"] {
+  border-top: 3px solid color-mix(in srgb, var(--a3s-node-accent) 78%, var(--a3s-form-line));
+}
+
+.a3s-form-workflow-node-preview[data-node-tone="cyan"] {
+  --a3s-node-accent: #0798bd;
+}
+
+.a3s-form-workflow-node-preview[data-node-tone="green"] {
+  --a3s-node-accent: #16845b;
+}
+
+.a3s-form-workflow-node-preview[data-node-tone="orange"] {
+  --a3s-node-accent: #e77700;
+}
+
+.a3s-form-workflow-node-preview[data-node-tone="red"] {
+  --a3s-node-accent: #c93d45;
+}
+
+.a3s-form-workflow-node-preview[data-node-tone="violet"] {
+  --a3s-node-accent: #7c5ce7;
+}
+
+.a3s-form-workflow-node-preview:has(.a3s-form-workflow-node-preview-select:hover) {
+  border-color: color-mix(in srgb, var(--a3s-node-accent) 52%, var(--a3s-form-line));
+  box-shadow:
+    0 2px 4px rgb(20 27 43 / 8%),
+    0 8px 20px rgb(20 27 43 / 9%);
+  transform: translateY(-1px);
+}
+
+.a3s-form-workflow-node-preview:has(.a3s-form-workflow-node-preview-select:focus-visible) {
+  border-color: var(--a3s-node-accent);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--a3s-node-accent) 15%, transparent),
+    0 8px 20px rgb(20 27 43 / 9%);
+}
+
+.a3s-form-workflow-node-preview-select {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  outline: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.a3s-form-workflow-node-preview[data-selected="true"] {
+  border-color: var(--a3s-node-accent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--a3s-node-accent) 12%, transparent),
+    0 8px 20px rgb(20 27 43 / 9%);
+}
+
+.a3s-form-workflow-node-preview[data-status="running"] {
+  border-color: var(--a3s-node-accent);
+}
+
+.a3s-form-workflow-node-preview[data-status="success"] {
+  border-color: color-mix(in srgb, var(--a3s-form-green) 70%, var(--a3s-form-line));
+}
+
+.a3s-form-workflow-node-preview[data-status="error"] {
+  border-color: color-mix(in srgb, var(--a3s-form-red) 72%, var(--a3s-form-line));
+}
+
+.a3s-form-workflow-node-preview > header {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  min-height: 58px;
+  grid-template-columns: 30px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 11px 8px;
+  pointer-events: none;
+}
+
+.a3s-form-workflow-node-preview > header > span:first-child {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--a3s-node-accent) 12%, var(--a3s-form-panel));
+  color: var(--a3s-node-accent);
+}
+
+.a3s-form-workflow-node-preview > header > div {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.a3s-form-workflow-node-preview > header strong {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 680;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.a3s-form-workflow-node-preview > header small {
+  display: block;
+  overflow: hidden;
+  color: var(--a3s-form-muted);
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-form-workflow-node-preview > header em {
+  color: var(--a3s-form-muted);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.a3s-form-workflow-node-preview > header em {
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: var(--a3s-form-panel-soft);
+}
+
+.a3s-form-workflow-node-preview-status {
+  position: relative;
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  color: var(--a3s-node-accent);
+}
+
+.a3s-form-workflow-node-preview-status[data-status="running"] {
+  border: 2px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-top-color: currentColor;
+  animation: a3s-form-workflow-node-spin 760ms linear infinite;
+}
+
+.a3s-form-workflow-node-preview-status[data-status="success"] {
+  background: var(--a3s-form-green);
+  box-shadow: inset 0 0 0 4px var(--a3s-form-panel);
+}
+
+.a3s-form-workflow-node-preview-status[data-status="waiting"] {
+  border: 2px solid currentColor;
+  box-shadow: inset 0 0 0 3px var(--a3s-form-panel);
+}
+
+.a3s-form-workflow-node-preview-status[data-status="error"] {
+  background: var(--a3s-form-red);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+.a3s-form-workflow-node-preview-body {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  max-height: 440px;
+  gap: 8px;
+  padding: 1px 8px 8px;
+  pointer-events: none;
+}
+
+.a3s-form-workflow-node-preview-body > p {
+  margin: 3px 4px 4px;
+  color: var(--a3s-form-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.a3s-form-workflow-node-preview-summary {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 5px;
+  border: 1px solid color-mix(in srgb, var(--a3s-node-accent) 12%, var(--a3s-form-line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--a3s-node-accent) 4%, var(--a3s-form-panel));
+}
+
+.a3s-form-workflow-node-preview-summary > div {
+  display: grid;
+  min-height: 27px;
+  grid-template-columns: minmax(62px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 5px;
+}
+
+.a3s-form-workflow-node-preview-summary > div + div {
+  border-top: 1px solid color-mix(in srgb, var(--a3s-form-line) 68%, transparent);
+}
+
+.a3s-form-workflow-node-preview-summary :is(dt, dd) {
+  min-width: 0;
+  margin: 0;
+}
+
+.a3s-form-workflow-node-preview-summary dt {
+  color: var(--a3s-form-muted);
+  font-size: 10px;
+  font-weight: 620;
+}
+
+.a3s-form-workflow-node-preview-summary dd {
+  overflow: hidden;
+  color: var(--a3s-form-ink);
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-form-workflow-node-preview-port-list {
+  display: grid;
+  gap: 3px;
+}
+
+.a3s-form-workflow-node-preview-port-heading {
+  padding: 0 4px;
+  color: var(--a3s-form-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.a3s-form-workflow-node-preview-port-list[data-direction="output"]
+  .a3s-form-workflow-node-preview-port-heading {
+  text-align: right;
+}
+
+.a3s-form-workflow-node-preview-port-list > ul {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  gap: 4px;
+  list-style: none;
+}
+
+.a3s-form-workflow-node-preview-port {
+  position: relative;
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--a3s-form-panel-soft) 82%, var(--a3s-form-panel));
+}
+
+.a3s-form-workflow-node-preview-port[data-port-kind="control"] {
+  border-color: color-mix(in srgb, var(--a3s-node-accent) 14%, transparent);
+  background: color-mix(in srgb, var(--a3s-node-accent) 7%, var(--a3s-form-panel));
+}
+
+.a3s-form-workflow-node-preview-port[data-port-kind="data"] {
+  border-color: color-mix(in srgb, var(--a3s-form-line) 72%, transparent);
+}
+
+.a3s-form-workflow-node-preview-port-list[data-direction="output"]
+  .a3s-form-workflow-node-preview-port {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.a3s-form-workflow-node-preview-port span {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.a3s-form-workflow-node-preview-port strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 620;
+  overflow-wrap: anywhere;
+}
+
+.a3s-form-workflow-node-preview-port small {
+  overflow: hidden;
+  color: var(--a3s-form-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.035em;
+  line-height: 1.35;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-form-workflow-node-preview-port i {
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--a3s-form-panel);
+  border-radius: 2px;
+  outline: 1px solid color-mix(in srgb, var(--a3s-node-accent) 54%, var(--a3s-form-line));
+  background: var(--a3s-form-panel);
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.a3s-form-workflow-node-preview-port[data-port-kind="control"] i {
+  border-radius: 50%;
+  outline-color: color-mix(in srgb, var(--a3s-node-accent) 66%, var(--a3s-form-line));
+  background: var(--a3s-node-accent);
+  transform: translateY(-50%);
+}
+
+.a3s-form-workflow-node-preview-port-list[data-direction="input"]
+  .a3s-form-workflow-node-preview-port
+  i {
+  left: -13px;
+}
+
+.a3s-form-workflow-node-preview-port-list[data-direction="output"]
+  .a3s-form-workflow-node-preview-port
+  i {
+  right: -13px;
+}
+
+.a3s-form-workflow-node-preview-next {
+  position: absolute;
+  z-index: 4;
+  right: -56px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--a3s-node-accent) 46%, var(--a3s-form-line));
+  border-radius: 50%;
+  outline: none;
+  background: var(--a3s-form-panel);
+  box-shadow: 0 1px 3px rgb(20 27 43 / 8%);
+  place-items: center;
+  color: var(--a3s-node-accent);
+  cursor: pointer;
+  font:
+    700 16px / 1 ui-sans-serif,
+    sans-serif;
+  pointer-events: auto;
+}
+
+.a3s-form-workflow-node-preview-next::before {
+  position: absolute;
+  right: 100%;
+  width: 24px;
+  height: 1px;
+  background: color-mix(in srgb, var(--a3s-node-accent) 48%, var(--a3s-form-line));
+  content: "";
+}
+
+.a3s-form-workflow-node-preview-next:hover,
+.a3s-form-workflow-node-preview-next:focus-visible {
+  border-color: var(--a3s-node-accent);
+  background: var(--a3s-node-accent);
+  color: #fff;
+}
+
+.a3s-form-workflow-node-preview-next:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--a3s-node-accent) 18%, transparent);
+}
+
+.a3s-form-workflow-node-preview-container {
+  display: grid;
+  min-height: 112px;
+  padding: 14px;
+  border: 1px dashed color-mix(in srgb, var(--a3s-node-accent) 30%, var(--a3s-form-line));
+  border-radius: 9px;
+  background-color: color-mix(in srgb, var(--a3s-form-panel) 88%, transparent);
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--a3s-node-accent) 17%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 13px 13px;
+  align-content: start;
+  gap: 8px;
+}
+
+.a3s-form-workflow-node-preview-container > span {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--a3s-node-accent) 28%, var(--a3s-form-line));
+  border-radius: 8px;
+  background: var(--a3s-form-panel);
+  box-shadow: 0 2px 5px rgb(20 27 43 / 6%);
+  align-items: center;
+  gap: 6px;
+  color: var(--a3s-node-accent);
+  font-size: 11px;
+}
+
+.a3s-form-workflow-node-preview-container > small {
+  max-width: 26ch;
+  color: var(--a3s-form-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.a3s-form-workflow-node-preview-description {
+  position: relative;
+  z-index: 2;
+  display: -webkit-box;
+  margin: 0;
+  padding: 4px 11px 7px;
+  overflow: hidden;
+  color: var(--a3s-form-muted);
+  font-size: 12px;
+  line-height: 1.42;
+  pointer-events: none;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.a3s-form-workflow-node-preview > footer {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 11px 4px;
+  border-top: 1px solid color-mix(in srgb, var(--a3s-form-line) 70%, transparent);
+  color: var(--a3s-form-muted);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.a3s-form-workflow-node-preview:not([data-technical="true"]) > footer {
+  position: absolute;
+  z-index: auto;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.a3s-form-workflow-node-preview > footer code {
+  overflow: hidden;
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes a3s-form-workflow-node-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@keyframes a3s-form-workflow-disclosure {
+  from {
+    opacity: 0.55;
+    filter: blur(3px);
+    transform: translateY(-4px);
+  }
+}
+
+@container a3s-form-workflow-panel (max-width: 620px) {
+  .a3s-form-workflow-node-panel-header {
+    padding: 17px 16px 14px;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .a3s-form-workflow-node-header-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .a3s-form-workflow-node-contract {
+    flex-wrap: wrap;
+    row-gap: 4px;
+    padding-inline: 16px;
+    overflow-x: visible;
+    white-space: normal;
+  }
+
+  .a3s-form-workflow-node-ports {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .a3s-form-workflow-node-ports > div {
+    padding-inline: 16px;
+  }
+
+  .a3s-form-workflow-node-ports > div + div {
+    border-top: 1px solid var(--a3s-form-line);
+    border-left: 0;
+  }
+
+  .a3s-form-workflow-node-form {
+    padding: 18px 16px 20px;
+  }
+
+  .a3s-form-workflow-node-form .a3s-form-actions {
+    bottom: -20px;
+    margin: 7px -16px -20px;
+    padding: 12px 16px;
+  }
+
+  .a3s-form-workflow-node-form .a3s-form-grid > :is(.a3s-form-field, .a3s-form-repeater) {
+    grid-column: 1 / -1;
+  }
+}
+
+@container a3s-form-workflow-panel (max-width: 420px) {
+  .a3s-form-workflow-node-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .a3s-form-workflow-node-title-line h2 {
+    font-size: 16px;
+  }
+
+  .a3s-form-workflow-node-identity p {
+    font-size: 11px;
+  }
+
+  .a3s-form-workflow-node-header-actions :is(button, a) {
+    min-height: 42px;
+  }
+
+  .a3s-form-workflow-connection {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .a3s-form-workflow-field-accessory {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .a3s-form-workflow-connection > button,
+  .a3s-form-workflow-field-accessory-actions {
+    grid-column: 1 / -1;
+  }
+
+  .a3s-form-workflow-connection > button {
+    min-height: 40px;
+  }
+
+  .a3s-form-workflow-field-accessory-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .a3s-form-workflow-duration.input-group,
+  .a3s-form-workflow-actions-editor > .input-group {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .a3s-form-workflow-sort-actions button {
+    width: 40px;
+    height: 40px;
+  }
+
+  .a3s-form-workflow-actions-editor .badge button {
+    width: 28px;
+    height: 28px;
+  }
+
+  .a3s-form-workflow-file-control {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .a3s-form-workflow-file-control > small {
+    grid-column: 1;
+  }
+
+  .a3s-form-workflow-node-form .a3s-form-grid > * {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .a3s-form-workflow-node-form .a3s-form-collapse > details[open] > .a3s-form-group {
+    animation: none;
+  }
+}

@@ -1,0 +1,20 @@
+---
+title: Complete node
+description: Evaluate final output and commit a successful terminal outcome.
+---
+
+# Complete `flow.complete`
+
+A complete node commits a successful terminal outcome and final return value. When control arrives, `output_expression` constructs serializable JSON from start input, step results, or child-run outcomes. After the completion event reaches history, the current run segment is closed and accepts no later tasks, signals, or terminal decisions. Every normal business path should converge on an explicit outcome node.
+
+## Final output
+
+The output expression reads only committed data. Large documents, images, and raw model responses should live in object storage, with the workflow returning a stable reference, digest, and required metadata. This keeps event history bounded and lets the host enforce retention and permission rules. If a public API relies on a fixed response shape, validate required properties and version that contract before publication.
+
+Data may arrive through the `output` port or be read directly by the expression. When both mechanisms are present, confirm which connected value and field paths are used. The node has no outgoing ports because execution is terminal. Use `flow.continue-as-new` to begin another history segment, or a child workflow when a parent must wait for an independently managed process.
+
+## Completion checks
+
+The engine rejects early completion while managed child workflows still require parent ownership. A cancellation cleanup path also cannot hide the cancellation behind a successful outcome. Test empty output, nested objects, large object references, unresolved children, duplicate submission, and a process exit before the terminal event commits. Operational reporting should distinguish completion from failure, cancellation, and timeout so the result reflects the actual business conclusion.
+
+<NodeReference type="flow.complete" />

@@ -1,9 +1,11 @@
-import { useLocation } from '@rspress/core/runtime';
+import { useLocation, useSite, useVersion } from '@rspress/core/runtime';
 import {
+  HomeLayout as OriginalHomeLayout,
   Layout as OriginalLayout,
   type LayoutProps,
 } from '@rspress/core/theme-original';
 import { useEffect } from 'react';
+import { HomeLayout as FlowHomeLayout } from './HomeLayout';
 
 const FOCUSABLE_SELECTOR = [
   'a[href]',
@@ -89,5 +91,10 @@ function useAccessibleMobileSidebar() {
 
 export function Layout(props: LayoutProps) {
   useAccessibleMobileSidebar();
-  return <OriginalLayout {...props} />;
+  const { site } = useSite();
+  const version = useVersion();
+  const defaultVersion = site.multiVersion.default ?? version;
+  const HomeLayout =
+    version === defaultVersion ? FlowHomeLayout : OriginalHomeLayout;
+  return <OriginalLayout {...props} HomeLayout={HomeLayout} />;
 }

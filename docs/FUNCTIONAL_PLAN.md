@@ -1,9 +1,9 @@
 # A3S Flow Functional Plan
 
-This document tracks the practical shape of A3S Flow: what the crate already
-does, how users can learn each capability, and which extensions should come
-next. It is intentionally tied to the current Rust SDK instead of future OS
-Workflow as a Service product surfaces.
+This document tracks the practical shape of A3S Flow: what the Rust crate and
+reusable authoring package already do, how users can learn each capability, and
+which extensions should come next. It separates repository-owned authoring
+surfaces from a future hosted Workflow as a Service control plane.
 
 ## Current Capability Map
 
@@ -11,6 +11,7 @@ Workflow as a Service product surfaces.
 | --- | --- | --- | --- |
 | Event-sourced runs | `FlowEngine`, `FlowEventStore`, `WorkflowRunSnapshot` | `examples/sequential_steps.rs`, `tests/engine.rs` | Run state is projected from append-only typed event envelopes. |
 | Workflow DAG import and structural compile | `WorkflowDsl`, `WorkflowDag`, `WorkflowDagPlan`, `WorkflowDslCompatibility` | `examples/workflow_dsl_import.rs`, `tests/workflow_dsl_import.rs`, `tests/fixtures/workflow_dsl_echo.yml` | Complete workflow YAML and extracted graph JSON retain unknown fields, classify DSL compatibility, validate deterministic top-level and iteration/loop scopes, and derive a layout-independent execution digest. Empty canvases remain importable drafts but cannot execute. |
+| Workflow authoring package | `@a3s-lab/flow-ui`, `a3sFlowDagNodeRegistry`, React and Vue `useA3SFlowNode`, `a3s-flow` CLI, `a3s-flow` Skill | `packages/ui/tests/manifest.test.ts`, `packages/ui/tests/hooks.test.tsx`, `packages/ui/tests/dsl.test.ts`, `packages/ui/scripts/smoke-cli.mjs`, `packages/ui/skills/a3s-flow/SKILL.md` | Eighteen public manifests in six groups drive node previews, configuration panels, framework hooks, CLI JSON contracts, and agent authoring instructions. All surfaces consume the same fields, ports, defaults, stable identities, graph validation, and semantic digest rules. |
 | Run inspection | `FlowEngine::list_run_ids`, `FlowEngine::list_snapshots`, `FlowEngine::run_summary`, `FlowEngine::list_open_suspensions`, `FlowEngine::list_due_wakeups`, `FlowEngine::next_wakeup`, `FlowEngine::list_active_hooks`, `FlowEngine::history` | `examples/run_inspection.rs`, `tests/engine.rs`, `tests/store_scheduling_acceleration.rs`, `tests/signals.rs` | Hosts can list sorted run IDs, project snapshots for dashboards, summarize status and actionable suspension counts, list open waits/hooks/signals/retries, find the next timed scheduler wake-up, list resumable external callback hooks, and read raw event history for audit or replay debugging. |
 | Idempotent starts | `FlowEngine::start_with_id`, `FlowTask::DriveRun`, `FlowWorker` | `examples/sequential_steps.rs`, `tests/engine.rs`, `tests/crash_recovery.rs`, `tests/runtime_build_routing.rs` | Stable business IDs are safe to retry when spec and input match. Persisted authority is compared before runtime-build admission, so exact retries acknowledge fully terminal roots and continuation chains without old replay code while authority drift conflicts. Missing continuation successors are repaired code-free from durable predecessor links; pending root writes and active-leaf replay remain fenced by the exact build. Direct retries and replacement workers fill a missing root start event only while the created run remains pending, before workflow replay and without consuming its budget. Recovery preserves a cancellation or other terminal transition that wins the sequence race. |
 | Cancellation and cleanup | `FlowEngine::request_cancellation`, `WorkflowContext::cancellation_request`, `RuntimeCommand::Cancel`, `FlowEngine::force_cancel` | `examples/cancellation.rs`, `tests/durable_operations.rs`, `tests/scheduler.rs`, `tests/child_workflows.rs`, `tests/runtime_build_routing.rs` | Cleanup-aware cancellation resolves and repairs the active continuation leaf, returns an already terminal leaf without replay admission, then fences non-terminal cancellation and host-owned cleanup replay by exact runtime build. It projects `Cancelling`, deactivates pre-request suspensions, and propagates persisted policy to first-class children. Stable step IDs are physical at-least-once and logically idempotent. `force_cancel`/the compatibility `cancel` API intentionally skip workflow cleanup while recursively terminating request-policy children. |
@@ -50,9 +51,11 @@ pass from the crate repository:
 | Native TypeScript | Compiler unit tests, manifest drift tests, Linux compile checking, and `tests/native_ts_bun_smoke.rs` executing cold/warm preflight plus a complete workflow with real Bun on Linux and Windows |
 | Public artifact | Rustdoc with warnings denied plus `cargo package --locked` verification containing the compiler binary and required docs/examples; the normalized package compiles every target and feature against registry dependencies |
 
-Hosted tenancy, authorization, graph editing UI, node capability binding, and
-deployment policy remain outside this definition because A3S Cloud owns those
-product-control-plane surfaces. Workflow syntax and generic DAG structure are Flow
+The Rust SDK completion gates do not include hosted tenancy, authorization,
+product-specific node capability binding, deployment policy, or multi-tenant
+control-plane behavior. Reusable authoring manifests, node components, React
+and Vue hooks, the CLI, and the Skill are Flow repository contracts and have
+their own package checks. Workflow syntax and generic DAG structure remain Flow
 contracts and must not be reimplemented in Cloud.
 
 The pull-request, `main`, and release workflows encode these gates. Publishing
@@ -214,6 +217,11 @@ missing core engine features.
      them.
 
 5. **Workflow authoring ergonomics**
+   - Keep the 18 public node manifests, six authoring groups, configuration
+     forms, React components and hook, Vue composable, CLI JSON output, and
+     Skill instructions aligned with the versioned Flow workflow contract.
+   - Keep package type checking, manifest and hook tests, production builds,
+     and CLI smoke coverage passing before publishing authoring changes.
    - Keep typed input and output decoding helpers aligned with serde examples
      and `sequential_steps`.
    - Keep recoverable step failure guidance aligned with `RetryPolicy`,
@@ -234,8 +242,9 @@ missing core engine features.
 
 - `/flow` OS Workflow as a Service is not this crate's per-turn
   `DynamicWorkflowRuntime`. The Rust SDK can power local or embedded workflow
-  execution, while OS asset publishing and designer surfaces belong to the CLI
-  and OS layers.
+  execution. The Flow repository owns reusable authoring components, hooks,
+  CLI, and Skill contracts, while hosted asset publishing and multi-tenant
+  designer behavior belong to OS product layers.
 - QuickJS/PTC local workflow orchestration belongs to A3S Code's
   `DynamicWorkflowRuntime`, which uses A3S Flow as its durable replay engine.
 - Production multi-tenant workflow hosting is outside this crate until concrete

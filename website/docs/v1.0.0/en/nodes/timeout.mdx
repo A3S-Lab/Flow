@@ -1,0 +1,20 @@
+---
+title: Timeout node
+description: Store an exceeded absolute deadline and reason, then commit a timed-out outcome.
+---
+
+# Time out workflow `flow.timeout`
+
+A timeout node commits a distinct timed-out outcome with the UTC deadline that caused it. Use it for an SLA, approval window, payment limit, or another boundary after which the process cannot continue. The node does not wait for a clock and does not poll current time. A normal graph first persists the same deadline in a wait node and enters timeout after wake-up.
+
+## Deadline and reason
+
+`deadline` is a required date-time expression. Its result must include a timezone and come from stable input or a committed result. `reason` is an optional short business explanation that identifies which window expired. The deadline is part of the run conclusion and cannot be generated from a fresh clock read during replay. For a relative duration, first persist a base time and absolute result.
+
+Incoming control uses `in`, and a connected value may arrive through the `deadline` data port. There is no outgoing control after the terminal event. When a workflow has several deadlines, use separate wait and timeout nodes so each node ID names one business boundary. If expiry still requires compensation, notification, or review, finish that work before committing timeout or delegate it to an independent child workflow.
+
+## Scheduling and observability
+
+Test timezone offsets, already expired values, scheduler delay, duplicate wake-ups, process recovery, and cancellation races. Monitoring should record the business deadline, actual wake-up time, and terminal commit time separately, which identifies whether delay came from configuration, scheduling, or worker capacity. Keep credentials and full remote responses out of `reason`; place detailed diagnostics behind a controlled correlation ID.
+
+<NodeReference type="flow.timeout" />

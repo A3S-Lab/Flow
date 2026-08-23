@@ -49,19 +49,33 @@ assertIncludes(home, 'lang="zh"', 'Chinese homepage language');
 assertIncludes(englishHome, 'lang="en"', 'English homepage language');
 assertIncludes(home, 'data-flow-home', 'custom Flow homepage');
 assertIncludes(englishHome, 'data-flow-home', 'English custom Flow homepage');
-assertIncludes(home, '面向 Rust 的', 'Chinese homepage content');
-assertIncludes(englishHome, 'Durable workflows', 'English homepage content');
-assertIncludes(home, 'aria-label="重放步骤"', 'Chinese replay controls');
+assertIncludes(home, 'AI Native Workflow Engine', 'Chinese homepage promise');
 assertIncludes(
   englishHome,
-  'aria-label="Replay steps"',
-  'English replay controls',
+  'AI Native Workflow Engine',
+  'English homepage promise',
 );
 assertIncludes(
   home,
-  `${pagesBase}assets/workflow-dag.svg`,
-  'base-aware diagram asset',
+  '编排 Agent、工具、审批和子工作流',
+  'Chinese homepage content',
 );
+assertIncludes(
+  englishHome,
+  'Orchestrate Agents, tools, approvals, and child workflows',
+  'English homepage content',
+);
+assertIncludes(
+  home,
+  'aria-label="一次恢复怎样发生"',
+  'Chinese recovery timeline',
+);
+assertIncludes(
+  englishHome,
+  'aria-label="How one recovery proceeds"',
+  'English recovery timeline',
+);
+assertRouteLink(home, '/guide', 'base-aware homepage guide link');
 
 const archiveChinese = await readFile(
   path.join(outputRoot, 'v0.13.1', 'index.html'),

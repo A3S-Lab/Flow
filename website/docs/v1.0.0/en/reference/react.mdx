@@ -1,0 +1,84 @@
+---
+title: React components and hook
+description: Use the node card, configuration panel, and useA3SFlowNode to manage workflow nodes in React.
+---
+
+# React components and hook
+
+`@a3s-lab/flow-ui/react` exports the node card, configuration panel, and `useA3SFlowNode`. All three work with one `A3SFlowWorkflowDagNode`, so an editor does not need separate state for semantic configuration and canvas presentation. The components read manifests for ports, field groups, dedicated controls, defaults, and validation rules.
+
+Install Flow UI, the generic A3S UI Form layer, and React. The Flow stylesheet includes the required form foundation and node-specific styles.
+
+```bash
+npm install @a3s-lab/flow-ui @a3s-lab/ui react react-dom
+```
+
+```tsx
+import '@a3s-lab/flow-ui/styles.css';
+import {
+  A3SFlowDagNodeConfigurationPanel,
+  A3SFlowDagNodePreview,
+  useA3SFlowNode,
+} from '@a3s-lab/flow-ui/react';
+
+export function AgentTaskNode() {
+  const { node, setNode, reset } = useA3SFlowNode({
+    id: 'agent-task',
+    type: 'flow.step',
+    configuration: {
+      step_name: 'agent.run',
+      max_attempts: 3,
+      retry_delay_ms: 1000,
+      on_exhausted: 'continue_workflow',
+    },
+    presentation: {
+      title: 'Review order',
+      desc: 'Read the order and policy, then return a recommendation',
+    },
+  });
+
+  return (
+    <div className="workflow-node-editor">
+      <A3SFlowDagNodePreview dagNode={node} selected />
+      <A3SFlowDagNodeConfigurationPanel
+        dagNode={node}
+        connectedOutputPortIds={['success', 'failed']}
+        onChange={setNode}
+        onReset={reset}
+      />
+    </div>
+  );
+}
+```
+
+## `useA3SFlowNode`
+
+The hook creates a node with manifest defaults and normalizes each update. `configuration` contains semantic fields declared by the manifest. Title, description, canvas position, and dimensions remain presentation data on the full node.
+
+| Return value         | Purpose                                                        |
+| -------------------- | -------------------------------------------------------------- |
+| `node`               | Complete DAG node for the canvas or serializer                 |
+| `manifest`           | Fields, ports, role, and runtime binding for the active type   |
+| `configuration`      | Manifest-owned configuration selected from the node            |
+| `setNode`            | Replace the complete node and invoke optional `onChange`       |
+| `setConfiguration`   | Replace all manifest configuration                             |
+| `patchConfiguration` | Change selected fields while preserving the rest               |
+| `setTitle`           | Change the canvas title without changing semantic digest       |
+| `setDescription`     | Change the canvas description without changing semantic digest |
+| `reset`              | Restore the configuration and presentation passed at creation  |
+
+When a picker changes node type, key the editor component by type so React creates fresh hook state. Do not mutate `data.type` in place for a node that belongs to an existing run. Add a new node and use the application release process to migrate behavior.
+
+## Node card
+
+`A3SFlowDagNodePreview` renders the icon, summary, control ports, and data ports for the current manifest. Enable `technical` for fuller type information in development tools. `selected` changes only visual selection. Chinese localization accepts `zh` or `zh-CN`; other locales use English.
+
+Container previews represent a child canvas. An iteration requires one nested `iteration-start`, while a loop requires one nested `loop-start`. The card communicates structure, but the host canvas still owns nesting, drag, zoom, and edge interaction.
+
+## Configuration panel
+
+`A3SFlowDagNodeConfigurationPanel` compiles a Form document from the manifest. Step batches, expressions, input schemas, workflow specs, and child lists have dedicated controls. Required fields, numeric ranges, options, and conditional visibility remain manifest-owned.
+
+Pass `connectedOutputPortIds` so semantic validation knows which control exits are wired. A step using `continue_workflow` after retry exhaustion should connect `failed`. `onRequestConnection` can hand the field-level connection action to the host canvas. Every `onChange` receives a complete next node that the editor should write back to its graph state.
+
+The panel does not save workflows, manage credentials, or execute tasks. Persistence, undo, collaboration, and publication belong to the host editor. Run `a3s-flow validate` before publication because one valid form does not prove that scopes and graph edges are valid.

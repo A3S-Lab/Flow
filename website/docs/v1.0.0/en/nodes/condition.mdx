@@ -1,0 +1,20 @@
+---
+title: Condition node
+description: Evaluate committed workflow data and select one of two control branches.
+---
+
+# Condition `flow.condition`
+
+A condition selects one control path from data that is already committed. It is appropriate for order state, review decisions, thresholds, and results returned by earlier tasks. The node does not call a remote service and must not read a fresh clock, random value, or mutable process state. If a decision needs external information, obtain it in a task first, commit the result, and then evaluate that result here.
+
+## Input and expression
+
+`input` holds the current value and may be replaced by a value connected from an upstream data port. `expression` uses the bounded expression format to read workflow input, the current value, or saved results. Test true, false, missing-field, empty-collection, and wrong-type cases before publication. A large business rule is easier to operate when split across clearly named conditions, because history and graph structure then show which decision was made at each point.
+
+`matched_label` and `otherwise_label` change canvas copy only. The stable handles remain `matched` and `otherwise`. Editing labels does not alter connection identity, while editing the expression changes execution semantics. Both control outputs should lead somewhere explicit. When one branch ends the business process immediately, connect it to the intended complete, fail, cancel, or timeout node rather than leaving it open.
+
+## Wiring and diagnosis
+
+Connect incoming control to `in` and optional upstream data to `value`. A true expression opens `matched`; every other valid result opens `otherwise`. Tests should prove that both branches can reach a terminal outcome and that no downstream edge loops back to the condition. If validation reports an expression path, inspect the upstream result shape and confirm whether the `value` connection overrides the local `input` value.
+
+<NodeReference type="flow.condition" />

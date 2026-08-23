@@ -1,0 +1,20 @@
+---
+title: Child workflow batch node
+description: Declare up to 64 child workflows and collect terminal outcomes in stable member order.
+---
+
+# Start child workflow batch `flow.child-workflows`
+
+Use this node to declare several independent child runs and wait for the whole declared set to resolve. It fits bounded parallel work such as processing one document per region or running a fixed group of checks. A single node accepts at most 64 members. Split larger collections into deterministic windows so the parent does not create an unmanageable number of children or retain an oversized result in one history segment.
+
+## Member contract
+
+Every item in `children` contains `child_id`, `spec`, `input`, and `cancellation_policy`. Child IDs must be unique within the parent run and remain stable across replay. The member list is stored in declaration order, and outcomes use that same order even when children finish at different times. Do not reorder the list by completion time, remove an existing identity, or point a reused child ID at a new definition.
+
+Each `spec` fixes the workflow name, version, runtime entry point, and supported route. Each `input` supplies member-specific start data. Cancellation policy applies per member. Use `request_cancellation` when the parent owns cleanup and must wait for it. Use `abandon` only for work with independent ownership and observability. If a batch mixes policies, document exactly which children can continue after the parent reaches a terminal state.
+
+## Aggregation and capacity
+
+When every member resolves, control leaves through `completed` and `outcomes` contains each terminal result in stable declaration order. Check success, failure, cancellation, and timeout per member rather than treating the presence of an array as success. Tests should cover an empty list, duplicate IDs, partial start failure, partial terminal failure, the 64-member boundary, parent cancellation, and process recovery. Configure host concurrency, queue backpressure, and tenant quotas for expected batch sizes. For high-volume input, combine deterministic windowing with a continuation boundary and persist the cursor required to resume safely.
+
+<NodeReference type="flow.child-workflows" />

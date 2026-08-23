@@ -1,0 +1,80 @@
+---
+title: Vue hook
+description: Use useA3SFlowNode in Vue to manage manifests, node configuration, and canvas presentation.
+---
+
+# Vue hook
+
+`@a3s-lab/flow-ui/vue` exports `useA3SFlowNode`. It shares node types, manifests, defaults, and normalization with the React hook. A Vue editor can pass the returned node to its own canvas components, while applications that need the published visual card may host it through an existing React boundary or Web Component integration.
+
+```bash
+npm install @a3s-lab/flow-ui @a3s-lab/ui vue
+```
+
+```vue
+<script setup lang="ts">
+import '@a3s-lab/flow-ui/styles.css';
+import { useA3SFlowNode } from '@a3s-lab/flow-ui/vue';
+
+const approval = useA3SFlowNode({
+  id: 'human-approval',
+  type: 'flow.hook',
+  configuration: {
+    kind: 'human_approval',
+    subject: 'Approve the refund plan',
+    metadata: { labels: { team: 'risk' }, data: {} },
+  },
+  presentation: {
+    title: 'Risk approval',
+    desc: 'Wait for the risk team to approve the proposed action',
+  },
+  onChange(node) {
+    workflowStore.replaceNode(node.id, node);
+  },
+});
+
+function useWebhook() {
+  approval.patchConfiguration({
+    kind: 'webhook',
+    callback_method: 'POST',
+    callback_path: '/callbacks/refund',
+  });
+}
+</script>
+
+<template>
+  <section>
+    <h2>{{ approval.node.value.data.title }}</h2>
+    <code>{{ approval.manifest.value.type }}</code>
+    <button type="button" @click="useWebhook">Use webhook</button>
+    <button type="button" @click="approval.reset">Reset</button>
+  </section>
+</template>
+```
+
+## Inputs
+
+`id` and `type` accept a plain value, ref, or getter. Configuration, presentation, and a custom registry also accept Vue `MaybeRefOrGetter` values. The hook reads them when it creates the node. `reset()` reads them again, so reset follows updated external defaults.
+
+| Option          | Meaning                                                                                |
+| --------------- | -------------------------------------------------------------------------------------- |
+| `id`            | Stable graph node ID used to derive durable task, wait, and child identity             |
+| `type`          | Manifest type such as `flow.step` or `iteration`                                       |
+| `configuration` | Initial semantic fields owned by the manifest                                          |
+| `presentation`  | Canvas title, description, position, and dimensions                                    |
+| `registry`      | Optional registry; the default contains 18 public nodes and internal container entries |
+| `onChange`      | Called after each complete node commit with a structured clone                         |
+
+## Return values
+
+`node` is a readonly `ShallowRef`. Updates replace the complete object rather than depending on deep reactive proxies. `manifest` and `configuration` are computed refs. Templates unwrap them automatically, while script code reads `.value`.
+
+`setNode` accepts a complete DAG node and rejects a type that differs from the current manifest. `setConfiguration` replaces all configuration, and `patchConfiguration` merges selected fields. `setTitle` and `setDescription` change presentation only. `reset` reconstructs the initial node from current option values.
+
+When a type picker changes, create a new editor instance or key the component by type. The hook does not coerce old fields into another manifest. That boundary prevents a deployed durable identity from silently changing its meaning.
+
+## Canvas integration
+
+Store canvas state as complete `A3SFlowWorkflowDagNode` objects. Dragging changes only `position`. Configuration submits through `setNode` or `setConfiguration`. Before creating an edge, read IDs, control or data kind, and accepted value types from `manifest.value.ports`; do not maintain a second Vue-only port catalog.
+
+Iteration and loop nodes own child-canvas scopes. Creating one also requires its matching internal start node, and every nested node receives `parentId`. Edge endpoints must stay in the same scope. Run `a3s-flow validate workflow.json` before publication to verify parents, internal entries, cross-scope edges, and manifest fields.

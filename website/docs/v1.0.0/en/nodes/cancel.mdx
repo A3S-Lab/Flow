@@ -1,0 +1,20 @@
+---
+title: Cancel node
+description: Commit cancellation after cleanup for a durable cancellation request has finished.
+---
+
+# Cancel workflow `flow.cancel`
+
+A cancel node finishes a run that already has a durable cancellation request. It has no settings and is not a general control-flow exit. The host first records the request and reason. Workflow code can then release locks, withdraw external tasks, notify child runs, or perform compensation before entering this node to commit the cancelled outcome.
+
+## Cleanup order
+
+Cleanup may require several durable steps after the request arrives. Give each operation separate stable node identity and make it safe for repeated delivery. When an external resource cannot be released, choose an explicit retry, recorded failure, or human-repair path instead of silently skipping critical work. A parent also waits while managed child workflows finish their cancellation cleanup.
+
+The node accepts only `in` control and has no data or outgoing ports. The cancellation reason comes from the original request rather than node configuration. The engine rejects this outcome if no request is present. A business action called cancel, reject, or close therefore needs a clear semantic choice. If it is an ordinary business result, express it with a condition followed by complete or fail.
+
+## Race and recovery tests
+
+Test task completion racing with cancellation, hook receipt racing with cancellation, child-run cancellation, cleanup retries, repeated requests, and process recovery. History must contain exactly one terminal outcome. A control plane should report whether cancellation was accepted, cleanup is still running, or the run is already cancelled, and it should retain the original reason and request identity for operators.
+
+<NodeReference type="flow.cancel" />

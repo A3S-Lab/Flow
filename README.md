@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <strong>Durable execution for Rust, reconstructed from append-only history.</strong><br />
-  Commit decisions, release compute while waiting, and resume on any compatible worker.
+  <strong>AI Native Workflow Engine for Agents, tools, approvals, and child workflows.</strong><br />
+  Author with React or Vue, automate with the CLI and Skill, and recover every run from append-only history.
 </p>
 
 <p align="center">
@@ -29,11 +29,13 @@
   <a href="#release-status">Status</a>
 </p>
 
-A3S Flow is an event-sourced workflow engine and Rust SDK for work that must
-survive process restarts, delayed retries, timers, asynchronous messages,
-callbacks, and worker replacement. Every meaningful transition is appended to
-history. The engine projects state from that history and rejects replay drift
-instead of silently accepting a different decision.
+A3S Flow is an AI Native Workflow Engine and Rust SDK for work that must survive
+process restarts, delayed retries, timers, asynchronous messages, callbacks,
+and worker replacement. Every meaningful transition is appended to history.
+The engine projects state from that history and rejects replay drift instead of
+silently accepting a different decision. The same repository also maintains
+the reusable authoring package, React and Vue hooks, CLI, and coding-agent Skill
+that operate on Flow's versioned workflow document contract.
 
 | When this happens | Flow keeps this durable |
 | --- | --- |
@@ -49,6 +51,27 @@ instead of silently accepting a different decision.
 > policy, credentials, tool access, and logical idempotency for external side
 > effects. A3S Cloud binds those product capabilities; it does not duplicate
 > Flow's compiler or runtime.
+
+## Authoring components, hooks, CLI, and Skill
+
+`@a3s-lab/flow-ui` is the reusable authoring package for Flow workflows. It
+keeps the node catalog, editor components, framework hooks, command-line tools,
+and agent instructions on the same manifest and graph contracts.
+
+| Surface | Current contract |
+| --- | --- |
+| Node catalog | 18 public manifests in six authoring groups, with fields, defaults, ports, runtime bindings, and durable node identity |
+| React | Node preview and configuration components plus `useA3SFlowNode` for controlled-ready node state |
+| Vue | A `useA3SFlowNode` composable over the same node object, defaults, and manifest registry |
+| CLI | `a3s-flow nodes`, `node`, `new`, `sample`, `validate`, `compile`, and `digest`, all with JSON output |
+| Skill | An installable `a3s-flow` Skill that queries the CLI before creating, connecting, validating, or reviewing a workflow |
+
+The [React guide](https://a3s-lab.github.io/Flow/reference/react),
+[Vue guide](https://a3s-lab.github.io/Flow/reference/vue),
+[CLI reference](https://a3s-lab.github.io/Flow/reference/cli), and
+[Skill guide](https://a3s-lab.github.io/Flow/reference/agent-skill) document each
+surface. The complete node catalog and configuration reference live under
+[Workflow nodes](https://a3s-lab.github.io/Flow/nodes/).
 
 ## Quick start
 
@@ -328,6 +351,7 @@ lifecycle. Read the [compiler and protocol contract](docs/NATIVE_TYPESCRIPT.md).
 | Flow owns | The host owns |
 | --- | --- |
 | Workflow document/graph parsing, structural invariants, deterministic plans, and semantic digests | Node semantics, capability bindings, credentials, and authoring policy |
+| Reusable node manifests, configuration components, React and Vue hooks, CLI commands, and the workflow-authoring Skill | Product-specific node availability, identity, authorization, publication, and hosted editor behavior |
 | Append-only run history and expected-sequence writes | Product authorization, tenancy, and publication lifecycle |
 | Replay validation and terminal state | Logical idempotency for physical side effects |
 | Step, retry, wait, signal, hook, child-workflow, cancellation, and continuation lifecycles | Which tools and external systems a step may call |
@@ -398,9 +422,11 @@ implemented. Current `main` includes workflow definition/compile, durable
 runtime, feature-gated persistence, dispatch and rolling-build safety, optional
 Native TypeScript, and post-commit observability adapters.
 
-Hosted tenancy, authorization, graph-editing UI, node capability binding, and
-deployment policy are explicit non-goals for this crate; A3S Cloud owns those
-product control-plane surfaces.
+Reusable workflow-authoring components, React and Vue hooks, the CLI, and the
+Skill are maintained in this repository. Hosted tenancy, authorization,
+product-specific capability binding, deployment policy, and the multi-tenant
+control plane remain outside the Rust crate; A3S Cloud owns those product
+surfaces.
 
 Maintenance is contract-led: preserve SemVer and replay compatibility, keep
 SQLite/PostgreSQL parity gates aligned, track the native compiler protocol and

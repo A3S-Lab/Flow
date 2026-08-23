@@ -1,0 +1,64 @@
+{
+  "name": "@a3s-lab/flow-ui",
+  "version": "1.0.0",
+  "description": "A3S Flow authoring components, React and Vue hooks, and workflow CLI.",
+  "type": "module",
+  "license": "MIT",
+  "private": false,
+  "sideEffects": ["./dist/styles.css"],
+  "files": ["dist", "skills"],
+  "bin": {
+    "a3s-flow": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
+    },
+    "./vue": {
+      "types": "./dist/vue.d.ts",
+      "import": "./dist/vue.js"
+    },
+    "./styles.css": "./dist/styles.css",
+    "./skill": "./skills/a3s-flow/SKILL.md"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs && tsc -p tsconfig.build.json",
+    "check": "npm run typecheck && npm test && npm run build && npm run smoke:cli",
+    "smoke:cli": "node scripts/smoke-cli.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@a3s-lab/ui": "^0.3.0",
+    "react": ">=18",
+    "react-dom": ">=18",
+    "vue": ">=3.4"
+  },
+  "peerDependenciesMeta": {
+    "vue": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@phosphor-icons/react": "^2.1.10"
+  },
+  "devDependencies": {
+    "@a3s-lab/ui": "git+https://github.com/A3S-Lab/UI.git#171fa3c4a348ecd41080e2fb33498ac44d4fc045",
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^22.8.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "esbuild": "^0.25.12",
+    "jsdom": "^26.1.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "typescript": "^6.0.3",
+    "vitest": "^3.2.4",
+    "vue": "^3.5.25"
+  }
+}

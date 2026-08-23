@@ -1,0 +1,20 @@
+---
+title: Child workflow node
+description: Start one child with independent history and configure its policy when the parent stops.
+---
+
+# Start child workflow `flow.child-workflow`
+
+This node starts one child run with its own input, event history, signals, and terminal outcome. The parent first records the child request, then the scheduler creates or restores the child. When the child resolves, the parent is delivered again and receives the recorded outcome. Use this boundary for a process that needs independent observation, recovery, ownership, or version routing while remaining part of the parent operation.
+
+## Identity and definition
+
+`child_id` must remain stable inside the parent run. Together with the graph node identity, it fixes the parent and child relationship during replay. `spec` selects the workflow name, version, runtime type, entry point, and any supported build route. The `input` expression produces the child start payload. Reusing the same child ID with a different spec, a different business object, or changed input is invalid because it would make history ambiguous.
+
+Set `cancellation_policy` to `request_cancellation` when a cancelled parent should ask the child to stop and wait for its cleanup path. Select `abandon` only when the child has a separate owner, access path, retention policy, and reason to continue after the parent ends. Record that ownership decision in the workflow review so operators know which runs may outlive their parent.
+
+## Outcomes and failure handling
+
+Resolved control leaves through `completed`. The `outcome` data port contains the actual success, failure, cancellation, or timeout result. Inspect that value before choosing the parent result. A child completion event does not imply business success. Tests should cover duplicate starts, child failure, parent cancellation, abandoned execution, scheduler restart, version routing, and result-size limits. Keep large child output in object storage and return a compact reference plus the fields required for the next decision. Monitoring should expose both run identities and make the selected cancellation policy visible during incident response.
+
+<NodeReference type="flow.child-workflow" />
