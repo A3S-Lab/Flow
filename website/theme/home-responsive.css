@@ -1,0 +1,258 @@
+@media (max-width: 1100px) {
+  .flow-run-shell__body {
+    grid-template-columns: 1fr;
+  }
+
+  .flow-history {
+    border-right: 0;
+    border-bottom: 1px solid var(--flow-line);
+  }
+
+  .flow-install {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .flow-primitives__rows article {
+    grid-template-columns: 54px minmax(160px, 0.5fr) minmax(0, 1fr);
+  }
+
+  .flow-primitives__rows a {
+    justify-self: start;
+    grid-column: 2 / -1;
+  }
+
+  .flow-dag {
+    grid-template-columns: 1fr;
+  }
+
+  .flow-dag img {
+    min-height: 360px;
+    border-top: 1px solid var(--flow-line-strong);
+    border-left: 0;
+  }
+}
+
+@media (max-width: 768px) {
+  .flow-hero {
+    padding: 54px 20px 0;
+  }
+
+  .flow-kicker {
+    margin-bottom: 18px;
+  }
+
+  .flow-hero h1,
+  html[lang='zh'] .flow-hero h1 {
+    font-size: clamp(42px, 12vw, 56px);
+    letter-spacing: -0.06em;
+    line-height: 1.02;
+  }
+
+  .flow-hero__copy > p {
+    font-size: 16px;
+    line-height: 1.7;
+  }
+
+  .flow-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .flow-button {
+    width: 100%;
+  }
+
+  .flow-run-shell {
+    margin-top: 48px;
+  }
+
+  .flow-run-shell__header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .flow-status {
+    margin-left: 45px;
+  }
+
+  .flow-run-shell__body {
+    min-height: 0;
+  }
+
+  .flow-history,
+  .flow-snapshot {
+    padding: 22px 18px;
+  }
+
+  .flow-stage-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .flow-stage-panel {
+    min-height: 280px;
+  }
+
+  .flow-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .flow-facts > div:nth-child(2) {
+    border-right: 0;
+  }
+
+  .flow-facts > div:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--flow-line);
+  }
+
+  .flow-install {
+    padding: 30px 20px;
+  }
+
+  .flow-install__command {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .flow-install__command > code {
+    padding: 10px 2px 4px;
+  }
+
+  .flow-section {
+    padding: 82px 20px;
+  }
+
+  .flow-section__header h2 {
+    font-size: clamp(36px, 10vw, 48px);
+  }
+
+  .flow-contract__columns {
+    grid-template-columns: 1fr;
+  }
+
+  .flow-contract__columns article:first-child {
+    border-right: 0;
+    border-bottom: 1px solid var(--flow-line-strong);
+  }
+
+  .flow-cycle__steps li {
+    grid-template-columns: 42px minmax(0, 1fr);
+    align-items: start;
+    gap: 16px;
+  }
+
+  .flow-cycle__steps code {
+    grid-column: 2;
+  }
+
+  .flow-primitives__rows article {
+    padding: 26px 0;
+    grid-template-columns: 48px minmax(0, 1fr);
+    align-items: start;
+    gap: 10px 16px;
+  }
+
+  .flow-primitives__rows p,
+  .flow-primitives__rows a {
+    grid-column: 2;
+  }
+
+  .flow-dag {
+    margin-right: 20px;
+    margin-left: 20px;
+  }
+
+  .flow-dag > div {
+    padding: 34px 24px;
+  }
+
+  .flow-dag h2 {
+    font-size: 36px;
+  }
+
+  .flow-dag img {
+    min-height: 260px;
+  }
+
+  .flow-store-table {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  .flow-store-table__head {
+    display: none;
+  }
+
+  .flow-store-table__row {
+    display: block;
+    margin-bottom: 12px;
+    overflow: hidden;
+    border: 1px solid var(--flow-line-strong);
+    border-radius: 12px;
+    background: var(--flow-surface);
+  }
+
+  .flow-store-table__row span {
+    display: grid;
+    padding: 12px 14px;
+    border-right: 0 !important;
+    grid-template-columns: 108px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .flow-store-table__row span:not(:last-child) {
+    border-bottom: 1px solid var(--flow-line);
+  }
+
+  .flow-store-table__row span::before {
+    color: var(--flow-faint);
+    content: attr(data-label);
+    font-family: var(--flow-font);
+    font-size: 11px;
+    font-weight: 620;
+  }
+
+  .flow-start ol {
+    grid-template-columns: 1fr;
+  }
+
+  .flow-start li:not(:last-child) {
+    border-right: 0;
+    border-bottom: 1px solid var(--flow-line-strong);
+  }
+
+  .flow-start h3 {
+    margin-top: 18px;
+  }
+
+  .flow-final {
+    margin: 72px 20px 48px;
+    padding: 34px 24px;
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 420px) {
+  .flow-hero h1,
+  html[lang='zh'] .flow-hero h1 {
+    font-size: 42px;
+  }
+
+  .flow-history li {
+    grid-template-columns: 32px minmax(0, 1fr) 16px;
+    gap: 9px;
+  }
+
+  .flow-facts > div {
+    min-height: 82px;
+    padding: 15px;
+  }
+
+  .flow-store-table__row span {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}

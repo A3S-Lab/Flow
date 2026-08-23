@@ -1,0 +1,112 @@
+---
+title: 0.13.1 stores and migrations
+description: Choose JSONL, SQLite, or PostgreSQL in 0.13.1 and operate ORM 0.3 migrations, retention, and task durability.
+---
+
+# 0.13.1 stores and migrations
+
+The 0.13.1 `FlowEventStore` owns event append, expected-sequence writes, complete history, run listing, active-hook lookup, and scheduled-wakeup queries. It is run-state authority. Queues and observation logs cannot replace it.
+
+## Built-in stores
+
+| Store                 | Feature    | Boundary                       |
+| --------------------- | ---------- | ------------------------------ |
+| `InMemoryEventStore`  | None       | Tests, lost at process exit    |
+| `LocalFileEventStore` | None       | Single-process JSONL directory |
+| `SqliteEventStore`    | `sqlite`   | Durable single-node service    |
+| `PostgresEventStore`  | `postgres` | Shared multi-process history   |
+
+```toml
+[dependencies]
+a3s-flow = { version = "=0.13.1", features = ["sqlite"] }
+```
+
+0.13.1 SQL adapters use `a3s-orm 0.3.0`. The task-management adapter uses `a3s-boot 0.2.0`.
+
+## Local JSONL
+
+```rust
+let store = Arc::new(LocalFileEventStore::new(
+    ".a3s/flow/history",
+));
+let engine = FlowEngine::new(store, runtime);
+```
+
+One host owns the complete root directory. Backups must include every run file and align with the recovery point for external idempotency records in the business database. Do not share the directory among service instances through a generic network filesystem.
+
+## SQLite
+
+```rust
+let store = Arc::new(
+    SqliteEventStore::connect("sqlite://.a3s/flow/flow.db").await?,
+);
+let engine = FlowEngine::new(store, runtime);
+```
+
+`connect()` applies checksummed ORM migrations. The 0.13.1 SQLite migration prefix is:
+
+1. `a3s-flow-0001-events`
+2. `a3s-flow-0002-retention`
+3. `a3s-flow-0003-active-hooks`
+4. `a3s-flow-0004-scheduled-wakeups`
+
+Stop the old SQLite owner and verify backup restoration before starting a new version. Do not edit `flow_active_hooks`, scheduled-wakeup projections, or the migration ledger manually.
+
+## PostgreSQL
+
+```rust
+let store = Arc::new(
+    PostgresEventStore::connect(&database_url).await?,
+);
+let engine = FlowEngine::new(store, runtime);
+```
+
+In 0.13.1, `connect()` migrates and opens the serving store. This release predates the separate PostgreSQL migration entry point and verify-only constructors in 1.0. Let one controlled instance complete connection migration before scaling workers.
+
+The PostgreSQL migration prefix is:
+
+1. `a3s-flow-0001-events`
+2. `a3s-flow-0002-tasks`
+3. `a3s-flow-0003-retention`
+4. `a3s-flow-0004-active-hooks`
+5. `a3s-flow-0005-scheduled-wakeups`
+
+Stop new run creation and scheduler submission before migration, let active transactions finish, and record a database recovery point and queue depth. Do not restart an older binary as a writer after migration commits.
+
+## History retention
+
+SQLite and PostgreSQL provide audit holds, complete-history deletion, and tombstones.
+
+```rust
+let policy = FlowHistoryRetentionPolicy::new(
+    chrono::Utc::now() - chrono::Duration::days(90),
+);
+let report = store.prune_terminal_history(policy).await?;
+```
+
+Only terminal history older than the cutoff can be deleted. Durable holds protect a run. Deletion operates on complete linked components and leaves a tombstone with terminal sequence, event ID, event key, and history SHA-256. 0.13.1 cannot mutate or partially compact an event stream.
+
+```rust
+store
+    .hold_history("run-8821", "audit-14", "payment review")
+    .await?;
+
+store.release_history_hold("run-8821", "audit-14").await?;
+```
+
+## Task durability
+
+Workflow history and task queues are independent durable boundaries. `LocalFileFlowTaskQueue` and `PostgresFlowTaskQueue` provide leases, heartbeat, acknowledgement, and dead-letter records. The Boot adapter provides shared task policy.
+
+Queue messages may repeat, so handlers check event history again. Removing a successful task record does not remove workflow history, and history retention does not automatically clean the host queue.
+
+## Record before upgrading
+
+- Current Flow version, Cargo lockfile, and enabled features.
+- ORM migration IDs and checksums.
+- Non-terminal runs and `runtime_build_id` values.
+- Active hook, due wait, and delayed retry counts.
+- Queue depth, active leases, and dead-letter count.
+- Tested recovery points for database and local durable directories.
+
+  0.13.1 history is an automated starting point for 1.0 qualification, but production still follows the 1.0 runbook for quiescing, migration, and verification.

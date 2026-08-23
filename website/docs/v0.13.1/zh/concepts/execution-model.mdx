@@ -1,0 +1,134 @@
+---
+title: 0.13.1 执行模型
+description: 说明 0.13.1 的事件重放、步骤批次、固定延迟重试、定时等待、Hook、取消和运行版本准入。
+---
+
+# 0.13.1 执行模型
+
+0.13.1 把每条运行保存为追加式事件流。Worker 从历史投影 `WorkflowRunSnapshot`，调用 `FlowRuntime` 得到一个 `RuntimeCommand`，校验后按预期序号追加事件。
+
+## 重放循环
+
+```text
+事件历史 -> 当前快照 -> 一个运行时命令 -> 序号校验并追加
+    ^                                         |
+    +--------------- 重放或暂停 --------------+
+```
+
+工作流函数不能依赖进程内变量记住执行位置。它读取 `WorkflowContext` 中已经提交的步骤、等待和 Hook 结果，决定下一条命令。
+
+同一个步骤 ID、等待 ID 或 Hook ID 在重放时必须带回原参数。步骤输入、重试策略、截止时间、令牌或元数据变化会得到 `FlowError::NonDeterministic`。
+
+## 步骤
+
+```rust
+if let Some(output) = ctx.step_output("charge") {
+    return Ok(ctx.complete(output.clone()));
+}
+
+Ok(ctx.schedule_step(
+    "charge",
+    "charge_card",
+    serde_json::json!({ "invoiceId": "inv-8821" }),
+))
+```
+
+`run_step()` 执行外部副作用。成功输出只有在事件提交后才会出现在 `step_output()` 中。外部动作成功而事件尚未提交时进程退出，同一个步骤会再次交付，所以目标系统必须按业务幂等键去重。
+
+## 步骤批次
+
+`schedule_steps()` 在执行成员前持久声明完整批次。兄弟步骤可以并发推进，每个结果独立提交。
+
+```rust
+Ok(ctx.schedule_steps(vec![
+    ctx.step("load-user", "load_user", user_input),
+    ctx.step("load-orders", "load_orders", orders_input),
+]))
+```
+
+所有 ID 在重放中保持稳定。后一阶段需要批次输出时，先等所有目标步骤进入历史，再在下一次重放中安排新命令。
+
+## 固定延迟重试
+
+0.13.1 的 `RetryPolicy` 提供 `none()` 和 `fixed()`。这一版没有指数退避。
+
+```rust
+use a3s_flow::RetryPolicy;
+use std::time::Duration;
+
+let retry = RetryPolicy::fixed(3, Duration::from_secs(30));
+Ok(ctx.schedule_step_with_retry(
+    "charge",
+    "charge_card",
+    input,
+    retry,
+))
+```
+
+延迟为零的重试留在当前驱动循环。正延迟会保存 UTC 截止时间并暂停运行。`continue_workflow_on_failure()` 让耗尽结果回到工作流，代码通过 `step_failed()` 进入降级或补偿分支。
+
+## 定时等待
+
+```rust
+if ctx.wait_completed("approval-timeout") {
+    return Ok(ctx.timeout(deadline, Some("approval expired".into())));
+}
+
+Ok(ctx.wait_until("approval-timeout", deadline))
+```
+
+等待使用绝对 UTC 时间。`FlowScheduler` 通过存储查询到期等待和延迟重试，按运行合并任务后交给 `FlowTaskDispatcher`。重复调度由等待状态和事件序号安全收敛。
+
+## Hook
+
+Hook 保存稳定 `hook_id`、公开令牌和 JSON 元数据，暂停到外部载荷到达或入口被撤回。
+
+```rust
+let metadata = HookMetadata::human_approval("invoice:inv-8821")
+    .with_callback_route(HookCallbackRoute::post(
+        "/callbacks/flow/hooks/{token}",
+    ));
+
+Ok(ctx.create_hook_with_metadata(
+    "approval",
+    approval_token,
+    metadata,
+)?)
+```
+
+`resume_hook_by_token()` 只查询活动令牌。第一次解析后，可靠消费者保存运行 ID 和 Hook ID，重投调用 `resume_hook()`。相同载荷可以重复，不同载荷返回 `HookConflict`。撤回入口使用 `dispose_hook()` 或 `dispose_hook_by_token()`。
+
+## 清理式取消
+
+`request_cancellation()` 先写入请求，再让工作流进入 `Cancelling`。运行时通过 `cancellation_request()` 检查理由，安排使用独立 ID 的清理步骤，最后返回 `ctx.cancel()`。
+
+```rust
+if ctx.cancellation_request().is_some() {
+    if !ctx.step_completed("cleanup") {
+        return Ok(ctx.schedule_step(
+            "cleanup",
+            "release_resources",
+            cleanup_input,
+        ));
+    }
+    return Ok(ctx.cancel());
+}
+```
+
+`force_cancel()` 与旧名称 `cancel()` 直接形成取消终态，不运行清理。普通进程退出不调用这些方法，非终态历史留给替代 Worker。
+
+## 进度和外部子操作
+
+`record_progress()` 保存带稳定 `progress_id` 的控制面进度。`link_child_operation()` 保存由外部系统拥有的子任务关联。这两个原语都支持相同内容重投，参数变化返回冲突。
+
+外部子操作引用不会自动驱动另一个 Flow 运行，也不会传播取消。0.13.1 尚未提供第一类子工作流。
+
+## 运行版本准入
+
+`WorkflowSpec::with_runtime_build()` 把新运行固定到具体 `RuntimeBuildId`。配置 `RuntimeBuildCompatibility` 的引擎在调用运行时代码之前检查身份。
+
+`RuntimeBuildTaskRouter` 为每个固定版本注册明确派发器。调度器预检本轮全部路由，缺少任一路由时不进行部分派发。旧路由要保留到对应活动历史结束。
+
+## 该版本没有的原语
+
+0.13.1 没有命名信号等待、续段、补丁标记、第一类子工作流和图文档编译。需要外部消息时使用 Hook，长循环要由应用控制历史增长，代码改动依靠运行版本隔离。

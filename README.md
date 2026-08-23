@@ -18,7 +18,8 @@
 </p>
 
 <p align="center">
-  <a href="https://a3s-lab.github.io/Flow/">Documentation</a> &middot;
+  <a href="https://a3s-lab.github.io/Flow/">中文文档</a> &middot;
+  <a href="https://a3s-lab.github.io/Flow/en/">English documentation</a> &middot;
   <a href="#quick-start">Quick start</a> &middot;
   <a href="#execution-model">Execution model</a> &middot;
   <a href="#capability-map">Capabilities</a> &middot;

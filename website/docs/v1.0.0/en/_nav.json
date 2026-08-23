@@ -1,0 +1,51 @@
+[
+  { "text": "Get started", "link": "/guide/", "activeMatch": "^/guide/$" },
+  {
+    "text": "Durable execution",
+    "items": [
+      { "text": "Runtime boundary", "link": "/guide/runtime-contract" },
+      { "text": "Retries and waits", "link": "/guide/retries-and-waits" },
+      { "text": "Signals and hooks", "link": "/guide/signals-and-hooks" },
+      { "text": "Cancellation and cleanup", "link": "/guide/cancellation" }
+    ]
+  },
+  {
+    "text": "Core concepts",
+    "items": [
+      { "text": "Execution model", "link": "/concepts/execution-model" },
+      { "text": "Durable primitives", "link": "/concepts/durable-primitives" },
+      { "text": "Workflow graph", "link": "/concepts/workflow-dag" },
+      { "text": "Child workflows", "link": "/concepts/child-workflows" }
+    ]
+  },
+  {
+    "text": "Workflow nodes",
+    "items": [
+      { "text": "Node catalog", "link": "/nodes/" },
+      { "text": "Work and state", "link": "/nodes/work" },
+      { "text": "Suspension and input", "link": "/nodes/suspension" },
+      { "text": "Children and continuation", "link": "/nodes/composition" },
+      { "text": "Terminal nodes", "link": "/nodes/terminal" }
+    ]
+  },
+  {
+    "text": "Production",
+    "items": [
+      { "text": "Stores and migrations", "link": "/operations/persistence" },
+      { "text": "Workers and rollout", "link": "/operations/production" },
+      { "text": "Upgrade to 1.0", "link": "/operations/upgrading-to-v1" },
+      { "text": "Native TypeScript", "link": "/runtimes/native-typescript" }
+    ]
+  },
+  {
+    "text": "Reference",
+    "items": [
+      { "text": "Public API", "link": "/reference/api" },
+      { "text": "CLI commands", "link": "/reference/cli" },
+      { "text": "Agent Skill", "link": "/reference/agent-skill" },
+      { "text": "Example index", "link": "/reference/examples" },
+      { "text": "GitHub", "link": "https://github.com/A3S-Lab/Flow" },
+      { "text": "docs.rs", "link": "https://docs.rs/a3s-flow" }
+    ]
+  }
+]

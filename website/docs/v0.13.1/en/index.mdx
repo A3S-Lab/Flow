@@ -1,0 +1,46 @@
+---
+title: A3S Flow 0.13.1
+description: The 0.13.1 release snapshot for durable steps, waits, hooks, cleanup-aware cancellation, build routing, SQL stores, and native TypeScript compilation.
+---
+
+# A3S Flow 0.13.1
+
+`v0.13.1` was released on August 15, 2026 and is the final published release before 1.0. This snapshot documents only behavior present at that tag, and code examples pin dependency `0.13.1`.
+
+## Release capabilities
+
+| Area              | 0.13.1 contract                                                                         |
+| ----------------- | --------------------------------------------------------------------------------------- |
+| Durable execution | Single steps, concurrent step batches, fixed-delay retry, timer waits, and hooks        |
+| Stop control      | Cleanup-aware cancellation, immediate cancellation, timeout, and host-shutdown outcomes |
+| External linkage  | Durable progress and host-managed child-operation references                            |
+| Runtime rollout   | `RuntimeBuildId` admission and exact task routing                                       |
+| Stores            | Memory, JSONL, SQLite, and PostgreSQL                                                   |
+| Tasks             | Boot 0.2 task management and built-in queues                                            |
+| Observation       | Post-commit observers, event mapping, and local audit logs                              |
+| TypeScript        | Installable compiler, dependency-manifest mode, and native JSON invocation protocol     |
+
+Rust `FlowRuntime` still hosts workflow decisions. TypeScript is an optional native runtime adapter, while event history, workers, and scheduling remain under the Rust host.
+
+## What changed in 0.13.1
+
+This release formally published `a3s-flow-native-compiler`. The compiler uses Bun to create native executables and adds `NativeTsDependencyMode::CompilerManifest`.
+
+Manifest mode includes the complete source dependency graph, configuration files, and compiler-backend identity in artifact identity. It scans dependencies before and after every cold compile and refuses publication if the file set, contents, or backend changes.
+
+Windows artifacts use the `.exe` suffix, and source fingerprinting uses bounded heap buffers. Real Bun compile, cache, and execution tests run in Linux and Windows release workflows.
+
+## Boundary with 1.0 documentation
+
+0.13.1 does not include first-class named signals, first-class child workflows, continuation, patch markers, or workflow graph compilation added in 1.0. Exponential backoff is also absent. `RetryPolicy` supports no retry and fixed delay only.
+
+Do not copy 1.0 commands into a 0.13.1 project. After selecting this version, navigation shows only pages in this release snapshot.
+
+## Choose the next page
+
+- [Get started](/guide/) contains a minimal runnable Rust workflow.
+- [Execution model](/concepts/execution-model) explains steps, waits, hooks, and cancellation available in this release.
+- [Stores and migrations](/operations/persistence) records 0.13.1 SQL migration prefixes and retention behavior.
+- [API reference](/reference/api) lists the public types and methods at this tag.
+
+Before upgrading production durable history, switch to 1.0 and read its upgrade runbook. 0.13.1 is the final pre-release history source exercised by automated 1.0 qualification.

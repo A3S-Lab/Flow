@@ -1,0 +1,135 @@
+---
+title: Cancellation and cleanup
+description: Distinguish cleanup-aware cancellation from immediate termination while waits, retries, hooks, and child workflows remain recoverable.
+---
+
+# Cancellation and cleanup
+
+Cancelling a durable run usually has two parts. The control plane records a stop request, then workflow code reverses external state it already created. Flow 1.0 provides `request_cancellation()` for this path. Cleanup steps enter history like ordinary steps and recover after process loss.
+
+`force_cancel()` writes a terminal event immediately without invoking workflow cleanup. It fits a security response, an explicit administrative action, or an emergency where the old runtime can no longer execute.
+
+| API                      | Replays workflow | Allows durable cleanup steps | Typical use                                                     |
+| ------------------------ | ---------------- | ---------------------------- | --------------------------------------------------------------- |
+| `request_cancellation()` | Yes              | Yes                          | User withdrawal, business closure, recoverable cleanup          |
+| `force_cancel()`         | No               | No                           | Immediate administrative or security termination                |
+| `cancel()`               | No               | No                           | Retained legacy name with the same behavior as `force_cancel()` |
+
+## Handle a cancellation request in workflow code
+
+Check `cancellation_request()` before the normal path on every replay. Cleanup requires stable, distinct step IDs. Do not reschedule waits, hooks, or steps cancelled by the request.
+
+```rust
+use a3s_flow::{RetryPolicy, RuntimeCommand};
+use serde_json::json;
+
+async fn decide(
+    invocation: a3s_flow::WorkflowInvocation,
+) -> a3s_flow::Result<RuntimeCommand> {
+    let ctx = invocation.context();
+
+    if ctx.cancellation_request().is_some() {
+        if !ctx.step_completed("cleanup-export") {
+            return Ok(ctx.schedule_step_with_retry(
+                "cleanup-export",
+                "cleanupExport",
+                json!({
+                    "idempotencyKey": format!(
+                        "{}:cleanup-export",
+                        ctx.run_id(),
+                    ),
+                }),
+                RetryPolicy::none(),
+            ));
+        }
+        return Ok(ctx.cancel());
+    }
+
+    // Continue the normal path.
+    # Ok(ctx.complete(json!({})))
+}
+```
+
+`ctx.cancel()` is valid only after the run has a cancellation request. Return it after cleanup succeeds, and Flow writes the `Cancelled` terminal outcome. Cleanup may return `ctx.fail()` instead when it cannot restore a safe state.
+
+## Request cleanup-aware cancellation
+
+```rust
+use a3s_flow::CancellationRequest;
+
+let snapshot = engine
+    .request_cancellation(
+        "export-2026-0001",
+        CancellationRequest::new(Some(
+            "user withdrew the export".to_string(),
+        )),
+    )
+    .await?;
+```
+
+Flow commits the request and reason before replay. Repeating the identical request is idempotent. Changing the reason returns `RunConflict`. If the supplied ID belongs to an earlier continuation segment, Flow repairs and follows durable links before delivering the request to the active leaf.
+
+After the cancellation event commits, Flow applies these rules.
+
+1. Timer waits created before the request leave due-work scans.
+2. Active hooks and signal waits become cancelled, so late callbacks cannot resume the run.
+3. Running or retrying steps stop advancing the original business branch.
+4. The run enters `Cancelling` and replays the cleanup branch.
+5. First-class children using `RequestCancellation` receive a durable cancellation request.
+
+Cancellation cannot undo a physical side effect that already happened. Cleanup steps supplied by the host still need idempotency.
+
+## Design idempotency keys for cleanup
+
+Cleanup steps also have at-least-once delivery. A process can exit after an external deletion succeeds but before `StepCompleted` commits. Derive each key from stable run and resource identity.
+
+```text
+export-2026-0001:cleanup-export
+invoice-2026-0137:void-reservation:reservation-8821
+```
+
+The external API should treat matching keys and parameters as the same operation. Workflow code returns `ctx.cancel()` only after the cleanup output is present in Flow history.
+
+## Child workflow policy
+
+First-class children use `ChildWorkflowCancellationPolicy::RequestCancellation` by default. The parent waits for those children to cancel or fail before completing its own cleanup.
+
+Use `Abandon` only when the child must remain independently owned.
+
+```rust
+use a3s_flow::ChildWorkflowCancellationPolicy;
+
+Ok(ctx.start_child_workflow_with_policy(
+    "detached-export",
+    export_spec,
+    export_input,
+    ChildWorkflowCancellationPolicy::Abandon,
+))
+```
+
+`Abandon` changes cancellation propagation only. During ordinary execution the parent still waits for the child result. Before selecting it, ensure abandoned runs have an independent owner, monitoring, and termination path.
+
+## When to terminate immediately
+
+```rust
+engine
+    .force_cancel(
+        "export-2026-0001",
+        Some("security incident".to_string()),
+    )
+    .await?;
+```
+
+Immediate termination does not call `FlowRuntime`. Active waits, hooks, and steps become non-actionable. Children using request cancellation are force-cancelled. An operational compensation process must still handle temporary resources in external systems.
+
+Ordinary process shutdown should not call `force_cancel()` or `terminate_for_host_shutdown()`. Durable runs should remain non-terminal and resume on replacement processes. Use the host-shutdown terminal outcome only when host policy declares that a run will never resume.
+
+## Operational checks
+
+- Monitor runs that remain in `Cancelling` and expose the active cleanup step.
+- Define a stable idempotency key and manual compensation note for every cleanup effect.
+- Authorize immediate termination separately and audit its operator and reason.
+- Make due-work scans and callback endpoints handle cancelled waits correctly.
+- Show cancellation policy and unfinished children in parent-child monitoring.
+
+Run `cargo run --example cancellation` for the complete program in `examples/cancellation.rs`.

@@ -1,0 +1,179 @@
+---
+title: Work and state nodes
+description: Detailed properties, retries, output reads, and replay constraints for single steps, step batches, progress updates, and external child-operation references.
+---
+
+# Work and state nodes
+
+These nodes execute host actions or record control-plane state. A step may call a network service, database, or tool. Workflow replay code only returns commands and reads results that history has already committed.
+
+## Single step `ScheduleStep`
+
+Use a single step for one external action that needs an independent result, retry policy, and audit identity. `ctx.schedule_step()` uses the default retry policy. `ctx.schedule_step_with_retry()` accepts an explicit policy.
+
+| Property    | Type          | Required | Rule                                                               |
+| ----------- | ------------- | -------- | ------------------------------------------------------------------ |
+| `step_id`   | `String`      | Yes      | Stable within this run and reused on every replay                  |
+| `step_name` | `String`      | Yes      | Selects an implementation in the host's `run_step()`               |
+| `input`     | JSON          | Yes      | Complete input is persisted and compared by value on replay        |
+| `retry`     | `RetryPolicy` | No       | Defaults to three immediate attempts and run failure on exhaustion |
+
+```rust
+if let Some(receipt) = ctx.step_output("charge-order") {
+    return Ok(ctx.complete(receipt.clone()));
+}
+
+Ok(ctx.schedule_step_with_retry(
+    "charge-order",
+    "billing.charge",
+    json!({
+        "order_id": ctx.input()["order_id"],
+        "amount": ctx.input()["amount"],
+    }),
+    RetryPolicy::exponential(
+        6,
+        Duration::from_secs(1),
+        Duration::from_secs(30),
+    ),
+))
+```
+
+`run_step()` receives a `StepInvocation`. Derive an external idempotency key from `run_id`, `step_id`, and `attempt`. A process may exit after the external action succeeds and before `StepCompleted` commits. Flow redelivers the same attempt across that boundary.
+
+```rust
+async fn run_step(
+    &self,
+    invocation: StepInvocation,
+) -> a3s_flow::Result<serde_json::Value> {
+    match invocation.step_name.as_str() {
+        "billing.charge" => {
+            let key = format!(
+                "{}:{}",
+                invocation.run_id,
+                invocation.step_id,
+            );
+            self.billing.charge(key, invocation.input).await
+        }
+        name => Err(FlowError::Runtime(format!("unknown step {name}"))),
+    }
+}
+```
+
+After a step completes or fails, workflow code must inspect the terminal state and advance to another decision. Returning the same terminal step yields `InvalidTransition`. Changing the step name, input, or retry policy behind one `step_id` yields `NonDeterministic`.
+
+### Retry properties
+
+| Property       | JSON value                        | Meaning                                                                   |
+| -------------- | --------------------------------- | ------------------------------------------------------------------------- |
+| `max_attempts` | Positive integer                  | Total attempts including the first; constructors clamp it to at least 1   |
+| `delay_ms`     | Non-negative integer              | Fixed delay or initial exponential cap                                    |
+| `backoff`      | `fixed` or `exponential`          | Defaults to fixed when omitted                                            |
+| `max_delay_ms` | Non-negative integer              | Must be 0 for fixed policy and at least `delay_ms` for exponential policy |
+| `on_exhausted` | `fail_run` or `continue_workflow` | End the run or replay workflow code to choose a fallback                  |
+
+`RetryPolicy::none()` allows one attempt. `fixed()` reuses one delay. `exponential()` grows a cap by attempt and selects deterministic full jitter from run, step, and attempt identities. A restart keeps the same durable deadline.
+
+```rust
+let retry = RetryPolicy::fixed(4, Duration::from_secs(5))
+    .continue_workflow_on_failure();
+
+Ok(ctx.schedule_step_with_retry(
+    "lookup-inventory",
+    "inventory.lookup",
+    input,
+    retry,
+))
+```
+
+With `continue_workflow`, inspect `ctx.step_failed("lookup-inventory")` after exhaustion and return a compensation step, human hook, or explicit failure.
+
+## Step batch `ScheduleSteps`
+
+Use a batch for independent actions that can advance concurrently. A batch contains at least one member. Every `step_id` must be non-empty and unique within that batch. Each member has the same four properties as a single step.
+
+```rust
+let steps = items
+    .iter()
+    .enumerate()
+    .map(|(index, item)| {
+        ctx.step_with_retry(
+            format!("price-{index:04}"),
+            "catalog.price",
+            json!({ "sku": item["sku"] }),
+            RetryPolicy::fixed(3, Duration::from_millis(250)),
+        )
+    })
+    .collect();
+
+Ok(ctx.schedule_steps(steps))
+```
+
+The engine commits `StepCreated` for every new member in declaration order before any side effect starts. Ready members execute concurrently, and each result commits when it settles. Aggregate outputs by stable `step_id`, never by completion order.
+
+Flow 1.0 publishes no step-batch member cap. The host should use bounded windows based on output size, event count, external rate limits, and replay cost. Emit the next window from a deterministic index only after the previous window reaches terminal member states.
+
+A member waiting for a delayed retry does not block siblings that are ready. Once every member is completed, failed, or cancelled, workflow code must advance instead of submitting only the same terminal members again.
+
+## Progress `RecordProgress`
+
+Progress is append-only control-plane state and does not execute a step. Use it for stable milestones, completed counts, and inspectable operator messages.
+
+| Property      | Type     | Required | Rule                                                      |
+| ------------- | -------- | -------- | --------------------------------------------------------- |
+| `progress_id` | `String` | Yes      | Non-empty and used once in a run                          |
+| `completed`   | `u64`    | Yes      | Completed unit count                                      |
+| `total`       | `u64`    | No       | Greater than 0 and not less than `completed` when present |
+| `message`     | `String` | No       | Short operator-facing description                         |
+| `details`     | JSON     | No       | Structured details, defaulting to `null`                  |
+
+```rust
+if ctx.progress("catalog-page-0002").is_none() {
+    let progress = WorkflowProgress::new("catalog-page-0002", 200)
+        .with_total(1_000)
+        .with_message("Catalog pages 1 and 2 committed")
+        .with_details(json!({ "last_cursor": "sku-0200" }));
+    return Ok(ctx.record_progress(progress));
+}
+```
+
+The engine replays immediately after committing progress. Check `ctx.progress(progress_id)` before advancing. Returning an existing equal update still means replay made no progress. Changing the value behind an existing ID is non-deterministic.
+
+Progress details become durable history. Store business state or immutable object references, not credentials, access tokens, or large content.
+
+## External operation reference `LinkChildOperation`
+
+This node records a long-running job managed by another system, such as a render, import, or external batch. It stores linkage only. It does not start, await, or automatically cancel that operation.
+
+| Property       | Type     | Required | Rule                                                                         |
+| -------------- | -------- | -------- | ---------------------------------------------------------------------------- |
+| `reference_id` | `String` | Yes      | Stable and non-empty inside the parent run                                   |
+| `kind`         | `String` | Yes      | Application operation category such as `render-job`                          |
+| `operation_id` | `String` | Yes      | Identity assigned by the external owner                                      |
+| `flow_run_id`  | `String` | No       | Set when the operation maps to another Flow run; an empty string is rejected |
+| `metadata`     | JSON     | No       | Application metadata, defaulting to `null`                                   |
+
+```rust
+if ctx.child_operation("render-invoice").is_none() {
+    let child = ChildOperationReference::new(
+        "render-invoice",
+        "render-job",
+        ctx.input()["job_id"].as_str().unwrap_or_default(),
+    )
+    .with_metadata(json!({ "document": "invoice" }));
+
+    return Ok(ctx.link_child_operation(child));
+}
+```
+
+Read the committed reference and advance on the following replay. Use separate steps or hooks to create, poll, cancel, and collect the external operation. Use a [first-class child workflow](./composition.mdx) when Flow must own lifecycle and parent cancellation.
+
+## Selection guide
+
+| Need                                           | Choose                       |
+| ---------------------------------------------- | ---------------------------- |
+| Execute one external action and persist output | Single step                  |
+| Advance a bounded set of independent actions   | Step batch                   |
+| Add an inspectable run milestone               | Progress                     |
+| Another system already owns the job lifecycle  | External operation reference |
+
+Every node must lead to an observable state change. Replay code reads history first, then decides whether that node still needs to be returned.

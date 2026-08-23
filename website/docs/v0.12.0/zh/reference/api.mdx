@@ -1,0 +1,159 @@
+---
+title: 0.12.0 API 参考
+description: 按引擎、运行时、命令、存储、任务、观察和 TypeScript 适配器查找 0.12.0 公开接口。
+---
+
+# 0.12.0 API 参考
+
+本页对应 Git 标签 `v0.12.0`。完整签名见 [docs.rs 0.12.0](https://docs.rs/a3s-flow/0.12.0/a3s_flow/)。
+
+## 功能开关
+
+| 功能        | 默认 | 入口                                 |
+| ----------- | ---- | ------------------------------------ |
+| `native-ts` | 是   | `NativeTsRuntime` 和 v1 JSON 协议    |
+| `sqlite`    | 否   | `SqliteEventStore` 与历史保留        |
+| `postgres`  | 否   | `PostgresEventStore`、任务队列与保留 |
+| `boot`      | 否   | `BootFlowTaskManager` 与任务策略     |
+| `a3s-event` | 否   | 提交后事件 Sink                      |
+
+## `FlowEngine`
+
+构造入口包括 `in_memory()`、`new(store, runtime)` 和 `builder(runtime)`。构建器支持存储、观察者、`RuntimeBuildCompatibility` 与最大重放次数。
+
+| 方法组   | 方法                                                                                                               |
+| -------- | ------------------------------------------------------------------------------------------------------------------ |
+| 创建     | `start()`、`start_with_id()`                                                                                       |
+| 驱动     | `drive()`、`resume_wait()`、`resume_scheduled_run()`                                                               |
+| 到期工作 | `list_due_waits()`、`list_due_retries()`、`list_due_wakeups()`、`resume_due_waits()`、`resume_due_retries()`       |
+| 检查     | `snapshot()`、`history()`、`list_run_ids()`、`list_snapshots()`、`run_summary()`                                   |
+| 暂停     | `list_open_suspensions()`、`next_wakeup()`、`list_active_hooks()`                                                  |
+| Hook     | `resume_hook()`、`resume_hook_by_token()`、`dispose_hook()`、`dispose_hook_by_token()`                             |
+| 停止     | `request_cancellation()`、`force_cancel()`、`cancel()`、`terminate_for_timeout()`、`terminate_for_host_shutdown()` |
+| 控制面   | `record_progress()`、`link_child_operation()`                                                                      |
+
+`start_with_id()` 在运行 ID、定义和输入相同时幂等。不同内容返回 `RunConflict`。
+
+## `FlowRuntime`
+
+```rust
+#[async_trait::async_trait]
+pub trait FlowRuntime: Send + Sync {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> Result<RuntimeCommand>;
+
+    async fn run_step(
+        &self,
+        invocation: StepInvocation,
+    ) -> Result<JsonValue>;
+}
+```
+
+`WorkflowInvocation` 保存运行 ID、定义、输入和历史，并通过 `context()` 创建辅助视图。`StepInvocation` 保存运行 ID、步骤 ID、处理器名、输入和历史。
+
+## 上下文读取
+
+| 方法                                  | 读取内容       |
+| ------------------------------------- | -------------- |
+| `run_id()`、`input()`、`input_as()`   | 运行与输入     |
+| `history()`                           | 完整事件包络   |
+| `step_output()`、`step_output_as()`   | 成功步骤输出   |
+| `step_completed()`、`step_failed()`   | 步骤结果       |
+| `wait_completed()`                    | 等待是否完成   |
+| `hook_payload()`、`hook_payload_as()` | Hook 载荷      |
+| `hook_disposed()`                     | Hook 是否撤回  |
+| `cancellation_request()`              | 取消请求       |
+| `progress()`                          | 持久进度       |
+| `child_operation()`                   | 外部子操作关联 |
+
+没有信号、第一类子运行、续段和补丁读取方法。
+
+## 运行时命令
+
+0.12.0 的 `RuntimeCommand` 变体是完整封闭集合。
+
+| 变体                 | 上下文构造器                                      |
+| -------------------- | ------------------------------------------------- |
+| `Complete`           | `complete()`                                      |
+| `Fail`               | `fail()`                                          |
+| `Cancel`             | `cancel()`                                        |
+| `Timeout`            | `timeout()`                                       |
+| `RecordProgress`     | `record_progress()`                               |
+| `LinkChildOperation` | `link_child_operation()`                          |
+| `ScheduleStep`       | `schedule_step()`、`schedule_step_with_retry()`   |
+| `ScheduleSteps`      | `step()`、`step_with_retry()`、`schedule_steps()` |
+| `WaitUntil`          | `wait_until()`                                    |
+| `CreateHook`         | `create_hook()`、`create_hook_with_metadata()`    |
+
+## 重试
+
+`RetryPolicy::none()` 只执行一次。`RetryPolicy::fixed(max_attempts, delay)` 使用固定等待。`continue_workflow_on_failure()` 将耗尽状态留给工作流处理。
+
+`StepCommand::new()` 与 `with_retry()` 构造批次成员。这个版本没有指数退避类型。
+
+## 定义和快照
+
+`WorkflowSpec` 包含名称、定义版本和 `RuntimeSpec`，并可通过 `with_runtime_build()` 固定 `RuntimeBuildId`。`RuntimeBuildCompatibility` 描述 Worker 可接受版本。
+
+`WorkflowRunSnapshot` 汇总 `WorkflowRunStatus`、步骤、等待、Hook、取消、进度、外部子操作和 `WorkflowTerminalOutcome`。子投影包括 `StepSnapshot`、`WaitSnapshot`、`HookSnapshot` 和 `ScheduledWakeup`。
+
+`HookMetadata` 与 `HookCallbackRoute` 是回调审计和宿主路由元数据。它们不会创建 HTTP 服务。
+
+## 存储
+
+`FlowEventStore` 要求追加、预期序号追加、按序完整读取和运行枚举。活动 Hook 和定时唤醒有公开查询契约。
+
+| 类型                                      | 功能                   |
+| ----------------------------------------- | ---------------------- |
+| `InMemoryEventStore`                      | 无                     |
+| `LocalFileEventStore`                     | 无                     |
+| `SqliteEventStore`                        | `sqlite`               |
+| `PostgresEventStore`                      | `postgres`             |
+| `FlowHistoryRetentionPolicy`              | `sqlite` 或 `postgres` |
+| `FlowHistoryHold`、`FlowHistoryTombstone` | `sqlite` 或 `postgres` |
+
+SQL 后端在 `connect()` 时迁移。0.12.0 没有独立 PostgreSQL 迁移或只验证构造器。
+
+## 调度与任务
+
+`FlowScheduler` 提供 `next_wakeup()`、`next_wakeup_delay()` 和 `enqueue_due_work()`。`FlowSchedulerTick` 返回到期等待、到期重试和派发数量。
+
+任务层公开 `FlowTask`、`FlowTaskDispatcher`、`FlowTaskQueue`、`FlowTaskLease`、`FlowTaskOutcome` 和 `FlowWorker`。
+
+内置队列包括 `InMemoryFlowTaskQueue`、`LocalFileFlowTaskQueue` 和可选 `PostgresFlowTaskQueue`。`RuntimeBuildTaskRouter` 按固定版本选择派发器。`BootFlowTaskManager` 需要 `boot` 功能。
+
+## 观察
+
+`FlowEventObserver` 接收提交后的事件。公开实现和适配器包括 `NoopFlowEventObserver`、`InMemoryFlowEventObserver`、`FanoutFlowEventObserver`、`LocalFileA3sFlowEventSink`、`A3sFlowEventBridge` 和内存 Sink。
+
+观察结果不能反向决定工作流状态。运行 ID 和 Hook 令牌不适合作为指标标签。
+
+## 原生 TypeScript
+
+| 类型                                            | 用途                           |
+| ----------------------------------------------- | ------------------------------ |
+| `NativeTsRuntimeConfig`                         | 编译器、缓存与工作目录         |
+| `NativeTsRuntime`                               | 编译并调用原生制品             |
+| `NativeTsRuntimePreflight`                      | 入口、制品、源码摘要与缓存命中 |
+| `NativeRuntimeRequest`、`NativeRuntimeResponse` | `a3s.flow.native_ts.v1` 协议   |
+| `NativeRuntimeKind`                             | 工作流或步骤调用类别           |
+
+`NativeTsRuntime` 支持输出上限、编译超时、调用超时和 `preflight()`。0.12.0 没有 `NativeTsDependencyMode`、编译器能力协议或依赖清单类型。
+
+宿主提供的编译器必须接受 `compile <entrypoint> -o <artifact>`，制品接受 `--a3s-flow-runtime` 并通过标准输入输出交换 JSON。
+
+## 错误分类
+
+| 错误                        | 处理方向                     |
+| --------------------------- | ---------------------------- |
+| `EventConflict`             | 并发写入已获胜，重新读取历史 |
+| `RunConflict`               | 调用方复用了不同运行权威     |
+| `NonDeterministic`          | 工作流代码与持久决定漂移     |
+| `HookConflict`              | 回调载荷或结束方式冲突       |
+| `RuntimeBuildUnavailable`   | 当前 Worker 不接受运行版本   |
+| `RuntimeBuildRouteNotFound` | 任务路由缺少目标版本         |
+| `ReplayLimitExceeded`       | 一次驱动超过安全上限         |
+
+身份、重放和版本错误需要修正配置或代码，不能当作普通暂时故障无限重试。

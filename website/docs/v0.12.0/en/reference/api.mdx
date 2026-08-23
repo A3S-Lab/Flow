@@ -1,0 +1,159 @@
+---
+title: 0.12.0 API reference
+description: Find the 0.12.0 public surface by engine, runtime, commands, stores, tasks, observation, and TypeScript adapter.
+---
+
+# 0.12.0 API reference
+
+This page corresponds to Git tag `v0.12.0`. See [docs.rs 0.12.0](https://docs.rs/a3s-flow/0.12.0/a3s_flow/) for complete signatures.
+
+## Feature flags
+
+| Feature     | Default | Entry points                                    |
+| ----------- | ------- | ----------------------------------------------- |
+| `native-ts` | Yes     | `NativeTsRuntime` and v1 JSON protocol          |
+| `sqlite`    | No      | `SqliteEventStore` and retention                |
+| `postgres`  | No      | `PostgresEventStore`, task queue, and retention |
+| `boot`      | No      | `BootFlowTaskManager` and task policy           |
+| `a3s-event` | No      | Post-commit event sink                          |
+
+## `FlowEngine`
+
+Construction uses `in_memory()`, `new(store, runtime)`, or `builder(runtime)`. The builder configures store, observer, `RuntimeBuildCompatibility`, and maximum replay iterations.
+
+| Method group  | Methods                                                                                                            |
+| ------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Create        | `start()`, `start_with_id()`                                                                                       |
+| Drive         | `drive()`, `resume_wait()`, `resume_scheduled_run()`                                                               |
+| Due work      | `list_due_waits()`, `list_due_retries()`, `list_due_wakeups()`, `resume_due_waits()`, `resume_due_retries()`       |
+| Inspect       | `snapshot()`, `history()`, `list_run_ids()`, `list_snapshots()`, `run_summary()`                                   |
+| Suspend       | `list_open_suspensions()`, `next_wakeup()`, `list_active_hooks()`                                                  |
+| Hooks         | `resume_hook()`, `resume_hook_by_token()`, `dispose_hook()`, `dispose_hook_by_token()`                             |
+| Stop          | `request_cancellation()`, `force_cancel()`, `cancel()`, `terminate_for_timeout()`, `terminate_for_host_shutdown()` |
+| Control plane | `record_progress()`, `link_child_operation()`                                                                      |
+
+`start_with_id()` is idempotent when run ID, definition, and input match. Changed authority returns `RunConflict`.
+
+## `FlowRuntime`
+
+```rust
+#[async_trait::async_trait]
+pub trait FlowRuntime: Send + Sync {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> Result<RuntimeCommand>;
+
+    async fn run_step(
+        &self,
+        invocation: StepInvocation,
+    ) -> Result<JsonValue>;
+}
+```
+
+`WorkflowInvocation` carries run ID, definition, input, and history and creates a helper through `context()`. `StepInvocation` carries run ID, step ID, handler name, input, and history.
+
+## Context reads
+
+| Method                                | Reads                         |
+| ------------------------------------- | ----------------------------- |
+| `run_id()`, `input()`, `input_as()`   | Run and input                 |
+| `history()`                           | Complete event envelopes      |
+| `step_output()`, `step_output_as()`   | Successful step output        |
+| `step_completed()`, `step_failed()`   | Step result                   |
+| `wait_completed()`                    | Wait completion               |
+| `hook_payload()`, `hook_payload_as()` | Hook payload                  |
+| `hook_disposed()`                     | Hook disposal                 |
+| `cancellation_request()`              | Cancellation request          |
+| `progress()`                          | Durable progress              |
+| `child_operation()`                   | External child-operation link |
+
+There are no signal, first-class child, continuation, or patch query methods.
+
+## Runtime commands
+
+The 0.12.0 `RuntimeCommand` variants form the complete closed set.
+
+| Variant              | Context builder                                   |
+| -------------------- | ------------------------------------------------- |
+| `Complete`           | `complete()`                                      |
+| `Fail`               | `fail()`                                          |
+| `Cancel`             | `cancel()`                                        |
+| `Timeout`            | `timeout()`                                       |
+| `RecordProgress`     | `record_progress()`                               |
+| `LinkChildOperation` | `link_child_operation()`                          |
+| `ScheduleStep`       | `schedule_step()`, `schedule_step_with_retry()`   |
+| `ScheduleSteps`      | `step()`, `step_with_retry()`, `schedule_steps()` |
+| `WaitUntil`          | `wait_until()`                                    |
+| `CreateHook`         | `create_hook()`, `create_hook_with_metadata()`    |
+
+## Retry
+
+`RetryPolicy::none()` runs once. `RetryPolicy::fixed(max_attempts, delay)` uses fixed delay. `continue_workflow_on_failure()` leaves exhaustion for workflow handling.
+
+`StepCommand::new()` and `with_retry()` construct batch members. This release has no exponential backoff type.
+
+## Definitions and snapshots
+
+`WorkflowSpec` contains name, definition version, and `RuntimeSpec` and may pin `RuntimeBuildId` through `with_runtime_build()`. `RuntimeBuildCompatibility` describes builds admitted by a worker.
+
+`WorkflowRunSnapshot` aggregates `WorkflowRunStatus`, steps, waits, hooks, cancellation, progress, external child operations, and `WorkflowTerminalOutcome`. Child projections include `StepSnapshot`, `WaitSnapshot`, `HookSnapshot`, and `ScheduledWakeup`.
+
+`HookMetadata` and `HookCallbackRoute` provide callback audit and host routing metadata. They do not create an HTTP server.
+
+## Stores
+
+`FlowEventStore` requires append, expected-sequence append, ordered complete list, and run enumeration. Active-hook and scheduled-wakeup lookups are public contracts.
+
+| Type                                      | Feature                |
+| ----------------------------------------- | ---------------------- |
+| `InMemoryEventStore`                      | None                   |
+| `LocalFileEventStore`                     | None                   |
+| `SqliteEventStore`                        | `sqlite`               |
+| `PostgresEventStore`                      | `postgres`             |
+| `FlowHistoryRetentionPolicy`              | `sqlite` or `postgres` |
+| `FlowHistoryHold`, `FlowHistoryTombstone` | `sqlite` or `postgres` |
+
+SQL backends migrate in `connect()`. 0.12.0 has no separate PostgreSQL migration or verify-only constructors.
+
+## Scheduling and tasks
+
+`FlowScheduler` provides `next_wakeup()`, `next_wakeup_delay()`, and `enqueue_due_work()`. `FlowSchedulerTick` returns due waits, due retries, and dispatch count.
+
+The task layer exposes `FlowTask`, `FlowTaskDispatcher`, `FlowTaskQueue`, `FlowTaskLease`, `FlowTaskOutcome`, and `FlowWorker`.
+
+Built-in queues are `InMemoryFlowTaskQueue`, `LocalFileFlowTaskQueue`, and optional `PostgresFlowTaskQueue`. `RuntimeBuildTaskRouter` selects a dispatcher by pinned build. `BootFlowTaskManager` requires the `boot` feature.
+
+## Observation
+
+`FlowEventObserver` receives events after commit. Public implementations and adapters include `NoopFlowEventObserver`, `InMemoryFlowEventObserver`, `FanoutFlowEventObserver`, `LocalFileA3sFlowEventSink`, `A3sFlowEventBridge`, and the in-memory sink.
+
+Observation output cannot decide workflow state. Run IDs and hook tokens do not belong in metric dimensions.
+
+## Native TypeScript
+
+| Type                                            | Purpose                                          |
+| ----------------------------------------------- | ------------------------------------------------ |
+| `NativeTsRuntimeConfig`                         | Compiler, cache, and working directories         |
+| `NativeTsRuntime`                               | Compile and invoke native artifacts              |
+| `NativeTsRuntimePreflight`                      | Entrypoint, artifact, source hash, and cache hit |
+| `NativeRuntimeRequest`, `NativeRuntimeResponse` | `a3s.flow.native_ts.v1` protocol                 |
+| `NativeRuntimeKind`                             | Workflow or step invocation kind                 |
+
+`NativeTsRuntime` supports output limits, compilation timeout, invocation timeout, and `preflight()`. 0.12.0 has no `NativeTsDependencyMode`, compiler-capability protocol, or dependency-manifest type.
+
+The host-supplied compiler accepts `compile <entrypoint> -o <artifact>`. The artifact accepts `--a3s-flow-runtime` and exchanges JSON over standard input and output.
+
+## Error categories
+
+| Error                       | Response                                     |
+| --------------------------- | -------------------------------------------- |
+| `EventConflict`             | Another append won, so reread history        |
+| `RunConflict`               | Caller reused a different run authority      |
+| `NonDeterministic`          | Workflow code drifted from durable decisions |
+| `HookConflict`              | Callback payload or resolution conflicts     |
+| `RuntimeBuildUnavailable`   | Current worker does not admit the run build  |
+| `RuntimeBuildRouteNotFound` | Task routing lacks the target build          |
+| `ReplayLimitExceeded`       | One drive exceeded its safety bound          |
+
+Identity, replay, and build errors require corrected configuration or code. Do not retry them indefinitely as transient failures.

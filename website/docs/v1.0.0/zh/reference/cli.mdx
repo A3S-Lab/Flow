@@ -1,0 +1,176 @@
+---
+title: CLI 命令
+description: a3s-flow-native-compiler 的安装、命令参数、JSON 输出、环境变量、退出码和常见失败处理。
+---
+
+# CLI 命令
+
+Flow 1.0 发布一个命令行程序 `a3s-flow-native-compiler`。它负责分析原生 TypeScript 入口的依赖，并把入口编译成宿主可以调用的本机可执行文件。创建运行、投递信号、恢复 Hook 与检查历史仍通过 Rust API 完成。
+
+## 安装条件
+
+安装需要 Rust 工具链与 Cargo。编译器调用 Bun，默认从 `PATH` 查找 `bun`。
+
+```sh
+cargo install a3s-flow --version 1.0.0 --locked \
+  --bin a3s-flow-native-compiler
+
+a3s-flow-native-compiler --version
+a3s-flow-native-compiler --help
+```
+
+生产镜像应固定 crate 版本、使用 `--locked`，并固定经过审核的 Bun 二进制。Flow 会把 Bun 可执行文件内容纳入编译器身份，依赖扫描期间该文件发生变化会使命令失败。
+
+## 命令总览
+
+```text
+a3s-flow-native-compiler capabilities
+a3s-flow-native-compiler dependencies <entrypoint.ts>
+a3s-flow-native-compiler compile <entrypoint.ts> -o <artifact>
+```
+
+| 命令           | 标准输出           | 文件改动                       |
+| -------------- | ------------------ | ------------------------------ |
+| `capabilities` | 一行 JSON 能力声明 | 无                             |
+| `dependencies` | 一行 JSON 依赖清单 | 只使用受控临时目录，结束时清理 |
+| `compile`      | 成功时无输出       | 在指定路径创建一个新制品       |
+| `--help`       | 帮助文本           | 无                             |
+| `--version`    | crate 版本         | 无                             |
+
+不带参数时会打印帮助并以成功状态退出。`-h` 与 `help` 等同于 `--help`，`-V` 与 `version` 等同于 `--version`。公开命令面是封闭的，多余参数和替代写法会被拒绝。
+
+## `capabilities`
+
+这个命令供宿主在接受源码前确认编译器协议。
+
+```sh
+a3s-flow-native-compiler capabilities
+```
+
+1.0.0 输出以下结构。
+
+```json
+{
+  "protocol": "a3s.flow.native_ts.compiler.v1",
+  "dependencyManifest": true
+}
+```
+
+| 字段                 | 含义                                 |
+| -------------------- | ------------------------------------ |
+| `protocol`           | 编译器命令协议，宿主必须按精确值检查 |
+| `dependencyManifest` | 当前二进制是否支持 `dependencies`    |
+
+能力不匹配时应在部署准入阶段停止，不能先创建运行再等待重放失败。
+
+## `dependencies`
+
+依赖命令让 Bun 解析入口及其完整源码图。
+
+```sh
+a3s-flow-native-compiler dependencies src/workflows/order.ts
+```
+
+它会向标准输出写一行紧凑 JSON，末尾带换行。
+
+```json
+{
+  "protocol": "a3s.flow.native_ts.dependencies.v1",
+  "compilerIdentity": "bun-sha256:...",
+  "files": [
+    "package.json",
+    "src/shared/money.ts",
+    "src/workflows/order.ts",
+    "tsconfig.json"
+  ]
+}
+```
+
+| 字段               | 规则                                                  |
+| ------------------ | ----------------------------------------------------- |
+| `protocol`         | 固定为依赖清单协议 v1                                 |
+| `compilerIdentity` | 根据实际 Bun 可执行文件生成的不透明身份               |
+| `files`            | 相对当前工作目录、UTF-8、使用正斜线、严格排序且不重复 |
+
+清单必须包含入口与 Bun 报告的每个源文件。编译器还会沿每个源文件的父目录查找 `bun.lock`、`bun.lockb`、`bunfig.toml`、`package.json` 与 `tsconfig.json`，找到的配置也进入清单。文件在扫描期间发生大小变化会使命令失败。
+
+入口及所有解析出的依赖都必须位于当前工作目录内。绝对入口虽然可以传入，规范化后的文件仍要落在该目录。符号链接逃逸、目录入口、无法用 UTF-8 表示的路径与不可移植路径组件都会被拒绝。
+
+宿主的 `NativeTsRuntime` 会继续检查清单规模、路径长度、遍历片段、排序、重复项和入口覆盖。通过检查的清单参与源码哈希与制品缓存身份。
+
+## `compile`
+
+编译命令生成一个本机可执行制品。
+
+```sh
+mkdir -p .a3s/flow/native-ts
+
+a3s-flow-native-compiler compile \
+  src/workflows/order.ts \
+  -o .a3s/flow/native-ts/order-workflow
+```
+
+参数顺序是固定的。输出选项只能写成 `-o <artifact>`。输出目录必须已经存在，目标文件必须尚不存在。编译器拒绝覆盖文件，避免两个冷缓存进程把不同内容写到同一路径。
+
+成功的制品满足下面的运行协议。
+
+- 接受 `--a3s-flow-runtime` 参数。
+- 从标准输入读取一个 `NativeRuntimeRequest` JSON 对象。
+- 向标准输出写一个 `NativeRuntimeResponse` JSON 对象。
+- 工作流请求按 `exportName` 查找导出函数。
+- 步骤请求先从导出的 `steps` 对象按 `payload.step_name` 查找，随后尝试同名顶层导出。
+
+处理函数可以同步返回，也可以返回 Promise。`undefined` 会转换为 JSON `null`。运行时错误会进入 `ok: false` 响应，错误文字最多保留 4096 个字符。
+
+编译过程使用 Bun 的编译模式并打包依赖。它禁用制品运行时自动加载 dotenv、Bun 配置、TypeScript 配置和 `package.json`，运行结果因此只受已经打包的源码图与请求影响。
+
+## 工作目录
+
+两个源码命令都以进程当前目录作为安全边界和逻辑路径根。应从 TypeScript 项目根目录执行，让入口、锁文件和配置拥有稳定相对路径。
+
+```sh
+cd services/order-workflows
+a3s-flow-native-compiler dependencies src/main.ts
+```
+
+CI 与生产构建需要使用相同目录布局。移动项目根目录不会改变清单里的相对文件名，但遗漏锁文件或配置会改变源码图和缓存身份。
+
+## `A3S_FLOW_BUN`
+
+当 `bun` 不在 `PATH`，或宿主要求固定绝对路径时，设置 `A3S_FLOW_BUN`。
+
+```sh
+A3S_FLOW_BUN=/opt/a3s/toolchain/bin/bun \
+  a3s-flow-native-compiler dependencies src/main.ts
+
+A3S_FLOW_BUN=/opt/a3s/toolchain/bin/bun \
+  a3s-flow-native-compiler compile src/main.ts -o build/workflow
+```
+
+变量可以是 `PATH` 中的命令名，也可以是包含目录的路径。编译器会解析为常规可执行文件，读取其内容指纹，并在命令结束前再次核对文件元数据。
+
+## 退出码与诊断
+
+| 退出码 | 含义                                | 输出位置                                        |
+| ------ | ----------------------------------- | ----------------------------------------------- |
+| `0`    | 命令成功，或无参数打印帮助          | 命令结果写入标准输出                            |
+| `2`    | 参数、文件、Bun、依赖扫描或编译失败 | `a3s-flow-native-compiler` 前缀诊断写入标准错误 |
+
+Bun 的诊断直接写入标准错误。编译器随后补充退出状态与实际 Bun 路径。调用脚本应根据退出码判断结果，不能解析某一句可能随底层工具变化的错误文字。
+
+父进程停止或取消编译器时，监督进程会终止并回收 Bun。临时工作目录有独立清理守卫，正常结束和父进程断开都会尝试删除。失败的编译输出也会被移除。
+
+## 常见失败
+
+| 诊断特征                           | 原因                            | 处理方式                                       |
+| ---------------------------------- | ------------------------------- | ---------------------------------------------- |
+| `unknown command`                  | 命令名不在公开集合              | 运行 `--help` 并使用精确命令                   |
+| `usage: ... compile`               | 参数顺序或 `-o` 写法错误        | 使用 `compile <entrypoint.ts> -o <artifact>`   |
+| Bun 未找到                         | `PATH` 不含 Bun，或变量路径无效 | 设置可执行的 `A3S_FLOW_BUN` 绝对路径           |
+| 入口在工作目录外                   | 当前目录选错，或符号链接越界    | 切到项目根目录并传入根内入口                   |
+| 输出已存在                         | 编译器拒绝覆盖                  | 让宿主使用新的内容寻址路径，或选择不存在的目标 |
+| 输出目录不存在                     | 编译器不会替调用方建目录        | 在调用前创建明确的父目录                       |
+| unresolved import                  | Bun 无法解析依赖                | 修正导入、安装依赖并核对锁文件                 |
+| dependency changed during scanning | 构建期间有进程改写源码          | 在只读快照或稳定检出中重试                     |
+
+宿主接入时先运行 `capabilities`，再用 `dependencies` 完成预检，最后交给 `NativeTsRuntime::preflight()` 走与正式执行相同的缓存和编译路径。

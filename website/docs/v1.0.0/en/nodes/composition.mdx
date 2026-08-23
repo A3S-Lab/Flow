@@ -1,0 +1,199 @@
+---
+title: Child workflows, continuation, and containers
+description: Complete properties and usage for single and batched child workflows, continuation boundaries, cancellation propagation, and iteration and loop graph containers.
+---
+
+# Child workflows, continuation, and containers
+
+This group covers two neighboring concerns. Runtime commands can split execution into child workflows or fresh history segments. Graph containers create isolated scopes on an authoring canvas. The engine executes child workflows and continuation directly. `iteration` and `loop` participate only in graph validation, while the host supplies their business behavior.
+
+## Single child workflow `StartChildWorkflow`
+
+Use a single child workflow for work that needs independent input, history, signals, and a terminal outcome. The parent durably records the request, the engine assigns a globally addressable child run ID, and then starts or recovers that run. When the child reaches a terminal state, the parent appends `ChildWorkflowResolved` and replay can read the outcome.
+
+| Property              | Type           | Required | Rule                                                      |
+| --------------------- | -------------- | -------- | --------------------------------------------------------- |
+| `child_id`            | `String`       | Yes      | Stable and non-empty inside the parent run                |
+| `spec`                | `WorkflowSpec` | Yes      | Complete and valid definition for the child               |
+| `input`               | JSON           | Yes      | Initial child input, persisted by value in parent history |
+| `cancellation_policy` | Enum           | No       | Defaults to `request_cancellation`; may be `abandon`      |
+
+`WorkflowSpec` pins the definition and runtime used by the child.
+
+| `spec` property       | Type                           | Rule                                                           |
+| --------------------- | ------------------------------ | -------------------------------------------------------------- |
+| `name`                | `String`                       | Stable workflow type name; must be non-empty                   |
+| `version`             | `String`                       | Application definition version; must be non-empty              |
+| `runtime.kind`        | `native_ts` or `rust_embedded` | Selects the runtime family used for replay                     |
+| `runtime.entrypoint`  | `String`                       | Runtime entrypoint; must be non-empty                          |
+| `runtime.export_name` | `String`                       | Exported function; must be non-empty                           |
+| `runtime_build_id`    | Optional build identity        | Pins a run to a deployment that can replay it                  |
+| `patch_markers`       | Marker set                     | Persisted atomically at creation and inherited by continuation |
+| `signal_names`        | Name set                       | Signal contracts accepted by the child                         |
+
+Workflow code reads a persisted outcome first. It returns the same child request only while no outcome exists.
+
+```rust
+use a3s_flow::{WorkflowSpec, WorkflowTerminalOutcome};
+use serde_json::json;
+
+if let Some(outcome) = ctx.child_workflow_outcome("reserve-stock") {
+    return match outcome {
+        WorkflowTerminalOutcome::Completed { output } => {
+            Ok(ctx.complete(output.clone()))
+        }
+        other => Ok(ctx.fail(format!("stock child ended with {other:?}"))),
+    };
+}
+
+let spec = WorkflowSpec::rust_embedded(
+    "inventory.reserve",
+    "1.0.0",
+    "workflows::inventory",
+    "main",
+);
+
+Ok(ctx.start_child_workflow(
+    "reserve-stock",
+    spec,
+    json!({ "sku": "A-1", "quantity": 2 }),
+))
+```
+
+`ctx.child_workflow_run_id(child_id)` returns the engine-generated root run ID. Business replay usually reads outcomes by parent-local `child_id`. Logs and operator interfaces can use the global run ID to inspect the child's own history.
+
+When a `child_id` appears again, the engine compares `spec`, `input`, and cancellation policy with the durable request. Any difference is non-deterministic. A workflow also cannot resubmit an already resolved child as its only decision. It must consume the outcome and advance.
+
+## Policy when the parent stops
+
+`ChildWorkflowCancellationPolicy` controls an open child when its parent stops.
+
+| Value                  | Parent behavior                                                               | Appropriate use                                                         |
+| ---------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `request_cancellation` | Persist a cleanup-aware request in the child and wait for its terminal result | The child owns resources to release, or the parent must observe cleanup |
+| `abandon`              | Stop waiting and allow the child to continue independently                    | The work is valid on its own and the parent no longer needs its result  |
+
+After the parent receives a cleanup-aware cancellation request, the engine propagates it to children opened before that request with `request_cancellation`. The parent remains `cancelling` until those children finish. An `abandon` child does not block parent termination.
+
+Normal completion, failure, and timeout also cannot close a parent while a `request_cancellation` child remains open. This rule prevents the parent history from closing while still owning unresolved work.
+
+## Child workflow batch `StartChildWorkflows`
+
+Use a batch for independent child runs that can advance concurrently. The command accepts `Vec<ChildWorkflowCommand>` with 1 through 64 members. Each member has its own `child_id`, `spec`, `input`, and cancellation policy.
+
+```rust
+let children = items
+    .iter()
+    .enumerate()
+    .map(|(index, item)| {
+        ctx.child_workflow(
+            format!("item-{index:04}"),
+            item_spec.clone(),
+            item.clone(),
+        )
+    })
+    .collect();
+
+Ok(ctx.start_child_workflows(children))
+```
+
+| Batch constraint               | Engine behavior                                                      |
+| ------------------------------ | -------------------------------------------------------------------- |
+| Members cannot be empty        | An empty batch returns `InvalidTransition`                           |
+| Every `child_id` is unique     | A duplicate is rejected before any child starts                      |
+| At most 64 members             | Larger fan-out must use deterministic windows                        |
+| Declaration order stays stable | The engine persists missing requests in that order                   |
+| Existing members form a prefix | An existing member after a missing sibling is treated as order drift |
+
+The engine validates the full batch, then appends every missing `ChildWorkflowRequested` event. Only after that durable boundary does it coordinate children concurrently. A bad later member therefore cannot leave an earlier, partially declared sibling set.
+
+Completion order has no business meaning. Aggregate `child_workflow_outcome()` by stable `child_id`, never by the order in which children finish. When 64 members are still too many, derive the next window from a deterministic input cursor and advance the cursor only after the current window reaches terminal outcomes.
+
+## Continuation `ContinueAsNew`
+
+Continuation divides a long execution into independent append-only streams. The current segment first records `RunContinuedAsNew` with an engine-generated successor ID and new input. The successor inherits the complete current `WorkflowSpec`; only its input changes.
+
+| Property | Type | Required | Rule                                                                        |
+| -------- | ---- | -------- | --------------------------------------------------------------------------- |
+| `input`  | JSON | Yes      | Initial successor input, commonly containing a cursor and accumulated state |
+
+```rust
+let cursor = ctx.input()["cursor"].as_u64().unwrap_or(0);
+
+if cursor >= 10_000 {
+    return Ok(ctx.complete(json!({ "processed": cursor })));
+}
+
+if segment_finished {
+    return Ok(ctx.continue_as_new(json!({
+        "cursor": cursor + segment_size,
+    })));
+}
+```
+
+Continuation has explicit boundaries.
+
+- A `cancelling` run cannot continue. Cleanup replay must return `cancel` or `fail`.
+- A run with an unconsumed signal cannot continue. The signal must first pair with a wait.
+- Runtime build identity, patch markers, and signal declarations are inherited. The command cannot upgrade the definition at the same time.
+- `drive(root_run_id)` repairs a committed successor that was not started before process loss and returns the active leaf.
+- The engine follows at most 64 continuation hops by default. A builder option can set an explicit limit.
+
+Use `continuation_chain(root_run_id)` when an operator needs every audit segment. Each returned snapshot owns its own event sequence and terminal state. A predecessor has the typed terminal outcome `continued_as_new`.
+
+## `iteration` and `loop` graph containers
+
+These names are structural conventions in `WorkflowDag`. They do not directly produce `RuntimeCommand`, and they have no built-in collection traversal, stop expression, or concurrency property. A host defines those business fields and compiles the published graph into steps, waits, or child workflow commands.
+
+| Node type         | Required structure                                         | Semantics commonly supplied by a host                                        |
+| ----------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `iteration`       | `data.start_node_id` references an `iteration-start` child | Collection source, item variable, concurrency window, and output aggregation |
+| `loop`            | `data.start_node_id` references a `loop-start` child       | Continue condition, exit condition, maximum count, and backoff               |
+| `iteration-start` | `parentId` references an `iteration`                       | Structural entry marker; not independently executed by Flow                  |
+| `loop-start`      | `parentId` references a `loop`                             | Structural entry marker; not independently executed by Flow                  |
+
+```json
+{
+  "nodes": [
+    {
+      "id": "for-each-item",
+      "data": {
+        "type": "iteration",
+        "start_node_id": "iteration-start"
+      }
+    },
+    {
+      "id": "iteration-start",
+      "parentId": "for-each-item",
+      "data": { "type": "iteration-start" }
+    },
+    {
+      "id": "process-item",
+      "parentId": "for-each-item",
+      "data": { "type": "service-call" }
+    }
+  ],
+  "edges": [
+    {
+      "id": "iteration-start-process-item",
+      "source": "iteration-start",
+      "target": "process-item"
+    }
+  ]
+}
+```
+
+Every container needs at least one child besides its start marker. `parentId` must reference an existing `iteration` or `loop`. Both endpoints of an edge must occupy the same scope, so a top-level edge cannot connect directly into a container. Containers may nest, but a `parentId` chain cannot cycle.
+
+`execution_plan()` calculates a topological order for the top level and each container scope independently. A cycle in any scope rejects the graph. Simultaneously ready nodes are ordered by stable ID. Canvas position and source array order do not affect the plan.
+
+## Selection guide
+
+| Need                                                                  | Choose                          |
+| --------------------------------------------------------------------- | ------------------------------- |
+| Work needs independent history, signals, and a terminal outcome       | Single child workflow           |
+| Independent work should advance concurrently and report to one parent | Child workflow batch            |
+| One execution runs for a long time and needs shorter history segments | Continuation                    |
+| An authoring canvas needs a local topology scope                      | `iteration` or `loop` container |
+
+Graph containers define publication structure. Child workflows own execution lifecycle. A host can compile a container into several stable steps or into one child workflow per member, depending on whether each member needs independent history and external control.

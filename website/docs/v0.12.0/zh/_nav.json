@@ -1,0 +1,8 @@
+[
+  { "text": "版本概览", "link": "/" },
+  { "text": "开始使用", "link": "/guide/" },
+  { "text": "执行模型", "link": "/concepts/execution-model" },
+  { "text": "存储与迁移", "link": "/operations/persistence" },
+  { "text": "API 参考", "link": "/reference/api" },
+  { "text": "发布源码", "link": "https://github.com/A3S-Lab/Flow/tree/v0.12.0" }
+]

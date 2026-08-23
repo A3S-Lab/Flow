@@ -1,0 +1,149 @@
+---
+title: 终态节点
+description: 成功、失败、清理式取消与超时命令的属性、准入条件、投影结果和调用方处理方式。
+---
+
+# 终态节点
+
+终态命令关闭当前运行段。事件写入成功以后，这个运行 ID 不再接受后续事件。调用方应同时读取 `WorkflowRunStatus` 与 `WorkflowTerminalOutcome`，前者便于筛选运行状态，后者保留可区分的业务结果。
+
+| 命令       | 事件           | `WorkflowRunStatus` | `WorkflowTerminalOutcome`   |
+| ---------- | -------------- | ------------------- | --------------------------- |
+| `Complete` | `RunCompleted` | `completed`         | `completed` 与最终 JSON     |
+| `Fail`     | `RunFailed`    | `failed`            | `failed` 与错误说明         |
+| `Cancel`   | `RunCancelled` | `cancelled`         | `cancelled` 与取消原因      |
+| `Timeout`  | `RunTimedOut`  | `failed`            | `timed_out`、截止时间与理由 |
+
+超时在状态层归入 `failed`，类型化结果仍保留 `timed_out`。按状态统计失败率时，可以继续按 `terminal_outcome.type` 区分业务失败、重试耗尽、宿主关闭与超时。
+
+## 成功 `Complete`
+
+成功命令保存调用方最终要读取的 JSON 值。
+
+| 属性     | 类型 | 必填 | 规则                                                       |
+| -------- | ---- | ---- | ---------------------------------------------------------- |
+| `output` | JSON | 是   | 完整值进入 `RunCompleted`，可以是对象、数组、标量或 `null` |
+
+```rust
+if let Some(receipt) = ctx.step_output("charge-order") {
+    return Ok(ctx.complete(json!({
+        "order_id": ctx.input()["order_id"],
+        "receipt": receipt,
+    })));
+}
+```
+
+成功关闭前，引擎会检查父运行拥有的第一类子工作流。仍在运行并使用 `request_cancellation` 策略的子项会阻止终止。等待中的定时器、Hook、信号等待和延迟重试通常会先让运行保持暂停，工作流代码不会越过它们直接得到一次新的重放。
+
+运行已经收到清理式取消请求时不能返回 `complete`。引擎会返回 `InvalidTransition`，因为取消路径只能明确结束为 `cancel` 或 `fail`。
+
+调用方可以从快照的 `output` 读取原始值，也可以使用 `output_as<T>()` 解码为宿主类型。解码错误不会改变已经提交的运行结果。
+
+## 失败 `Fail`
+
+失败命令表示工作流代码已经决定结束运行，并保存一段应用错误说明。
+
+| 属性    | 类型     | 必填 | 规则                                               |
+| ------- | -------- | ---- | -------------------------------------------------- |
+| `error` | `String` | 是   | 进入 `RunFailed`，应包含操作者能够采取行动的上下文 |
+
+```rust
+if ctx.step_failed("reserve-stock") {
+    return Ok(ctx.fail("inventory reservation exhausted its retry policy"));
+}
+```
+
+`fail` 适合确定的业务拒绝、补偿失败，或工作流已经处理完底层错误后给出的最终判断。步骤使用默认 `fail_run` 策略耗尽重试时，引擎会直接生成 `retry_exhausted` 结果，这条路径无需工作流再返回 `Fail`。步骤使用 `continue_workflow` 时，代码可以读取 `step_failed()`，随后选择降级步骤或显式失败。
+
+清理式取消期间允许返回 `fail`。这表示清理没有安全完成，最终状态会保留失败而非取消。错误说明应写明哪个清理动作失败，不能把令牌、凭据或完整外部响应写进历史。
+
+## 完成取消 `Cancel`
+
+`Cancel` 没有命令属性。它只能结束一条已经存在持久取消请求的运行。取消原因来自先前的 `CancellationRequest`，引擎把它复制到 `RunCancelled`。
+
+```rust
+if let Some(request) = ctx.cancellation_request() {
+    if ctx.step_output("cleanup-release-locks").is_some() {
+        return Ok(ctx.cancel());
+    }
+
+    return Ok(ctx.schedule_step(
+        "cleanup-release-locks",
+        "locks.release",
+        json!({
+            "run_id": ctx.run_id(),
+            "reason": request.reason,
+        }),
+    ));
+}
+```
+
+| 条件               | 引擎行为                                 |
+| ------------------ | ---------------------------------------- |
+| 没有持久取消请求   | 拒绝 `Cancel` 并返回 `InvalidTransition` |
+| 相同请求再次提交   | 请求保持幂等，继续驱动同一清理路径       |
+| 原因发生变化       | 返回运行冲突，历史中的原因不被改写       |
+| 仍有阻塞型子工作流 | 等待子项完成清理并达到终态               |
+
+取消请求写入时，已有的待执行步骤、延迟重试、定时等待、活动 Hook 与信号等待都会变为不可操作。清理代码要使用新的稳定 ID，例如 `cleanup-release-locks` 和 `cleanup-backoff-1`。沿用取消前的 ID 会被拒绝。
+
+第一类子工作流按各自取消策略处理。`request_cancellation` 子项接收同一请求并阻塞父运行，`abandon` 子项独立继续。父运行完成必要清理后返回 `ctx.cancel()`。
+
+宿主还提供 `force_cancel()`。它直接写入取消终态，不执行工作流清理。生产代码通常把它留给故障处置和明确接受资源遗留风险的运维流程。
+
+## 超时 `Timeout`
+
+超时命令保存已经越过的 UTC 截止时间，并可附带业务理由。
+
+| 属性       | 类型             | 必填 | 规则                    |
+| ---------- | ---------------- | ---- | ----------------------- |
+| `deadline` | `DateTime<Utc>`  | 是   | 触发判断的绝对 UTC 时间 |
+| `reason`   | `Option<String>` | 否   | 解释哪个业务窗口到期    |
+
+```rust
+let deadline = ctx.input()["payment_deadline"]
+    .as_str()
+    .ok_or_else(|| FlowError::Runtime("missing payment_deadline".into()))?
+    .parse::<DateTime<Utc>>()?;
+
+if Utc::now() >= deadline {
+    return Ok(ctx.timeout(
+        deadline,
+        Some("payment window expired".to_string()),
+    ));
+}
+```
+
+重放代码直接读取当前时钟会引入不稳定判断。常见做法是先用 `WaitUntil` 持久保存截止时间，由调度器恢复后返回同一个 `deadline` 的超时命令。宿主也可以在运行时外部确认超时后调用 `terminate_for_timeout()`，该接口同样产生类型化超时结果。
+
+没有 `reason` 时，快照的通用 `error` 会生成包含截止时间的说明。`terminal_outcome` 始终保留原始 `deadline` 和可选理由，调用方应从这里处理重试、通知和统计。
+
+## 终态读取
+
+```rust
+match snapshot.terminal_outcome.as_ref() {
+    Some(WorkflowTerminalOutcome::Completed { output }) => {
+        persist_business_result(output).await?;
+    }
+    Some(WorkflowTerminalOutcome::TimedOut { deadline, reason }) => {
+        record_deadline_miss(*deadline, reason.as_deref()).await?;
+    }
+    Some(outcome) => {
+        record_non_success(outcome).await?;
+    }
+    None => {}
+}
+```
+
+`WorkflowTerminalOutcome` 标记为 `non_exhaustive`。宿主匹配时要保留兜底分支，以便以后增加结果类型。通知与计费处理也需要幂等，因为调用方可能在读取终态后、确认业务写入前退出。
+
+## 选择规则
+
+| 情况                               | 返回命令   |
+| ---------------------------------- | ---------- |
+| 业务已经完成，并有最终值交给调用方 | `Complete` |
+| 工作流作出不可恢复的应用失败判断   | `Fail`     |
+| 持久取消请求的清理已经完成         | `Cancel`   |
+| 已确认某个绝对截止时间被越过       | `Timeout`  |
+
+终态命令应当来自已经持久化的事实。步骤输出、等待完成、取消请求和固定截止时间都能在重放历史中再次得到同一判断。

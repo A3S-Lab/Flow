@@ -1,0 +1,103 @@
+---
+title: 0.12.0 stores and migrations
+description: Operate ORM 0.3 stores, SQLite and PostgreSQL migrations, retention, queues, and upgrade steps for 0.12.0.
+---
+
+# 0.12.0 stores and migrations
+
+0.12.0 aligns with `a3s-orm 0.3.0` and `a3s-boot 0.2.0`. When an application uses either library directly, keep Cargo dependencies on the same versions selected by Flow features.
+
+## Store selection
+
+| Type                  | Feature    | Scope                               |
+| --------------------- | ---------- | ----------------------------------- |
+| `InMemoryEventStore`  | None       | Unit tests                          |
+| `LocalFileEventStore` | None       | Single-process JSONL durability     |
+| `SqliteEventStore`    | `sqlite`   | Single-node applications            |
+| `PostgresEventStore`  | `postgres` | Shared history for multiple workers |
+
+```toml
+a3s-flow = { version = "=0.12.0", features = ["sqlite"] }
+```
+
+An event store atomically implements expected-sequence append and returns complete ordered history. Active-hook and scheduled-wakeup projections accelerate queries only.
+
+## SQLite migrations
+
+```rust
+let store = SqliteEventStore::connect(
+    "sqlite://.a3s/flow/flow.db",
+)
+.await?;
+```
+
+`connect()` applies these canonical migrations.
+
+1. `a3s-flow-0001-events`
+2. `a3s-flow-0002-retention`
+3. `a3s-flow-0003-active-hooks`
+4. `a3s-flow-0004-scheduled-wakeups`
+
+One service process owns the SQLite file. Stop the old owner before upgrade, save a file recovery point, and verify replay of a wait or interrupted step on a copy.
+
+## PostgreSQL migrations
+
+```rust
+let store = PostgresEventStore::connect(&database_url).await?;
+```
+
+The 0.12.0 PostgreSQL migration prefix is:
+
+1. `a3s-flow-0001-events`
+2. `a3s-flow-0002-tasks`
+3. `a3s-flow-0003-retention`
+4. `a3s-flow-0004-active-hooks`
+5. `a3s-flow-0005-scheduled-wakeups`
+
+This release migrates through its connection constructor and predates the separate migration function and verify-only constructors in 1.0. Let one instance finish migration before starting the remaining workers.
+
+## Local JSONL
+
+`LocalFileEventStore::new(root)` keeps append-only JSONL per run. One host writes one root directory. Back it up with the external business database recovery point so step idempotency records match history.
+
+## History retention
+
+SQLite and PostgreSQL support `FlowHistoryRetentionPolicy`, audit holds, and tombstones.
+
+```rust
+let cutoff = chrono::Utc::now() - chrono::Duration::days(90);
+let report = store
+    .prune_terminal_history(
+        FlowHistoryRetentionPolicy::new(cutoff),
+    )
+    .await?;
+```
+
+A scan deletes complete terminal histories older than the cutoff. Audit holds protect runs, and any ineligible member protects its complete linked component. Tombstones retain terminal identity and history digest and prevent run-ID reuse.
+
+0.12.0 does not support partial event-stream compaction. Applications must bound repeated long workflows or split them into explicit new runs.
+
+## Task backends
+
+`FlowTaskQueue` defines enqueue, lease, acknowledgement, failure, and heartbeat. Built-in implementations include memory, `LocalFileFlowTaskQueue`, and optional `PostgresFlowTaskQueue`.
+
+`BootFlowTaskManager` integrates Boot 0.2 task retry, execution timeout, stall count, terminal-record cleanup, and logical deduplication. Task retry does not replace business step retry.
+
+## Upgrade from older dependencies
+
+1. Commit current application changes and pin the lockfile.
+2. Update Flow to `=0.12.0`.
+3. Align direct Boot dependency to 0.2.0 and direct ORM dependency to 0.3.0.
+4. Run connection migration on a database copy and inspect its ledger.
+5. Run SQLite or PostgreSQL recovery tests.
+6. Quiesce production writes, create a recovery point, then deploy with one migration instance first.
+
+After migration commit, do not roll back only the binary. Old dependencies may not understand the new ledger and projection schema. Restore a matching database recovery point for rollback.
+
+## Operational record
+
+- Migration IDs and checksums for every database.
+- Non-terminal runs, pinned builds, and unpinned run count.
+- Active hooks, due tasks, queue leases, and dead letters.
+- Recovery points for database and JSONL directories.
+- Flow, Boot, ORM, and application lockfile versions.
