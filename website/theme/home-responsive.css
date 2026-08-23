@@ -38,10 +38,6 @@
     padding: 54px 20px 0;
   }
 
-  .flow-kicker {
-    margin-bottom: 18px;
-  }
-
   .flow-hero h1,
   html[lang='zh'] .flow-hero h1 {
     font-size: clamp(42px, 12vw, 56px);

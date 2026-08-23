@@ -11,7 +11,7 @@ export default defineConfig({
   siteOrigin,
   title: 'A3S Flow',
   description:
-    'Durable event-sourced workflows for Rust with replay-safe steps, timers, hooks, signals, workers, and production persistence.',
+    'A3S Flow is a durable workflow engine for Rust. It stores run state in event history and resumes after process restarts or worker replacement.',
   lang: 'zh',
   icon: '/a3s-logo.png',
   logo: '/a3s-logo.png',
@@ -33,14 +33,14 @@ export default defineConfig({
       label: '简体中文',
       title: 'A3S Flow',
       description:
-        'A3S Flow 用追加式历史保存工作流决定，让步骤、等待、回调与子工作流在进程退出后继续恢复。',
+        'A3S Flow 是面向 Rust 的持久工作流引擎。它将运行状态写入事件历史，并在进程重启或 worker 更换后继续执行。',
     },
     {
       lang: 'en',
       label: 'English',
       title: 'A3S Flow',
       description:
-        'A3S Flow preserves workflow decisions in append-only history so steps, waits, callbacks, and child workflows can recover after process loss.',
+        'A3S Flow is a durable workflow engine for Rust. It stores run state in event history and resumes after process restarts or worker replacement.',
     },
   ],
   head: [
@@ -59,7 +59,7 @@ export default defineConfig({
       {
         property: 'og:image:alt',
         content:
-          'A3S Flow commits workflow decisions to append-only history and resumes safely after worker replacement.',
+          'A3S Flow is a durable workflow engine for Rust that resumes runs from event history.',
       },
     ],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],

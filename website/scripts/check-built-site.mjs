@@ -49,12 +49,12 @@ assertIncludes(home, 'lang="zh"', 'Chinese homepage language');
 assertIncludes(englishHome, 'lang="en"', 'English homepage language');
 assertIncludes(home, 'data-flow-home', 'custom Flow homepage');
 assertIncludes(englishHome, 'data-flow-home', 'English custom Flow homepage');
-assertIncludes(home, '让会等待的工作', 'Chinese homepage content');
-assertIncludes(englishHome, 'Work can wait', 'English homepage content');
-assertIncludes(home, 'aria-label="重放阶段"', 'Chinese replay controls');
+assertIncludes(home, '面向 Rust 的', 'Chinese homepage content');
+assertIncludes(englishHome, 'Durable workflows', 'English homepage content');
+assertIncludes(home, 'aria-label="重放步骤"', 'Chinese replay controls');
 assertIncludes(
   englishHome,
-  'aria-label="Replay phase"',
+  'aria-label="Replay steps"',
   'English replay controls',
 );
 assertIncludes(
