@@ -156,7 +156,7 @@ export function HomeLayout() {
               {copy.hero.primary}
               <ArrowRight aria-hidden="true" size={16} weight="bold" />
             </a>
-            <a className="flow-button is-secondary" href={href('/nodes/')}>
+            <a className="flow-button is-secondary" href={href('/playground/')}>
               {copy.hero.secondary}
             </a>
           </div>

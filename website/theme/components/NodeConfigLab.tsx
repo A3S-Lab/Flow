@@ -16,86 +16,12 @@ import {
 } from '@a3s-lab/flow-ui/react';
 import { useLang, useSite, useVersion, withBase } from '@rspress/core/runtime';
 import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
-
-type Locale = 'zh' | 'en';
-
-type NodeGroup = {
-  id: string;
-  label: Record<Locale, string>;
-  detail: Record<Locale, string>;
-  types: readonly string[];
-};
-
-const groups: readonly NodeGroup[] = [
-  {
-    id: 'orchestration',
-    label: { zh: '流程入口', en: 'Orchestration' },
-    detail: { zh: '输入与分支', en: 'Input and branching' },
-    types: ['flow.start', 'flow.condition'],
-  },
-  {
-    id: 'tasks',
-    label: { zh: '任务与工具', en: 'Tasks and tools' },
-    detail: { zh: '单项与批量任务', en: 'Single and batch tasks' },
-    types: ['flow.step', 'flow.batch'],
-  },
-  {
-    id: 'suspension',
-    label: { zh: '等待与审批', en: 'Wait and approval' },
-    detail: { zh: '时间、回调与信号', en: 'Time, callbacks, and signals' },
-    types: ['flow.wait', 'flow.hook', 'flow.signal'],
-  },
-  {
-    id: 'composition',
-    label: { zh: '子流程', en: 'Child work' },
-    detail: { zh: '外部任务与子工作流', en: 'Operations and child workflows' },
-    types: [
-      'flow.child-operation',
-      'flow.child-workflow',
-      'flow.child-workflows',
-      'flow.continue-as-new',
-    ],
-  },
-  {
-    id: 'run-state',
-    label: { zh: '运行状态', en: 'Run state' },
-    detail: { zh: '进度与终态', en: 'Progress and outcomes' },
-    types: [
-      'flow.progress',
-      'flow.complete',
-      'flow.fail',
-      'flow.cancel',
-      'flow.timeout',
-    ],
-  },
-  {
-    id: 'containers',
-    label: { zh: '容器', en: 'Containers' },
-    detail: { zh: '遍历与条件循环', en: 'Iteration and loops' },
-    types: ['iteration', 'loop'],
-  },
-] as const;
-
-const nodeSlugs: Readonly<Record<string, string>> = {
-  'flow.start': 'start',
-  'flow.step': 'step',
-  'flow.batch': 'batch',
-  'flow.condition': 'condition',
-  'flow.wait': 'wait',
-  'flow.hook': 'hook',
-  'flow.complete': 'complete',
-  'flow.fail': 'fail',
-  'flow.cancel': 'cancel',
-  'flow.timeout': 'timeout',
-  'flow.continue-as-new': 'continue-as-new',
-  'flow.progress': 'progress',
-  'flow.child-operation': 'child-operation',
-  'flow.child-workflow': 'child-workflow',
-  'flow.child-workflows': 'child-workflows',
-  'flow.signal': 'signal',
-  iteration: 'iteration',
-  loop: 'loop',
-};
+import {
+  flowNodeGroups,
+  flowNodeSlugByType,
+  type FlowNodeGroup,
+  type FlowWebsiteLocale as Locale,
+} from './flow-node-catalog';
 
 const copy = {
   zh: {
@@ -247,13 +173,13 @@ export default function NodeConfigLab() {
   const version = useVersion();
   const defaultVersion = site.multiVersion.default ?? version;
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const [activeGroupId, setActiveGroupId] = useState(groups[1].id);
+  const [activeGroupId, setActiveGroupId] = useState(flowNodeGroups[1].id);
   const [activeType, setActiveType] = useState('flow.step');
   const activeGroup =
-    groups.find(({ id }) => id === activeGroupId) ?? groups[0];
+    flowNodeGroups.find(({ id }) => id === activeGroupId) ?? flowNodeGroups[0];
   const manifest = a3sFlowDagNodeRegistry.require(activeType);
 
-  const selectGroup = (group: NodeGroup) => {
+  const selectGroup = (group: FlowNodeGroup) => {
     setActiveGroupId(group.id);
     setActiveType(group.types[0]);
   };
@@ -266,11 +192,11 @@ export default function NodeConfigLab() {
     if (event.key === 'ArrowDown' || event.key === 'ArrowRight') next += 1;
     else if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') next -= 1;
     else if (event.key === 'Home') next = 0;
-    else if (event.key === 'End') next = groups.length - 1;
+    else if (event.key === 'End') next = flowNodeGroups.length - 1;
     else return;
     event.preventDefault();
-    next = (next + groups.length) % groups.length;
-    selectGroup(groups[next]);
+    next = (next + flowNodeGroups.length) % flowNodeGroups.length;
+    selectGroup(flowNodeGroups[next]);
     tabRefs.current[next]?.focus();
   };
 
@@ -291,7 +217,7 @@ export default function NodeConfigLab() {
         <aside className="flow-node-studio__catalog" aria-label={text.catalog}>
           <strong>{text.catalog}</strong>
           <div role="tablist" aria-orientation="vertical">
-            {groups.map((group, index) => (
+            {flowNodeGroups.map((group, index) => (
               <button
                 aria-selected={group.id === activeGroup.id}
                 key={group.id}
@@ -333,7 +259,7 @@ export default function NodeConfigLab() {
 
         <NodeEditor
           docsHref={documentHref(
-            `/nodes/${nodeSlugs[manifest.type]}`,
+            `/nodes/${flowNodeSlugByType[manifest.type]}`,
             locale,
             version,
             defaultVersion,

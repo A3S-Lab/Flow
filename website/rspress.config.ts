@@ -22,6 +22,7 @@ export default defineConfig({
     globalComponents: [
       path.join(__dirname, 'theme/components/NodeConfigLab.tsx'),
       path.join(__dirname, 'theme/components/NodeReference.tsx'),
+      path.join(__dirname, 'theme/components/WorkflowPlayground.tsx'),
     ],
   },
   multiVersion: {

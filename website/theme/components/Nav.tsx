@@ -57,6 +57,7 @@ const CURRENT_ONLY_ROUTES = new Set([
   'nodes/loop',
   'operations/production',
   'operations/upgrading-to-v1',
+  'playground',
   'reference/agent-skill',
   'reference/cli',
   'reference/examples',

@@ -1,5 +1,6 @@
 [
   { "type": "section-header", "label": "A3S Flow 1.0" },
+  { "type": "dir", "name": "playground", "label": "工作流 Playground" },
   { "type": "dir", "name": "guide", "label": "开始使用" },
   { "type": "dir", "name": "concepts", "label": "核心概念" },
   { "type": "dir", "name": "nodes", "label": "工作流节点" },

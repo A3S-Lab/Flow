@@ -20,6 +20,7 @@
 <p align="center">
   <a href="https://a3s-lab.github.io/Flow/">中文文档</a> &middot;
   <a href="https://a3s-lab.github.io/Flow/en/">English documentation</a> &middot;
+  <a href="https://a3s-lab.github.io/Flow/playground/">Workflow Playground</a> &middot;
   <a href="#quick-start">Quick start</a> &middot;
   <a href="#execution-model">Execution model</a> &middot;
   <a href="#capability-map">Capabilities</a> &middot;
@@ -60,13 +61,15 @@ and agent instructions on the same manifest and graph contracts.
 
 | Surface | Current contract |
 | --- | --- |
+| Playground | Integrated visual authoring route with the real node registry, drag and drop, typed connections, production configuration forms, DAG compilation, and DSL inspection |
 | Node catalog | 18 public manifests in six authoring groups, with fields, defaults, ports, runtime bindings, and durable node identity |
 | React | Node preview and configuration components plus `useA3SFlowNode` for controlled-ready node state |
 | Vue | A `useA3SFlowNode` composable over the same node object, defaults, and manifest registry |
 | CLI | `a3s-flow nodes`, `node`, `new`, `sample`, `validate`, `compile`, and `digest`, all with JSON output |
 | Skill | An installable `a3s-flow` Skill that queries the CLI before creating, connecting, validating, or reviewing a workflow |
 
-The [React guide](https://a3s-lab.github.io/Flow/reference/react),
+The [Workflow Playground](https://a3s-lab.github.io/Flow/playground/),
+[React guide](https://a3s-lab.github.io/Flow/reference/react),
 [Vue guide](https://a3s-lab.github.io/Flow/reference/vue),
 [CLI reference](https://a3s-lab.github.io/Flow/reference/cli), and
 [Skill guide](https://a3s-lab.github.io/Flow/reference/agent-skill) document each

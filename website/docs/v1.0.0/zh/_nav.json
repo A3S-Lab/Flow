@@ -1,6 +1,11 @@
 [
   { "text": "开始使用", "link": "/guide/", "activeMatch": "^/guide/$" },
   {
+    "text": "Playground",
+    "link": "/playground/",
+    "activeMatch": "^/playground"
+  },
+  {
     "text": "持久执行",
     "items": [
       { "text": "运行时边界", "link": "/guide/runtime-contract" },

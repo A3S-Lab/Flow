@@ -10,7 +10,7 @@ const docsRoot = path.join(siteRoot, 'docs');
 const snapshotFile = path.join(siteRoot, 'version-snapshots.json');
 const locales = ['zh', 'en'];
 const expectedPageCounts = new Map([
-  ['v1.0.0', 39],
+  ['v1.0.0', 40],
   ['v0.13.1', 5],
   ['v0.12.0', 5],
 ]);
