@@ -18,9 +18,68 @@
     grid-template-columns: 176px minmax(280px, 1fr) 280px;
   }
 
+  .flow-system-map {
+    gap: 28px;
+    grid-template-columns:
+      minmax(150px, 0.8fr) minmax(180px, 1fr) minmax(150px, 0.8fr)
+      minmax(165px, 0.9fr);
+  }
+
+  .flow-system-map > .is-manifest::after,
+  .flow-system-map__surfaces::after,
+  .flow-system-map > .is-compiler::after {
+    right: -21px;
+  }
+
   .flow-agent-chapter,
   .flow-final {
     width: calc(100% - 48px);
+  }
+}
+
+@media (min-width: 981px) and (max-height: 720px) {
+  .flow-hero {
+    padding-top: 38px;
+    padding-bottom: 38px;
+    gap: 40px;
+  }
+
+  .flow-hero__meta {
+    margin-bottom: 22px;
+  }
+
+  .flow-hero h1 {
+    font-size: clamp(46px, 4.2vw, 58px);
+  }
+
+  .flow-hero__copy > p {
+    margin-top: 20px;
+    font-size: 14px;
+    line-height: 1.58;
+  }
+
+  .flow-hero__actions {
+    margin-top: 24px;
+  }
+
+  .flow-hero-canvas__board {
+    height: 340px;
+  }
+
+  .flow-hero-canvas__node {
+    transform: scale(0.7);
+  }
+
+  .flow-hero-canvas__node.is-2 {
+    right: -44px;
+  }
+
+  .flow-hero-canvas__node.is-3 {
+    left: 94px;
+  }
+
+  .flow-hero-canvas > footer {
+    min-height: 64px;
   }
 }
 
@@ -36,7 +95,7 @@
 
   .flow-hero h1 {
     max-width: 820px;
-    font-size: clamp(54px, 9vw, 78px);
+    font-size: clamp(50px, 8vw, 70px);
   }
 
   .flow-hero-canvas {
@@ -46,16 +105,42 @@
 
   .flow-assurance {
     width: calc(100% - 72px);
+    grid-template-columns: 1fr;
+  }
+
+  .flow-assurance > strong {
+    min-height: 72px;
+    padding: 20px 24px;
+  }
+
+  .flow-assurance__items {
+    border-top: 1px solid var(--flow-line);
+    border-left: 0;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .flow-assurance article:nth-child(3) {
+  .flow-assurance__items article:nth-child(3) {
     border-top: 1px solid var(--flow-line);
     border-left: 0;
   }
 
-  .flow-assurance article:nth-child(4) {
+  .flow-assurance__items article:nth-child(4) {
     border-top: 1px solid var(--flow-line);
+  }
+
+  .flow-system-intro {
+    padding: 112px 36px 108px;
+  }
+
+  .flow-system-map {
+    gap: 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .flow-system-map > .is-manifest::after,
+  .flow-system-map__surfaces::after,
+  .flow-system-map > .is-compiler::after {
+    display: none;
   }
 
   .flow-chapter {
@@ -139,13 +224,19 @@
     gap: 42px;
   }
 
+  .flow-hero__meta {
+    margin-bottom: 28px;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
   .flow-hero h1 {
     font-size: clamp(44px, 13vw, 64px);
     line-height: 1.01;
   }
 
-  .flow-hero h1 span {
-    font-size: 0.52em;
+  .flow-hero h1 > span {
+    font-size: 0.68em;
   }
 
   .flow-hero__copy > p {
@@ -184,6 +275,9 @@
 
   .flow-assurance {
     width: calc(100% - 48px);
+  }
+
+  .flow-assurance__items {
     grid-template-columns: 1fr;
   }
 
@@ -191,10 +285,35 @@
     min-height: 90px;
   }
 
-  .flow-assurance article + article,
-  .flow-assurance article:nth-child(4) {
+  .flow-assurance__items article + article,
+  .flow-assurance__items article:nth-child(4) {
     border-top: 1px solid var(--flow-line);
     border-left: 0;
+  }
+
+  .flow-system-intro {
+    padding: 92px 24px;
+    border-right: 0;
+    border-left: 0;
+    gap: 42px;
+  }
+
+  .flow-system-intro h2 {
+    font-size: clamp(36px, 10vw, 50px);
+  }
+
+  .flow-system-intro p {
+    font-size: 15px;
+  }
+
+  .flow-system-map {
+    padding: 12px;
+    grid-template-columns: 1fr;
+  }
+
+  .flow-system-map article,
+  .flow-system-map__surfaces article {
+    min-height: 92px;
   }
 
   .flow-chapter {
@@ -344,6 +463,20 @@
     padding-left: 18px;
   }
 
+  .flow-hero__meta > span {
+    max-width: 100%;
+    min-height: 34px;
+    padding: 0 10px;
+    overflow: hidden;
+    font-size: 8px;
+    letter-spacing: 0.07em;
+    text-overflow: ellipsis;
+  }
+
+  .flow-hero__meta nav a {
+    min-width: 40px;
+  }
+
   .flow-hero__actions,
   .flow-hero__actions .flow-button {
     width: 100%;
@@ -372,6 +505,11 @@
 
   .flow-assurance {
     width: calc(100% - 36px);
+  }
+
+  .flow-system-intro {
+    padding-right: 18px;
+    padding-left: 18px;
   }
 
   .flow-chapter {
@@ -403,7 +541,15 @@
   .flow-home *::before,
   .flow-home *::after {
     scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes flow-route {
+  to {
+    stroke-dashoffset: -90;
   }
 }
 

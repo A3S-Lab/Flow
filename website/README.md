@@ -24,6 +24,12 @@ Run all source checks before committing documentation changes:
 npm run check --prefix website
 ```
 
+## Current homepage
+
+The current release uses a product homepage centered on the AI Native Workflow Engine. It explains the shared node manifests, React and Vue components, CLI, Skill, graph compiler, and durable runtime as one system. The homepage uses real `@a3s-lab/flow-ui` node components rather than a separate playground implementation.
+
+Homepage copy lives in `theme/components/HomeCopy.ts`. Structure and product scenes live in `theme/components/HomeLayout.tsx` and `theme/components/HomeVisuals.tsx`. Keep Chinese and English copy synchronized, preserve the visible locale controls, and add stable output assertions to `scripts/check-built-site.mjs` when the narrative changes.
+
 ## Version and locale layout
 
 Every published version has two route-identical trees:

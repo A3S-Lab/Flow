@@ -1,5 +1,6 @@
 import {
   ArrowRight,
+  Browsers,
   Check,
   Copy,
   Database,
@@ -8,6 +9,7 @@ import {
   Robot,
   ShieldCheck,
   SlidersHorizontal,
+  TerminalWindow,
   UserFocus,
   Wrench,
 } from '@phosphor-icons/react';
@@ -37,6 +39,62 @@ function demoNode(
   );
 }
 
+export function FlowSystemMap({ copy }: { copy: HomeCopy['system'] }) {
+  const [manifest, components, automation, compiler, runtime] = copy.items;
+
+  return (
+    <div className="flow-system-map" aria-label={copy.mapLabel} role="group">
+      <article className="is-manifest">
+        <span>
+          <SlidersHorizontal aria-hidden="true" size={20} weight="duotone" />
+        </span>
+        <div>
+          <strong>{manifest.title}</strong>
+          <small>{manifest.detail}</small>
+        </div>
+      </article>
+      <div className="flow-system-map__surfaces">
+        <article>
+          <span>
+            <Browsers aria-hidden="true" size={20} weight="duotone" />
+          </span>
+          <div>
+            <strong>{components.title}</strong>
+            <small>{components.detail}</small>
+          </div>
+        </article>
+        <article>
+          <span>
+            <TerminalWindow aria-hidden="true" size={20} weight="duotone" />
+          </span>
+          <div>
+            <strong>{automation.title}</strong>
+            <small>{automation.detail}</small>
+          </div>
+        </article>
+      </div>
+      <article className="is-compiler">
+        <span>
+          <GitBranch aria-hidden="true" size={20} weight="duotone" />
+        </span>
+        <div>
+          <strong>{compiler.title}</strong>
+          <small>{compiler.detail}</small>
+        </div>
+      </article>
+      <article className="is-runtime">
+        <span>
+          <Database aria-hidden="true" size={20} weight="duotone" />
+        </span>
+        <div>
+          <strong>{runtime.title}</strong>
+          <small>{runtime.detail}</small>
+        </div>
+      </article>
+    </div>
+  );
+}
+
 export function HeroWorkflowCanvas({
   locale,
   copy,
@@ -57,7 +115,7 @@ export function HeroWorkflowCanvas({
   );
 
   return (
-    <div className="flow-hero-canvas" aria-label={copy.run}>
+    <div className="flow-hero-canvas flow-motion-scene" aria-label={copy.run}>
       <header>
         <div>
           <Play aria-hidden="true" size={13} weight="fill" />
