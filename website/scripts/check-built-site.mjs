@@ -45,6 +45,14 @@ const englishHome = await readFile(
   path.join(outputRoot, 'en', 'index.html'),
   'utf8',
 );
+const playground = await readFile(
+  path.join(outputRoot, 'playground', 'index.html'),
+  'utf8',
+);
+const englishPlayground = await readFile(
+  path.join(outputRoot, 'en', 'playground', 'index.html'),
+  'utf8',
+);
 assertIncludes(home, 'lang="zh"', 'Chinese homepage language');
 assertIncludes(englishHome, 'lang="en"', 'English homepage language');
 assertIncludes(home, 'data-flow-home', 'custom Flow homepage');
@@ -100,6 +108,51 @@ assertIncludes(
   'English recovery timeline',
 );
 assertRouteLink(home, '/guide', 'base-aware homepage guide link');
+assertRouteLink(home, '/playground', 'Chinese homepage Playground link');
+assertRouteLink(
+  englishHome,
+  '/en/playground',
+  'English homepage Playground link',
+);
+
+assertIncludes(playground, 'lang="zh"', 'Chinese Playground language');
+assertIncludes(englishPlayground, 'lang="en"', 'English Playground language');
+assertIncludes(
+  playground,
+  'data-flow-playground',
+  'Chinese interactive Playground',
+);
+assertIncludes(
+  englishPlayground,
+  'data-flow-playground',
+  'English interactive Playground',
+);
+assertIncludes(
+  playground,
+  'aria-label="添加等待回调"',
+  'Chinese Playground node catalog',
+);
+assertIncludes(
+  englishPlayground,
+  'aria-label="Add Wait for Callback"',
+  'English Playground node catalog',
+);
+assertRouteLink(
+  playground,
+  '/en/playground',
+  'Chinese Playground language switch',
+);
+assertRouteLink(
+  englishPlayground,
+  '/playground',
+  'English Playground language switch',
+);
+assertRouteLink(playground, '/v0.13.1', 'Chinese Playground archive fallback');
+assertRouteLink(
+  englishPlayground,
+  '/v0.13.1/en',
+  'English Playground archive fallback',
+);
 
 const archiveChinese = await readFile(
   path.join(outputRoot, 'v0.13.1', 'index.html'),

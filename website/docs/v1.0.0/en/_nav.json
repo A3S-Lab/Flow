@@ -1,6 +1,11 @@
 [
   { "text": "Get started", "link": "/guide/", "activeMatch": "^/guide/$" },
   {
+    "text": "Playground",
+    "link": "/playground/",
+    "activeMatch": "^/playground"
+  },
+  {
     "text": "Durable execution",
     "items": [
       { "text": "Runtime boundary", "link": "/guide/runtime-contract" },
