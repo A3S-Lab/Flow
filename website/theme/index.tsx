@@ -3,6 +3,7 @@ import '@fontsource-variable/geist-mono';
 import '@a3s-lab/flow-ui/styles.css';
 import './index.css';
 import './home.css';
+import './home-system.css';
 import './home-product.css';
 import './home-responsive.css';
 import './nodes.css';

@@ -57,14 +57,38 @@ assertIncludes(
 );
 assertIncludes(
   home,
-  '编排 Agent、工具、审批和子工作流',
+  '把 Agent、工具、人工审批和子工作流编进同一张图',
   'Chinese homepage content',
 );
 assertIncludes(
   englishHome,
-  'Orchestrate Agents, tools, approvals, and child workflows',
+  'Put Agents, tools, human approval, and child workflows on one graph',
   'English homepage content',
 );
+assertIncludes(home, 'AI 原生', 'Chinese homepage title line one');
+assertIncludes(home, '工作流引擎', 'Chinese homepage title line two');
+assertIncludes(
+  home,
+  '从画布里的一个节点，到生产中的一次运行',
+  'Chinese product system',
+);
+assertIncludes(
+  englishHome,
+  'From one canvas node to one production run',
+  'English product system',
+);
+assertIncludes(
+  home,
+  'aria-label="首页语言"',
+  'visible homepage language switch',
+);
+assertIncludes(home, 'id="durable-engine"', 'durable engine chapter');
+assertIncludes(
+  home,
+  'id="frontend-components"',
+  'front-end components chapter',
+);
+assertIncludes(home, 'id="developer-surfaces"', 'developer surfaces chapter');
 assertIncludes(
   home,
   'aria-label="一次恢复怎样发生"',

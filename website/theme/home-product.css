@@ -13,6 +13,15 @@
   color: #f5f8ff;
 }
 
+.flow-agent-chapter .flow-chapter__meta span,
+.flow-agent-chapter .flow-chapter__meta strong {
+  color: #8fb3ff;
+}
+
+.flow-agent-chapter .flow-chapter__meta i {
+  background: #334661;
+}
+
 .flow-agent-chapter .flow-chapter__heading {
   margin-bottom: 52px;
 }
@@ -340,8 +349,14 @@
   max-width: 740px;
 }
 
+.flow-final > div:first-child > span {
+  display: block;
+  margin-bottom: 15px;
+  color: #8fb3ff;
+}
+
 .flow-final > div:first-child > svg {
-  margin-bottom: 18px;
+  margin-bottom: 14px;
   color: #77a5ff;
 }
 
