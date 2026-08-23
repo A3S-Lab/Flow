@@ -27,21 +27,6 @@
   text-align: center;
 }
 
-.flow-kicker,
-.flow-eyebrow {
-  display: inline-flex;
-  color: var(--flow-accent-strong);
-  font-family: var(--flow-mono);
-  font-size: 12px;
-  font-weight: 650;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.flow-kicker {
-  margin-bottom: 24px;
-}
-
 .flow-hero h1 {
   max-width: 1180px;
   margin: 0 auto 28px;
@@ -67,6 +52,11 @@ html[lang='zh'] .flow-hero h1 {
   color: var(--flow-muted);
   font-size: clamp(17px, 1.45vw, 20px);
   line-height: 1.7;
+  text-wrap: pretty;
+}
+
+html[lang='zh'] .flow-hero__copy > p {
+  word-break: auto-phrase;
 }
 
 .flow-actions {
@@ -479,7 +469,7 @@ html[lang='zh'] .flow-hero h1 {
 }
 
 .flow-install h2 {
-  margin: 9px 0 8px;
+  margin: 0 0 8px;
   font-size: clamp(22px, 2.4vw, 30px);
   font-weight: 680;
   letter-spacing: -0.035em;
@@ -556,7 +546,7 @@ html[lang='zh'] .flow-hero h1 {
 
 .flow-section__header h2 {
   max-width: 900px;
-  margin: 14px 0 18px;
+  margin: 0 0 18px;
   font-size: clamp(38px, 4.8vw, 66px);
   font-weight: 700;
   letter-spacing: -0.057em;
