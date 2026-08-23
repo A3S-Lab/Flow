@@ -1,0 +1,20 @@
+---
+title: Start node
+description: Configure workflow identity, input shape, runtime entry, and duplicate-start protection.
+---
+
+# Start `flow.start`
+
+The start node defines how a top-level graph is identified and entered. Keep exactly one in every executable workflow and do not connect an incoming control edge to it. The `next` port passes control to the first business node. The `input` port exposes start data after it has been checked against the declared input shape. Container scopes use their own internal entry markers instead of another start node.
+
+## Identity and runtime entry
+
+`workflow_name` is long-lived business identity, while `workflow_version` distinguishes incompatible definitions. `runtime_kind`, `entrypoint`, and `export_name` tell the host where to load the workflow function. Before publication, verify that the entry exists in the built artifact, that the export name matches, and that a worker capable of serving that version is available. Existing runs may still require the previous entry and build route after a new version is deployed.
+
+`input_schema` should declare only fields the workflow reads. A permissive object is useful while prototyping, but a production release should identify required properties, types, and nested structures before bad data can reach a durable task. `run_id_expression` can derive identity from stable input such as an order or job number. When it resolves to no value, the host allocates an ID. When it resolves to a stable value, repeated start requests can address the same run.
+
+## Wiring and release checks
+
+Start normally connects to a condition, task, or container. Connect control from `next` to the target `in` port and data from `input` only to a compatible JSON input. Title and canvas position can change freely, but node ID, workflow name, and version should remain stable after runs exist. Test valid and invalid input, duplicate starts, a missing runtime entry, old-worker routing, and an unconnected first edge before releasing the graph.
+
+<NodeReference type="flow.start" />

@@ -1,642 +1,348 @@
 import {
-  ArrowCounterClockwise,
+  ArrowRight,
   Check,
-  Copy,
-  Plus,
-  Trash,
-  WarningCircle,
+  CirclesFour,
+  SlidersHorizontal,
 } from '@phosphor-icons/react';
-import { useLang } from '@rspress/core/runtime';
 import {
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-} from 'react';
+  a3sFlowDagNodeRegistry,
+  localizeA3SFlowDagManifest,
+  type A3SFlowDagNodeManifest,
+} from '@a3s-lab/flow-ui';
 import {
-  initialNodeValues,
-  isFieldVisible,
-  localized,
-  nodeCategories,
-  nodeConfigCopy,
-  nodeDefinitions,
-  validateAndSerialize,
-  type NodeCategoryId,
-  type NodeConfigField,
-  type NodeConfigLocale,
-  type NodeDefinition,
-  type NodeFormValues,
-  type NodeRepeaterField,
-  type NodeScalarField,
-} from './NodeConfigLab.data';
+  A3SFlowDagNodeConfigurationPanel,
+  A3SFlowDagNodePreview,
+  useA3SFlowNode,
+} from '@a3s-lab/flow-ui/react';
+import { useLang, useSite, useVersion, withBase } from '@rspress/core/runtime';
+import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
 
-type CopyState = 'copied' | 'error' | 'idle';
-type ScalarValue = string | number | boolean;
+type Locale = 'zh' | 'en';
 
-export default function NodeConfigLab() {
-  const locale: NodeConfigLocale = useLang() === 'en' ? 'en' : 'zh';
-  const copy = nodeConfigCopy[locale];
-  const categoryRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const [activeCategory, setActiveCategory] = useState<NodeCategoryId>('work');
-  const [activeNodeId, setActiveNodeId] = useState('schedule_step');
-  const activeDefinition =
-    nodeDefinitions.find(({ id }) => id === activeNodeId) ?? nodeDefinitions[0];
-  const [drafts, setDrafts] = useState<Record<string, NodeFormValues>>(() => ({
-    [activeDefinition.id]: initialNodeValues(activeDefinition),
-  }));
-  const [copyState, setCopyState] = useState<CopyState>('idle');
-  const values =
-    drafts[activeDefinition.id] ?? initialNodeValues(activeDefinition);
-  const result = useMemo(
-    () => validateAndSerialize(activeDefinition, values, locale),
-    [activeDefinition, locale, values],
-  );
-  const visibleNodes = nodeDefinitions.filter(
-    ({ category }) => category === activeCategory,
-  );
-
-  const selectNode = (definition: NodeDefinition) => {
-    setActiveCategory(definition.category);
-    setActiveNodeId(definition.id);
-    setDrafts((current) =>
-      current[definition.id]
-        ? current
-        : {
-            ...current,
-            [definition.id]: initialNodeValues(definition),
-          },
-    );
-    setCopyState('idle');
-  };
-
-  const selectCategory = (category: NodeCategoryId) => {
-    setActiveCategory(category);
-    const first = nodeDefinitions.find(
-      (definition) => definition.category === category,
-    );
-    if (first) selectNode(first);
-  };
-
-  const handleCategoryKeyDown = (
-    event: ReactKeyboardEvent<HTMLButtonElement>,
-    index: number,
-  ) => {
-    let nextIndex: number | undefined;
-    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
-      nextIndex = (index + 1) % nodeCategories.length;
-    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
-      nextIndex = (index - 1 + nodeCategories.length) % nodeCategories.length;
-    } else if (event.key === 'Home') {
-      nextIndex = 0;
-    } else if (event.key === 'End') {
-      nextIndex = nodeCategories.length - 1;
-    }
-    if (nextIndex === undefined) return;
-    event.preventDefault();
-    const nextCategory = nodeCategories[nextIndex];
-    selectCategory(nextCategory.id);
-    categoryRefs.current[nextIndex]?.focus();
-  };
-
-  const updateValue = (fieldId: string, value: ScalarValue) => {
-    setDrafts((current) => ({
-      ...current,
-      [activeDefinition.id]: {
-        ...(current[activeDefinition.id] ??
-          initialNodeValues(activeDefinition)),
-        [fieldId]: value,
-      },
-    }));
-    setCopyState('idle');
-  };
-
-  const updateRepeater = (
-    fieldId: string,
-    index: number,
-    itemFieldId: string,
-    value: ScalarValue,
-  ) => {
-    setDrafts((current) => {
-      const draft =
-        current[activeDefinition.id] ?? initialNodeValues(activeDefinition);
-      const items = draft[fieldId];
-      if (!Array.isArray(items)) return current;
-      return {
-        ...current,
-        [activeDefinition.id]: {
-          ...draft,
-          [fieldId]: items.map((item, itemIndex) =>
-            itemIndex === index ? { ...item, [itemFieldId]: value } : item,
-          ),
-        },
-      };
-    });
-    setCopyState('idle');
-  };
-
-  const addRepeaterItem = (field: NodeRepeaterField) => {
-    setDrafts((current) => {
-      const draft =
-        current[activeDefinition.id] ?? initialNodeValues(activeDefinition);
-      const items = draft[field.id];
-      const currentItems = Array.isArray(items) ? items : [];
-      if (
-        field.maxItems !== undefined &&
-        currentItems.length >= field.maxItems
-      ) {
-        return current;
-      }
-      const next = Object.fromEntries(
-        field.itemFields.map((itemField) => [
-          itemField.id,
-          itemField.defaultValue,
-        ]),
-      );
-      return {
-        ...current,
-        [activeDefinition.id]: {
-          ...draft,
-          [field.id]: [...currentItems, next],
-        },
-      };
-    });
-    setCopyState('idle');
-  };
-
-  const removeRepeaterItem = (field: NodeRepeaterField, index: number) => {
-    setDrafts((current) => {
-      const draft =
-        current[activeDefinition.id] ?? initialNodeValues(activeDefinition);
-      const items = draft[field.id];
-      if (!Array.isArray(items) || items.length <= field.minItems) {
-        return current;
-      }
-      return {
-        ...current,
-        [activeDefinition.id]: {
-          ...draft,
-          [field.id]: items.filter((_, itemIndex) => itemIndex !== index),
-        },
-      };
-    });
-    setCopyState('idle');
-  };
-
-  const reset = () => {
-    setDrafts((current) => ({
-      ...current,
-      [activeDefinition.id]: initialNodeValues(activeDefinition),
-    }));
-    setCopyState('idle');
-  };
-
-  const copyJson = async () => {
-    try {
-      await writeClipboard(result.json);
-      setCopyState('copied');
-    } catch {
-      setCopyState('error');
-    }
-  };
-
-  return (
-    <section
-      aria-label={copy.formLabel}
-      className="flow-node-config rp-not-doc"
-      data-node-config-lab
-    >
-      <header className="flow-node-config__header">
-        <div>
-          <span className="flow-node-config__eyebrow">{copy.versionNote}</span>
-          <h3>{copy.formLabel}</h3>
-        </div>
-        <span className="flow-node-config__count">{copy.coverage}</span>
-      </header>
-
-      <div
-        aria-label={copy.catalogLabel}
-        className="flow-node-config__categories"
-        role="tablist"
-      >
-        {nodeCategories.map((category, index) => (
-          <button
-            aria-controls="flow-node-config-panel"
-            aria-selected={activeCategory === category.id}
-            className="flow-node-config__category"
-            id={`flow-node-category-${category.id}`}
-            key={category.id}
-            onClick={() => selectCategory(category.id)}
-            onKeyDown={(event) => handleCategoryKeyDown(event, index)}
-            ref={(element) => {
-              categoryRefs.current[index] = element;
-            }}
-            role="tab"
-            tabIndex={activeCategory === category.id ? 0 : -1}
-            type="button"
-          >
-            <span>{localized(category.label, locale)}</span>
-            <small>
-              {
-                nodeDefinitions.filter(
-                  (definition) => definition.category === category.id,
-                ).length
-              }
-            </small>
-          </button>
-        ))}
-      </div>
-
-      <div
-        aria-labelledby={`flow-node-category-${activeCategory}`}
-        className="flow-node-config__layout"
-        id="flow-node-config-panel"
-        role="tabpanel"
-      >
-        <nav aria-label={copy.catalogLabel} className="flow-node-config__nodes">
-          {visibleNodes.map((definition) => (
-            <button
-              aria-current={definition.id === activeDefinition.id}
-              className="flow-node-config__node"
-              key={definition.id}
-              onClick={() => selectNode(definition)}
-              type="button"
-            >
-              <span>{localized(definition.label, locale)}</span>
-              <code>{definition.wireType}</code>
-            </button>
-          ))}
-        </nav>
-
-        <div className="flow-node-config__content">
-          <header className="flow-node-config__node-header">
-            <div>
-              <span className="flow-node-config__node-title">
-                {localized(activeDefinition.label, locale)}
-                <code>{activeDefinition.wireType}</code>
-              </span>
-              <p>{localized(activeDefinition.summary, locale)}</p>
-            </div>
-            <button
-              className="flow-node-config__quiet-action"
-              onClick={reset}
-              type="button"
-            >
-              <ArrowCounterClockwise aria-hidden="true" size={16} />
-              {copy.reset}
-            </button>
-          </header>
-
-          <div className="flow-node-config__editor">
-            <form
-              className="flow-node-config__form"
-              onSubmit={(event) => event.preventDefault()}
-            >
-              <p className="flow-node-config__form-note">{copy.requiredHint}</p>
-              {activeDefinition.sections.map((section) => (
-                <fieldset
-                  className="flow-node-config__section"
-                  key={section.title.en}
-                >
-                  <legend>{localized(section.title, locale)}</legend>
-                  <div className="flow-node-config__fields">
-                    {section.fields.map((field) => (
-                      <ConfigField
-                        field={field}
-                        fieldErrors={result.fieldErrors}
-                        key={field.id}
-                        locale={locale}
-                        onAddItem={addRepeaterItem}
-                        onChange={updateValue}
-                        onRemoveItem={removeRepeaterItem}
-                        onRepeaterChange={updateRepeater}
-                        values={values}
-                      />
-                    ))}
-                  </div>
-                </fieldset>
-              ))}
-            </form>
-
-            <aside className="flow-node-config__preview">
-              <header
-                data-state={result.errors.length === 0 ? 'valid' : 'invalid'}
-              >
-                <div>
-                  <span>
-                    {activeDefinition.outputKind === 'graph'
-                      ? copy.graphPreview
-                      : copy.preview}
-                  </span>
-                  <small>
-                    {result.errors.length === 0 ? copy.valid : copy.invalid}
-                  </small>
-                </div>
-                <button
-                  className="flow-node-config__copy"
-                  disabled={result.errors.length > 0}
-                  onClick={copyJson}
-                  type="button"
-                >
-                  {copyState === 'copied' ? (
-                    <Check aria-hidden="true" size={16} />
-                  ) : (
-                    <Copy aria-hidden="true" size={16} />
-                  )}
-                  {copyState === 'copied'
-                    ? copy.copied
-                    : copyState === 'error'
-                      ? copy.copyFailed
-                      : copy.copy}
-                </button>
-                <output
-                  aria-live="polite"
-                  className="flow-node-config__sr-only"
-                >
-                  {copyState === 'copied'
-                    ? copy.copied
-                    : copyState === 'error'
-                      ? copy.copyFailed
-                      : ''}
-                </output>
-              </header>
-
-              {result.errors.length > 0 && (
-                <ul aria-live="polite" className="flow-node-config__errors">
-                  {result.errors.map((error) => (
-                    <li key={error}>
-                      <WarningCircle aria-hidden="true" size={15} />
-                      {error}
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              <pre aria-label={copy.preview} tabIndex={0}>
-                <code>{result.json}</code>
-              </pre>
-            </aside>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-type ConfigFieldProps = {
-  field: NodeConfigField;
-  fieldErrors: Record<string, string[]>;
-  locale: NodeConfigLocale;
-  onAddItem: (field: NodeRepeaterField) => void;
-  onChange: (fieldId: string, value: ScalarValue) => void;
-  onRemoveItem: (field: NodeRepeaterField, index: number) => void;
-  onRepeaterChange: (
-    fieldId: string,
-    index: number,
-    itemFieldId: string,
-    value: ScalarValue,
-  ) => void;
-  values: NodeFormValues;
+type NodeGroup = {
+  id: string;
+  label: Record<Locale, string>;
+  detail: Record<Locale, string>;
+  types: readonly string[];
 };
 
-function ConfigField({
-  field,
-  fieldErrors,
-  locale,
-  onAddItem,
-  onChange,
-  onRemoveItem,
-  onRepeaterChange,
-  values,
-}: ConfigFieldProps) {
-  if (field.kind === 'repeater') {
-    const items = values[field.id];
-    return (
-      <div className="flow-node-config__repeater">
-        <div className="flow-node-config__repeater-heading">
-          <div>
-            <span>{localized(field.label, locale)}</span>
-            <small>{localized(field.help, locale)}</small>
-          </div>
-          {Array.isArray(items) && (
-            <span className="flow-node-config__repeater-count">
-              {items.length}
-              {field.maxItems !== undefined ? ` / ${field.maxItems}` : ''}
-            </span>
-          )}
-          <button
-            disabled={
-              field.maxItems !== undefined &&
-              Array.isArray(items) &&
-              items.length >= field.maxItems
-            }
-            onClick={() => onAddItem(field)}
-            type="button"
-          >
-            <Plus aria-hidden="true" size={15} />
-            {nodeConfigCopy[locale].addItem}
-          </button>
-        </div>
-        <FieldErrors errors={fieldErrors[field.id]} />
-        <div className="flow-node-config__repeater-items">
-          {Array.isArray(items) &&
-            items.map((item, index) => (
-              <fieldset
-                className="flow-node-config__repeater-item"
-                key={`${field.id}-${index}`}
-              >
-                <legend>
-                  {localized(field.itemLabel, locale)} {index + 1}
-                </legend>
-                <button
-                  aria-label={`${nodeConfigCopy[locale].removeItem} ${index + 1}`}
-                  className="flow-node-config__remove"
-                  disabled={items.length <= field.minItems}
-                  onClick={() => onRemoveItem(field, index)}
-                  type="button"
-                >
-                  <Trash aria-hidden="true" size={15} />
-                </button>
-                <div className="flow-node-config__item-fields">
-                  {field.itemFields.map((itemField) => (
-                    <ScalarField
-                      field={itemField}
-                      idPrefix={`${field.id}-${index}`}
-                      key={itemField.id}
-                      locale={locale}
-                      onChange={(value) =>
-                        onRepeaterChange(field.id, index, itemField.id, value)
-                      }
-                      errors={
-                        fieldErrors[`${field.id}.${index}.${itemField.id}`]
-                      }
-                      value={item[itemField.id] ?? itemField.defaultValue}
-                    />
-                  ))}
-                </div>
-              </fieldset>
-            ))}
-        </div>
-      </div>
-    );
-  }
+const groups: readonly NodeGroup[] = [
+  {
+    id: 'orchestration',
+    label: { zh: '流程入口', en: 'Orchestration' },
+    detail: { zh: '输入与分支', en: 'Input and branching' },
+    types: ['flow.start', 'flow.condition'],
+  },
+  {
+    id: 'tasks',
+    label: { zh: '任务与工具', en: 'Tasks and tools' },
+    detail: { zh: '单项与批量任务', en: 'Single and batch tasks' },
+    types: ['flow.step', 'flow.batch'],
+  },
+  {
+    id: 'suspension',
+    label: { zh: '等待与审批', en: 'Wait and approval' },
+    detail: { zh: '时间、回调与信号', en: 'Time, callbacks, and signals' },
+    types: ['flow.wait', 'flow.hook', 'flow.signal'],
+  },
+  {
+    id: 'composition',
+    label: { zh: '子流程', en: 'Child work' },
+    detail: { zh: '外部任务与子工作流', en: 'Operations and child workflows' },
+    types: [
+      'flow.child-operation',
+      'flow.child-workflow',
+      'flow.child-workflows',
+      'flow.continue-as-new',
+    ],
+  },
+  {
+    id: 'run-state',
+    label: { zh: '运行状态', en: 'Run state' },
+    detail: { zh: '进度与终态', en: 'Progress and outcomes' },
+    types: [
+      'flow.progress',
+      'flow.complete',
+      'flow.fail',
+      'flow.cancel',
+      'flow.timeout',
+    ],
+  },
+  {
+    id: 'containers',
+    label: { zh: '容器', en: 'Containers' },
+    detail: { zh: '遍历与条件循环', en: 'Iteration and loops' },
+    types: ['iteration', 'loop'],
+  },
+] as const;
 
-  if (!isFieldVisible(field, values)) return null;
-  return (
-    <ScalarField
-      field={field}
-      idPrefix="node"
-      locale={locale}
-      onChange={(value) => onChange(field.id, value)}
-      errors={fieldErrors[field.id]}
-      value={(values[field.id] as ScalarValue) ?? field.defaultValue}
-    />
-  );
-}
-
-type ScalarFieldProps = {
-  errors?: string[];
-  field: NodeScalarField;
-  idPrefix: string;
-  locale: NodeConfigLocale;
-  onChange: (value: ScalarValue) => void;
-  value: ScalarValue;
+const nodeSlugs: Readonly<Record<string, string>> = {
+  'flow.start': 'start',
+  'flow.step': 'step',
+  'flow.batch': 'batch',
+  'flow.condition': 'condition',
+  'flow.wait': 'wait',
+  'flow.hook': 'hook',
+  'flow.complete': 'complete',
+  'flow.fail': 'fail',
+  'flow.cancel': 'cancel',
+  'flow.timeout': 'timeout',
+  'flow.continue-as-new': 'continue-as-new',
+  'flow.progress': 'progress',
+  'flow.child-operation': 'child-operation',
+  'flow.child-workflow': 'child-workflow',
+  'flow.child-workflows': 'child-workflows',
+  'flow.signal': 'signal',
+  iteration: 'iteration',
+  loop: 'loop',
 };
 
-function ScalarField({
-  errors,
-  field,
-  idPrefix,
-  locale,
-  onChange,
-  value,
-}: ScalarFieldProps) {
-  const id = `flow-node-${idPrefix}-${field.id}`;
-  const label = localized(field.label, locale);
-  const help = localized(field.help, locale);
-  const helpId = `${id}-help`;
-  const errorId = `${id}-error`;
-  const describedBy = [helpId, errors?.length ? errorId : '']
+const copy = {
+  zh: {
+    heading: '18 个节点，一套配置方式',
+    intro:
+      '选择节点后可以直接修改配置。画布卡片、字段表单、端口说明和最终 DSL 使用同一份节点清单。',
+    catalog: '节点分组',
+    canvas: '画布预览',
+    selected: '当前节点',
+    editor: '配置面板',
+    changed: '修改会立即反映到画布卡片',
+    openDocs: '查看节点文档',
+    upstream: '上游节点',
+    downstream: '后续节点',
+    connection: '已选择连接字段',
+  },
+  en: {
+    heading: '18 nodes, one configuration model',
+    intro:
+      'Select a node and edit it in place. Canvas cards, settings, ports, and emitted DSL all read from the same manifest catalog.',
+    catalog: 'Node groups',
+    canvas: 'Canvas preview',
+    selected: 'Selected node',
+    editor: 'Configuration panel',
+    changed: 'Edits update the canvas card immediately',
+    openDocs: 'Read node reference',
+    upstream: 'Upstream node',
+    downstream: 'Next node',
+    connection: 'Connection field selected',
+  },
+} as const;
+
+function documentHref(
+  route: string,
+  locale: Locale,
+  version: string,
+  defaultVersion: string,
+) {
+  const prefix = [
+    version !== defaultVersion ? version : '',
+    locale === 'en' ? 'en' : '',
+  ]
     .filter(Boolean)
-    .join(' ');
+    .join('/');
+  return withBase(
+    `/${[prefix, route.replace(/^\//, '')].filter(Boolean).join('/')}`,
+  );
+}
 
-  if (field.kind === 'switch') {
-    return (
-      <div className="flow-node-config__switch-wrap">
-        <label className="flow-node-config__switch" htmlFor={id}>
-          <span>
-            <strong>{label}</strong>
-            <small id={helpId}>{help}</small>
-          </span>
-          <input
-            aria-describedby={describedBy}
-            aria-invalid={Boolean(errors?.length)}
-            checked={Boolean(value)}
-            id={id}
-            onChange={(event) => onChange(event.target.checked)}
-            role="switch"
-            type="checkbox"
-          />
-        </label>
-        <FieldErrors errors={errors} id={errorId} />
-      </div>
-    );
-  }
+function NodeEditor({
+  manifest,
+  locale,
+  docsHref,
+}: {
+  manifest: A3SFlowDagNodeManifest;
+  locale: Locale;
+  docsHref: string;
+}) {
+  const text = copy[locale];
+  const localizedManifest = useMemo(
+    () => localizeA3SFlowDagManifest(manifest, locale),
+    [locale, manifest],
+  );
+  const { node, setNode } = useA3SFlowNode({
+    id: `example-${manifest.type.replaceAll('.', '-')}`,
+    type: manifest.type,
+    presentation: {
+      position: { x: 320, y: 180 },
+      title: localizedManifest.display_name,
+      desc: localizedManifest.description,
+    },
+  });
+  const [connectionNote, setConnectionNote] = useState('');
+  const connectedOutputPortIds = manifest.ports.outputs.map(({ id }) => id);
 
   return (
-    <div
-      className={`flow-node-config__field flow-node-config__field--${field.kind}`}
-    >
-      <label htmlFor={id}>
-        {label}
-        {field.required && (
-          <>
-            <b aria-hidden="true">*</b>
-            <span className="flow-node-config__sr-only">
-              {nodeConfigCopy[locale].required}
-            </span>
-          </>
-        )}
-      </label>
-      {field.kind === 'select' ? (
-        <select
-          aria-describedby={describedBy}
-          aria-invalid={Boolean(errors?.length)}
-          id={id}
-          onChange={(event) => onChange(event.target.value)}
-          value={String(value)}
-        >
-          {field.options?.map((entry) => (
-            <option key={entry.value} value={entry.value}>
-              {localized(entry.label, locale)}
-            </option>
-          ))}
-        </select>
-      ) : field.kind === 'textarea' || field.kind === 'json' ? (
-        <textarea
-          aria-describedby={describedBy}
-          aria-invalid={Boolean(errors?.length)}
-          id={id}
-          onChange={(event) => onChange(event.target.value)}
-          rows={field.kind === 'json' ? 5 : 3}
-          spellCheck={field.kind !== 'json'}
-          value={String(value)}
-        />
-      ) : (
-        <input
-          aria-describedby={describedBy}
-          aria-invalid={Boolean(errors?.length)}
-          id={id}
-          min={field.min}
-          onChange={(event) =>
-            onChange(
-              field.kind === 'number'
-                ? event.target.value === ''
-                  ? ''
-                  : event.target.valueAsNumber
-                : event.target.value,
-            )
+    <div className="flow-node-studio__workspace">
+      <section className="flow-node-studio__canvas" aria-label={text.canvas}>
+        <header>
+          <span>{text.canvas}</span>
+          <small>
+            <Check aria-hidden="true" size={13} weight="bold" />
+            {text.changed}
+          </small>
+        </header>
+        <div className="flow-node-studio__canvas-body">
+          <span className="flow-node-studio__ghost is-upstream">
+            {text.upstream}
+          </span>
+          <ArrowRight
+            aria-hidden="true"
+            className="flow-node-studio__arrow"
+            size={18}
+          />
+          <A3SFlowDagNodePreview
+            dagNode={node}
+            locale={locale}
+            manifest={manifest}
+            selected
+          />
+          <ArrowRight
+            aria-hidden="true"
+            className="flow-node-studio__arrow"
+            size={18}
+          />
+          <span className="flow-node-studio__ghost is-downstream">
+            {text.downstream}
+          </span>
+        </div>
+        <footer>
+          <span>
+            {text.selected}
+            <code>{manifest.type}</code>
+          </span>
+          <a href={docsHref}>
+            {text.openDocs}
+            <ArrowRight aria-hidden="true" size={14} weight="bold" />
+          </a>
+        </footer>
+      </section>
+
+      <section className="flow-node-studio__panel" aria-label={text.editor}>
+        <div className="flow-node-studio__panel-label">
+          <SlidersHorizontal aria-hidden="true" size={15} />
+          {text.editor}
+        </div>
+        <A3SFlowDagNodeConfigurationPanel
+          connectedOutputPortIds={connectedOutputPortIds}
+          dagNode={node}
+          locale={locale}
+          manifest={manifest}
+          onChange={setNode}
+          onRequestConnection={({ valuePath }) =>
+            setConnectionNote(`${text.connection} ${valuePath ?? ''}`.trim())
           }
-          type={
-            field.kind === 'number'
-              ? 'number'
-              : field.kind === 'datetime'
-                ? 'datetime-local'
-                : 'text'
-          }
-          value={String(value)}
         />
-      )}
-      <small id={helpId}>{help}</small>
-      <FieldErrors errors={errors} id={errorId} />
+        <output className="flow-node-studio__sr-only" aria-live="polite">
+          {connectionNote}
+        </output>
+      </section>
     </div>
   );
 }
 
-function FieldErrors({ errors, id }: { errors?: string[]; id?: string }) {
-  if (!errors?.length) return null;
+export default function NodeConfigLab() {
+  const locale: Locale = useLang() === 'en' ? 'en' : 'zh';
+  const text = copy[locale];
+  const { site } = useSite();
+  const version = useVersion();
+  const defaultVersion = site.multiVersion.default ?? version;
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const [activeGroupId, setActiveGroupId] = useState(groups[1].id);
+  const [activeType, setActiveType] = useState('flow.step');
+  const activeGroup =
+    groups.find(({ id }) => id === activeGroupId) ?? groups[0];
+  const manifest = a3sFlowDagNodeRegistry.require(activeType);
+
+  const selectGroup = (group: NodeGroup) => {
+    setActiveGroupId(group.id);
+    setActiveType(group.types[0]);
+  };
+
+  const onGroupKeyDown = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    index: number,
+  ) => {
+    let next = index;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowRight') next += 1;
+    else if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') next -= 1;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = groups.length - 1;
+    else return;
+    event.preventDefault();
+    next = (next + groups.length) % groups.length;
+    selectGroup(groups[next]);
+    tabRefs.current[next]?.focus();
+  };
+
   return (
-    <ul className="flow-node-config__field-errors" id={id}>
-      {errors.map((error) => (
-        <li key={error}>{error}</li>
-      ))}
-    </ul>
+    <section className="flow-node-studio rp-not-doc" data-node-config-lab>
+      <header className="flow-node-studio__header">
+        <div>
+          <h2>{text.heading}</h2>
+          <p>{text.intro}</p>
+        </div>
+        <span>
+          <CirclesFour aria-hidden="true" size={17} weight="duotone" />
+          18 nodes
+        </span>
+      </header>
+
+      <div className="flow-node-studio__body">
+        <aside className="flow-node-studio__catalog" aria-label={text.catalog}>
+          <strong>{text.catalog}</strong>
+          <div role="tablist" aria-orientation="vertical">
+            {groups.map((group, index) => (
+              <button
+                aria-selected={group.id === activeGroup.id}
+                key={group.id}
+                onClick={() => selectGroup(group)}
+                onKeyDown={(event) => onGroupKeyDown(event, index)}
+                ref={(element) => {
+                  tabRefs.current[index] = element;
+                }}
+                role="tab"
+                tabIndex={group.id === activeGroup.id ? 0 : -1}
+                type="button"
+              >
+                <span>{group.label[locale]}</span>
+                <small>{group.detail[locale]}</small>
+                <b>{group.types.length}</b>
+              </button>
+            ))}
+          </div>
+          <nav aria-label={activeGroup.label[locale]}>
+            {activeGroup.types.map((type) => {
+              const item = localizeA3SFlowDagManifest(
+                a3sFlowDagNodeRegistry.require(type),
+                locale,
+              );
+              return (
+                <button
+                  aria-current={type === activeType}
+                  key={type}
+                  onClick={() => setActiveType(type)}
+                  type="button"
+                >
+                  <span>{item.display_name}</span>
+                  <code>{type}</code>
+                </button>
+              );
+            })}
+          </nav>
+        </aside>
+
+        <NodeEditor
+          docsHref={documentHref(
+            `/nodes/${nodeSlugs[manifest.type]}`,
+            locale,
+            version,
+            defaultVersion,
+          )}
+          key={`${locale}-${manifest.type}`}
+          locale={locale}
+          manifest={manifest}
+        />
+      </div>
+    </section>
   );
-}
-
-async function writeClipboard(value: string) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(value);
-    return;
-  }
-
-  const fallback = document.createElement('textarea');
-  fallback.value = value;
-  fallback.setAttribute('readonly', '');
-  fallback.style.position = 'fixed';
-  fallback.style.opacity = '0';
-  document.body.append(fallback);
-  fallback.select();
-  const copied = document.execCommand('copy');
-  fallback.remove();
-  if (!copied) throw new Error('Clipboard write failed');
 }

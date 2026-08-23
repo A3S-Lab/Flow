@@ -1,176 +1,87 @@
 ---
-title: CLI commands
-description: Installation, arguments, JSON output, environment variables, exit codes, and failure handling for a3s-flow-native-compiler.
+title: a3s-flow CLI
+description: Query node manifests, create nodes, validate workflows, compile execution order, and produce semantic digests from the command line.
 ---
 
-# CLI commands
+# a3s-flow CLI
 
-Flow 1.0 publishes one command-line program, `a3s-flow-native-compiler`. It analyzes dependencies for a native TypeScript entrypoint and compiles that entrypoint into an executable artifact a host can invoke. Run creation, signal delivery, hook resumption, and history inspection remain Rust API operations.
+`a3s-flow` ships with `@a3s-lab/flow-ui`. It reads the same node manifests as the canvas cards, configuration panels, and node reference pages, so field names, defaults, ports, and runtime bindings stay aligned. The CLI works on workflow documents and standard streams. It does not connect to model providers, read credentials, or execute host tasks.
 
-## Prerequisites and installation
+## Install and verify
 
-Installation requires a Rust toolchain and Cargo. The compiler invokes Bun and looks for `bun` on `PATH` by default.
-
-```sh
-cargo install a3s-flow --version 1.0.0 --locked \
-  --bin a3s-flow-native-compiler
-
-a3s-flow-native-compiler --version
-a3s-flow-native-compiler --help
+```bash
+npm install @a3s-lab/flow-ui @a3s-lab/ui
+npx a3s-flow help --pretty
 ```
 
-A production image should pin the crate version, use `--locked`, and pin an audited Bun executable. Flow includes the executable contents in compiler identity. If that file changes while a command is running, the command fails.
-
-## Command surface
-
-```text
-a3s-flow-native-compiler capabilities
-a3s-flow-native-compiler dependencies <entrypoint.ts>
-a3s-flow-native-compiler compile <entrypoint.ts> -o <artifact>
-```
-
-| Command        | Standard output              | File changes                                               |
-| -------------- | ---------------------------- | ---------------------------------------------------------- |
-| `capabilities` | One JSON capability document | None                                                       |
-| `dependencies` | One JSON dependency manifest | Uses a guarded temporary directory and cleans it afterward |
-| `compile`      | No output on success         | Creates one artifact at the requested path                 |
-| `--help`       | Help text                    | None                                                       |
-| `--version`    | Crate version                | None                                                       |
-
-No arguments prints help and exits successfully. `-h` and `help` are equivalent to `--help`; `-V` and `version` are equivalent to `--version`. The public command surface is closed. Extra arguments and alternate option spellings are rejected.
-
-## `capabilities`
-
-Hosts use this command to verify the compiler protocol before accepting source.
-
-```sh
-a3s-flow-native-compiler capabilities
-```
-
-Version 1.0.0 emits this structure.
+A project script can call the locally installed binary directly.
 
 ```json
 {
-  "protocol": "a3s.flow.native_ts.compiler.v1",
-  "dependencyManifest": true
+  "scripts": {
+    "flow:check": "a3s-flow validate workflow.json --pretty"
+  }
 }
 ```
 
-| Field                | Meaning                                                  |
-| -------------------- | -------------------------------------------------------- |
-| `protocol`           | Compiler command protocol; hosts compare the exact value |
-| `dependencyManifest` | Whether this binary supports `dependencies`              |
+Every command emits JSON. Exit code `0` means the command succeeded. Exit code `1` means the workflow structure or node settings were rejected. Exit code `2` means the invocation, arguments, or file operation was invalid. Automation should check both the process status and the top-level `ok` value.
 
-Reject an incompatible capability during deployment admission. Waiting until a workflow run needs replay leaves a durable run that the host cannot execute.
+## Command reference
 
-## `dependencies`
+| Command                | Purpose                                    | Main output                                                    |
+| ---------------------- | ------------------------------------------ | -------------------------------------------------------------- |
+| `nodes`                | List the 18 public manifests               | Engine version, DSL version, count, and full catalog           |
+| `node <type>`          | Inspect one manifest                       | Fields, defaults, ports, runtime binding, and durable identity |
+| `new <type> --id <id>` | Create a node from manifest defaults       | A node object ready for the graph                              |
+| `sample`               | Create a minimal executable document       | Start, task, and completion nodes with edges                   |
+| `validate <file>`      | Check the document, DAG, and node settings | Compatibility, counts, or path-specific issues                 |
+| `compile <file>`       | Compile deterministic order                | Top-level and container-scoped plans                           |
+| `digest <file>`        | Compute semantic identity                  | Document and graph digests                                     |
 
-The dependency command asks Bun to resolve the entrypoint and its complete source graph.
+Use `--pretty` for readable output and `--output <file>` to write JSON to a file. Pass `-` as the input path to read standard input. `--include-internal` applies to catalog inspection and exposes `iteration-start` and `loop-start`. Those internal types belong only inside matching containers and cannot be created as public nodes with `new`.
 
-```sh
-a3s-flow-native-compiler dependencies src/workflows/order.ts
+## Inspect and create a node
+
+Inspect the catalog, read the target manifest, and then create an instance with a stable ID.
+
+```bash
+a3s-flow nodes --pretty
+a3s-flow node flow.hook --pretty
+a3s-flow new flow.hook --id approval --pretty
 ```
 
-It writes one compact JSON object followed by a newline.
+The `node` result is authoritative for field names, option values, and connection handles. Editors and scripts should not maintain a separate hand-written schema. The `new` command fills every manifest default and preserves the structure expected by validation. Once a run exists, the node ID is durable identity. Changing it can disconnect new graph state from committed steps, hooks, progress records, or child runs.
 
-```json
-{
-  "protocol": "a3s.flow.native_ts.dependencies.v1",
-  "compilerIdentity": "bun-sha256:...",
-  "files": [
-    "package.json",
-    "src/shared/money.ts",
-    "src/workflows/order.ts",
-    "tsconfig.json"
-  ]
-}
+## Create the sample document
+
+```bash
+a3s-flow sample --output workflow.json --pretty
+a3s-flow validate workflow.json --pretty
 ```
 
-| Field              | Rule                                                                                                |
-| ------------------ | --------------------------------------------------------------------------------------------------- |
-| `protocol`         | Fixed dependency-manifest protocol v1                                                               |
-| `compilerIdentity` | Opaque identity derived from the resolved Bun executable                                            |
-| `files`            | UTF-8 paths relative to the current directory, forward-slash separated, strictly sorted, and unique |
+The sample registers graph structure only. It does not execute `task.run`. A host must provide that task handler and choose an event store, scheduler, and worker topology. For a real project, change the workflow name and node IDs before creating the first persistent run.
 
-The list contains the entrypoint and every source reported by Bun. For each source, the compiler also walks parent directories up to the working root and includes any `bun.lock`, `bun.lockb`, `bunfig.toml`, `package.json`, or `tsconfig.json` file it finds. A file whose size changes during scanning causes the command to fail.
+## Validate, compile, and digest
 
-The entrypoint and every resolved dependency must stay inside the current working directory. An absolute entrypoint is accepted only when its canonical file is still within that root. Symlink escapes, directory entrypoints, non-UTF-8 paths, and non-portable path components are rejected.
+Run the three commands in this order after every semantic field or edge change.
 
-`NativeTsRuntime` performs additional admission checks for document size, entry count, path length, traversal, ordering, duplicates, and entrypoint coverage. The verified manifest participates in source hashing and artifact cache identity.
-
-## `compile`
-
-The compile command produces a native executable artifact.
-
-```sh
-mkdir -p .a3s/flow/native-ts
-
-a3s-flow-native-compiler compile \
-  src/workflows/order.ts \
-  -o .a3s/flow/native-ts/order-workflow
+```bash
+a3s-flow validate workflow.json --pretty
+a3s-flow compile workflow.json --output workflow.plan.json --pretty
+a3s-flow digest workflow.json --output workflow.digest.json --pretty
 ```
 
-Argument order is fixed, and the output option must be `-o <artifact>`. The output directory must already exist and the target file must not exist. The compiler refuses to overwrite a file, which prevents competing cold-cache processes from replacing one another's output.
+Validation checks the document envelope, public node types, field constraints, port connections, duplicate IDs, dangling edges, self edges, ordinary cycles, and container scope. Successful compilation proves that the top-level graph and each iteration or loop child canvas have deterministic order. Digests ignore position, title, description, dimensions, and selection state while binding executable node settings and edges. If a host needs an integrity pin, store the digest in release metadata instead of writing it back into the workflow document.
 
-A successful artifact implements this runtime protocol.
+## Standard input and CI
 
-- Accept `--a3s-flow-runtime`.
-- Read one `NativeRuntimeRequest` JSON object from standard input.
-- Write one `NativeRuntimeResponse` JSON object to standard output.
-- Resolve workflow requests by the request `exportName`.
-- Resolve step requests from an exported `steps` object by `payload.step_name`, then try a same-named top-level export.
-
-A handler may return synchronously or return a Promise. `undefined` becomes JSON `null`. Runtime errors produce an `ok: false` response, with the error message limited to 4096 characters.
-
-Compilation uses Bun compile mode and bundles dependencies. The artifact is configured not to auto-load dotenv, Bun configuration, TypeScript configuration, or `package.json` at invocation time. Runtime behavior therefore comes from the bundled source graph and request.
-
-## Working directory
-
-Both source commands treat the process working directory as the security boundary and logical path root. Run them from the TypeScript project root so entrypoints, lock files, and configuration have stable relative names.
-
-```sh
-cd services/order-workflows
-a3s-flow-native-compiler dependencies src/main.ts
+```bash
+git show HEAD:workflows/order-review.json |
+  a3s-flow validate - --pretty
 ```
 
-CI and production compilation should use the same directory layout. Moving the absolute project root preserves relative manifest names, while omitting a lock file or configuration file changes the source graph and cache identity.
+In CI, validate first and retain the compiled plan and digest as build artifacts when review requires them. Rejected output contains `code`, `path`, and `message` for every issue. Repair the field or edge named by the path instead of deleting unknown extension fields. For imported workflows, separately review task names, runtime entry points, public callbacks, and host bindings because the CLI does not make authorization or credential decisions.
 
-## `A3S_FLOW_BUN`
+## Diagnosing failures
 
-Set `A3S_FLOW_BUN` when `bun` is not on `PATH` or when the host requires an explicit executable.
-
-```sh
-A3S_FLOW_BUN=/opt/a3s/toolchain/bin/bun \
-  a3s-flow-native-compiler dependencies src/main.ts
-
-A3S_FLOW_BUN=/opt/a3s/toolchain/bin/bun \
-  a3s-flow-native-compiler compile src/main.ts -o build/workflow
-```
-
-The value may be a command name resolved through `PATH` or a path containing a directory. The compiler resolves it to a regular executable, fingerprints its contents, and verifies its metadata again when the command finishes.
-
-## Exit codes and diagnostics
-
-| Exit code | Meaning                                                      | Output                                                                       |
-| --------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------- |
-| `0`       | Command succeeded, or no arguments printed help              | Command result goes to standard output                                       |
-| `2`       | Argument, file, Bun, dependency-scan, or compilation failure | A diagnostic prefixed with `a3s-flow-native-compiler` goes to standard error |
-
-Bun diagnostics are inherited on standard error. The compiler then adds the exit status and resolved Bun path. Automation should use the exit code, not parse a particular diagnostic sentence that can change with the underlying tool.
-
-If the compiler parent exits or cancels the process, a supervisor terminates and reaps Bun. A separate guard owns temporary-workspace cleanup. Failed compilation output is removed as well.
-
-## Common failures
-
-| Diagnostic shape                     | Cause                                             | Action                                                         |
-| ------------------------------------ | ------------------------------------------------- | -------------------------------------------------------------- |
-| `unknown command`                    | Command is outside the public set                 | Run `--help` and use an exact command                          |
-| `usage: ... compile`                 | Argument order or output option is wrong          | Use `compile <entrypoint.ts> -o <artifact>`                    |
-| Bun not found                        | `PATH` has no Bun or the override is invalid      | Set `A3S_FLOW_BUN` to an executable absolute path              |
-| Entrypoint outside working directory | Wrong root or a symlink escapes it                | Change to the project root and pass an entrypoint inside it    |
-| Output already exists                | The compiler refuses replacement                  | Use a fresh content-addressed target                           |
-| Output directory missing             | The compiler does not create caller-owned parents | Create the explicit parent directory first                     |
-| Unresolved import                    | Bun cannot resolve a dependency                   | Repair imports, install dependencies, and verify the lock file |
-| Dependency changed during scanning   | Another process rewrote source during the scan    | Retry from a stable checkout or read-only source snapshot      |
-
-For host integration, call `capabilities` first, use `dependencies` for an early graph check, and then let `NativeTsRuntime::preflight()` exercise the same cache and compile path used by execution.
+`unknown_node` means the installed package does not expose the requested public type, so inspect `nodes` before changing the document. `flow.node.internal_scope_required` means an internal start marker has escaped its matching container. Graph errors usually point to an incorrect handle, a cross-scope edge, or a back edge. Field errors identify the exact node data path under `workflow.graph.nodes`. After repair, run validation, compilation, and digesting again and review the final plan rather than relying on a previously generated artifact.

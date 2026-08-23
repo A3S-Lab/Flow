@@ -1,122 +1,54 @@
 ---
 title: Node catalog
-description: Separate graph nodes, container markers, and all 14 durable runtime commands, with their properties, replay rules, and host responsibilities.
+description: Explore the 18 A3S Flow 1.0 authoring nodes, two internal container entries, canvas cards, and configuration panels.
 ---
 
 # Node catalog
 
-Flow 1.0 handles nodes at two layers. `WorkflowDagNode` stores an authoring-graph node. `RuntimeCommand` states the next durable decision the engine must commit. A host compiler may turn one graph node into one or several runtime commands. The two objects are not interchangeable.
+A3S Flow 1.0 provides 18 nodes that authors can place on a canvas. Each manifest declares fields, defaults, ports, runtime binding, and durable identity rules. React components, the Vue hook, CLI, Skill, and these pages read the same catalog.
 
-## Node configuration example
+`iteration-start` and `loop-start` are internal container entries. The editor creates them with their container. They do not appear in the node picker and cannot be placed on the top-level canvas.
 
-The embedded configurator covers all 14 durable commands and both structural containers. Fields are grouped by identity, input, retry, and terminal conditions. Dependent controls appear as their governing policy changes. The page keeps a draft for every selected node and places validation beside the responsible field. Step and child batches support member insertion and removal, and JSON can be copied only after validation passes.
+## Node workbench
 
-On desktop, the node catalog sits beside a full-width form and the JSON preview follows the form, preserving useful field widths. Mobile turns the node catalog into a horizontal selector and collapses fields to one column. Category tabs support arrow keys, `Home`, and `End`, and every control remains keyboard accessible. The configurator explains the contract on this page; it does not create or save a workflow.
+This workbench uses the public `@a3s-lab/flow-ui` components. Selecting a node gives the canvas card and configuration panel the same node object. Title, description, and field edits update the preview immediately. Waits, callbacks, batches, child workflows, and containers use dedicated controls.
 
 <NodeConfigLab />
 
-## Supported boundary
+## Six groups
 
-| Layer           | What Flow 1.0 accepts                                    | What Flow validates                                                                 | What the host still owns                                             |
-| --------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| Graph node      | Any non-empty string in `data.type`                      | Identity, edges, scopes, cycles, and stable order                                   | Property schemas, authorization, and executors                       |
-| Container node  | `iteration`, `loop`, `iteration-start`, and `loop-start` | Parent relationships, start nodes, and scoped edges                                 | Iteration data, stop conditions, concurrency, and output aggregation |
-| Runtime command | 14 `RuntimeCommand` variants                             | History events, replay equality, suspension, terminal state, and concurrent appends | External effects, credentials, tenancy, and logical idempotency      |
+| Group                   | Nodes                                                                                                                                                     | Responsibility                                                             |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Orchestration           | [Start](./start), [Condition](./condition)                                                                                                                | Accept input and choose deterministic control branches                     |
+| Tasks and tools         | [Run step](./step), [Step batch](./batch)                                                                                                                 | Call host tasks and store results, errors, and retry state                 |
+| Wait and approval       | [Wait until](./wait), [Callback and approval](./hook), [Signal wait](./signal)                                                                            | Release workers while waiting for time or external input                   |
+| Child work              | [Child operation](./child-operation), [Child workflow](./child-workflow), [Child workflow batch](./child-workflows), [Continue as new](./continue-as-new) | Track long jobs, own child runs, and continue history                      |
+| Run state               | [Progress](./progress), [Complete](./complete), [Fail](./fail), [Cancel](./cancel), [Timeout](./timeout)                                                  | Record inspectable state and close run segments                            |
+| Child-canvas containers | [Iteration](./iteration), [Loop](./loop)                                                                                                                  | Establish graph scopes and constrain parent, child, and edge relationships |
 
-Names such as `start`, `end`, `llm`, `code`, and `tool` may appear in `data.type`. Structural compilation does not attach an executor or infer a property schema for those names. A host must maintain an allowlist and versioned schemas, then compile admitted nodes into the durable commands below.
+## Runtime binding
 
-## The 14 durable commands
+Nodes with a `runtimeBinding` compile to durable A3S Flow runtime commands. `flow.start` and `flow.condition` execute at the graph layer. `iteration` and `loop` define child-canvas structure, while the host decides how each pass compiles into steps or child workflows.
 
-| Node purpose            | Rust constructor          | JSON `type`             | Result                                                    |
-| ----------------------- | ------------------------- | ----------------------- | --------------------------------------------------------- |
-| Single step             | `schedule_step()`         | `schedule_step`         | Run one host step and persist its output                  |
-| Step batch              | `schedule_steps()`        | `schedule_steps`        | Persist every identity, then advance members concurrently |
-| Progress                | `record_progress()`       | `record_progress`       | Append one update with a stable ID                        |
-| External operation link | `link_child_operation()`  | `link_child_operation`  | Persist a reference managed by another owner              |
-| Timer wait              | `wait_until()`            | `wait_until`            | Suspend until a UTC deadline                              |
-| Signal wait             | `wait_for_signal()`       | `wait_for_signal`       | Consume the oldest unused signal with one name            |
-| External hook           | `create_hook()`           | `create_hook`           | Wait for token-routed receipt or disposal                 |
-| Single child workflow   | `start_child_workflow()`  | `start_child_workflow`  | Start or await one first-class child run                  |
-| Child workflow batch    | `start_child_workflows()` | `start_child_workflows` | Durably declare up to 64 child runs                       |
-| Continuation            | `continue_as_new()`       | `continue_as_new`       | Close one history and create its successor                |
-| Success                 | `complete()`              | `complete`              | Commit a successful terminal output                       |
-| Failure                 | `fail()`                  | `fail`                  | Commit an application failure                             |
-| Finish cancellation     | `cancel()`                | `cancel`                | Finish an existing cleanup-aware cancellation             |
-| Timeout                 | `timeout()`               | `timeout`               | Commit a deadline and optional reason                     |
+Task and wait nodes normally use the graph node ID as durable identity. Batch nodes also include each member key. Changing those IDs after a run starts prevents replay from matching the original history.
 
-Each `run_workflow()` call returns exactly one command. The engine commits resulting events and invokes workflow code again against the new history. A batch command is still one decision, while the engine persists and advances its members under their individual identities.
+Every individual node page includes the following material.
 
-## Common graph-node properties
+- Intended use and runtime behavior
+- Every field, default, control, range, option, and visibility condition
+- Control and data ports
+- Runtime binding and durable identity rules
+- Complete node JSON, CLI commands, and a Skill prompt
+- Recovery, retry, cancellation, and container-scope notes
 
-```json
-{
-  "id": "charge-order",
-  "type": "custom",
-  "position": { "x": 320, "y": 120 },
-  "data": {
-    "type": "service-call",
-    "operation": "billing.charge",
-    "retry_profile": "payment"
-  }
-}
+## Verify the catalog with the CLI
+
+The installed catalog ships with the front-end components. Inspect the current version before creating a node.
+
+```bash
+a3s-flow nodes --pretty
+a3s-flow node flow.step --pretty
+a3s-flow new flow.step --id charge-order --pretty
 ```
 
-| Property               | Required | Execution meaning                                                                            |
-| ---------------------- | -------- | -------------------------------------------------------------------------------------------- |
-| `id`                   | Yes      | Stable graph identity, non-empty and unique                                                  |
-| `data`                 | Yes      | Complete semantic object included in the execution digest                                    |
-| `data.type`            | Yes      | Non-empty discriminator used by the host to select a schema and executor                     |
-| `parentId`             | No       | Container identity, limited to an `iteration` or `loop` parent                               |
-| Other top-level fields | No       | Losslessly preserved presentation data such as `type`, `position`, dimensions, and selection |
-
-Presentation fields do not change `execution_digest()`. Node `data`, `parentId`, edge endpoints, and semantic edge data do change it. Source array order does not affect the plan either. Nodes that are simultaneously ready within a scope are ordered by stable ID.
-
-## Common edge properties
-
-| Property               | Required | Meaning                                                     |
-| ---------------------- | -------- | ----------------------------------------------------------- |
-| `id`                   | Yes      | Unique, non-empty graph identity                            |
-| `source`               | Yes      | Existing source node ID                                     |
-| `target`               | Yes      | Existing target node ID                                     |
-| `sourceHandle`         | No       | Source connector in the authoring canvas                    |
-| `targetHandle`         | No       | Target connector in the authoring canvas                    |
-| `data`                 | No       | Branch label or other host semantics included in the digest |
-| Other top-level fields | No       | Losslessly preserved presentation data                      |
-
-An edge cannot connect a node to itself or cross between the top level and a container scope. A cycle in any scope makes `execution_plan()` fail.
-
-## Compiling a graph node into a durable command
-
-The mapping below belongs to an example host. `service-call` is that host's node type and is not registered by Flow.
-
-```rust
-match node.node_type() {
-    "service-call" => {
-        let operation = node.data()["operation"]
-            .as_str()
-            .ok_or_else(|| FlowError::Runtime("missing operation".into()))?;
-
-        Ok(ctx.schedule_step(
-            format!("node:{}", node.id()),
-            operation,
-            resolved_input,
-        ))
-    }
-    node_type => Err(FlowError::Runtime(
-        format!("unsupported node type {node_type}"),
-    )),
-}
-```
-
-Before publication, validate properties, resolve variables, check authority, and pin executor versions. During a run, load only the published graph and bindings. A changed canvas cannot reinterpret existing history.
-
-## Identity rules
-
-Derive stable IDs from the published graph or deterministic indexes. Do not generate UUIDs, read the current clock, or number nodes by completion order inside replay code. After the first commit, step names, inputs, retry policies, wait deadlines, signal names, hook tokens, child definitions, and cancellation policies belong to history. Returning the same ID with changed properties produces a non-determinism error.
-
-The following pages expand every property and usage pattern.
-
-- [Work and state nodes](./work.mdx) covers single steps, batches, progress, and external operation references.
-- [Suspension and external input](./suspension.mdx) covers timers, signals, and hooks.
-- [Children and continuation](./composition.mdx) covers child workflows, continuation, and graph containers.
-- [Terminal nodes](./terminal.mdx) covers success, failure, cancellation, and timeout.
+After adding nodes to the graph, run `validate`, `compile`, and `digest`. The CLI checks fields, ports, scopes, cycles, and deterministic execution order.

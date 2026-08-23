@@ -1,0 +1,20 @@
+---
+title: Fail node
+description: Build an actionable error message and commit a failed terminal outcome.
+---
+
+# Fail workflow `flow.fail`
+
+A fail node commits a failed terminal outcome after workflow logic has determined that execution cannot continue. `error_expression` builds the final message from input and committed results. Use it for a business-rule rejection, failed compensation, or another explicitly unrecoverable state. Temporary network errors and retryable task failures belong in step retry handling instead of closing the run early.
+
+## Error content
+
+The message should give an operator useful business context, such as the failed stage, an external reference, and a practical next action. Tokens, credentials, complete request headers, sensitive input, and unredacted remote responses must stay out of terminal text. Put deeper diagnostics in controlled telemetry under a correlation ID and keep only a safe summary in history.
+
+A string may arrive through the `error` data port, or the expression may compose fields. The final text must be replay-stable and cannot include a newly read clock, random identifier, or live remote state. The node has no outgoing ports. If the process can still compensate, degrade, or request human repair, perform that work before entering this terminal node.
+
+## Operations and alerts
+
+Test missing error fields, redaction, duplicate terminal submission, cleanup failure during cancellation, and failure caused by exhausted step retries. Monitoring can distinguish explicit fail nodes from a task that failed the run directly. The first usually records a business decision, while the second points to execution behavior. Alert on stable error codes or correlation fields rather than matching an entire natural-language message that may evolve.
+
+<NodeReference type="flow.fail" />

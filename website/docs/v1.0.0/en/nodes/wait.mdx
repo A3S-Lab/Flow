@@ -1,0 +1,20 @@
+---
+title: Wait until node
+description: Suspend a run until a fixed UTC instant and resume after scheduler delivery.
+---
+
+# Wait until `flow.wait`
+
+A wait suspends the run until a deterministic UTC instant. It fits cooling periods, scheduled execution, business deadlines, and delayed retries. Once the deadline is committed, the current worker is released. The scheduler delivers the run again when the time is due, and replay continues through `resumed`. No thread or process needs to remain occupied while the run waits.
+
+## Deadline expression
+
+`resume_at` is a date-time expression that can read start input or a committed upstream result. It must resolve to an absolute timestamp with a timezone. Do not recalculate a relative duration during every replay because a restart could keep moving the deadline. For a seven-day wait, persist the base time and computed deadline in input or a task result, then have this node read the final instant.
+
+If the deadline is already in the past when scheduled, the run continues as soon as the scheduler processes it. A wait is not a terminal timeout and does not fail a run by itself. When expiry should end the process, wake through this node and then enter `flow.timeout` with the same persisted deadline. Use a signal or hook for external messages instead of replacing an event boundary with frequent polling.
+
+## Scheduling and recovery checks
+
+Incoming control uses `in` and execution resumes from `resumed`. Production needs due-time scanning or targeted wake-up, synchronized clocks, bounded scan batches, and duplicate-delivery handling. Test future and expired timestamps, timezone offsets, process and scheduler restarts, and duplicate wake-ups for one run. If history already contains the resume event, a worker must not create another wait decision.
+
+<NodeReference type="flow.wait" />

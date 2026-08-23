@@ -22,10 +22,54 @@
     "text": "Workflow nodes",
     "items": [
       { "text": "Node catalog", "link": "/nodes/" },
-      { "text": "Work and state", "link": "/nodes/work" },
-      { "text": "Suspension and input", "link": "/nodes/suspension" },
-      { "text": "Children and continuation", "link": "/nodes/composition" },
-      { "text": "Terminal nodes", "link": "/nodes/terminal" }
+      {
+        "text": "Orchestration",
+        "items": [
+          { "text": "Start", "link": "/nodes/start" },
+          { "text": "Condition", "link": "/nodes/condition" }
+        ]
+      },
+      {
+        "text": "Tasks and tools",
+        "items": [
+          { "text": "Run step", "link": "/nodes/step" },
+          { "text": "Step batch", "link": "/nodes/batch" }
+        ]
+      },
+      {
+        "text": "Wait and approval",
+        "items": [
+          { "text": "Wait until", "link": "/nodes/wait" },
+          { "text": "Callback and approval", "link": "/nodes/hook" },
+          { "text": "Signal wait", "link": "/nodes/signal" }
+        ]
+      },
+      {
+        "text": "Child work",
+        "items": [
+          { "text": "Child operation", "link": "/nodes/child-operation" },
+          { "text": "Child workflow", "link": "/nodes/child-workflow" },
+          { "text": "Child workflow batch", "link": "/nodes/child-workflows" },
+          { "text": "Continue as new", "link": "/nodes/continue-as-new" }
+        ]
+      },
+      {
+        "text": "Run state",
+        "items": [
+          { "text": "Progress", "link": "/nodes/progress" },
+          { "text": "Complete", "link": "/nodes/complete" },
+          { "text": "Fail", "link": "/nodes/fail" },
+          { "text": "Cancel", "link": "/nodes/cancel" },
+          { "text": "Timeout", "link": "/nodes/timeout" }
+        ]
+      },
+      {
+        "text": "Child-canvas containers",
+        "items": [
+          { "text": "Iteration", "link": "/nodes/iteration" },
+          { "text": "Loop", "link": "/nodes/loop" }
+        ]
+      }
     ]
   },
   {
@@ -41,6 +85,8 @@
     "text": "Reference",
     "items": [
       { "text": "Public API", "link": "/reference/api" },
+      { "text": "React components and hook", "link": "/reference/react" },
+      { "text": "Vue hook", "link": "/reference/vue" },
       { "text": "CLI commands", "link": "/reference/cli" },
       { "text": "Agent Skill", "link": "/reference/agent-skill" },
       { "text": "Example index", "link": "/reference/examples" },

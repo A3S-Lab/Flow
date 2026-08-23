@@ -29,6 +29,16 @@ fn complete_workflow_yaml_round_trips_without_losing_vendor_fields() {
 }
 
 #[test]
+fn workflow_dsl_rejects_non_workflow_application_modes() {
+    let source = WORKFLOW_DSL_ECHO.replacen("mode: workflow", "mode: advanced-chat", 1);
+
+    assert!(matches!(
+        WorkflowDsl::from_yaml(&source),
+        Err(WorkflowDslError::InvalidDocument { .. })
+    ));
+}
+
+#[test]
 fn extracted_graph_json_uses_the_native_nodes_and_edges_shape() {
     let graph = WorkflowDag::from_json(
         &json!({

@@ -1,0 +1,379 @@
+.flow-agent-chapter {
+  width: min(calc(100% - 48px), 1232px);
+  margin-top: 144px;
+  margin-bottom: 144px;
+  padding: 82px 64px;
+  border-radius: 28px;
+  background: #0d1728;
+  color: #edf4ff;
+  box-shadow: 0 34px 72px -46px rgb(3 12 28 / 78%);
+}
+
+.flow-agent-chapter h2 {
+  color: #f5f8ff;
+}
+
+.flow-agent-chapter .flow-chapter__heading {
+  margin-bottom: 52px;
+}
+
+.flow-agent-chapter .flow-chapter__heading p {
+  color: #aebbd1;
+}
+
+.flow-agent-rows {
+  overflow: hidden;
+  border-top: 1px solid #2b3a52;
+}
+
+.flow-agent-rows article {
+  display: grid;
+  min-height: 118px;
+  padding: 22px 4px;
+  border-bottom: 1px solid #2b3a52;
+  align-items: center;
+  gap: 20px;
+  grid-template-columns: 48px minmax(0, 1fr) minmax(170px, 0.4fr);
+}
+
+.flow-agent-rows article > span {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  border: 1px solid #334661;
+  border-radius: 11px;
+  background: #132138;
+  color: #77a5ff;
+  place-items: center;
+}
+
+.flow-agent-rows h3 {
+  margin: 0;
+  color: #f5f8ff;
+  font-size: 17px;
+  font-weight: 690;
+}
+
+.flow-agent-rows p {
+  max-width: 70ch;
+  margin: 7px 0 0;
+  color: #aebbd1;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.flow-agent-rows code {
+  justify-self: end;
+  padding: 7px 9px;
+  border: 1px solid #334661;
+  border-radius: 7px;
+  background: #132138;
+  color: #9fbcff;
+  font-family: var(--flow-mono);
+  font-size: 9px;
+}
+
+.flow-developer-chapter {
+  width: 100%;
+  max-width: none;
+  padding-right: max(48px, calc((100vw - 1280px) / 2 + 48px));
+  padding-left: max(48px, calc((100vw - 1280px) / 2 + 48px));
+  border-top: 1px solid var(--flow-line);
+  border-bottom: 1px solid var(--flow-line);
+  background: var(--flow-surface);
+}
+
+.flow-developer-console {
+  max-width: 1184px;
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--flow-line-strong);
+  border-radius: 18px;
+  background: var(--flow-bg);
+  box-shadow: 0 26px 58px -44px rgb(15 35 70 / 46%);
+}
+
+.flow-developer-console__tabs {
+  display: flex;
+  min-height: 60px;
+  padding: 0 14px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--flow-line);
+  background: var(--flow-surface);
+  align-items: end;
+  gap: 22px;
+}
+
+.flow-developer-console__tabs button {
+  position: relative;
+  min-height: 59px;
+  padding: 0 3px;
+  border: 0;
+  background: transparent;
+  color: var(--flow-faint);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 670;
+}
+
+.flow-developer-console__tabs button::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: transparent;
+  content: '';
+}
+
+.flow-developer-console__tabs button[aria-selected='true'] {
+  color: var(--flow-text);
+}
+
+.flow-developer-console__tabs button[aria-selected='true']::after {
+  background: var(--flow-accent);
+}
+
+.flow-developer-console > section {
+  display: grid;
+  min-height: 440px;
+  grid-template-columns: minmax(260px, 0.72fr) minmax(440px, 1.28fr);
+}
+
+.flow-developer-console > section > div:first-child {
+  display: flex;
+  padding: 46px 38px;
+  justify-content: center;
+  flex-direction: column;
+}
+
+.flow-developer-console > section h3 {
+  margin: 0;
+  color: var(--flow-text);
+  font-size: 26px;
+  font-weight: 720;
+  letter-spacing: -0.03em;
+}
+
+.flow-developer-console > section p {
+  margin: 14px 0 0;
+  color: var(--flow-muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.flow-developer-console > section a {
+  display: inline-flex;
+  margin-top: 24px;
+  color: var(--flow-accent-strong);
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 670;
+  text-decoration: none;
+}
+
+.flow-developer-console__code {
+  min-width: 0;
+  margin: 18px;
+  overflow: hidden;
+  border: 1px solid #263653;
+  border-radius: 13px;
+  background: var(--flow-code);
+}
+
+.flow-developer-console__code > header {
+  display: flex;
+  min-height: 47px;
+  padding: 0 14px;
+  border-bottom: 1px solid #263653;
+  color: #94a5c0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: var(--flow-mono);
+  font-size: 9px;
+}
+
+.flow-developer-console__code > header button {
+  display: inline-flex;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid #334661;
+  border-radius: 6px;
+  background: #132138;
+  color: #c6d4e9;
+  cursor: pointer;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+}
+
+.flow-developer-console__code pre {
+  margin: 0;
+  padding: 30px 26px;
+  overflow: auto;
+  background: transparent;
+}
+
+.flow-developer-console__code code {
+  color: var(--flow-code-text);
+  font-family: var(--flow-mono);
+  font-size: 11px;
+  line-height: 1.8;
+}
+
+.flow-architecture-chapter {
+  padding-bottom: 160px;
+}
+
+.flow-architecture-map {
+  max-width: 1184px;
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--flow-line-strong);
+  border-radius: 18px;
+  background: var(--flow-surface);
+}
+
+.flow-architecture-map__layers {
+  display: grid;
+  padding: 24px;
+  background: var(--flow-bg);
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.flow-architecture-map__layers > div {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 146px;
+  padding: 17px;
+  border: 1px solid var(--flow-line);
+  border-radius: 12px;
+  background: var(--flow-surface);
+  flex-direction: column;
+}
+
+.flow-architecture-map__layers > div > b {
+  color: var(--flow-accent);
+  font-family: var(--flow-mono);
+  font-size: 10px;
+}
+
+.flow-architecture-map__layers > div > span {
+  display: flex;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+  flex-direction: column;
+}
+
+.flow-architecture-map__layers strong,
+.flow-architecture-map__layers small {
+  display: block;
+}
+
+.flow-architecture-map__layers strong {
+  color: var(--flow-text);
+  font-size: 15px;
+  font-weight: 690;
+}
+
+.flow-architecture-map__layers small {
+  margin-top: 6px;
+  color: var(--flow-faint);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.flow-architecture-map__layers > div > svg {
+  position: absolute;
+  top: calc(50% - 8px);
+  right: -15px;
+  z-index: 1;
+  color: var(--flow-border-strong);
+}
+
+.flow-architecture-map > footer {
+  display: grid;
+  min-height: 76px;
+  border-top: 1px solid var(--flow-line);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.flow-architecture-map > footer span {
+  display: inline-flex;
+  min-width: 0;
+  padding: 0 22px;
+  color: var(--flow-muted);
+  align-items: center;
+  gap: 9px;
+  font-size: 11px;
+}
+
+.flow-architecture-map > footer span + span {
+  border-left: 1px solid var(--flow-line);
+}
+
+.flow-architecture-map > footer svg {
+  flex: 0 0 auto;
+  color: var(--flow-accent);
+}
+
+.flow-final {
+  display: flex;
+  width: min(calc(100% - 48px), 1232px);
+  min-height: 310px;
+  margin: 0 auto 48px;
+  padding: 58px 64px;
+  border-radius: 26px;
+  background: #0d1728;
+  color: #edf4ff;
+  align-items: center;
+  justify-content: space-between;
+  gap: 54px;
+}
+
+.flow-final > div:first-child {
+  max-width: 740px;
+}
+
+.flow-final > div:first-child > svg {
+  margin-bottom: 18px;
+  color: #77a5ff;
+}
+
+.flow-final h2 {
+  color: #f5f8ff;
+  font-size: clamp(36px, 4.2vw, 56px);
+}
+
+.flow-final p {
+  max-width: 64ch;
+  margin: 18px 0 0;
+  color: #aebbd1;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.flow-final > div:last-child {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: stretch;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.flow-final .flow-button.is-secondary {
+  border-color: #334661;
+  background: #132138;
+  color: #edf4ff;
+}
+
+.flow-final .flow-button.is-secondary:hover {
+  border-color: #536b8d;
+  background: #192b48;
+  color: #fff;
+}

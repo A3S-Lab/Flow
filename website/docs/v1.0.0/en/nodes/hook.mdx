@@ -1,0 +1,20 @@
+---
+title: Callback and approval node
+description: Wait for one human approval or webhook callback and handle receipt or disposal.
+---
+
+# Wait for callback `flow.hook`
+
+A hook creates an external boundary that can resolve once. It supports human approval, a UI action, or a webhook callback. The node first commits hook identity and receipt rules, then releases the worker. When valid input arrives, the run is delivered again and the stored payload becomes available. Cancellation or explicit disposal follows a separate branch with no accepted result.
+
+## Mode and public boundary
+
+`kind` selects human approval or webhook behavior. Human approval uses `subject` and metadata to describe the work. Webhook mode also exposes `callback_method` and `callback_path`. When `token_expression` produces a public receipt credential, derive it from stable data and let the host distribute it through a protected channel. The token is a credential and must stay out of ordinary logs, error messages, analytics, and screenshots.
+
+One accepted receipt opens `received` control and `payload` data. A disposed hook, cancellation request, or closed receipt window continues through `disposed`. The graph should handle both outcomes explicitly. An approval rejection is usually a valid business payload and can be evaluated by a condition after `received`. Disposal means no result was accepted and should not be presented as a human rejection.
+
+## Receipt and security checks
+
+The host endpoint validates token, method, content type, payload size, and caller permission, and it allows only one transition out of waiting state. A duplicate request should return the resolved state or original result, never append different content. Test expired credentials, wrong methods, concurrent receipt, cancellation races, log redaction, and process recovery. Use a signal when messages of the same name must queue and be consumed repeatedly.
+
+<NodeReference type="flow.hook" />

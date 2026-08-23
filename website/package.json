@@ -20,6 +20,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@a3s-lab/flow-ui": "file:../packages/ui",
+    "@a3s-lab/ui": "^0.3.0",
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
     "@phosphor-icons/react": "^2.1.10",

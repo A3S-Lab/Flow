@@ -120,9 +120,9 @@ impl WorkflowDsl {
         if self.app.name.trim().is_empty() {
             return Err(invalid_document("app.name is empty"));
         }
-        if !matches!(self.app.mode.as_str(), "workflow" | "advanced-chat") {
+        if self.app.mode != "workflow" {
             return Err(invalid_document(format!(
-                "app.mode {:?} does not contain a Workflow graph",
+                "app.mode {:?} must be workflow",
                 self.app.mode
             )));
         }

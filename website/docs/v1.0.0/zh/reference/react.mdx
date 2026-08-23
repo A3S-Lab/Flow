@@ -1,0 +1,85 @@
+---
+title: React 组件与 Hook
+description: 在 React 中使用节点卡片、配置面板和 useA3SFlowNode 管理工作流节点。
+---
+
+# React 组件与 Hook
+
+`@a3s-lab/flow-ui/react` 提供节点卡片、配置面板和 `useA3SFlowNode`。三个入口使用同一个 `A3SFlowWorkflowDagNode`，节点配置与画布展示字段不会被拆成两份状态。组件读取 manifest 生成端口、字段分组、专用控件、默认值和校验规则。
+
+先安装 Flow UI、A3S UI 的通用 Form 层与 React。样式文件同时包含表单基础样式和 Flow 节点样式。
+
+```bash
+npm install @a3s-lab/flow-ui @a3s-lab/ui react react-dom
+```
+
+```tsx
+import '@a3s-lab/flow-ui/styles.css';
+import {
+  A3SFlowDagNodeConfigurationPanel,
+  A3SFlowDagNodePreview,
+  useA3SFlowNode,
+} from '@a3s-lab/flow-ui/react';
+
+export function AgentTaskNode() {
+  const { node, setNode, reset } = useA3SFlowNode({
+    id: 'agent-task',
+    type: 'flow.step',
+    configuration: {
+      step_name: 'agent.run',
+      max_attempts: 3,
+      retry_delay_ms: 1000,
+      on_exhausted: 'continue_workflow',
+    },
+    presentation: {
+      title: '订单复核',
+      desc: '读取订单与规则后给出处理建议',
+    },
+  });
+
+  return (
+    <div className="workflow-node-editor">
+      <A3SFlowDagNodePreview dagNode={node} locale="zh-CN" selected />
+      <A3SFlowDagNodeConfigurationPanel
+        dagNode={node}
+        locale="zh-CN"
+        connectedOutputPortIds={['success', 'failed']}
+        onChange={setNode}
+        onReset={reset}
+      />
+    </div>
+  );
+}
+```
+
+## `useA3SFlowNode`
+
+Hook 创建带 manifest 默认值的节点，并把每次修改归一化。`configuration` 只包含 manifest 声明的语义字段。`title`、`desc`、画布位置与尺寸保留在节点展示数据中。
+
+| 返回值               | 用途                                          |
+| -------------------- | --------------------------------------------- |
+| `node`               | 当前完整 DAG 节点，可以直接交给画布或序列化器 |
+| `manifest`           | 当前类型的字段、端口和运行绑定                |
+| `configuration`      | 从节点中选出的 manifest 配置                  |
+| `setNode`            | 接收一个完整节点，并触发可选的 `onChange`     |
+| `setConfiguration`   | 替换全部配置，未知字段不会进入 manifest 配置  |
+| `patchConfiguration` | 修改部分配置并保留其余字段                    |
+| `setTitle`           | 修改画布标题，不改变语义摘要                  |
+| `setDescription`     | 修改画布说明，不改变语义摘要                  |
+| `reset`              | 回到 Hook 创建时传入的配置和展示值            |
+
+当节点类型由选择器切换时，建议用类型作为编辑器组件的 React `key`，让新类型重新创建 Hook 状态。已有运行对应的节点不要在原位置改变 `data.type`，应新增节点并通过发布版本迁移流程。
+
+## 节点卡片
+
+`A3SFlowDagNodePreview` 根据类型显示图标、摘要、控制端口和数据端口。`technical` 打开后会显示更完整的类型信息，适合开发工具。`selected` 只改变选中样式。`locale` 支持 `zh`、`zh-CN` 和英文回退。
+
+容器节点会显示子画布入口。`iteration` 需要一个 `iteration-start` 子节点，`loop` 需要一个 `loop-start` 子节点。卡片只展示结构，画布仍要负责父子节点定位、缩放、拖动和连线。
+
+## 配置面板
+
+`A3SFlowDagNodeConfigurationPanel` 根据 manifest 编译 Form 文档。批量任务、表达式、输入 Schema、子工作流定义和子工作流列表使用专用控件。字段的必填、范围、选项和条件显示由 manifest 决定。
+
+`connectedOutputPortIds` 让语义校验知道哪些控制出口已经连线。步骤把 `on_exhausted` 设为 `continue_workflow` 时，应连接 `failed`。`onRequestConnection` 可以把字段旁的连接动作交给画布。`onChange` 每次收到完整新节点，宿主应把它写回自己的图状态。
+
+面板不会保存工作流、管理凭据或调用任务。保存、撤销、多人协作和发布仍由宿主编辑器负责。提交前使用 `a3s-flow validate` 检查整张图，单个表单通过不能证明容器作用域和所有连线都有效。
