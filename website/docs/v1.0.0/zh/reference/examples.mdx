@@ -1,0 +1,144 @@
+---
+title: 示例索引
+description: 按持久步骤、等待回调、恢复发布、存储任务、观察和 TypeScript 分类运行仓库中的完整示例。
+---
+
+# 示例索引
+
+仓库的 `examples/` 目录包含 31 个可运行程序。建议从 `sequential_steps` 开始，再根据生产需求选择同类示例。示例默认使用临时资源或明确的环境变量，不会自动连接生产服务。
+
+## 运行准备
+
+```console
+git clone https://github.com/A3S-Lab/Flow.git
+cd Flow
+cargo run --example sequential_steps
+```
+
+1.0 最低需要 Rust 1.88。SQL 示例首次构建会编译对应驱动，耗时会比内存示例长。
+
+## 步骤与业务编排
+
+| 示例                       | 解决的问题                   | 命令                                           |
+| -------------------------- | ---------------------------- | ---------------------------------------------- |
+| `sequential_steps`         | 两个有依赖的持久步骤怎样重放 | `cargo run --example sequential_steps`         |
+| `batch_steps`              | 一次声明互相独立的步骤批次   | `cargo run --example batch_steps`              |
+| `retry_backoff`            | 固定和指数退避、确定性抖动   | `cargo run --example retry_backoff`            |
+| `recoverable_step_failure` | 重试耗尽后把失败交回工作流   | `cargo run --example recoverable_step_failure` |
+| `compensation`             | 先前步骤成功后执行显式补偿   | `cargo run --example compensation`             |
+| `polling_loop`             | 步骤与定时等待组成轮询       | `cargo run --example polling_loop`             |
+
+阅读顺序建议采用 `sequential_steps`、`retry_backoff`、`recoverable_step_failure`、`compensation`。这样可以依次看清步骤成功、重投、耗尽和补偿边界。
+
+## 等待、信号与回调
+
+| 示例               | 解决的问题                       | 命令                                   |
+| ------------------ | -------------------------------- | -------------------------------------- |
+| `scheduler_worker` | 调度器扫描到期等待并派发运行任务 | `cargo run --example scheduler_worker` |
+| `workflow_signals` | 声明信号、先到消息和稳定投递 ID  | `cargo run --example workflow_signals` |
+| `hook_approval`    | 用公开令牌恢复人工审批 Hook      | `cargo run --example hook_approval`    |
+| `hook_disposal`    | 撤回活动 Hook 并拒绝迟到回调     | `cargo run --example hook_disposal`    |
+| `cancellation`     | 取消请求、持久清理和到期任务失效 | `cargo run --example cancellation`     |
+
+要实现 HTTP 回调入口，先运行 `hook_approval` 看令牌解析结果，再读[信号与 Hook](/guide/signals-and-hooks)里的可靠重投规则。示例只演示 Flow 调用，不提供 HTTP 服务或鉴权。
+
+## 长运行、发布与父子关系
+
+| 示例                   | 解决的问题                           | 命令                                       |
+| ---------------------- | ------------------------------------ | ------------------------------------------ |
+| `continue_as_new`      | 用后继运行控制单条历史长度           | `cargo run --example continue_as_new`      |
+| `replay_safe_patch`    | 新运行选择补丁分支，旧运行保持原路径 | `cargo run --example replay_safe_patch`    |
+| `child_workflow`       | 单个第一类子运行和终态读取           | `cargo run --example child_workflow`       |
+| `child_workflow_batch` | 有界并发子运行和请求顺序结果         | `cargo run --example child_workflow_batch` |
+| `run_inspection`       | 状态汇总、暂停列表和运行检查         | `cargo run --example run_inspection`       |
+
+发布相关示例使用内存存储突出契约。生产环境还要按[Worker 与发布](/operations/production)配置精确运行版本路由。
+
+## 本地持久化
+
+| 示例                    | 解决的问题                       | 命令                                                      |
+| ----------------------- | -------------------------------- | --------------------------------------------------------- |
+| `local_file_durability` | 进程重新创建后从 JSONL 恢复      | `cargo run --example local_file_durability`               |
+| `sqlite_durability`     | SQLite 重新连接后读取运行        | `cargo run --example sqlite_durability --features sqlite` |
+| `local_retention`       | 删除过期的本地终态历史           | `cargo run --example local_retention`                     |
+| `sqlite_retention`      | SQL 审计标记、完整组件删除与墓碑 | `cargo run --example sqlite_retention --features sqlite`  |
+
+这些示例会在临时目录或临时文件中工作并清理资源。接真实路径前，先读[存储与迁移](/operations/persistence)的所有者与备份要求。
+
+## PostgreSQL
+
+PostgreSQL 示例只在设置 `A3S_FLOW_POSTGRES_URL` 后连接数据库。
+
+```console
+export A3S_FLOW_POSTGRES_URL=postgres://user:pass@127.0.0.1:5432/flow_test
+cargo run --example postgres_durability --features postgres
+```
+
+| 示例                             | 解决的问题                          | 命令                                                                     |
+| -------------------------------- | ----------------------------------- | ------------------------------------------------------------------------ |
+| `postgres_durability`            | 共享 SQL 历史跨实例恢复             | `cargo run --example postgres_durability --features postgres`            |
+| `postgres_task_queue_durability` | PostgreSQL 任务租约与工作流历史配合 | `cargo run --example postgres_task_queue_durability --features postgres` |
+
+使用专门测试数据库。示例可能创建或迁移 Flow 表，不能指向生产实例。
+
+## 任务与 Worker
+
+| 示例                    | 解决的问题                          | 命令                                                   |
+| ----------------------- | ----------------------------------- | ------------------------------------------------------ |
+| `task_queue_durability` | 本地持久任务队列在进程重启后恢复    | `cargo run --example task_queue_durability`            |
+| `sqlite_worker`         | SQLite 历史与 Worker 驱动组合       | `cargo run --example sqlite_worker --features sqlite`  |
+| `boot_task_policy`      | Boot 任务重试、超时、停滞和去重策略 | `cargo run --example boot_task_policy --features boot` |
+
+任务重试和步骤重试位于不同层。先看 `task_queue_durability` 的租约恢复，再看 `boot_task_policy` 的宿主策略。
+
+## 观察与审计
+
+| 示例              | 解决的问题                     | 命令                                  |
+| ----------------- | ------------------------------ | ------------------------------------- |
+| `observer_fanout` | 一个提交事件分发到多个观察者   | `cargo run --example observer_fanout` |
+| `observer_bridge` | 把事件包络映射为低基数观察记录 | `cargo run --example observer_bridge` |
+| `local_audit_log` | 修复感知的本地 JSONL 审计日志  | `cargo run --example local_audit_log` |
+
+观察者在事件提交后运行。示例故意不让观察结果参与工作流决定。
+
+## 原生 TypeScript
+
+先安装编译器并确保 Bun 可用。
+
+```console
+cargo install a3s-flow --version 1.0.0 --locked \
+  --bin a3s-flow-native-compiler
+export A3S_FLOW_NATIVE_TS_COMPILER="$(command -v a3s-flow-native-compiler)"
+```
+
+| 示例                  | 解决的问题                       | 命令                                      |
+| --------------------- | -------------------------------- | ----------------------------------------- |
+| `native_ts_preflight` | 解析入口、构建制品和检查缓存命中 | `cargo run --example native_ts_preflight` |
+| `native_ts_greeting`  | TypeScript 工作流与步骤完整运行  | `cargo run --example native_ts_greeting`  |
+
+未设置编译器环境变量时，两个示例会输出说明并安全跳过。生产配置见[原生 TypeScript](/runtimes/native-typescript)。
+
+## 工作流图导入
+
+`workflow_dsl_import` 接收 YAML 文件路径，输出应用信息、版本分类、节点数、作用域和执行摘要。
+
+```console
+cargo run --example workflow_dsl_import -- \
+  tests/fixtures/workflow_dsl_echo.yml
+```
+
+图导入只校验结构并生成计划，不执行节点。宿主节点绑定见[工作流图](/concepts/workflow-dag)。
+
+## 建议的生产验证路径
+
+准备接入真实业务时，可以按下面的顺序把示例替换成自己的后端。
+
+1. 用 `sequential_steps` 确认运行时和步骤边界。
+2. 用目标 SQL 持久化示例确认重启恢复。
+3. 用 `scheduler_worker` 验证定时任务重复投递。
+4. 根据入口选择信号或 Hook 示例。
+5. 用 `cancellation` 验证清理幂等。
+6. 用任务管理示例替换进程内派发。
+7. 在与生产相同的存储和队列上注入进程退出。
+
+每次替换一层，保留事件历史和外部幂等记录，出现偏差时更容易定位责任边界。

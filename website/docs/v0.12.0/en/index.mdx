@@ -1,0 +1,50 @@
+---
+title: A3S Flow 0.12.0
+description: The 0.12.0 release snapshot for Boot 0.2, ORM 0.3, durable steps, hooks, cancellation, build routing, and the TypeScript adapter.
+---
+
+# A3S Flow 0.12.0
+
+`v0.12.0` was released on August 10, 2026. Its release boundary aligns optional task management with `a3s-boot 0.2.0` and SQLite and PostgreSQL persistence with `a3s-orm 0.3.0`.
+
+This snapshot uses only interfaces present at tag `v0.12.0`.
+
+## Available capabilities
+
+| Area          | 0.12.0 contract                                                                         |
+| ------------- | --------------------------------------------------------------------------------------- |
+| Workflow      | Event replay, single steps, concurrent step batches, and fixed-delay retry              |
+| Suspension    | UTC timer waits and external hooks                                                      |
+| Stop control  | Cleanup-aware cancellation, immediate cancellation, timeout, and host-shutdown outcomes |
+| Control plane | Durable progress, external child-operation links, and run inspection                    |
+| Rollout       | `RuntimeBuildId` admission and exact task routing                                       |
+| Stores        | Memory, JSONL, SQLite, and PostgreSQL                                                   |
+| Tasks         | Boot 0.2 manager plus memory, JSONL, and PostgreSQL queues                              |
+| TypeScript    | Native runtime adapter using a host-supplied compiler                                   |
+
+## Dependency boundary in 0.12.0
+
+With `sqlite` or `postgres`, Flow uses ORM 0.3 executors, transactions, row decoding, and checksummed migrations. With `boot`, the task-management adapter uses Boot 0.2 queue interfaces.
+
+Pin these optional dependency families together when moving to 0.12.0. If an application directly depends on older Boot or ORM versions, Cargo may resolve two distinct type families and make constructors and traits incompatible.
+
+## Native TypeScript scope
+
+0.12.0 includes `NativeTsRuntime`, the native JSON protocol, artifact cache, output bounds, timeouts, and preflight. The host supplies a compiler executable with the command shape `compile <entrypoint> -o <artifact>`.
+
+This release does not ship an installable compiler or compiler dependency-manifest protocol. Source identity covers the entrypoint and workflow deployment identity only. The host must change `WorkflowSpec.version` when imports, lockfiles, or TypeScript configuration change.
+
+## Boundary with later versions
+
+- 0.13.1 adds the bundled compiler and complete dependency-manifest mode.
+- 1.0 adds named signals, first-class child workflows, continuation, patch markers, and graph-document compilation.
+- 0.12.0 `RetryPolicy` supports no retry and fixed delay, with no exponential backoff.
+
+The top version selector keeps the same site theme while each snapshot exposes only its own interfaces.
+
+## Choose the next page
+
+- [Get started](/guide/) runs a Rust example pinned to 0.12.0.
+- [Execution model](/concepts/execution-model) describes durable primitives available at the time.
+- [Stores and migrations](/operations/persistence) records ORM 0.3 migration prefixes.
+- [API reference](/reference/api) lists public 0.12.0 types.

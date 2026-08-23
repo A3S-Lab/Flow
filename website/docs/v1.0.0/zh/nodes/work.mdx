@@ -1,0 +1,179 @@
+---
+title: 工作与状态节点
+description: 逐项说明单步骤、步骤批次、进度更新和外部子操作引用的属性、重试、输出读取与重放约束。
+---
+
+# 工作与状态节点
+
+这组节点负责执行宿主动作或保存控制面状态。步骤可以调用网络、数据库和工具，工作流重放函数只负责返回命令与读取已经提交的结果。
+
+## 单步骤 `ScheduleStep`
+
+适合一个需要独立结果、重试和审计身份的外部动作。`ctx.schedule_step()` 使用默认重试，`ctx.schedule_step_with_retry()` 接收明确策略。
+
+| 属性        | 类型          | 必填 | 规则                                          |
+| ----------- | ------------- | ---- | --------------------------------------------- |
+| `step_id`   | `String`      | 是   | 在本次运行中稳定，后续重放必须复用            |
+| `step_name` | `String`      | 是   | 宿主 `run_step()` 用它选择实现                |
+| `input`     | JSON          | 是   | 完整输入会进入历史，重放时逐值比较            |
+| `retry`     | `RetryPolicy` | 否   | 默认最多 3 次，尝试之间无延迟，耗尽后终止运行 |
+
+```rust
+if let Some(receipt) = ctx.step_output("charge-order") {
+    return Ok(ctx.complete(receipt.clone()));
+}
+
+Ok(ctx.schedule_step_with_retry(
+    "charge-order",
+    "billing.charge",
+    json!({
+        "order_id": ctx.input()["order_id"],
+        "amount": ctx.input()["amount"],
+    }),
+    RetryPolicy::exponential(
+        6,
+        Duration::from_secs(1),
+        Duration::from_secs(30),
+    ),
+))
+```
+
+`run_step()` 收到 `StepInvocation`。外部系统的幂等键应从 `run_id`、`step_id` 和 `attempt` 派生。进程可能在外部动作成功后、`StepCompleted` 提交前退出，此时同一次尝试会再次交付。
+
+```rust
+async fn run_step(
+    &self,
+    invocation: StepInvocation,
+) -> a3s_flow::Result<serde_json::Value> {
+    match invocation.step_name.as_str() {
+        "billing.charge" => {
+            let key = format!(
+                "{}:{}",
+                invocation.run_id,
+                invocation.step_id,
+            );
+            self.billing.charge(key, invocation.input).await
+        }
+        name => Err(FlowError::Runtime(format!("unknown step {name}"))),
+    }
+}
+```
+
+步骤完成或失败以后，工作流必须读取终态并进入下一条决定。继续返回同一个终态步骤会得到 `InvalidTransition`。同一个 `step_id` 改变步骤名、输入或重试策略会得到 `NonDeterministic`。
+
+### 重试属性
+
+| 属性           | JSON 值                           | 含义                                           |
+| -------------- | --------------------------------- | ---------------------------------------------- |
+| `max_attempts` | 正整数                            | 包含第一次执行的总尝试次数，构造器最小收敛到 1 |
+| `delay_ms`     | 非负整数                          | 固定延迟，或指数退避的初始上限                 |
+| `backoff`      | `fixed` 或 `exponential`          | 省略时为固定延迟                               |
+| `max_delay_ms` | 非负整数                          | 固定策略必须为 0，指数策略不得小于 `delay_ms`  |
+| `on_exhausted` | `fail_run` 或 `continue_workflow` | 最后失败后终止运行或返回工作流选择降级路径     |
+
+`RetryPolicy::none()` 只执行一次。`fixed()` 使用相同延迟。`exponential()` 按尝试次数扩大上限，并根据运行、步骤和尝试身份选择确定性 full jitter。重启后会得到同一个截止时间。
+
+```rust
+let retry = RetryPolicy::fixed(4, Duration::from_secs(5))
+    .continue_workflow_on_failure();
+
+Ok(ctx.schedule_step_with_retry(
+    "lookup-inventory",
+    "inventory.lookup",
+    input,
+    retry,
+))
+```
+
+选择 `continue_workflow` 后，使用 `ctx.step_failed("lookup-inventory")` 判断耗尽状态，再返回补偿步骤、人工 Hook 或明确失败。
+
+## 步骤批次 `ScheduleSteps`
+
+批次用于一组互不依赖、可以并发推进的动作。批次至少包含一个成员，`step_id` 必须非空且在批次内唯一。每个成员具有单步骤相同的四项属性。
+
+```rust
+let steps = items
+    .iter()
+    .enumerate()
+    .map(|(index, item)| {
+        ctx.step_with_retry(
+            format!("price-{index:04}"),
+            "catalog.price",
+            json!({ "sku": item["sku"] }),
+            RetryPolicy::fixed(3, Duration::from_millis(250)),
+        )
+    })
+    .collect();
+
+Ok(ctx.schedule_steps(steps))
+```
+
+引擎先按声明顺序提交所有新成员的 `StepCreated`，任何副作用都在这些身份落盘后开始。可执行成员并发运行，结果按实际完成时间分别提交。工作流读取结果时仍按稳定 `step_id` 聚合，不能依赖提交顺序。
+
+Flow 1.0 没有公开的步骤批次成员上限。宿主应根据步骤输出大小、事件数量、外部限流和单次重放成本设置有界窗口。上一批全部进入终态后，再用确定性索引发出下一批。
+
+一个延迟重试成员不会阻塞已经到期的兄弟成员。所有成员都进入成功、失败或取消状态后，工作流要推进到新决定，不能再次只提交同一组终态成员。
+
+## 进度 `RecordProgress`
+
+进度是追加式控制面记录，不影响步骤执行。适合保存稳定里程碑、已完成数量和可检索说明。
+
+| 属性          | 类型     | 必填 | 规则                                   |
+| ------------- | -------- | ---- | -------------------------------------- |
+| `progress_id` | `String` | 是   | 非空且在运行中只使用一次               |
+| `completed`   | `u64`    | 是   | 已完成数量                             |
+| `total`       | `u64`    | 否   | 存在时必须大于 0，且不小于 `completed` |
+| `message`     | `String` | 否   | 面向操作者的短说明                     |
+| `details`     | JSON     | 否   | 结构化信息，默认 `null`                |
+
+```rust
+if ctx.progress("catalog-page-0002").is_none() {
+    let progress = WorkflowProgress::new("catalog-page-0002", 200)
+        .with_total(1_000)
+        .with_message("Catalog pages 1 and 2 committed")
+        .with_details(json!({ "last_cursor": "sku-0200" }));
+    return Ok(ctx.record_progress(progress));
+}
+```
+
+提交进度后会立即重放。代码要先检查 `ctx.progress(progress_id)`，再进入下一阶段。重复返回已经存在的同值进度仍会被视为没有推进，改变同一 ID 的值则属于非确定性重放。
+
+进度详情会进入持久历史。只保存业务状态或对象引用，不要放凭据、访问令牌和大块内容。
+
+## 外部操作引用 `LinkChildOperation`
+
+这个节点记录由其他系统管理的长任务，例如渲染作业、数据导入或外部批处理。它只保存关联，不启动任务，也不自动等待或传播取消。
+
+| 属性           | 类型     | 必填 | 规则                                               |
+| -------------- | -------- | ---- | -------------------------------------------------- |
+| `reference_id` | `String` | 是   | 父运行内稳定且非空                                 |
+| `kind`         | `String` | 是   | 操作类别，例如 `render-job`                        |
+| `operation_id` | `String` | 是   | 外部所有者分配的身份                               |
+| `flow_run_id`  | `String` | 否   | 外部操作恰好对应另一个 Flow run 时填写，不能为空串 |
+| `metadata`     | JSON     | 否   | 业务元数据，默认 `null`                            |
+
+```rust
+if ctx.child_operation("render-invoice").is_none() {
+    let child = ChildOperationReference::new(
+        "render-invoice",
+        "render-job",
+        ctx.input()["job_id"].as_str().unwrap_or_default(),
+    )
+    .with_metadata(json!({ "document": "invoice" }));
+
+    return Ok(ctx.link_child_operation(child));
+}
+```
+
+提交后同样需要读取记录并推进。外部操作的创建、轮询、取消和结果读取要通过独立步骤或 Hook 完成。需要 Flow 管理生命周期和父子取消时，使用[第一类子工作流](./composition.mdx)。
+
+## 选择方式
+
+| 需求                           | 选择         |
+| ------------------------------ | ------------ |
+| 需要执行外部动作并保存输出     | 单步骤       |
+| 多个动作互不依赖并且数量有界   | 步骤批次     |
+| 只需增加可检查的运行里程碑     | 进度         |
+| 另一个系统已经拥有任务生命周期 | 外部操作引用 |
+
+所有节点都要在返回后产生可观察的状态变化。工作流每次重放先读历史，再决定是否还需返回这个节点。

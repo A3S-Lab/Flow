@@ -1,0 +1,103 @@
+---
+title: 0.12.0 存储与迁移
+description: 核对 0.12.0 的 ORM 0.3 存储、SQLite 与 PostgreSQL 迁移、历史保留、队列和升级步骤。
+---
+
+# 0.12.0 存储与迁移
+
+0.12.0 正式对齐 `a3s-orm 0.3.0` 和 `a3s-boot 0.2.0`。应用直接使用这两个库时，要让 Cargo 依赖与 Flow 功能解析到同一版本。
+
+## 存储选择
+
+| 类型                  | 功能       | 适用范围            |
+| --------------------- | ---------- | ------------------- |
+| `InMemoryEventStore`  | 无         | 单元测试            |
+| `LocalFileEventStore` | 无         | 单进程 JSONL 持久化 |
+| `SqliteEventStore`    | `sqlite`   | 单节点应用          |
+| `PostgresEventStore`  | `postgres` | 多 Worker 共享历史  |
+
+```toml
+a3s-flow = { version = "=0.12.0", features = ["sqlite"] }
+```
+
+事件存储必须原子实现预期序号追加，并按序返回完整历史。活动 Hook 和定时唤醒投影只用于加速查询。
+
+## SQLite 迁移
+
+```rust
+let store = SqliteEventStore::connect(
+    "sqlite://.a3s/flow/flow.db",
+)
+.await?;
+```
+
+`connect()` 应用下面的规范迁移。
+
+1. `a3s-flow-0001-events`
+2. `a3s-flow-0002-retention`
+3. `a3s-flow-0003-active-hooks`
+4. `a3s-flow-0004-scheduled-wakeups`
+
+SQLite 文件由一个服务进程拥有。升级前停止旧所有者，保存文件恢复点，并在副本上验证能够重放一条等待或中断步骤。
+
+## PostgreSQL 迁移
+
+```rust
+let store = PostgresEventStore::connect(&database_url).await?;
+```
+
+0.12.0 的 PostgreSQL 迁移前缀如下。
+
+1. `a3s-flow-0001-events`
+2. `a3s-flow-0002-tasks`
+3. `a3s-flow-0003-retention`
+4. `a3s-flow-0004-active-hooks`
+5. `a3s-flow-0005-scheduled-wakeups`
+
+这一版通过连接构造器执行迁移，没有 1.0 的独立迁移函数和只验证构造器。部署时让一个实例先完成迁移，再启动其余 Worker。
+
+## 本地 JSONL
+
+`LocalFileEventStore::new(root)` 为每条运行保存追加式 JSONL。一个根目录只能由一个宿主写入。备份时连同外部业务数据库恢复点一起保存，确保步骤幂等记录与历史对应。
+
+## 历史保留
+
+SQLite 和 PostgreSQL 支持 `FlowHistoryRetentionPolicy`、审计保留标记和墓碑。
+
+```rust
+let cutoff = chrono::Utc::now() - chrono::Duration::days(90);
+let report = store
+    .prune_terminal_history(
+        FlowHistoryRetentionPolicy::new(cutoff),
+    )
+    .await?;
+```
+
+扫描只删除超过截止点的完整终态历史。审计标记会保护运行，关联组件中有不符合条件的成员时整组保留。删除后墓碑保存终态和历史摘要，运行 ID 不得复用。
+
+0.12.0 不支持事件流局部压缩。重复时间较长的工作流需要由应用限制循环次数或拆分为明确的新运行。
+
+## 任务后端
+
+`FlowTaskQueue` 定义入队、租约、确认、失败和心跳。内置实现包括内存、`LocalFileFlowTaskQueue` 和可选 `PostgresFlowTaskQueue`。
+
+`BootFlowTaskManager` 对接 Boot 0.2，统一任务重试、执行超时、停滞次数、终态记录清理和逻辑去重。任务重试不会替代步骤业务重试。
+
+## 从旧依赖升级
+
+1. 提交应用当前改动并固定锁文件。
+2. 把 Flow 更新到 `=0.12.0`。
+3. 将直接 Boot 依赖对齐 0.2.0，直接 ORM 依赖对齐 0.3.0。
+4. 在数据库副本运行连接迁移并核对迁移账本。
+5. 运行 SQLite 或 PostgreSQL 的恢复测试。
+6. 停止生产写入，创建恢复点，再按单迁移实例顺序发布。
+
+迁移提交后不要只回滚二进制。旧依赖可能不认识新的迁移账本和投影结构，回滚要恢复匹配的数据库恢复点。
+
+## 运维记录
+
+- 每个数据库的迁移 ID 与校验和。
+- 非终态运行、固定构建和未固定运行数量。
+- 活动 Hook、到期任务、队列租约和死信。
+- 数据库与 JSONL 目录的恢复点。
+- Flow、Boot、ORM 与应用锁文件版本。

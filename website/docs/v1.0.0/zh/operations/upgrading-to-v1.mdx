@@ -1,0 +1,144 @@
+---
+title: 升级到 1.0
+description: 从受支持的 0.x 版本升级持久历史与 SQL 结构，安排运行版本准入、验证和基于备份的回滚。
+---
+
+# 升级到 1.0
+
+Flow 1.0 的升级对象包含二进制、事件历史、SQL 结构、运行版本路由和任务队列。只替换依赖版本无法完成持久升级。生产数据库迁移前，要先确认起始版本在自动验证范围内，并准备可用的恢复点。
+
+## 受支持的起点
+
+自动化持久历史与 SQL 升级下限是 `v0.5.0`。1.0 发布门禁会恢复由 `v0.5.0` 和最终预发布版本 `v0.13.1` 生成的中断步骤历史，要求发生一次确定性重投并写入新的终态事件。
+
+低于 `v0.5.0` 的历史或数据库不在自动升级契约内。不要直接让 1.0 打开。应先做应用级导出，或单独验证分阶段迁移。
+
+### SQLite 结构基线
+
+| 起始版本              | 已应用迁移前缀                       | 1.0 新增迁移                    |
+| --------------------- | ------------------------------------ | ------------------------------- |
+| `v0.5.0`              | `a3s-flow-0001-events`               | `a3s-flow-0005-continue-as-new` |
+| `v0.6.0` 至 `v0.7.1`  | 到 `a3s-flow-0002-retention`         | `a3s-flow-0005-continue-as-new` |
+| `v0.8.0`              | 到 `a3s-flow-0003-active-hooks`      | `a3s-flow-0005-continue-as-new` |
+| `v0.9.0` 至 `v0.13.1` | 到 `a3s-flow-0004-scheduled-wakeups` | `a3s-flow-0005-continue-as-new` |
+
+### PostgreSQL 结构基线
+
+| 起始版本              | 已应用迁移前缀                       | 1.0 新增迁移                    |
+| --------------------- | ------------------------------------ | ------------------------------- |
+| `v0.5.0` 至 `v0.7.1`  | 到 `a3s-flow-0003-retention`         | `a3s-flow-0006-continue-as-new` |
+| `v0.8.0`              | 到 `a3s-flow-0004-active-hooks`      | `a3s-flow-0006-continue-as-new` |
+| `v0.9.0` 至 `v0.13.1` | 到 `a3s-flow-0005-scheduled-wakeups` | `a3s-flow-0006-continue-as-new` |
+
+表中同一行的补丁版本使用相同迁移前缀。所有已发布迁移都固定 SHA-256，修改旧迁移会在进入生产前失败。
+
+## 代码层变化
+
+1.0 的最低 Rust 版本是 1.88。先固定工具链与依赖。
+
+```toml
+[package]
+rust-version = "1.88"
+
+[dependencies]
+a3s-flow = "=1.0.0"
+```
+
+公开枚举和投影类型普遍使用 `#[non_exhaustive]`。下游匹配要保留兜底分支，不应通过结构字面量构造只读快照。
+
+```rust
+match snapshot.status {
+    WorkflowRunStatus::Completed => handle_completed(),
+    WorkflowRunStatus::Failed => handle_failed(),
+    _ => handle_other_state(),
+}
+```
+
+如需 SQL、Boot 或事件桥接，继续用明确功能开关。不要在升级过程中顺便改变存储后端、任务后端和工作流语义，这会放大回滚范围。
+
+## 升级前盘点
+
+1. 列出所有非终态运行及其 `runtime_build_id`。
+2. 记录未固定版本的旧运行数量。
+3. 统计等待、延迟重试、活动 Hook 和运行中步骤。
+4. 记录队列深度、租约数量和最早任务时间。
+5. 保存当前二进制、锁文件、数据库迁移账本和本地持久目录版本。
+6. 创建数据库恢复点，并在隔离环境实际恢复一次。
+
+仍有活动历史时，要保留能够重放它们的旧工作流代码和步骤处理器。结构可反序列化不代表代码能够安全重放。
+
+## 配置运行版本准入
+
+1.0 引擎应声明当前版本和已经证明可重放的旧版本。
+
+```rust
+let compatibility = RuntimeBuildCompatibility::new(build_v1.clone())
+    .with_compatible_build(pre_v1_build.clone())
+    .accept_unpinned();
+```
+
+`accept_unpinned()` 只用于排空运行版本固定功能出现之前创建的历史。给它设定明确结束条件，并在这些运行终止后移除。
+
+若 1.0 二进制没有包含某个旧版本需要的完整决定逻辑，不能把它加入兼容列表。应保留旧 Worker，并通过 `RuntimeBuildTaskRouter` 精确派发。
+
+## 停止写入
+
+迁移开始前停止新运行与调度提交。
+
+- SQLite 要停止旧所有者，确认没有进程持有数据库文件。
+- PostgreSQL 要等待当前事务结束，再由专用迁移任务获得咨询锁。
+- 外部回调入口可以先返回可重试状态，或将经过鉴权的请求写入持久入口队列。
+- 保存本地 JSONL 历史和审计日志时，恢复点要与数据库一致。
+
+不要在 1.0 迁移提交后重新启动旧二进制写入同一个数据库。
+
+## 应用迁移
+
+SQLite 通过 `SqliteEventStore::connect()` 运行事务迁移。PostgreSQL 生产环境使用独立迁移执行器。
+
+```rust
+let report = migrate_postgres_flow(&migration_executor).await?;
+println!("migrations={:?}", report.applied);
+```
+
+迁移失败时，结构改动和迁移记录会在事务中回滚，事件历史保持原状。先检查迁移账本和历史，再修复原因并用同一个候选版本重试。
+
+服务 Worker 使用 `PostgresEventStore::connect_verified()` 或 `from_executor_verified()`。验证失败必须阻止实例进入就绪状态。
+
+## 启动后验证
+
+按顺序完成下面的检查，再恢复全部流量。
+
+1. 核对 `a3s_orm_migrations` 中每个预期 ID 与校验和。
+2. 读取代表性的终态、等待、Hook、重试、子运行和续段历史。
+3. 比对迁移前后的运行 ID、最后事件序号和状态分布。
+4. 选择一条中断步骤运行作为金丝雀，确认只重投一次且外部幂等生效。
+5. 选择一条到期等待，确认调度器只提交一个完成事件。
+6. 逐步恢复新运行与调度，观察存储错误和任务积压。
+
+旧版本路由要保留到对应活动历史全部结束。未固定历史清空之后，移除 `accept_unpinned()` 并重新验证一次准入失败路径。
+
+## 回滚边界
+
+1.0 迁移提交之前，可以停止候选版本并让旧二进制重新连接未变化的结构。
+
+迁移提交之后，不支持只回滚二进制。迁移账本是追加式的，旧版本不认识 1.0 迁移 ID，会正确拒绝数据库。不要删除迁移记录、投影表或触发器来伪装旧结构。
+
+提交后回滚需要执行完整恢复。
+
+1. 停止所有 1.0 和旧版写入者。
+2. 恢复已经验证的升级前数据库恢复点和匹配的本地持久文件。
+3. 部署原二进制及其工作流代码。
+4. 验证历史序号、运行状态和队列所有权。
+5. 再恢复外部流量。
+
+## 本地验证命令
+
+```console
+cargo test --test pre_v1_history --no-default-features
+cargo test --lib --no-default-features --features sqlite store::migrations::tests
+A3S_FLOW_POSTGRES_URL=postgres://... \
+  cargo test --lib --no-default-features --features postgres store::migrations::tests
+```
+
+PostgreSQL 命令要对临时数据库执行，不要把测试套件指向生产实例。

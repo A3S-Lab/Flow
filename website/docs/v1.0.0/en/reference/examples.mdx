@@ -1,0 +1,144 @@
+---
+title: Example index
+description: Run complete repository examples grouped by durable steps, external waits, recovery, rollout, storage, tasks, observation, and TypeScript.
+---
+
+# Example index
+
+The `examples/` directory contains 31 runnable programs. Start with `sequential_steps`, then choose the group matching your production concern. Examples use temporary resources or explicit environment variables and never connect to a production service automatically.
+
+## Prepare
+
+```console
+git clone https://github.com/A3S-Lab/Flow.git
+cd Flow
+cargo run --example sequential_steps
+```
+
+Flow 1.0 requires Rust 1.88. SQL examples compile their selected driver on first use and take longer than memory examples.
+
+## Steps and business orchestration
+
+| Example                    | What it demonstrates                                    | Command                                        |
+| -------------------------- | ------------------------------------------------------- | ---------------------------------------------- |
+| `sequential_steps`         | Two dependent durable steps under replay                | `cargo run --example sequential_steps`         |
+| `batch_steps`              | One declaration of independent step members             | `cargo run --example batch_steps`              |
+| `retry_backoff`            | Fixed and exponential backoff with deterministic jitter | `cargo run --example retry_backoff`            |
+| `recoverable_step_failure` | Return retry exhaustion to workflow code                | `cargo run --example recoverable_step_failure` |
+| `compensation`             | Explicit compensation after an earlier successful step  | `cargo run --example compensation`             |
+| `polling_loop`             | Compose a step and timer into polling                   | `cargo run --example polling_loop`             |
+
+A useful order is `sequential_steps`, `retry_backoff`, `recoverable_step_failure`, then `compensation`. It exposes success, redelivery, exhaustion, and compensation boundaries one at a time.
+
+## Waits, signals, and callbacks
+
+| Example            | What it demonstrates                                          | Command                                |
+| ------------------ | ------------------------------------------------------------- | -------------------------------------- |
+| `scheduler_worker` | Scan due waits and dispatch run tasks                         | `cargo run --example scheduler_worker` |
+| `workflow_signals` | Signal declaration, early delivery, and stable delivery ID    | `cargo run --example workflow_signals` |
+| `hook_approval`    | Resume a human-approval hook by public token                  | `cargo run --example hook_approval`    |
+| `hook_disposal`    | Withdraw an active hook and reject a late callback            | `cargo run --example hook_disposal`    |
+| `cancellation`     | Cancellation request, durable cleanup, and invalidated timers | `cargo run --example cancellation`     |
+
+For an HTTP callback, run `hook_approval` to see token resolution, then read reliable redelivery in [Signals and hooks](/guide/signals-and-hooks). The example demonstrates Flow calls only and does not provide HTTP serving or authentication.
+
+## Long runs, rollout, and parent-child execution
+
+| Example                | What it demonstrates                                   | Command                                    |
+| ---------------------- | ------------------------------------------------------ | ------------------------------------------ |
+| `continue_as_new`      | Bound one event stream through successor runs          | `cargo run --example continue_as_new`      |
+| `replay_safe_patch`    | Select a patch for new runs while preserving old paths | `cargo run --example replay_safe_patch`    |
+| `child_workflow`       | One first-class child and terminal result              | `cargo run --example child_workflow`       |
+| `child_workflow_batch` | Bounded concurrent children with request-order results | `cargo run --example child_workflow_batch` |
+| `run_inspection`       | State summary, suspension listing, and run inspection  | `cargo run --example run_inspection`       |
+
+Rollout examples use memory storage to isolate their contract. Production also needs exact runtime-build routes from [Workers and rollout](/operations/production).
+
+## Local persistence
+
+| Example                 | What it demonstrates                             | Command                                                   |
+| ----------------------- | ------------------------------------------------ | --------------------------------------------------------- |
+| `local_file_durability` | Recover JSONL history after engine recreation    | `cargo run --example local_file_durability`               |
+| `sqlite_durability`     | Read a run after reconnecting SQLite             | `cargo run --example sqlite_durability --features sqlite` |
+| `local_retention`       | Delete expired local terminal history            | `cargo run --example local_retention`                     |
+| `sqlite_retention`      | SQL audit holds, linked deletion, and tombstones | `cargo run --example sqlite_retention --features sqlite`  |
+
+These examples work in temporary directories or files and clean their resources. Read owner and backup requirements in [Stores and migrations](/operations/persistence) before using a real path.
+
+## PostgreSQL
+
+PostgreSQL examples connect only after `A3S_FLOW_POSTGRES_URL` is set.
+
+```console
+export A3S_FLOW_POSTGRES_URL=postgres://user:pass@127.0.0.1:5432/flow_test
+cargo run --example postgres_durability --features postgres
+```
+
+| Example                          | What it demonstrates                         | Command                                                                  |
+| -------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------ |
+| `postgres_durability`            | Recover shared SQL history across instances  | `cargo run --example postgres_durability --features postgres`            |
+| `postgres_task_queue_durability` | PostgreSQL task leases with workflow history | `cargo run --example postgres_task_queue_durability --features postgres` |
+
+Use a dedicated test database. Examples may create or migrate Flow tables and must never target production.
+
+## Tasks and workers
+
+| Example                 | What it demonstrates                                      | Command                                                |
+| ----------------------- | --------------------------------------------------------- | ------------------------------------------------------ |
+| `task_queue_durability` | Recover a local durable task queue after restart          | `cargo run --example task_queue_durability`            |
+| `sqlite_worker`         | Combine SQLite history and worker driving                 | `cargo run --example sqlite_worker --features sqlite`  |
+| `boot_task_policy`      | Boot task retry, timeout, stall, and deduplication policy | `cargo run --example boot_task_policy --features boot` |
+
+Task retry and step retry belong to different layers. Read lease recovery in `task_queue_durability` before host policy in `boot_task_policy`.
+
+## Observation and audit
+
+| Example           | What it demonstrates                             | Command                               |
+| ----------------- | ------------------------------------------------ | ------------------------------------- |
+| `observer_fanout` | Fan one committed event into several observers   | `cargo run --example observer_fanout` |
+| `observer_bridge` | Map event envelopes into low-cardinality records | `cargo run --example observer_bridge` |
+| `local_audit_log` | Repair-aware local JSONL audit output            | `cargo run --example local_audit_log` |
+
+Observers run after event commit. The examples deliberately keep observation output out of workflow decisions.
+
+## Native TypeScript
+
+Install the compiler and make Bun available first.
+
+```console
+cargo install a3s-flow --version 1.0.0 --locked \
+  --bin a3s-flow-native-compiler
+export A3S_FLOW_NATIVE_TS_COMPILER="$(command -v a3s-flow-native-compiler)"
+```
+
+| Example               | What it demonstrates                                      | Command                                   |
+| --------------------- | --------------------------------------------------------- | ----------------------------------------- |
+| `native_ts_preflight` | Resolve entrypoint, build artifact, and inspect cache hit | `cargo run --example native_ts_preflight` |
+| `native_ts_greeting`  | Run a complete TypeScript workflow and step               | `cargo run --example native_ts_greeting`  |
+
+Without the compiler environment variable, both examples print instructions and skip safely. See [Native TypeScript](/runtimes/native-typescript) for production configuration.
+
+## Workflow graph import
+
+`workflow_dsl_import` accepts a YAML path and prints application data, version classification, node count, scopes, and execution digest.
+
+```console
+cargo run --example workflow_dsl_import -- \
+  tests/fixtures/workflow_dsl_echo.yml
+```
+
+Graph import validates structure and derives a plan without executing nodes. See host binding in [Workflow graph](/concepts/workflow-dag).
+
+## Suggested production qualification path
+
+When integrating a real service, replace one layer at a time.
+
+1. Confirm runtime and step boundaries with `sequential_steps`.
+2. Confirm restart recovery with the target SQL example.
+3. Verify duplicate timer delivery with `scheduler_worker`.
+4. Choose the signal or hook example matching ingress.
+5. Verify cleanup idempotency with `cancellation`.
+6. Replace in-process dispatch with task management.
+7. Inject process loss with the same store and queue as production.
+
+Retain event history and external idempotency records at each stage. When behavior diverges, that evidence identifies which boundary owns the fault.

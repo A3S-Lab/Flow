@@ -1,0 +1,236 @@
+---
+title: Public API
+description: Find stable A3S Flow 1.0 entry points by engine, runtime, store, task, observation, workflow graph, and error category.
+---
+
+# Public API
+
+This page organizes the Flow 1.0 Rust surface by use case. Refer to [docs.rs](https://docs.rs/a3s-flow/1.0.0/a3s_flow/) for exhaustive signatures, fields, and Rustdoc.
+
+## Feature flags
+
+| Feature     | Default | Provides                                                            |
+| ----------- | ------- | ------------------------------------------------------------------- |
+| `native-ts` | Yes     | `NativeTsRuntime` and native compilation invocation                 |
+| `sqlite`    | No      | `SqliteEventStore`, SQL migrations, and retention                   |
+| `postgres`  | No      | `PostgresEventStore`, separate migration entry point, and retention |
+| `boot`      | No      | `BootFlowTaskManager` and task policy                               |
+| `a3s-event` | No      | Post-commit event-bus sink                                          |
+
+A minimal Rust host may disable default features.
+
+```toml
+a3s-flow = { version = "=1.0.0", default-features = false }
+```
+
+## Engine construction
+
+| API                                  | Purpose                                                       |
+| ------------------------------------ | ------------------------------------------------------------- |
+| `FlowEngine::in_memory(runtime)`     | Create a test engine with memory history                      |
+| `FlowEngine::new(store, runtime)`    | Create an engine with an explicit store                       |
+| `FlowEngine::builder(runtime)`       | Configure store, observer, build admission, and safety limits |
+| `FlowEngineBuilder::with_store()`    | Replace the event store                                       |
+| `with_observer()`                    | Receive post-commit events                                    |
+| `with_runtime_build_compatibility()` | Declare current and replayable builds                         |
+| `with_max_replay_iterations()`       | Bound one drive replay loop                                   |
+| `with_max_continue_as_new_hops()`    | Bound continuation segments crossed by one drive              |
+| `with_max_child_workflow_depth()`    | Bound parent-child nesting depth                              |
+
+`FlowEngine` is cloneable and shares runtime and store through `Arc`. Public runtime, store, queue, and observer traits require `Send + Sync`.
+
+## Start and drive runs
+
+| API                                  | Returns                    | Contract                                              |
+| ------------------------------------ | -------------------------- | ----------------------------------------------------- |
+| `start(spec, input)`                 | `String`                   | Generate a run ID and drive to terminal or suspension |
+| `start_with_id(run_id, spec, input)` | `String`                   | Idempotently create and drive with a caller ID        |
+| `drive(run_id)`                      | `WorkflowRunSnapshot`      | Continue from current history                         |
+| `continuation_chain(run_id)`         | `Vec<WorkflowRunSnapshot>` | Read every segment from any chain member              |
+
+`start_with_id()` redelivery succeeds only with identical definition and input. Changes to name, version, runtime, entrypoint, runtime build, patch markers, accepted signals, or input return `RunConflict`.
+
+## Inspection
+
+| API                          | Purpose                               |
+| ---------------------------- | ------------------------------------- |
+| `snapshot(run_id)`           | Project one run                       |
+| `history(run_id)`            | Read complete event envelopes         |
+| `list_run_ids()`             | List run IDs in stable order          |
+| `list_snapshots()`           | Project every run                     |
+| `run_summary()`              | Count lifecycle states                |
+| `list_open_suspensions(now)` | List waits, retries, and active hooks |
+| `next_wakeup(now)`           | Find the next timed suspension        |
+| `list_active_hooks()`        | List active callback entries          |
+
+Large production queries should use SQL projections and control-plane pagination. `list_snapshots()` reads many histories and does not fit an unbounded hot path.
+
+## External input and control
+
+| API                                     | Semantics                                         |
+| --------------------------------------- | ------------------------------------------------- |
+| `send_signal(run_id, WorkflowSignal)`   | Idempotently commit a named message and drive     |
+| `resume_hook(run_id, hook_id, payload)` | Resume by stable identity with redelivery support |
+| `resume_hook_by_token(token, payload)`  | Resolve one active token and resume               |
+| `dispose_hook(run_id, hook_id)`         | Withdraw by stable identity                       |
+| `dispose_hook_by_token(token)`          | Withdraw by active token                          |
+| `request_cancellation(run_id, request)` | Request recoverable cleanup and replay            |
+| `force_cancel(run_id, reason)`          | Reach cancelled state without cleanup             |
+| `terminate_for_timeout()`               | Write a typed timeout outcome                     |
+| `terminate_for_host_shutdown()`         | Write an explicitly non-resumable host outcome    |
+| `record_progress()`                     | Idempotently persist host progress                |
+| `link_child_operation()`                | Idempotently persist an external child link       |
+
+Token lookup covers active hooks only. Reliable redelivery stores the run and hook IDs returned by first resolution.
+
+## `FlowRuntime`
+
+```rust
+#[async_trait::async_trait]
+pub trait FlowRuntime: Send + Sync {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> Result<RuntimeCommand>;
+
+    async fn run_step(
+        &self,
+        invocation: StepInvocation,
+    ) -> Result<serde_json::Value>;
+}
+```
+
+`WorkflowInvocation` exposes run ID, definition, initial input, and complete history. `context()` returns `WorkflowContext` for projection queries and command construction.
+
+`StepInvocation` exposes run ID, step ID, step name, input, and history. Keep physical side effects in `run_step()`.
+
+## `WorkflowContext` queries
+
+| Method                                                   | Reads                                     |
+| -------------------------------------------------------- | ----------------------------------------- |
+| `run_id()`, `input()`, `input_as()`, `spec()`            | Run authority and initial input           |
+| `history()`                                              | Raw event envelopes                       |
+| `step_output()`, `step_output_as()`                      | Successful step output                    |
+| `step_completed()`, `step_failed()`                      | Step terminal state                       |
+| `wait_completed()`                                       | Timer wait result                         |
+| `signal_payload()`, `signal_payload_as()`                | Matched signal payload                    |
+| `hook_payload()`, `hook_payload_as()`, `hook_disposed()` | Hook result                               |
+| `cancellation_request()`                                 | Cleanup-aware cancellation request        |
+| `child_workflow_run_id()`, `child_workflow_outcome()`    | First-class child run                     |
+| `progress()`, `child_operation()`                        | Control-plane progress and external links |
+| `has_patch_marker()`                                     | Immutable code-branch selection           |
+
+Typed reads deserialize with Serde and return `FlowError` instead of panicking.
+
+## `WorkflowContext` commands
+
+| Method                                          | Decision                             |
+| ----------------------------------------------- | ------------------------------------ |
+| `complete(output)`                              | Successful terminal outcome          |
+| `fail(error)`                                   | Failed terminal outcome              |
+| `cancel()`                                      | Finish a requested cancellation      |
+| `timeout(deadline, reason)`                     | Timeout terminal outcome             |
+| `schedule_step()`, `schedule_step_with_retry()` | One durable step                     |
+| `step()`, `step_with_retry()`                   | Construct a batched step             |
+| `schedule_steps()`                              | Atomically declare a step batch      |
+| `wait_until()`                                  | Durable UTC timer                    |
+| `wait_for_signal()`                             | Named signal wait                    |
+| `create_hook()`, `create_hook_with_metadata()`  | External callback entry              |
+| `start_child_workflow()`                        | One first-class child                |
+| `child_workflow()`, `start_child_workflows()`   | Construct and start a child batch    |
+| `continue_as_new()`                             | Close history and create a successor |
+| `record_progress()`                             | Persist workflow progress            |
+| `link_child_operation()`                        | Persist an external child link       |
+
+One `run_workflow()` call returns one `RuntimeCommand`.
+
+## Definition and policy types
+
+| Type                                | Role                                                                  |
+| ----------------------------------- | --------------------------------------------------------------------- |
+| `WorkflowSpec`                      | Name, version, runtime entry, build, patches, and signal declarations |
+| `RuntimeSpec`, `RuntimeKind`        | Embedded Rust or native TypeScript entry                              |
+| `RuntimeBuildId`                    | Concrete executable-code identity                                     |
+| `RuntimeBuildCompatibility`         | Builds admitted by a worker                                           |
+| `WorkflowPatchId`                   | Bounded immutable replay-safe branch marker                           |
+| `RetryPolicy`, `RetryBackoff`       | Attempts, delay, and backoff                                          |
+| `StepFailureAction`                 | Fail run or return exhaustion to workflow                             |
+| `StepCommand`                       | Step definition inside a batch                                        |
+| `ChildWorkflowCommand`              | Child definition inside a batch                                       |
+| `ChildWorkflowCancellationPolicy`   | Request cancellation or abandon on parent stop                        |
+| `CancellationRequest`               | Durable stop request and reason                                       |
+| `WorkflowSignal`                    | Named message with caller-owned identity                              |
+| `HookMetadata`, `HookCallbackRoute` | Hook audit and host routing metadata                                  |
+
+## Snapshots and outcomes
+
+Primary read-only projections include `WorkflowRunSnapshot`, `StepSnapshot`, `WaitSnapshot`, `HookSnapshot`, `SignalWaitSnapshot`, `ChildWorkflowSnapshot`, and `ScheduledWakeup`.
+
+`WorkflowRunStatus` expresses current lifecycle. `WorkflowTerminalOutcome` expresses the final typed result. Public enums are `#[non_exhaustive]`, so matches need fallback arms.
+
+## Stores
+
+| Type                         | Feature                                    |
+| ---------------------------- | ------------------------------------------ |
+| `InMemoryEventStore`         | None                                       |
+| `LocalFileEventStore`        | None                                       |
+| `SqliteEventStore`           | `sqlite`                                   |
+| `PostgresEventStore`         | `postgres`                                 |
+| `FlowEventStore`             | Custom-store trait                         |
+| `FlowHistoryRetentionPolicy` | SQL retention criteria                     |
+| `FlowHistoryHold`            | Durable audit hold                         |
+| `FlowHistoryTombstone`       | Minimal verification record after deletion |
+
+Production PostgreSQL migration uses `migrate_postgres_flow()`, followed by verified serving constructors.
+
+## Scheduling and tasks
+
+| Type                     | Role                                              |
+| ------------------------ | ------------------------------------------------- |
+| `FlowScheduler`          | Scan due waits and retries and dispatch run tasks |
+| `FlowSchedulerTick`      | Due items and dispatch count for one scan         |
+| `FlowTask`               | Drive, wait, hook, signal, and timer payload      |
+| `FlowTaskDispatcher`     | Task-dispatch trait                               |
+| `FlowTaskQueue`          | Lease, acknowledgement, and heartbeat trait       |
+| `FlowWorker`             | Process embedded queue leases                     |
+| `RuntimeBuildTaskRouter` | Route by persisted runtime build                  |
+| `BootFlowTaskManager`    | Boot processor and dispatcher                     |
+| `BootFlowTaskPolicy`     | Task retry, timeout, cleanup, and deduplication   |
+
+`FlowWorker` fits embedded queues. Production hosts generally use task management that owns lifecycle consistently.
+
+## Observation
+
+`FlowEventObserver` receives envelopes after commit. Built-in implementations include `NoopFlowEventObserver`, `InMemoryFlowEventObserver`, `FanoutFlowEventObserver`, and the local JSONL sink.
+
+`A3sFlowEvent` is a low-cardinality event projection. `safe_metric_labels()` returns metric-safe fields only. Observation failure cannot change committed workflow history.
+
+## Workflow graph
+
+| Type                                 | Purpose                                                              |
+| ------------------------------------ | -------------------------------------------------------------------- |
+| `WorkflowDsl`                        | Full YAML or JSON document, version, and extensions                  |
+| `WorkflowDag`                        | Nodes, edges, plan, and semantic digest                              |
+| `WorkflowDagNode`, `WorkflowDagEdge` | Programmatic graph construction                                      |
+| `WorkflowDagPlan`                    | Deterministic top-level and container order                          |
+| `WorkflowDslCompatibility`           | Current, older-with-warning, or confirmation-required classification |
+| `WorkflowDslError`                   | Size, parse, structure, and version failures                         |
+
+## Error handling
+
+The crate returns `a3s_flow::Result<T>` with `FlowError`. Production code usually handles these categories separately.
+
+| Error                            | Operational meaning                                         |
+| -------------------------------- | ----------------------------------------------------------- |
+| `RunNotFound`                    | Return not found or inspect routing target                  |
+| `RunConflict`                    | Idempotency identity was reused with different authority    |
+| `RunTerminal`                    | External input reached a finished run                       |
+| `EventConflict`                  | Another concurrent writer won, so reread is possible        |
+| `NonDeterministic`               | Code decision differs from history, so stop automatic retry |
+| `SignalConflict`, `HookConflict` | External idempotency payload drift                          |
+| `RuntimeBuildUnavailable`        | Current worker cannot replay this run                       |
+| `RuntimeBuildRouteNotFound`      | Scheduler lacks a dispatcher for the target build           |
+| `ReplayLimitExceeded`            | Replay or repair crossed its safety bound                   |
+| `Store`, `Runtime`               | Backend or runtime error requiring contextual retry policy  |
+
+Do not retry every error blindly. Nondeterminism, identity conflicts, and build admission require a code, route, or caller-identity correction.

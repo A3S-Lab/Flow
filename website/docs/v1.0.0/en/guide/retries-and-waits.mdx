@@ -1,0 +1,131 @@
+---
+title: Retries and waits
+description: Configure durable retries, deterministic backoff, workflow fallback after exhaustion, and timer waits that release workers.
+---
+
+# Retries and waits
+
+Step failure and time-based waiting both pause progress, but they preserve different state. A retry belongs to a step attempt. A wait is an explicit workflow command with a UTC deadline. Both can release the current worker and resume through the scheduler.
+
+## Default retry policy
+
+`ctx.schedule_step()` uses `RetryPolicy::default()`. It permits three attempts with no delay and fails the run when the final attempt fails.
+
+Production workflow code should usually state the policy explicitly. Readers can see the intent without looking up defaults, and history records that exact intent.
+
+```rust
+use a3s_flow::RetryPolicy;
+use std::time::Duration;
+
+let retry = RetryPolicy::fixed(4, Duration::from_secs(5));
+
+Ok(ctx.schedule_step_with_retry(
+    "capture-payment",
+    "capture_payment",
+    input,
+    retry,
+))
+```
+
+`max_attempts` includes the first execution. This policy runs at most four attempts and waits five seconds after each failure before the next one.
+
+## Three practical policies
+
+| Constructor                                 | Behavior                                                | Good fit                                                        |
+| ------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------- |
+| `RetryPolicy::none()`                       | One attempt                                             | Business rejection or deterministic validation failure          |
+| `RetryPolicy::fixed(n, delay)`              | The same delay after each failure                       | Brief service instability or fixed polling intervals            |
+| `RetryPolicy::exponential(n, initial, max)` | Capped exponential delay with deterministic full jitter | Rate limits, shared dependency outages, longer recovery windows |
+
+An exponential policy selects a delay from `1..=current_cap` milliseconds. Immutable run, step, and failed-attempt identity drive the selection. A restart therefore reproduces the same delay without preserving random-generator state.
+
+```rust
+let retry = RetryPolicy::exponential(
+    8,
+    Duration::from_secs(1),
+    Duration::from_secs(30),
+);
+```
+
+The initial delay is at least one millisecond, the maximum cannot be lower than the initial delay, and constructors clamp `max_attempts` to at least one.
+
+## Continue after retry exhaustion
+
+The default failure action is `StepFailureAction::FailRun`. A workflow that needs a manual-review, fallback, or compensation branch can use `continue_workflow_on_failure()`.
+
+```rust
+let retry = RetryPolicy::fixed(3, Duration::from_secs(2))
+    .continue_workflow_on_failure();
+
+if let Some(error) = ctx.step_failed("reserve-stock") {
+    return Ok(ctx.schedule_step(
+        "open-manual-case",
+        "open_manual_case",
+        json!({ "reason": error }),
+    ));
+}
+
+Ok(ctx.schedule_step_with_retry(
+    "reserve-stock",
+    "reserve_stock",
+    input,
+    retry,
+))
+```
+
+`ctx.step_failed()` reads a durable final failure. Do not infer exhaustion from a transient error string inside workflow code.
+
+## Timer waits
+
+`wait_until()` records a stable `wait_id` and an absolute UTC time. Before the deadline, the run is `Suspended` and no asynchronous call stack needs to stay resident.
+
+```rust
+use chrono::{Duration, Utc};
+
+let resume_at = Utc::now() + Duration::hours(24);
+
+if ctx.wait_completed("payment-window") {
+    return Ok(ctx.fail("payment window expired"));
+}
+
+Ok(ctx.wait_until("payment-window", resume_at))
+```
+
+The `Utc::now()` value in this sketch must be calculated once outside the replay decision and then pinned. A safer design places the deadline in run input or lets the host calculate it before run creation.
+
+```rust
+let deadline = ctx.input()["payment_deadline"]
+    .as_str()
+    .ok_or_else(|| FlowError::Runtime("missing payment_deadline".into()))?
+    .parse::<chrono::DateTime<Utc>>()?;
+
+Ok(ctx.wait_until("payment-window", deadline))
+```
+
+Reusing the same `wait_id` with another deadline returns `NonDeterministic`.
+
+## How scheduling resumes work
+
+`FlowScheduler` queries `FlowEventStore::list_due_wakeups()` for expired waits and delayed retries. The memory and JSONL stores project histories. SQLite and PostgreSQL use indexed projections created by their migrations.
+
+```rust
+let tick = scheduler.enqueue_due_work(chrono::Utc::now()).await?;
+println!("enqueued={}", tick.enqueued_tasks);
+```
+
+`next_scheduled_wakeup()` returns the earliest deadline in the store so a host can plan its next bounded sleep. A scheduler loop still needs a shutdown signal and bounded waits.
+
+## Retry policy or workflow loop
+
+Use step retry for a brief technical failure. Every attempt keeps the same step identity, and policy owns the count and delay.
+
+Use a workflow loop for business polling. Each round gets a new stable step ID, the workflow can inspect the result and record progress, and then it decides whether another wait is necessary. The `polling_loop` example demonstrates that pattern.
+
+```console
+cargo run --example retry_backoff
+cargo run --example recoverable_step_failure
+cargo run --example scheduler_worker
+cargo run --example polling_loop
+```
+
+External steps remain at-least-once under either design. Retry count never replaces idempotency.

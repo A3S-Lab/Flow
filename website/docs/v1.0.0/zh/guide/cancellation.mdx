@@ -1,0 +1,135 @@
+---
+title: 取消与清理
+description: 区分清理式取消和立即终止，让等待、重试、Hook 与子工作流在取消过程中保持可恢复。
+---
+
+# 取消与清理
+
+取消一条持久运行通常包含两件事。控制面先记录停止请求，工作流再撤销已经产生的外部状态。Flow 1.0 为这条路径提供 `request_cancellation()`，清理步骤和普通步骤一样写入历史，进程中断后仍可恢复。
+
+`force_cancel()` 会直接写入终态，不执行工作流清理。它适合安全事件、明确的管理操作或已经无法运行旧代码的应急处置。
+
+| API                      | 是否重放工作流 | 是否允许持久清理步骤 | 典型用途                                |
+| ------------------------ | -------------- | -------------------- | --------------------------------------- |
+| `request_cancellation()` | 是             | 是                   | 用户撤销、业务关闭、可恢复清理          |
+| `force_cancel()`         | 否             | 否                   | 管理员立即终止、安全处置                |
+| `cancel()`               | 否             | 否                   | 保留的旧名称，行为等同 `force_cancel()` |
+
+## 在工作流里处理取消请求
+
+每次重放先检查 `cancellation_request()`。清理必须使用稳定且独立的步骤 ID，不能重新安排请求前已经被取消的等待、Hook 或步骤。
+
+```rust
+use a3s_flow::{RetryPolicy, RuntimeCommand};
+use serde_json::json;
+
+async fn decide(
+    invocation: a3s_flow::WorkflowInvocation,
+) -> a3s_flow::Result<RuntimeCommand> {
+    let ctx = invocation.context();
+
+    if ctx.cancellation_request().is_some() {
+        if !ctx.step_completed("cleanup-export") {
+            return Ok(ctx.schedule_step_with_retry(
+                "cleanup-export",
+                "cleanupExport",
+                json!({
+                    "idempotencyKey": format!(
+                        "{}:cleanup-export",
+                        ctx.run_id(),
+                    ),
+                }),
+                RetryPolicy::none(),
+            ));
+        }
+        return Ok(ctx.cancel());
+    }
+
+    // Continue the normal path.
+    # Ok(ctx.complete(json!({})))
+}
+```
+
+`ctx.cancel()` 只能在已有取消请求的运行中使用。清理完成后返回它，Flow 才会写入 `Cancelled` 终态。清理也可以返回 `ctx.fail()`，用于保留无法安全撤销的原因。
+
+## 发起清理式取消
+
+```rust
+use a3s_flow::CancellationRequest;
+
+let snapshot = engine
+    .request_cancellation(
+        "export-2026-0001",
+        CancellationRequest::new(Some(
+            "user withdrew the export".to_string(),
+        )),
+    )
+    .await?;
+```
+
+请求和理由会先提交到历史。重复发送完全相同的请求是幂等的，换用另一个理由会得到 `RunConflict`。传入续段链中较早的运行 ID 时，Flow 会修复并跟随持久链接，把请求交给当前活动段。
+
+取消事件提交后会发生以下变化。
+
+1. 请求前已经存在的定时等待不再进入到期扫描。
+2. 活动 Hook 和信号等待进入取消状态，迟到回调不能恢复运行。
+3. 正在重试或执行的步骤不再推进原业务分支。
+4. 工作流状态变为 `Cancelling`，并重放清理分支。
+5. 带 `RequestCancellation` 策略的第一类子工作流收到持久取消请求。
+
+取消不会撤销已经发生的外部副作用。宿主提供的清理步骤仍然要满足幂等要求。
+
+## 为清理步骤设计幂等键
+
+清理步骤也采用至少一次交付。进程可能在外部删除成功后、`StepCompleted` 提交前退出。幂等键要取自稳定的运行与资源身份。
+
+```text
+export-2026-0001:cleanup-export
+invoice-2026-0137:void-reservation:reservation-8821
+```
+
+外部接口应把相同键和相同参数视为同一次操作。只有清理步骤输出进入 Flow 历史后，工作流才返回 `ctx.cancel()`。
+
+## 子工作流的取消策略
+
+第一类子工作流默认使用 `ChildWorkflowCancellationPolicy::RequestCancellation`。父运行会等待这些子运行完成取消或失败，之后才结束自己的清理。
+
+确实需要独立存活的子运行可以使用 `Abandon`。
+
+```rust
+use a3s_flow::ChildWorkflowCancellationPolicy;
+
+Ok(ctx.start_child_workflow_with_policy(
+    "detached-export",
+    export_spec,
+    export_input,
+    ChildWorkflowCancellationPolicy::Abandon,
+))
+```
+
+`Abandon` 只改变父运行取消时的传播行为。父运行正常执行时仍会等待子运行结果。选择这个策略前，要确认遗留子运行有独立的所有者、监控和终止入口。
+
+## 何时立即终止
+
+```rust
+engine
+    .force_cancel(
+        "export-2026-0001",
+        Some("security incident".to_string()),
+    )
+    .await?;
+```
+
+立即终止不会调用 `FlowRuntime`。活动等待、Hook 和步骤会转为不可操作，带请求取消策略的子运行会被强制终止。外部系统里的临时资源仍需由运维补偿流程处理。
+
+正常进程退出不应调用 `force_cancel()` 或 `terminate_for_host_shutdown()`。持久运行应该留在非终态，等替代进程恢复。只有宿主策略明确宣布这条运行永远不再恢复时，才使用主机关闭终态。
+
+## 运维检查
+
+- 监控长期停留在 `Cancelling` 的运行，并记录当前清理步骤。
+- 为每种清理副作用定义稳定幂等键和人工补偿说明。
+- 对立即终止单独授权，并把操作者与理由写入控制面审计。
+- 到期扫描和回调入口需要正确处理已经取消的等待。
+- 父子运行监控要显示取消策略和仍未结束的子运行。
+
+完整程序位于 `examples/cancellation.rs`，可运行 `cargo run --example cancellation`。

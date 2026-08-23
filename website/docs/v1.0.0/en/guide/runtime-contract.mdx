@@ -1,0 +1,149 @@
+---
+title: Runtime contract
+description: Separate deterministic workflow decisions from at-least-once external steps and preserve stable replay identity.
+---
+
+# Runtime contract
+
+Flow deliberately exposes two runtime entrypoints. `run_workflow` decides what comes next. `run_step` performs work that may have side effects. Replay remains deterministic only when that boundary is explicit.
+
+```rust
+#[async_trait]
+pub trait FlowRuntime: Send + Sync {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand>;
+
+    async fn run_step(
+        &self,
+        invocation: StepInvocation,
+    ) -> a3s_flow::Result<JsonValue>;
+}
+```
+
+## What workflow code may do
+
+`WorkflowInvocation` carries initial input, a pinned `WorkflowSpec`, and complete history. `invocation.context()` adds read helpers and command builders over those immutable inputs.
+
+Workflow code is the right place to do the following work.
+
+- Check whether a step, wait, signal, hook, or child workflow completed
+- Read committed JSON output and decode it into an application type
+- Enter a stable cleanup branch after a cancellation request
+- Return one step, batch, wait, signal wait, hook, or child command
+- Record progress, continue into a fresh history segment, or reach a terminal outcome
+
+Workflow code should not perform these operations directly.
+
+- Read the current clock and choose a transient deadline
+- Generate a random ID and use it as step identity
+- Make network requests, write files, send messages, or mutate a database
+- Read environment state that can change between replays
+- Use an in-process counter to remember position
+
+When time matters, let the host calculate a concrete UTC deadline and place it in the durable command. Derive identity from caller-owned or persisted deterministic input.
+
+## Return one command at a time
+
+`RuntimeCommand` is the complete decision boundary. The common variants behave as follows.
+
+| Command                                 | Behavior after commit                                                 |
+| --------------------------------------- | --------------------------------------------------------------------- |
+| `ScheduleStep`                          | Record the step definition, execute it, then append output or failure |
+| `ScheduleSteps`                         | Atomically record a batch and advance members concurrently            |
+| `WaitUntil`                             | Record a UTC deadline and suspend                                     |
+| `WaitForSignal`                         | Declare a named signal wait and suspend                               |
+| `CreateHook`                            | Record external callback identity and metadata, then suspend          |
+| `StartChildWorkflow`                    | Record child identity before creating and advancing the child run     |
+| `ContinueAsNew`                         | Close the current history segment and create its successor            |
+| `Complete`, `Fail`, `Cancel`, `Timeout` | Append one terminal outcome                                           |
+
+After a command commits, the engine projects history again and calls the workflow again. Workflow decisions do not run as an unbounded sequence inside one call stack.
+
+## Stable IDs are replay contracts
+
+Steps, waits, signal waits, hooks, and child workflows use stable IDs inside the parent run. When an ID appears again, Flow compares the command with its durable definition.
+
+These changes return `NonDeterministic` instead of mutating an old run.
+
+- Reusing a `step_id` with another handler name, input, or retry policy
+- Reusing a `wait_id` with another deadline
+- Reusing a signal wait with another signal name
+- Reusing a `hook_id` with another token or metadata document
+- Reusing a child ID with another spec, input, or cancellation policy
+
+Prefer literal IDs for stable workflow branches, or derive IDs from persisted input and deterministic indexes.
+
+```rust
+let steps = items
+    .iter()
+    .enumerate()
+    .map(|(index, item)| {
+        StepCommand::new(
+            format!("reserve-{index:04}"),
+            "reserve_item",
+            serde_json::to_value(item)?,
+        )
+    })
+    .collect::<Result<Vec<_>, serde_json::Error>>()?;
+
+Ok(RuntimeCommand::schedule_steps(steps))
+```
+
+Do not derive the next batch of IDs from concurrent completion order. Completion order can vary; input order cannot.
+
+## Step delivery is at least once
+
+A step output becomes visible only after `StepCompleted` commits. One unavoidable failure window remains.
+
+1. The external service completes the request.
+2. The worker exits before the step output reaches Flow history.
+3. Recovery delivers the same attempt again.
+
+Flow does not label this window exactly once. Pass a stable idempotency key to the external service.
+
+```rust
+async fn run_step(
+    &self,
+    invocation: StepInvocation,
+) -> a3s_flow::Result<serde_json::Value> {
+    let key = format!("flow:{}:{}", invocation.run_id, invocation.step_id);
+    let request = invocation.input_as::<CaptureRequest>()?;
+    let receipt = self.payments.capture(request, &key).await?;
+    Ok(serde_json::to_value(receipt)?)
+}
+```
+
+If the external service does not accept idempotency keys, the host needs a business-side deduplication record or a compensation path that can verify the original result.
+
+## Keep typed application boundaries
+
+History uses JSON on the wire. Application code can still use serde types.
+
+```rust
+#[derive(serde::Deserialize)]
+struct OrderInput {
+    order_id: String,
+}
+
+#[derive(serde::Deserialize)]
+struct Reservation {
+    reservation_id: String,
+}
+
+let order = ctx.input_as::<OrderInput>()?;
+let reservation = ctx.step_output_as::<Reservation>("reserve")?;
+```
+
+Decode failures return `FlowError::Serialization`. Do not hide a real old-history versus new-type incompatibility with fallback values.
+
+## Version workflow code deliberately
+
+`WorkflowSpec.version` is the application definition version. `runtime_build_id` identifies executable replay authority. They solve different problems.
+
+- Advance the definition version for intentional input or workflow-semantic changes.
+- Give every replayable deployment an explicit runtime build ID.
+- Use immutable patch markers when only new runs should enter a changed deterministic branch.
+
+A production rollout must retain routes to old builds while active histories need them. See [workers and rollout](/operations/production).

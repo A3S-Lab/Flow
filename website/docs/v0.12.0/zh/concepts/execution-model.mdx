@@ -1,0 +1,107 @@
+---
+title: 0.12.0 执行模型
+description: 理解 0.12.0 的事件重放、步骤批次、固定延迟重试、定时等待、Hook、取消和运行版本路由。
+---
+
+# 0.12.0 执行模型
+
+0.12.0 用追加式事件流保存运行。每次驱动都会从完整历史投影快照，调用一次 `FlowRuntime::run_workflow()`，校验返回的 `RuntimeCommand`，再按预期序号提交事件。
+
+## 决定与副作用
+
+工作流函数只读取初始输入和历史。当前时间、随机数、网络结果、文件内容和环境变量不能直接决定命令。需要这些值时，由 `run_step()` 读取并返回 JSON，等输出写入历史后再分支。
+
+```rust
+if let Some(output) = ctx.step_output("load-rate") {
+    return Ok(ctx.complete(output.clone()));
+}
+
+Ok(ctx.schedule_step(
+    "load-rate",
+    "load_exchange_rate",
+    serde_json::json!({ "pair": "CNY/USD" }),
+))
+```
+
+步骤 ID、步骤名、输入和重试策略在重放时逐项匹配。稳定 ID 被另一组参数复用会返回 `NonDeterministic`。
+
+## 至少一次步骤交付
+
+步骤成功后，`StepCompleted` 事件提交之前，工作流看不到输出。若进程在外部动作成功后退出，替代 Worker 会再次执行该步骤。
+
+Flow 可以避免已经提交的成功步骤再次调用，不能替外部服务完成跨系统原子事务。步骤实现要把运行 ID、步骤 ID 和业务资源身份组合成幂等键。
+
+## 并发步骤批次
+
+```rust
+Ok(ctx.schedule_steps(vec![
+    ctx.step("profile", "load_profile", profile_input),
+    ctx.step("orders", "load_orders", orders_input),
+]))
+```
+
+批次先完整写入历史，再并发推进兄弟步骤。每个结果独立提交，快成员不会因为慢成员停留在内存。批次 ID 集合与每个成员参数在重放中保持不变。
+
+## 固定延迟重试
+
+```rust
+let retry = RetryPolicy::fixed(
+    4,
+    std::time::Duration::from_secs(15),
+);
+
+Ok(ctx.schedule_step_with_retry(
+    "reserve",
+    "reserve_stock",
+    input,
+    retry,
+))
+```
+
+0.12.0 只有无重试和固定延迟。零延迟在当前驱动中继续尝试，正延迟保存绝对 UTC 截止时间并暂停。`continue_workflow_on_failure()` 允许工作流读取 `step_failed()` 后自行补偿。
+
+## 定时等待与调度
+
+`wait_until(wait_id, resume_at)` 把等待身份和 UTC 时间写入历史。`FlowScheduler` 查询到期等待与延迟重试，按运行合并目标，并通过 `FlowTaskDispatcher` 派发。
+
+重复扫描或重复任务是允许的。事件存储的预期序号检查和当前等待状态会选出一个完成事件。
+
+## Hook 生命周期
+
+`create_hook()` 保存 Hook ID、令牌和元数据。活动 Hook 可以通过运行与 Hook 身份恢复，也可以由外部路由第一次按令牌解析。
+
+```rust
+if let Some(payload) = ctx.hook_payload("approval") {
+    return Ok(ctx.complete(payload.clone()));
+}
+
+Ok(ctx.create_hook(
+    "approval",
+    approval_token,
+    serde_json::json!({ "kind": "human_approval" }),
+))
+```
+
+稳定身份恢复支持相同载荷重投。不同载荷、已撤回或已取消状态返回冲突。令牌查询只覆盖活动 Hook，诊断会遮蔽令牌值。
+
+## 清理式取消
+
+`request_cancellation()` 写入不可变请求，并取消此前的等待、Hook 和继续重试。工作流进入 `Cancelling` 后读取 `cancellation_request()`，运行独立清理步骤，最后返回 `ctx.cancel()`。
+
+`force_cancel()` 和旧名称 `cancel()` 立即形成终态，不运行清理。`terminate_for_timeout()` 与 `terminate_for_host_shutdown()` 保存各自的类型化终态。
+
+## 进度与外部关联
+
+`WorkflowProgress` 用稳定 `progress_id` 保存控制面进度。`ChildOperationReference` 保存由外部系统管理的操作 ID、种类和可选 Flow 运行关联。
+
+外部关联不创建或驱动另一个运行，也不会自动传播取消。第一类父子运行不属于 0.12.0。
+
+## 运行版本
+
+`WorkflowSpec::with_runtime_build()` 固定新运行的可执行代码身份。`RuntimeBuildCompatibility` 控制 Worker 准入，`RuntimeBuildTaskRouter` 把任务送往精确版本派发器。
+
+配置版本身份后，缺少兼容代码的 Worker 在追加事件前失败。旧的未固定历史只能在明确启用 `accept_unpinned()` 时迁移。
+
+## 版本边界
+
+0.12.0 没有命名信号、续段、补丁标记、第一类子工作流、图编译和指数退避。不要用新版本的上下文方法或命令解释这一版历史。

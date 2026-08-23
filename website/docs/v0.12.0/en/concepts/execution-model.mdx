@@ -1,0 +1,107 @@
+---
+title: 0.12.0 execution model
+description: Understand event replay, step batches, fixed-delay retry, timer waits, hooks, cancellation, and runtime-build routing in 0.12.0.
+---
+
+# 0.12.0 execution model
+
+0.12.0 stores a run in an append-only event stream. Each drive projects a snapshot from complete history, calls `FlowRuntime::run_workflow()` once, validates the returned `RuntimeCommand`, and commits events at an expected sequence.
+
+## Decisions and side effects
+
+The workflow function reads initial input and history only. Current time, randomness, network results, file contents, and environment variables cannot directly choose a command. Read those values in `run_step()` and branch only after JSON output enters history.
+
+```rust
+if let Some(output) = ctx.step_output("load-rate") {
+    return Ok(ctx.complete(output.clone()));
+}
+
+Ok(ctx.schedule_step(
+    "load-rate",
+    "load_exchange_rate",
+    serde_json::json!({ "pair": "CNY/USD" }),
+))
+```
+
+Replay compares step ID, name, input, and retry policy. Reusing a stable ID with another parameter set returns `NonDeterministic`.
+
+## At-least-once step delivery
+
+Workflow code cannot see output until the `StepCompleted` event commits. If the process exits after an external action succeeds, a replacement worker executes the step again.
+
+Flow prevents invocation of a committed successful step. It cannot provide an atomic transaction with an external service. Step implementations combine run ID, step ID, and business resource identity into an idempotency key.
+
+## Concurrent step batches
+
+```rust
+Ok(ctx.schedule_steps(vec![
+    ctx.step("profile", "load_profile", profile_input),
+    ctx.step("orders", "load_orders", orders_input),
+]))
+```
+
+The complete batch enters history before sibling steps advance concurrently. Each result commits independently, so a fast member does not remain only in memory while another runs. Keep the batch ID set and member parameters stable during replay.
+
+## Fixed-delay retry
+
+```rust
+let retry = RetryPolicy::fixed(
+    4,
+    std::time::Duration::from_secs(15),
+);
+
+Ok(ctx.schedule_step_with_retry(
+    "reserve",
+    "reserve_stock",
+    input,
+    retry,
+))
+```
+
+0.12.0 supports no retry and fixed delay only. Zero delay retries in the current drive. Positive delay stores an absolute UTC deadline and suspends. `continue_workflow_on_failure()` lets workflow code read `step_failed()` and compensate.
+
+## Timer waits and scheduling
+
+`wait_until(wait_id, resume_at)` stores wait identity and UTC time in history. `FlowScheduler` queries due waits and delayed retries, groups targets by run, and sends them through `FlowTaskDispatcher`.
+
+Duplicate scans and tasks are allowed. Expected-sequence writes and current wait state select one completion event.
+
+## Hook lifecycle
+
+`create_hook()` stores hook ID, token, and metadata. An active hook may resume by run and hook identity or be resolved once by token at an external router.
+
+```rust
+if let Some(payload) = ctx.hook_payload("approval") {
+    return Ok(ctx.complete(payload.clone()));
+}
+
+Ok(ctx.create_hook(
+    "approval",
+    approval_token,
+    serde_json::json!({ "kind": "human_approval" }),
+))
+```
+
+Stable-identity resume supports matching redelivery. Changed payload, disposal, or cancellation returns conflict. Token lookup covers active hooks only, and diagnostics redact token values.
+
+## Cleanup-aware cancellation
+
+`request_cancellation()` stores an immutable request and cancels prior waits, hooks, and continued retry. In `Cancelling`, workflow code reads `cancellation_request()`, runs distinct cleanup steps, and returns `ctx.cancel()`.
+
+`force_cancel()` and legacy name `cancel()` reach terminal state immediately without cleanup. `terminate_for_timeout()` and `terminate_for_host_shutdown()` store their distinct typed outcomes.
+
+## Progress and external links
+
+`WorkflowProgress` stores control-plane progress under stable `progress_id`. `ChildOperationReference` stores an externally managed operation ID, kind, and optional Flow run association.
+
+The link does not create or drive another run and does not propagate cancellation. First-class parent-child execution is not part of 0.12.0.
+
+## Runtime builds
+
+`WorkflowSpec::with_runtime_build()` pins executable-code identity for new runs. `RuntimeBuildCompatibility` controls worker admission, and `RuntimeBuildTaskRouter` sends tasks to exact-build dispatchers.
+
+After build identity is configured, a worker without compatible code fails before event append. Legacy unpinned history is admitted only through an explicit `accept_unpinned()` migration.
+
+## Version boundary
+
+0.12.0 has no named signals, continuation, patch markers, first-class child workflows, graph compilation, or exponential backoff. Do not interpret this history with context methods or commands from a newer release.

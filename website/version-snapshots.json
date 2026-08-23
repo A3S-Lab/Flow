@@ -1,0 +1,19 @@
+{
+  "current": {
+    "version": "v1.0.0",
+    "commit": "da19a95069c9ea49067733329414beffaed11074",
+    "releasedAt": "2026-08-19T12:54:16Z"
+  },
+  "archives": [
+    {
+      "version": "v0.13.1",
+      "commit": "c681a26cb89ffe22227db6bf49efc65c0f1fe83d",
+      "releasedAt": "2026-08-14T16:56:57Z"
+    },
+    {
+      "version": "v0.12.0",
+      "commit": "0650f598a1d31e0036ea94b218d5db41031ec042",
+      "releasedAt": "2026-08-10T14:43:13Z"
+    }
+  ]
+}

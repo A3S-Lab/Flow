@@ -1,0 +1,144 @@
+---
+title: 在 0.13.1 跑通第一个工作流
+description: 用 0.13.1 的真实 API 创建一个持久步骤，检查快照和历史，并了解原生 TypeScript 编译器入口。
+---
+
+# 在 0.13.1 跑通第一个工作流
+
+先固定版本并加入异步运行时。
+
+```toml title="Cargo.toml"
+[dependencies]
+a3s-flow = "=0.13.1"
+async-trait = "0.1"
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+## 实现运行时
+
+工作流函数只读取历史并返回决定。步骤函数负责外部动作。
+
+```rust title="src/main.rs"
+use a3s_flow::{
+    FlowEngine, FlowError, FlowRuntime, RuntimeCommand,
+    StepInvocation, WorkflowInvocation, WorkflowSpec,
+};
+use async_trait::async_trait;
+use serde_json::json;
+use std::sync::Arc;
+
+struct GreetingRuntime;
+
+#[async_trait]
+impl FlowRuntime for GreetingRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let ctx = invocation.context();
+        if let Some(output) = ctx.step_output("greet") {
+            return Ok(ctx.complete(output.clone()));
+        }
+
+        Ok(ctx.schedule_step(
+            "greet",
+            "greet_user",
+            json!({ "name": ctx.input()["name"] }),
+        ))
+    }
+
+    async fn run_step(
+        &self,
+        invocation: StepInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        match invocation.step_name.as_str() {
+            "greet_user" => Ok(json!({
+                "message": format!(
+                    "hello {}",
+                    invocation.input["name"]
+                        .as_str()
+                        .unwrap_or("unknown"),
+                ),
+            })),
+            name => Err(FlowError::Runtime(
+                format!("unknown step: {name}"),
+            )),
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() -> a3s_flow::Result<()> {
+    let engine = FlowEngine::in_memory(Arc::new(GreetingRuntime));
+    let spec = WorkflowSpec::rust_embedded(
+        "demo.greeting",
+        "0.1.0",
+        "demo",
+        "main",
+    );
+
+    let run_id = engine
+        .start_with_id(
+            "greeting-ada",
+            spec,
+            json!({ "name": "Ada" }),
+        )
+        .await?;
+
+    let snapshot = engine.snapshot(&run_id).await?;
+    println!("status={:?}", snapshot.status);
+    println!("output={:?}", snapshot.output);
+    Ok(())
+}
+```
+
+运行程序。
+
+```console
+cargo run
+```
+
+引擎第一次重放返回 `ScheduleStep`，步骤输出提交后再次重放，第二次返回 `Complete`。完成位置来自事件历史，没有使用进程内游标。
+
+## 检查历史
+
+```rust
+for envelope in engine.history(&run_id).await? {
+    println!(
+        "sequence={} key={}",
+        envelope.sequence,
+        envelope.event.event_key(),
+    );
+}
+```
+
+事件序号从 1 连续递增。并发写入使用预期序号，失败的竞争者重新读取历史，不能覆盖已经提交的事件。
+
+## 外部副作用幂等
+
+步骤的物理交付边界是至少一次。外部动作成功后，如果进程在步骤输出提交前退出，替代 Worker 会再次调用步骤。真实步骤输入要包含稳定业务幂等键。
+
+```text
+greeting-ada:greet
+```
+
+目标服务应让相同键和参数返回第一次结果。
+
+## 使用原生 TypeScript 编译器
+
+0.13.1 可以安装随包编译器。
+
+```console
+cargo install a3s-flow --version 0.13.1 --locked \
+  --bin a3s-flow-native-compiler
+a3s-flow-native-compiler capabilities
+```
+
+生产配置建议使用 `NativeTsDependencyMode::CompilerManifest`，把 Bun 解析到的依赖图纳入源码身份。Rust 宿主仍然创建 `FlowEngine`、存储和 Worker。
+
+## 下一步
+
+- 需要固定延迟重试、等待或 Hook 时阅读[执行模型](/concepts/execution-model)。
+- 接入 SQLite 或 PostgreSQL 前阅读[存储与迁移](/operations/persistence)。
+- 查找该标签的确切入口时使用[API 参考](/reference/api)。

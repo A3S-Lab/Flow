@@ -1,0 +1,145 @@
+---
+title: Workflow graph
+description: Import JSON or YAML graphs, validate nodes, edges, and container scopes, then derive deterministic execution order and semantic identity.
+---
+
+# Workflow graph
+
+`WorkflowDsl` and `WorkflowDag` define the structural boundary for portable workflow documents. They parse nodes and edges, preserve unknown extension fields, validate graph structure, and derive a deterministic plan. The host still binds concrete node execution.
+
+Flow does not grant model, database, or tool access from `data.type`. The host validates and authorizes a node before connecting its semantics to durable steps.
+
+## Full documents and bare graphs
+
+A complete document includes version, application information, and `workflow.graph`. A host that only needs the canvas graph can parse `WorkflowDag` directly.
+
+```rust
+use a3s_flow::{WorkflowDag, WorkflowDsl};
+
+let document = WorkflowDsl::from_yaml(&yaml_source)?;
+let graph = document.graph();
+
+let bare_graph = WorkflowDag::from_json(&json_source)?;
+```
+
+One UTF-8 document is limited to 10 MiB. The currently tested DSL version is `0.7.0`. An older minor may import with warnings. A newer version or different major requires an explicit host decision.
+
+## Minimal graph shape
+
+```json
+{
+  "nodes": [
+    {
+      "id": "start",
+      "position": { "x": 0, "y": 0 },
+      "data": { "type": "start" }
+    },
+    {
+      "id": "validate-order",
+      "position": { "x": 280, "y": 0 },
+      "data": {
+        "type": "tool",
+        "operation": "orders.validate"
+      }
+    },
+    {
+      "id": "end",
+      "position": { "x": 560, "y": 0 },
+      "data": { "type": "end" }
+    }
+  ],
+  "edges": [
+    { "id": "start-validate", "source": "start", "target": "validate-order" },
+    { "id": "validate-end", "source": "validate-order", "target": "end" }
+  ],
+  "viewport": { "x": 0, "y": 0, "zoom": 1 }
+}
+```
+
+Every node needs a non-empty `id` and string `data.type`. Every edge needs a unique ID and existing source and target nodes.
+
+## Derive an execution plan
+
+```rust
+let plan = graph.execution_plan()?;
+println!("top_level={:?}", plan.top_level());
+
+for (scope, order) in plan.scopes() {
+    println!("scope={scope:?} order={order:?}");
+}
+```
+
+When several nodes are ready in one scope, the plan sorts by stable ID to remove input-array ordering effects. A plan expresses structural topology only. It does not execute nodes or choose failure, retry, and authorization policy.
+
+An empty canvas can parse and round-trip so an editor may retain drafts. `execution_plan()` rejects it because there is no executable node.
+
+## Structural validation
+
+Planning rejects these conditions.
+
+- Duplicate or empty node and edge IDs
+- Missing string `data.type`
+- An edge referencing a missing node
+- A self-edge
+- A cycle in any scope
+- An edge crossing top-level and container scopes
+- A `parentId` referring to a missing or unsupported container
+- An iteration or loop container without its matching start child
+- More than 10,000 nodes or 100,000 edges
+
+These checks make topology deterministic. They do not validate business parameters for a particular executor. The host must apply a schema to every authorized node type.
+
+## Iteration and loop scopes
+
+`iteration` and `loop` nodes may own a container scope. Children declare the scope through `parentId`, and internal edges may connect nodes within that same container only.
+
+```json
+{
+  "id": "for-each-item",
+  "data": {
+    "type": "iteration",
+    "start_node_id": "iteration-start"
+  }
+}
+```
+
+The matching start node has three requirements.
+
+1. Its `parentId` equals the container ID.
+2. Iteration uses `iteration-start`, while loop uses `loop-start`.
+3. The container has at least one additional executable child.
+
+`plan.scope("for-each-item")` returns deterministic order inside the container. The container itself remains in the top-level plan.
+
+## Semantic digest
+
+`execution_digest()` produces a stable SHA-256 identity for executable semantics.
+
+```rust
+let digest = graph.execution_digest()?;
+println!("execution_digest={digest}");
+```
+
+Node positions, selection state, viewport, and input-array order do not affect the digest. Node `data`, semantic edge data, endpoints, and scope do. A host may use it to detect whether two publications only changed canvas layout.
+
+The digest proves matching input semantics only. It does not prove that host node bindings are identical. Executor versions still belong in host release identity or `runtime_build_id`.
+
+## Lossless round trips and extensions
+
+The parser retains unknown top-level, application, workflow, node-presentation, and edge-presentation fields. `to_yaml()` and `to_json()` write those fields back.
+
+Preservation does not imply semantic acceptance. Keep an allowlist at the security boundary.
+
+- Parse and enforce document size first.
+- Run structural plan validation.
+- Apply host schemas to allowed `data.type` values.
+- Resolve credential references and reject plaintext secrets in graph documents.
+- Record document digest and executor versions at publication time.
+
+## Connect graphs to durable execution
+
+The graph compiler returns node order, while the Flow engine persists run decisions. A host commonly maps a node to a stable step ID and stores branch choices or container cursors in step output or continuation input.
+
+If graph semantics change while old runs remain active, create a new workflow definition version or a replay-safe patch path. Do not interpret existing history with a replacement graph.
+
+See `examples/workflow_dsl_import.rs` for a complete import program.

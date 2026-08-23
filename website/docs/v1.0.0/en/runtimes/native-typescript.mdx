@@ -1,0 +1,191 @@
+---
+title: Native TypeScript
+description: Compile and invoke TypeScript workflows from a Rust host while Flow retains authority over history, scheduling, workers, and lifecycle.
+---
+
+# Native TypeScript
+
+`NativeTsRuntime` is an optional runtime adapter. Workflow authors may write TypeScript while the Rust host still owns run creation, event storage, replay, scheduling, workers, build admission, and inspection.
+
+TypeScript source compiles into a native executable for the current platform. The executable receives workflow and step invocations through a versioned JSON protocol. It does not provide a second event store or scheduler.
+
+## Install the compiler
+
+Default features include `native-ts`. The compiler is a separate binary from the same crate and requires Bun at runtime.
+
+```console
+cargo install a3s-flow --version 1.0.0 --locked \
+  --bin a3s-flow-native-compiler
+
+a3s-flow-native-compiler --version
+a3s-flow-native-compiler capabilities
+```
+
+The compiler finds Bun through `PATH` by default. Set `A3S_FLOW_BUN` to an explicit executable path when the host does not expose a global PATH.
+
+The compiler has three closed commands.
+
+```console
+a3s-flow-native-compiler capabilities
+a3s-flow-native-compiler dependencies <entrypoint.ts>
+a3s-flow-native-compiler compile <entrypoint.ts> -o <artifact>
+```
+
+## Configure the Rust host
+
+```rust
+use a3s_flow::{
+    NativeTsDependencyMode, NativeTsRuntime,
+    NativeTsRuntimeConfig,
+};
+use std::time::Duration;
+
+let runtime = NativeTsRuntime::new(NativeTsRuntimeConfig::new(
+    "a3s-flow-native-compiler",
+    ".a3s/flow/native-ts",
+    ".",
+))
+.with_dependency_mode(NativeTsDependencyMode::CompilerManifest)
+.with_compile_timeout(Duration::from_secs(120))
+.with_invocation_timeout(Duration::from_secs(30))
+.with_output_limits(8 * 1024 * 1024, 256 * 1024);
+```
+
+All three paths resolve against the host process directory first.
+
+- `compiler_binary` names the compiler executable. A bare name uses `PATH`.
+- `cache_dir` stores native artifacts with integrity manifests.
+- `working_dir` is the TypeScript workspace root. Workflow entrypoints resolve under it.
+
+Set compilation and invocation timeouts explicitly in production. Defaults have no runtime-owned timeout and depend on caller cancellation or an outer job timeout.
+
+## Define a workflow
+
+```rust
+use a3s_flow::WorkflowSpec;
+
+let spec = WorkflowSpec::native_ts(
+    "examples.native-ts-greeting",
+    "0.1.0",
+    "workflows/greeting.ts",
+    "main",
+);
+```
+
+`version` is part of workflow deployment identity. When source dependencies, compiler configuration, generated input, or lockfiles change, include them in dependency identity or update this version. An active run cannot switch definitions.
+
+## TypeScript entrypoint
+
+A workflow function reads invocation input and event history, then returns one `RuntimeCommand`. Steps live in the exported `steps` object.
+
+```typescript
+import type {
+  FlowEventEnvelope,
+  RuntimeCommand,
+  StepInvocation,
+  WorkflowInvocation,
+} from './a3s-flow-runtime';
+
+type GreetingInput = { name: string };
+type GreetingOutput = { message: string };
+
+function completedStep<T>(
+  history: FlowEventEnvelope[],
+  stepId: string,
+): T | undefined {
+  const item = history.find(
+    ({ event }) => event.type === 'step_completed' && event.step_id === stepId,
+  );
+  return item?.event.type === 'step_completed'
+    ? (item.event.output as T)
+    : undefined;
+}
+
+export async function main(
+  invocation: WorkflowInvocation<GreetingInput>,
+): Promise<RuntimeCommand> {
+  const output = completedStep<GreetingOutput>(invocation.history, 'greet');
+  if (output) return { type: 'complete', output };
+
+  return {
+    type: 'schedule_step',
+    step_id: 'greet',
+    step_name: 'greet_user',
+    input: { name: invocation.input.name },
+    retry: { max_attempts: 3, delay_ms: 0 },
+  };
+}
+
+export const steps = {
+  async greet_user(
+    invocation: StepInvocation<GreetingInput>,
+  ): Promise<GreetingOutput> {
+    return { message: `hello ${invocation.input.name}` };
+  },
+};
+```
+
+TypeScript follows the same deterministic boundary. Workflow functions avoid current time, randomness, and network access. Steps own external side effects and business idempotency.
+
+## Dependency identity modes
+
+`NativeTsDependencyMode` offers two policies.
+
+| Mode               | Source identity                                                                 | Fit                                                         |
+| ------------------ | ------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `EntrypointOnly`   | Entrypoint file, workflow name, definition version, entrypoint, and export name | Simple single-file source or strictly host-managed versions |
+| `CompilerManifest` | Compiler-declared dependency graph and contents of every file                   | Production with the bundled compiler                        |
+
+Use `CompilerManifest` with the bundled compiler. It collects source from Bun build metadata and includes applicable `package.json`, lockfiles, `bunfig.toml`, and `tsconfig.json`.
+
+Dependency manifests have strict bounds.
+
+- Paths are UTF-8, forward-slash-separated, working-directory-relative, sorted, and unique.
+- The entrypoint must appear in the manifest.
+- Absolute paths, traversal, symlink escape, and non-file targets are rejected.
+- At most 4,096 entries, 4,096 bytes per path, and 1 MiB per document.
+
+Cold compilation scans dependencies before and after compile. If file set, content, or compiler identity changes, Flow removes temporary output and publishes nothing under the old identity.
+
+## Artifact cache
+
+Public `source_hash` binds portable source semantics. The internal cache key also binds compiler path and content, working directory, absolute entrypoint, protocol, operating system, architecture, and compiler-backend identity.
+
+Each cold compile writes a unique temporary directory. Flow validates a non-empty executable, then atomically publishes the artifact and integrity manifest. Concurrent compiles may duplicate work but cannot observe a partial artifact.
+
+A cache hit still validates entry shape, execute permission, manifest, length, and content fingerprint. Flow quarantines and rebuilds damaged entries. Runtime instances may share one cache root.
+
+## Preflight
+
+Call `preflight()` before rollout to find compiler, dependency, and cache failures.
+
+```rust
+let preflight = runtime.preflight(&spec).await?;
+
+println!("entrypoint={}", preflight.entrypoint.display());
+println!("artifact={}", preflight.artifact.display());
+println!("source_hash={}", preflight.source_hash);
+println!("cache_hit={}", preflight.cache_hit);
+```
+
+Preflight does not create a workflow run. CI can preflight every production definition and retain source hashes with candidate release evidence.
+
+## Process protocol and bounds
+
+A native artifact accepts `--a3s-flow-runtime`, reads one `NativeRuntimeRequest` JSON object from stdin, and writes one `NativeRuntimeResponse` JSON object to stdout. The protocol is `a3s.flow.native_ts.v1`.
+
+Defaults retain at most 8 MiB from stdout and 256 KiB from stderr. Limit overflow, invalid JSON, protocol mismatch, abnormal exit, or timeout returns a runtime error and terminates the direct child process.
+
+Run artifacts under a least-privilege operating-system account. TypeScript step access is controlled by process permissions and host credentials. Flow does not add an automatic process sandbox.
+
+## Production checklist
+
+- Pin Flow, compiler, and Bun versions and content identities.
+- Use `CompilerManifest` and run `preflight()` in CI.
+- Set explicit compilation, invocation, and output limits.
+- Place cache on durable storage writable only by the service account.
+- Pin workflow `runtime_build_id` and retain old artifact routes during rollout.
+- Use stable business idempotency keys in TypeScript steps.
+- Monitor cold compiles, duration, cache repair, invocation timeout, and protocol errors.
+
+Run `cargo run --example native_ts_preflight` and `cargo run --example native_ts_greeting` for complete wiring.

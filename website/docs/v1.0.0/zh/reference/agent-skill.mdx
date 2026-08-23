@@ -1,0 +1,173 @@
+---
+title: Agent Skill
+description: Flow 与项目内 Agent Skill 的边界、SKILL.md 模板、版本固定方式，以及把 Skill 调用包装成持久步骤的宿主做法。
+---
+
+# Agent Skill
+
+Flow 1.0 的 crate、原生 TypeScript 编译器和文档包没有随附独立的 Agent Skill 包或安装器。Flow 也不会查找、解析或执行 `SKILL.md`。这类文件由编码代理或宿主代理运行时读取，用来说明怎样修改工作流、运行哪些检查，以及遇到风险时在哪里停下。
+
+项目仍然可以维护自己的 Flow Skill。它能把仓库约定写清楚，让代理找到正确模块、使用稳定 ID，并在提交前运行对应测试。运行中的 Flow 引擎只接受 `WorkflowSpec`、历史事件和 `RuntimeCommand`，Skill 内容不会自动进入这些协议。
+
+## 两条使用路径
+
+| 路径       | 读取者               | 用途                                     | Flow 的角色            |
+| ---------- | -------------------- | ---------------------------------------- | ---------------------- |
+| 编码 Skill | 开发环境中的编码代理 | 创建或修改工作流源码，检查重放安全与测试 | 提供被修改和验证的库   |
+| 运行 Skill | 宿主拥有的代理执行器 | 在业务运行中调用模型、工具或受控任务     | 把一次调用持久化为步骤 |
+
+编码 Skill 属于仓库开发流程。运行 Skill 属于应用执行流程。两者可以使用同一份业务说明，权限、输入与结果协议仍要分别定义。
+
+## 项目内目录
+
+下面是一种清楚的项目布局。具体发现目录由所用代理决定，Flow 对路径没有要求。
+
+```text
+.agents/
+└── skills/
+    └── a3s-flow-workflows/
+        ├── SKILL.md
+        └── references/
+            ├── replay-safety.md
+            └── release-checklist.md
+```
+
+把 `SKILL.md` 放进版本控制，并让它靠近实际工作流约定。代理平台使用其他发现目录时，可以保留文件内容并调整外层路径。
+
+## `SKILL.md` 最小模板
+
+下面的模板只引用仓库中已经存在的能力。它没有声明 Flow 会安装或执行这个文件。
+
+````markdown
+---
+name: a3s-flow-workflows
+description: Create, review, and validate durable A3S Flow workflows in this repository.
+---
+
+# A3S Flow workflow development
+
+Use this skill for changes to workflow replay code, durable steps, waits,
+signals, hooks, child workflows, continuation, and native TypeScript sources.
+
+## Before editing
+
+1. Find the crate or application that owns the workflow.
+2. Read its local AGENTS.md and existing workflow tests.
+3. Identify every stable step, wait, hook, signal-wait, and child ID touched.
+4. Confirm whether deployed histories must replay the changed path.
+
+## Implementation rules
+
+- Read durable history before returning a command.
+- Derive identities from published input or deterministic indexes.
+- Keep external effects inside registered step executors.
+- Reuse exact command properties on replay.
+- Use patch markers for replay-visible code changes.
+- Do not put credentials, callback tokens, or large payloads in history.
+
+## Validation
+
+Run focused crate tests from the Flow crate workspace.
+
+```sh
+cargo fmt --all
+cargo test -p a3s-flow
+```
+
+For native TypeScript changes, also verify the compiler contract.
+
+```sh
+a3s-flow-native-compiler capabilities
+a3s-flow-native-compiler dependencies path/to/main.ts
+```
+
+## Handoff
+
+Report changed stable IDs, patch markers, runtime build requirements, and the
+exact commands that passed.
+````
+
+模板中的命令要按当前仓库缩小。大型单仓库通常应把 `cargo test -p a3s-flow` 换成能覆盖本次工作流的专门包或集成测试。Skill 需要写明可见结果，单写“确保测试通过”很难让代理判断工作是否完成。
+
+## 编码 Skill 要说明的内容
+
+| 主题       | 应写清的规则                                     |
+| ---------- | ------------------------------------------------ |
+| 所有权     | 哪个 crate、应用或目录拥有工作流和步骤执行器     |
+| 稳定身份   | ID 从哪些输入或索引生成，哪些旧 ID 仍在历史中    |
+| 重放       | 哪些字段提交后不能变化，怎样使用补丁标记         |
+| 外部副作用 | 哪个 `step_name` 负责调用服务，幂等键怎样构造    |
+| 暂停恢复   | 谁扫描定时器、派发任务、恢复 Hook 与投递信号     |
+| 版本       | `WorkflowSpec.version`、运行时构建身份与发布顺序 |
+| 验证       | 精确测试命令、必要夹具和成功条件                 |
+
+Skill 可以引用较长的仓库文档，主文件只保留决策顺序与必须遵守的约束。引用文件也应进入版本控制，并用相对路径连接，避免代理从网络临时取得不同版本。
+
+## 把运行 Skill 包装成持久步骤
+
+业务工作流需要代理执行时，宿主为它注册一个普通步骤执行器，例如 `agent.skill.run`。Flow 负责持久身份、重试与输出。宿主负责读取 Skill、启动代理、限制工具并返回 JSON。
+
+```rust
+if let Some(result) = ctx.step_output("review-order-1042") {
+    return Ok(ctx.complete(result.clone()));
+}
+
+Ok(ctx.schedule_step_with_retry(
+    "review-order-1042",
+    "agent.skill.run",
+    json!({
+        "skill_id": "order-review",
+        "skill_revision": "sha256:6f3d...",
+        "instruction": "Review order ord-1042 against the stored policy",
+        "artifact_refs": ["policy://orders/2026-08"],
+        "allowed_tools": ["orders.read", "policy.read"]
+    }),
+    RetryPolicy::fixed(3, Duration::from_secs(5)),
+))
+```
+
+步骤执行器收到 `StepInvocation` 后完成下面的宿主工作。
+
+1. 根据允许列表解析 `skill_id` 和固定修订。
+2. 读取受信任的 Skill 内容与引用文件。
+3. 建立隔离执行环境，并只开放输入中允许的工具。
+4. 使用 `run_id` 与 `step_id` 构造幂等身份。
+5. 把结构化结果作为步骤输出返回。
+
+代理输出本身可以有变化。第一次成功输出会进入 `StepCompleted`，后续工作流重放只读取这个持久值，不会再次调用代理。步骤重试仍可能重复外部动作，执行器必须把相同幂等身份传给会写数据的工具。
+
+## 推荐的步骤输入
+
+| 字段             | 目的                 | 历史规则                         |
+| ---------------- | -------------------- | -------------------------------- |
+| `skill_id`       | 选择宿主允许的 Skill | 使用稳定逻辑名称                 |
+| `skill_revision` | 固定具体内容         | 使用提交 ID、制品版本或内容摘要  |
+| `instruction`    | 描述当前业务任务     | 保持简短，不能包含秘密           |
+| `artifact_refs`  | 指向不可变输入       | 优先保存引用与摘要，控制历史体积 |
+| `allowed_tools`  | 收紧本次权限         | 由宿主再次与服务器允许列表求交集 |
+| `result_schema`  | 约束输出结构         | 宿主在返回步骤结果前校验         |
+
+不要只保存 `skill_id` 然后读取一份可随时修改的文件。重试发生在发布以后时，同名 Skill 内容可能已经变化。固定修订或内容摘要能让执行器加载相同说明，运行时构建身份则保证旧历史仍由兼容代码处理。
+
+## 失败、取消与超时
+
+代理调用失败时，步骤执行器返回带上下文的错误，让 `RetryPolicy` 决定下一次尝试。达到上限后，工作流可以失败，也可以使用 `continue_workflow` 进入人工 Hook 或安全降级路径。
+
+取消请求会让原有待执行步骤失效。执行器仍要响应宿主取消与租约丢失，停止自己的子进程和网络请求。工作流清理阶段需要代理参与时，应使用新的步骤 ID，并减少可用工具。
+
+Flow 的 `Timeout` 命令记录业务截止时间。单次代理进程的运行时限由宿主执行器设置。两种时间限制解决的问题不同，步骤错误中应说明命中了哪一项。
+
+## 安全边界
+
+- Skill 文件来自受信任、固定版本的制品。
+- 宿主决定工具允许列表，Skill 不能自行扩大权限。
+- 凭据通过执行环境注入，不能放进命令输入或历史。
+- 工具写操作使用幂等身份，并保留独立审计记录。
+- 步骤输出先经过大小限制与结构校验，再交给 Flow 持久化。
+- Skill 修订、代理运行时版本和工具协议进入部署兼容检查。
+
+当前发布没有官方 Skill 安装命令。项目需要按自己的代理平台配置发现路径，并独立测试 Skill 能否被读取。Flow 侧的验证集中在包装步骤、重放一致性、重试与终态行为。
+
+## 验证清单
+
+发布项目前，至少跑通一次首次执行、相同历史重放和步骤失败重试。再检查 Skill 修订不存在时是否拒绝执行，工具越权时是否留下明确错误，取消时代理子进程能否被回收。最后确认历史中只有业务输入、稳定引用与结构化输出，没有令牌、环境变量和完整模型日志。

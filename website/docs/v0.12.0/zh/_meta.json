@@ -1,0 +1,7 @@
+[
+  { "type": "section-header", "label": "A3S Flow 0.12.0" },
+  { "type": "dir", "name": "guide", "label": "开始使用" },
+  { "type": "dir", "name": "concepts", "label": "核心概念" },
+  { "type": "dir", "name": "operations", "label": "生产运行" },
+  { "type": "dir", "name": "reference", "label": "参考" }
+]

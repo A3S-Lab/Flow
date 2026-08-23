@@ -1,0 +1,149 @@
+---
+title: Terminal nodes
+description: Properties, admission conditions, projections, and caller handling for successful completion, failure, cleanup-aware cancellation, and timeout commands.
+---
+
+# Terminal nodes
+
+A terminal command closes the current run segment. Once its event commits, no later event can be appended to that run ID. Callers should read both `WorkflowRunStatus` and `WorkflowTerminalOutcome`. Status is useful for broad filtering, while the typed outcome preserves the exact result.
+
+| Command    | Event          | `WorkflowRunStatus` | `WorkflowTerminalOutcome`                     |
+| ---------- | -------------- | ------------------- | --------------------------------------------- |
+| `Complete` | `RunCompleted` | `completed`         | `completed` with final JSON                   |
+| `Fail`     | `RunFailed`    | `failed`            | `failed` with an error message                |
+| `Cancel`   | `RunCancelled` | `cancelled`         | `cancelled` with the request reason           |
+| `Timeout`  | `RunTimedOut`  | `failed`            | `timed_out` with deadline and optional reason |
+
+Timeout maps to `failed` at the broad status layer, but its outcome remains `timed_out`. A failure metric can therefore group by status and still separate application failure, retry exhaustion, host shutdown, and timeout through `terminal_outcome.type`.
+
+## Success `Complete`
+
+The success command persists the final JSON value returned to a caller.
+
+| Property | Type | Required | Rule                                                                                     |
+| -------- | ---- | -------- | ---------------------------------------------------------------------------------------- |
+| `output` | JSON | Yes      | Complete value written to `RunCompleted`; objects, arrays, scalars, and `null` are valid |
+
+```rust
+if let Some(receipt) = ctx.step_output("charge-order") {
+    return Ok(ctx.complete(json!({
+        "order_id": ctx.input()["order_id"],
+        "receipt": receipt,
+    })));
+}
+```
+
+Before closing successfully, the engine checks first-class child workflows owned by this parent. An open child with `request_cancellation` policy blocks termination. Active timers, hooks, signal waits, and delayed retries normally keep the run suspended before workflow code receives another replay.
+
+A run with a durable cleanup-aware cancellation request cannot return `complete`. The engine returns `InvalidTransition`; cleanup replay must explicitly end with `cancel` or `fail`.
+
+Callers may read the raw `output` from a snapshot or use `output_as<T>()` to decode it into a host type. A later decoding error does not alter the committed workflow result.
+
+## Failure `Fail`
+
+The failure command records that workflow code has decided to stop with an application error.
+
+| Property | Type     | Required | Rule                                                                  |
+| -------- | -------- | -------- | --------------------------------------------------------------------- |
+| `error`  | `String` | Yes      | Written to `RunFailed`; should include context an operator can act on |
+
+```rust
+if ctx.step_failed("reserve-stock") {
+    return Ok(ctx.fail("inventory reservation exhausted its retry policy"));
+}
+```
+
+Use `fail` for a final business rejection, compensation failure, or a runtime condition that workflow code has interpreted. When a step using the default `fail_run` policy exhausts retries, the engine directly records a `retry_exhausted` outcome. Workflow code does not need to return `Fail` for that path. With `continue_workflow`, replay can inspect `step_failed()` and choose a fallback, compensation, or explicit failure.
+
+`fail` is valid during cleanup-aware cancellation. It communicates that cleanup could not finish safely, so the durable result remains failure rather than cancellation. Include the failed cleanup operation in the message, but keep credentials, callback tokens, and full external responses out of history.
+
+## Finish cancellation `Cancel`
+
+`Cancel` has no command properties. It can close only a run that already contains a durable cancellation request. The reason belongs to the earlier `CancellationRequest` and is copied into `RunCancelled`.
+
+```rust
+if let Some(request) = ctx.cancellation_request() {
+    if ctx.step_output("cleanup-release-locks").is_some() {
+        return Ok(ctx.cancel());
+    }
+
+    return Ok(ctx.schedule_step(
+        "cleanup-release-locks",
+        "locks.release",
+        json!({
+            "run_id": ctx.run_id(),
+            "reason": request.reason,
+        }),
+    ));
+}
+```
+
+| Condition                       | Engine behavior                                              |
+| ------------------------------- | ------------------------------------------------------------ |
+| No durable cancellation request | Reject `Cancel` with `InvalidTransition`                     |
+| Same request is submitted again | Keep the request idempotent and drive the same cleanup path  |
+| Request reason changes          | Return a run conflict and preserve the durable reason        |
+| A blocking child remains open   | Wait for that child to clean up and reach a terminal outcome |
+
+When the request commits, existing pending steps, delayed retries, timer waits, active hooks, and signal waits become non-actionable. Cleanup code must use fresh stable IDs such as `cleanup-release-locks` and `cleanup-backoff-1`. Reusing an identity from work that the request cancelled is rejected.
+
+First-class children follow their own policy. A `request_cancellation` child receives the request and blocks the parent until it finishes. An `abandon` child continues independently. After required cleanup settles, the parent returns `ctx.cancel()`.
+
+The host also exposes `force_cancel()`. It writes a cancellation terminal event without replaying cleanup code. Reserve it for operational recovery where the owner explicitly accepts the resource risk.
+
+## Timeout `Timeout`
+
+The timeout command persists the UTC deadline that was exceeded and may include business context.
+
+| Property   | Type             | Required | Rule                                            |
+| ---------- | ---------------- | -------- | ----------------------------------------------- |
+| `deadline` | `DateTime<Utc>`  | Yes      | Absolute UTC time used for the timeout decision |
+| `reason`   | `Option<String>` | No       | Explains which business window expired          |
+
+```rust
+let deadline = ctx.input()["payment_deadline"]
+    .as_str()
+    .ok_or_else(|| FlowError::Runtime("missing payment_deadline".into()))?
+    .parse::<DateTime<Utc>>()?;
+
+if Utc::now() >= deadline {
+    return Ok(ctx.timeout(
+        deadline,
+        Some("payment window expired".to_string()),
+    ));
+}
+```
+
+Reading the current clock directly during replay can produce an unstable decision. A common design first persists the deadline with `WaitUntil`, then returns a timeout with that same deadline after scheduler recovery. A host that confirms timeout outside workflow code can call `terminate_for_timeout()`, which produces the same typed outcome.
+
+When `reason` is absent, the snapshot's general `error` field is synthesized from the deadline. `terminal_outcome` always retains the original deadline and optional reason, so callers should use it for retry policy, notification, and metrics.
+
+## Reading terminal outcomes
+
+```rust
+match snapshot.terminal_outcome.as_ref() {
+    Some(WorkflowTerminalOutcome::Completed { output }) => {
+        persist_business_result(output).await?;
+    }
+    Some(WorkflowTerminalOutcome::TimedOut { deadline, reason }) => {
+        record_deadline_miss(*deadline, reason.as_deref()).await?;
+    }
+    Some(outcome) => {
+        record_non_success(outcome).await?;
+    }
+    None => {}
+}
+```
+
+`WorkflowTerminalOutcome` is `non_exhaustive`. Host matches need a fallback arm so a later release can add an outcome safely. Notification and billing consumers should also be idempotent because a caller can stop after reading the terminal result but before acknowledging its own write.
+
+## Selection guide
+
+| Situation                                                    | Return     |
+| ------------------------------------------------------------ | ---------- |
+| Business work has finished with a final value for the caller | `Complete` |
+| Workflow code has made an unrecoverable application decision | `Fail`     |
+| Cleanup for a durable cancellation request has finished      | `Cancel`   |
+| An absolute deadline is known to have been exceeded          | `Timeout`  |
+
+A terminal command should follow from durable facts. Step output, wait completion, a cancellation request, and a fixed deadline all let replay reach the same decision again.

@@ -1,0 +1,112 @@
+---
+title: 0.13.1 存储与迁移
+description: 选择 0.13.1 的 JSONL、SQLite 或 PostgreSQL 后端，核对 ORM 0.3 迁移、历史保留和任务持久化。
+---
+
+# 0.13.1 存储与迁移
+
+0.13.1 的 `FlowEventStore` 负责追加事件、预期序号写入、完整历史、运行枚举、活动 Hook 和定时唤醒查询。存储是运行状态权威，队列和观察日志不能替代它。
+
+## 内置存储
+
+| 存储                  | 功能开关   | 使用边界             |
+| --------------------- | ---------- | -------------------- |
+| `InMemoryEventStore`  | 无         | 测试，进程退出后丢失 |
+| `LocalFileEventStore` | 无         | 单进程 JSONL 目录    |
+| `SqliteEventStore`    | `sqlite`   | 单节点持久服务       |
+| `PostgresEventStore`  | `postgres` | 多进程共享历史       |
+
+```toml
+[dependencies]
+a3s-flow = { version = "=0.13.1", features = ["sqlite"] }
+```
+
+0.13.1 的 SQL 适配器使用 `a3s-orm 0.3.0`。任务管理适配器使用 `a3s-boot 0.2.0`。
+
+## 本地 JSONL
+
+```rust
+let store = Arc::new(LocalFileEventStore::new(
+    ".a3s/flow/history",
+));
+let engine = FlowEngine::new(store, runtime);
+```
+
+一个宿主独占整个根目录。备份要覆盖所有运行文件，并和业务数据库的外部幂等记录位于一致恢复点。不要把该目录放在多个服务实例共享的普通网络文件系统上。
+
+## SQLite
+
+```rust
+let store = Arc::new(
+    SqliteEventStore::connect("sqlite://.a3s/flow/flow.db").await?,
+);
+let engine = FlowEngine::new(store, runtime);
+```
+
+`connect()` 自动运行带校验和的 ORM 迁移。0.13.1 的 SQLite 迁移前缀如下。
+
+1. `a3s-flow-0001-events`
+2. `a3s-flow-0002-retention`
+3. `a3s-flow-0003-active-hooks`
+4. `a3s-flow-0004-scheduled-wakeups`
+
+启动新版本前停掉旧 SQLite 所有者并验证备份。不要手工修改 `flow_active_hooks`、定时唤醒投影或迁移账本。
+
+## PostgreSQL
+
+```rust
+let store = Arc::new(
+    PostgresEventStore::connect(&database_url).await?,
+);
+let engine = FlowEngine::new(store, runtime);
+```
+
+0.13.1 通过 `connect()` 运行迁移并打开服务存储。该版本还没有 1.0 的独立 PostgreSQL 迁移入口和只验证构造器。生产部署要让一个受控实例先完成连接迁移，确认成功后再扩容 Worker。
+
+PostgreSQL 迁移前缀如下。
+
+1. `a3s-flow-0001-events`
+2. `a3s-flow-0002-tasks`
+3. `a3s-flow-0003-retention`
+4. `a3s-flow-0004-active-hooks`
+5. `a3s-flow-0005-scheduled-wakeups`
+
+迁移前停止创建新运行和调度提交，等待当前事务完成，保存数据库恢复点和队列深度。迁移提交后不要重新启动更旧二进制写同一个数据库。
+
+## 历史保留
+
+SQLite 和 PostgreSQL 提供审计保留标记、完整历史删除和墓碑。
+
+```rust
+let policy = FlowHistoryRetentionPolicy::new(
+    chrono::Utc::now() - chrono::Duration::days(90),
+);
+let report = store.prune_terminal_history(policy).await?;
+```
+
+只有早于截止点的终态历史可以删除。持久保留标记会保护运行。删除按完整关联组件执行，并留下终态序号、事件 ID、事件键和历史 SHA-256 墓碑。0.13.1 不支持修改或部分压缩事件流。
+
+```rust
+store
+    .hold_history("run-8821", "audit-14", "payment review")
+    .await?;
+
+store.release_history_hold("run-8821", "audit-14").await?;
+```
+
+## 任务持久化
+
+工作流历史和任务队列是两个独立持久边界。`LocalFileFlowTaskQueue` 与 `PostgresFlowTaskQueue` 提供租约、心跳、确认和死信记录。Boot 适配器提供统一任务策略。
+
+队列消息可能重复，处理器必须重新检查事件历史。删除一个成功任务记录不会删除工作流历史，历史保留也不会自动清理宿主队列。
+
+## 升级前记录
+
+- 当前 Flow 版本、Cargo 锁文件和启用功能。
+- ORM 迁移 ID 与校验和。
+- 非终态运行及 `runtime_build_id`。
+- 活动 Hook、到期等待和延迟重试数量。
+- 队列深度、活动租约和死信数量。
+- 数据库与本地持久目录的已验证恢复点。
+
+升级到 1.0 时，0.13.1 历史属于自动验证起点，但仍要按照 1.0 升级运行手册停写、迁移和验证。

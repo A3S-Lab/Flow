@@ -1,0 +1,11 @@
+[
+  { "text": "Version overview", "link": "/" },
+  { "text": "Get started", "link": "/guide/" },
+  { "text": "Execution model", "link": "/concepts/execution-model" },
+  { "text": "Stores and migrations", "link": "/operations/persistence" },
+  { "text": "API reference", "link": "/reference/api" },
+  {
+    "text": "Release source",
+    "link": "https://github.com/A3S-Lab/Flow/tree/v0.13.1"
+  }
+]

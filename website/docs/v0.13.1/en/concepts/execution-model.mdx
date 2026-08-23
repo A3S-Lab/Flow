@@ -1,0 +1,134 @@
+---
+title: 0.13.1 execution model
+description: Understand event replay, step batches, fixed-delay retry, timer waits, hooks, cancellation, and runtime-build admission in 0.13.1.
+---
+
+# 0.13.1 execution model
+
+0.13.1 stores each run as an append-only event stream. A worker projects `WorkflowRunSnapshot`, calls `FlowRuntime` for one `RuntimeCommand`, validates it, and appends events at an expected sequence.
+
+## Replay loop
+
+```text
+event history -> current snapshot -> one runtime command -> checked append
+      ^                                                       |
+      +------------------- replay or suspend -----------------+
+```
+
+The workflow function cannot keep its position in process memory. It reads committed step, wait, and hook results from `WorkflowContext` and chooses the next command.
+
+The same step ID, wait ID, or hook ID must return with its original parameters during replay. Changed step input, retry policy, deadline, token, or metadata returns `FlowError::NonDeterministic`.
+
+## Steps
+
+```rust
+if let Some(output) = ctx.step_output("charge") {
+    return Ok(ctx.complete(output.clone()));
+}
+
+Ok(ctx.schedule_step(
+    "charge",
+    "charge_card",
+    serde_json::json!({ "invoiceId": "inv-8821" }),
+))
+```
+
+`run_step()` performs external side effects. Successful output appears in `step_output()` only after commit. If the process exits after the external action and before event commit, the step is delivered again, so the target system must deduplicate a business idempotency key.
+
+## Step batches
+
+`schedule_steps()` durably declares a complete batch before executing members. Sibling steps may advance concurrently and each result commits independently.
+
+```rust
+Ok(ctx.schedule_steps(vec![
+    ctx.step("load-user", "load_user", user_input),
+    ctx.step("load-orders", "load_orders", orders_input),
+]))
+```
+
+Keep every ID stable during replay. If a later stage needs batch outputs, wait for all target steps to enter history and schedule another command on the next replay.
+
+## Fixed-delay retry
+
+0.13.1 `RetryPolicy` provides `none()` and `fixed()`. This release has no exponential backoff.
+
+```rust
+use a3s_flow::RetryPolicy;
+use std::time::Duration;
+
+let retry = RetryPolicy::fixed(3, Duration::from_secs(30));
+Ok(ctx.schedule_step_with_retry(
+    "charge",
+    "charge_card",
+    input,
+    retry,
+))
+```
+
+A zero-delay retry remains in the current drive loop. A positive delay stores a UTC deadline and suspends. `continue_workflow_on_failure()` returns exhaustion to workflow code, which reads `step_failed()` for fallback or compensation.
+
+## Timer waits
+
+```rust
+if ctx.wait_completed("approval-timeout") {
+    return Ok(ctx.timeout(deadline, Some("approval expired".into())));
+}
+
+Ok(ctx.wait_until("approval-timeout", deadline))
+```
+
+Waits use absolute UTC time. `FlowScheduler` queries due waits and delayed retries from the store, groups them by run, and sends tasks to `FlowTaskDispatcher`. Duplicate scheduling converges through current wait state and event sequence.
+
+## Hooks
+
+A hook stores stable `hook_id`, public token, and JSON metadata, then suspends until an external payload arrives or the entry is withdrawn.
+
+```rust
+let metadata = HookMetadata::human_approval("invoice:inv-8821")
+    .with_callback_route(HookCallbackRoute::post(
+        "/callbacks/flow/hooks/{token}",
+    ));
+
+Ok(ctx.create_hook_with_metadata(
+    "approval",
+    approval_token,
+    metadata,
+)?)
+```
+
+`resume_hook_by_token()` searches active tokens only. After first resolution, a reliable consumer stores run and hook IDs and redelivers through `resume_hook()`. Matching payload is idempotent. Changed payload returns `HookConflict`. Withdraw an entry with `dispose_hook()` or `dispose_hook_by_token()`.
+
+## Cleanup-aware cancellation
+
+`request_cancellation()` commits a request, then moves workflow replay into `Cancelling`. Runtime code reads `cancellation_request()`, schedules cleanup with distinct IDs, and returns `ctx.cancel()`.
+
+```rust
+if ctx.cancellation_request().is_some() {
+    if !ctx.step_completed("cleanup") {
+        return Ok(ctx.schedule_step(
+            "cleanup",
+            "release_resources",
+            cleanup_input,
+        ));
+    }
+    return Ok(ctx.cancel());
+}
+```
+
+`force_cancel()` and legacy name `cancel()` create a cancelled terminal outcome without cleanup. Ordinary process shutdown should call neither. Leave non-terminal history for a replacement worker.
+
+## Progress and external child operations
+
+`record_progress()` stores control-plane progress under stable `progress_id`. `link_child_operation()` stores a relation to a task owned by another system. Both accept matching redelivery and reject changed parameters.
+
+An external child-operation link does not drive another Flow run or propagate cancellation. 0.13.1 does not yet have first-class child workflows.
+
+## Runtime-build admission
+
+`WorkflowSpec::with_runtime_build()` pins a new run to concrete `RuntimeBuildId`. An engine with `RuntimeBuildCompatibility` checks identity before invoking runtime code.
+
+`RuntimeBuildTaskRouter` registers an explicit dispatcher for every pinned build. A scheduler tick preflights every route before dispatch, so a missing route cannot produce partial enqueue. Keep old routes until their active histories finish.
+
+## Primitives absent from this release
+
+0.13.1 has no named signal waits, continuation, patch markers, first-class child workflows, or graph-document compiler. Use hooks for external messages, let the application control history growth, and isolate code changes with runtime builds.

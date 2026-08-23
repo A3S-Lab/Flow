@@ -1,0 +1,191 @@
+---
+title: 原生 TypeScript
+description: 让 Rust 宿主编译和调用 TypeScript 工作流，同时保留 Flow 的历史、调度、Worker 和生命周期权威。
+---
+
+# 原生 TypeScript
+
+`NativeTsRuntime` 是可选运行时适配器。工作流作者可以写 TypeScript，Rust 宿主仍然负责运行创建、事件存储、重放、调度、Worker、版本准入和检查接口。
+
+TypeScript 源码会先编译为当前平台的原生可执行文件，再通过版本化 JSON 协议接收工作流或步骤调用。它不提供另一套事件存储和调度器。
+
+## 安装编译器
+
+默认功能已经包含 `native-ts`。编译器是同一 crate 中的独立二进制，运行时需要 Bun。
+
+```console
+cargo install a3s-flow --version 1.0.0 --locked \
+  --bin a3s-flow-native-compiler
+
+a3s-flow-native-compiler --version
+a3s-flow-native-compiler capabilities
+```
+
+编译器默认从 `PATH` 找 Bun。宿主没有全局 PATH 时设置 `A3S_FLOW_BUN` 为明确的可执行文件路径。
+
+编译器支持三个封闭命令。
+
+```console
+a3s-flow-native-compiler capabilities
+a3s-flow-native-compiler dependencies <entrypoint.ts>
+a3s-flow-native-compiler compile <entrypoint.ts> -o <artifact>
+```
+
+## 配置 Rust 宿主
+
+```rust
+use a3s_flow::{
+    NativeTsDependencyMode, NativeTsRuntime,
+    NativeTsRuntimeConfig,
+};
+use std::time::Duration;
+
+let runtime = NativeTsRuntime::new(NativeTsRuntimeConfig::new(
+    "a3s-flow-native-compiler",
+    ".a3s/flow/native-ts",
+    ".",
+))
+.with_dependency_mode(NativeTsDependencyMode::CompilerManifest)
+.with_compile_timeout(Duration::from_secs(120))
+.with_invocation_timeout(Duration::from_secs(30))
+.with_output_limits(8 * 1024 * 1024, 256 * 1024);
+```
+
+三个路径都先相对宿主当前目录解析。
+
+- `compiler_binary` 是编译器可执行文件，裸名称使用 `PATH`。
+- `cache_dir` 保存带完整性清单的原生制品。
+- `working_dir` 是 TypeScript 工作区根目录，工作流入口相对它解析。
+
+生产环境要显式设置编译与调用超时。默认没有运行时自带超时，只受调用方取消或外层任务超时约束。
+
+## 定义工作流
+
+```rust
+use a3s_flow::WorkflowSpec;
+
+let spec = WorkflowSpec::native_ts(
+    "examples.native-ts-greeting",
+    "0.1.0",
+    "workflows/greeting.ts",
+    "main",
+);
+```
+
+`version` 属于工作流部署身份。源码依赖、编译配置、生成输入或锁文件变化时，要么让依赖清单进入源码身份，要么更新这个版本。已经开始的运行不能切换定义。
+
+## TypeScript 入口
+
+工作流函数读取调用输入和事件历史，并返回一个 `RuntimeCommand`。步骤放在导出的 `steps` 对象中。
+
+```typescript
+import type {
+  FlowEventEnvelope,
+  RuntimeCommand,
+  StepInvocation,
+  WorkflowInvocation,
+} from './a3s-flow-runtime';
+
+type GreetingInput = { name: string };
+type GreetingOutput = { message: string };
+
+function completedStep<T>(
+  history: FlowEventEnvelope[],
+  stepId: string,
+): T | undefined {
+  const item = history.find(
+    ({ event }) => event.type === 'step_completed' && event.step_id === stepId,
+  );
+  return item?.event.type === 'step_completed'
+    ? (item.event.output as T)
+    : undefined;
+}
+
+export async function main(
+  invocation: WorkflowInvocation<GreetingInput>,
+): Promise<RuntimeCommand> {
+  const output = completedStep<GreetingOutput>(invocation.history, 'greet');
+  if (output) return { type: 'complete', output };
+
+  return {
+    type: 'schedule_step',
+    step_id: 'greet',
+    step_name: 'greet_user',
+    input: { name: invocation.input.name },
+    retry: { max_attempts: 3, delay_ms: 0 },
+  };
+}
+
+export const steps = {
+  async greet_user(
+    invocation: StepInvocation<GreetingInput>,
+  ): Promise<GreetingOutput> {
+    return { message: `hello ${invocation.input.name}` };
+  },
+};
+```
+
+TypeScript 代码也必须遵守确定性边界。工作流函数不读取当前时间、随机数或网络，步骤负责外部副作用和业务幂等。
+
+## 依赖身份模式
+
+`NativeTsDependencyMode` 有两种策略。
+
+| 模式               | 源码身份包含                               | 适用情况                       |
+| ------------------ | ------------------------------------------ | ------------------------------ |
+| `EntrypointOnly`   | 入口文件、工作流名、定义版本、入口和导出名 | 简单单文件或由宿主严格管理版本 |
+| `CompilerManifest` | 编译器声明的完整依赖图及每个文件内容       | 使用随包编译器的生产部署       |
+
+建议使用 `CompilerManifest`。编译器从 Bun 构建元数据收集源码，并加入适用的 `package.json`、锁文件、`bunfig.toml` 和 `tsconfig.json`。
+
+依赖清单必须满足这些限制。
+
+- 路径使用 UTF-8、正斜杠、工作目录相对形式，并严格排序且唯一。
+- 入口文件必须在清单中。
+- 拒绝绝对路径、目录穿越、符号链接逃逸和非文件目标。
+- 最多 4,096 个条目，单路径最多 4,096 字节，文档最多 1 MiB。
+
+冷编译前后都会重新扫描依赖。文件集合、内容或编译器身份变化时，临时输出会删除，旧身份下不会发布新制品。
+
+## 制品缓存
+
+公开 `source_hash` 绑定可移植源码语义。内部缓存键还绑定编译器路径和内容、工作目录、入口绝对路径、协议、操作系统、架构与编译后端身份。
+
+每次冷编译写入唯一临时目录，校验非空可执行文件后，再把制品和完整性清单原子发布到最终缓存项。并发编译最多浪费一次计算，不会看到半成品。
+
+缓存命中仍会校验条目形状、执行权限、清单、长度和内容指纹。损坏条目会隔离并重新编译。多个运行时实例可以共享同一缓存根目录。
+
+## 预检
+
+发布前调用 `preflight()`，提前发现编译器、依赖和缓存问题。
+
+```rust
+let preflight = runtime.preflight(&spec).await?;
+
+println!("entrypoint={}", preflight.entrypoint.display());
+println!("artifact={}", preflight.artifact.display());
+println!("source_hash={}", preflight.source_hash);
+println!("cache_hit={}", preflight.cache_hit);
+```
+
+预检不会创建工作流运行。CI 可以为所有生产定义执行它，并保存源码摘要与候选版本一起审核。
+
+## 进程协议与限制
+
+原生制品必须接受 `--a3s-flow-runtime`，从标准输入读取一个 `NativeRuntimeRequest` JSON，并向标准输出写一个 `NativeRuntimeResponse` JSON。协议名是 `a3s.flow.native_ts.v1`。
+
+默认每条标准输出最多保留 8 MiB，标准错误最多 256 KiB。超过限制、JSON 无效、协议不匹配、进程退出异常或超时都会返回运行时错误，并终止直接子进程。
+
+运行制品的操作系统账户应遵循最小权限。TypeScript 步骤能够访问什么，取决于进程权限和宿主提供的凭据，不由 Flow 自动隔离。
+
+## 上线检查
+
+- 固定 Flow、编译器和 Bun 版本及内容身份。
+- 使用 `CompilerManifest` 并在 CI 执行 `preflight()`。
+- 明确设置编译、调用和输出上限。
+- 缓存目录位于持久磁盘，并限制为服务账户读写。
+- 工作流定义固定 `runtime_build_id`，滚动发布保留旧制品路由。
+- TypeScript 步骤使用稳定业务幂等键。
+- 监控冷编译数量、耗时、缓存修复、调用超时和协议错误。
+
+可运行 `cargo run --example native_ts_preflight` 和 `cargo run --example native_ts_greeting` 查看完整接线。
