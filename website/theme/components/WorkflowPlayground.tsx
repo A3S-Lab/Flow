@@ -1113,7 +1113,6 @@ function WorkflowPlaygroundSurface() {
               showInteractive={false}
             />
           </ReactFlow>
-          <p className="a3s-workflow-hint">{copy.keyboardHint}</p>
           {draggedType && (
             <div className="flow-playground-canvas__drop-hint">
               {copy.dropHelp}

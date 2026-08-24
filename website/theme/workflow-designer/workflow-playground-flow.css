@@ -269,15 +269,10 @@ body:has(.a3s-workflow-playground) :where(#root, #app) {
 }
 
 .flow-playground-side-panel .flow-playground-document {
-  display: grid;
+  display: flex;
   height: calc(100% - 58px);
-  grid-template-rows: auto minmax(0, 1fr);
-  padding: 12px;
-}
-
-.flow-playground-side-panel .flow-playground-document pre {
-  height: 100%;
-  max-height: none;
+  min-height: 0;
+  padding: 0;
 }
 
 .flow-playground-last-run {
