@@ -63,23 +63,27 @@
   }
 
   .flow-hero-canvas__board {
-    height: 340px;
+    height: 354px;
   }
 
   .flow-hero-canvas__node {
-    transform: scale(0.7);
+    --flow-hero-node-scale: 0.64;
   }
 
-  .flow-hero-canvas__node.is-2 {
-    right: -44px;
-  }
-
+  .flow-hero-canvas__node.is-1,
+  .flow-hero-canvas__node.is-2,
   .flow-hero-canvas__node.is-3 {
-    left: 94px;
+    top: 102px;
   }
 
-  .flow-hero-canvas > footer {
-    min-height: 64px;
+  .flow-hero-canvas__inspector > section {
+    padding-block: 11px;
+    gap: 9px;
+  }
+
+  .flow-hero-canvas__retry {
+    min-height: 40px;
+    padding-top: 8px;
   }
 }
 
@@ -245,32 +249,31 @@
   }
 
   .flow-hero-canvas__board {
-    height: 422px;
+    height: 442px;
   }
 
   .flow-hero-canvas__node {
-    transform: scale(0.72);
+    --flow-hero-node-scale: 0.66;
   }
 
   .flow-hero-canvas__node.is-1 {
-    left: 12px;
+    left: 58px;
   }
 
   .flow-hero-canvas__node.is-2 {
-    right: -42px;
+    left: 252px;
   }
 
   .flow-hero-canvas__node.is-3 {
-    left: 62px;
+    left: 446px;
   }
 
-  .flow-hero-canvas__child {
-    right: 10px;
-    bottom: 11px;
+  .flow-hero-canvas__inspector {
+    width: 226px;
   }
 
-  .flow-hero-canvas > footer {
-    grid-template-columns: 1fr;
+  .flow-hero-canvas__cursor {
+    display: none;
   }
 
   .flow-assurance {
@@ -483,24 +486,47 @@
   }
 
   .flow-hero-canvas__board {
-    height: 390px;
+    height: 426px;
   }
 
   .flow-hero-canvas__node {
-    transform: scale(0.64);
+    --flow-hero-node-scale: 0.58;
+    top: 126px;
+  }
+
+  .flow-hero-canvas__node.is-1 {
+    left: 48px;
   }
 
   .flow-hero-canvas__node.is-2 {
-    top: 128px;
-    right: -70px;
+    top: 126px;
+    left: 210px;
   }
 
   .flow-hero-canvas__node.is-3 {
-    left: 28px;
+    left: 372px;
   }
 
-  .flow-hero-canvas__child {
+  .flow-hero-canvas__actions .is-valid {
     display: none;
+  }
+
+  .flow-hero-canvas__inspector {
+    width: min(214px, 66%);
+  }
+
+  .flow-hero-canvas__inspector > section {
+    padding: 13px 11px;
+    gap: 11px;
+  }
+
+  .flow-hero-canvas__retry-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .flow-hero-canvas__toast {
+    right: 12px;
+    left: auto;
   }
 
   .flow-assurance {
@@ -544,12 +570,6 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
-  }
-}
-
-@keyframes flow-route {
-  to {
-    stroke-dashoffset: -90;
   }
 }
 

@@ -9,23 +9,27 @@
 }
 
 .a3s-form-flow-node-panel .a3s-form-workflow-node-panel-header {
-  min-height: 124px;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 8px;
-  padding: 14px 12px 12px 16px;
-  border-bottom: 0;
+  min-height: 82px;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px 11px 11px 14px;
+  border-bottom: 1px solid var(--a3s-form-line);
 }
 
 .a3s-form-flow-node-panel .a3s-form-workflow-node-identity {
-  width: 100%;
-  flex: 1 1 auto;
+  width: 0;
+  min-width: 0;
+  flex: 1 1 0;
   align-items: flex-start;
   gap: 8px;
 }
 
 .a3s-form-flow-node-panel .a3s-form-workflow-node-identity > span:last-child {
-  flex: 1 1 auto;
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 0;
 }
 
 .a3s-form-flow-node-panel .a3s-form-workflow-node-icon {
@@ -75,7 +79,7 @@
 }
 
 .a3s-form-flow-node-panel .a3s-form-workflow-node-description-input {
-  height: 22px;
+  height: 21px;
   margin-top: 1px;
   color: var(--a3s-form-muted);
   font-size: 11px;
@@ -104,14 +108,16 @@
 }
 
 .a3s-form-flow-node-panel .a3s-form-workflow-node-header-actions {
+  width: auto;
+  margin-left: auto;
   gap: 2px;
   justify-content: flex-end;
 }
 
 .a3s-form-flow-node-panel .a3s-form-workflow-node-header-actions :is(button, a) {
-  width: 36px;
-  min-width: 36px;
-  min-height: 36px;
+  width: 32px;
+  min-width: 32px;
+  min-height: 32px;
   padding: 0;
   border-radius: 6px;
   justify-content: center;
@@ -180,7 +186,7 @@
 }
 
 .a3s-form-flow-node-panel .a3s-form-workflow-node-form {
-  padding: 16px 16px 19px;
+  padding: 17px 16px 22px;
 }
 
 .a3s-form-flow-node-panel .a3s-form-workflow-node-form .a3s-form-layout.a3s-form-flow > header {
@@ -892,7 +898,7 @@
   .a3s-form-workflow-node-preview-summary {
   gap: 0;
   margin: 0;
-  padding: 0 12px 8px;
+  padding: 0 12px 7px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -900,16 +906,27 @@
 
 .a3s-form-flow-node-preview:not([data-technical="true"])
   .a3s-form-workflow-node-preview-summary > div {
-  min-height: 28px;
+  min-height: 27px;
   grid-template-columns: minmax(54px, auto) minmax(0, 1fr);
-  padding: 5px 0;
-  border-radius: 0;
+  padding: 5px 7px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--a3s-form-panel-soft) 86%, var(--a3s-form-panel));
 }
 
 .a3s-form-flow-node-preview:not([data-technical="true"])
   .a3s-form-workflow-node-preview-summary dt {
   font-size: 10px;
   font-weight: 560;
+}
+
+.a3s-form-flow-node-preview:not([data-technical="true"])
+  .a3s-form-workflow-node-preview-description {
+  margin: 0;
+  padding: 1px 12px 10px;
+  color: var(--a3s-form-muted);
+  font-size: 10px;
+  line-height: 1.4;
+  -webkit-line-clamp: 1;
 }
 
 .a3s-form-flow-node-preview:not([data-technical="true"])
@@ -1014,6 +1031,11 @@
   display: none;
 }
 
+.a3s-form-flow-node-preview:not([data-technical="true"])[data-node-shape="container"]
+  .a3s-form-workflow-node-preview-description {
+  display: none;
+}
+
 .a3s-form-flow-node-preview:not([data-technical="true"])
   .a3s-form-workflow-node-preview-container {
   min-height: 290px;
@@ -1065,7 +1087,6 @@
 }
 
 @container a3s-form-workflow-panel (max-width: 560px) {
-  .a3s-form-flow-expression-comparison,
   .a3s-form-flow-batch-primary-fields,
   .a3s-form-flow-batch-retry-fields,
   .a3s-form-flow-schema-row-fields,
@@ -1105,6 +1126,10 @@
 }
 
 @container a3s-form-workflow-panel (max-width: 340px) {
+  .a3s-form-flow-expression-comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .a3s-form-flow-node-panel .a3s-form-workflow-node-panel-header {
     min-height: auto;
     padding: 13px 12px 10px;
@@ -1114,7 +1139,9 @@
   }
 
   .a3s-form-flow-node-panel .a3s-form-workflow-node-identity {
+    width: 100%;
     min-width: 0;
+    flex: 1 1 auto;
     align-items: flex-start;
   }
 

@@ -1,102 +1,13 @@
 [
-  { "text": "开始使用", "link": "/guide/", "activeMatch": "^/guide/$" },
+  {
+    "text": "文档",
+    "link": "/guide/",
+    "activeMatch": "^/(guide|concepts|operations|runtimes|reference)"
+  },
+  { "text": "节点", "link": "/nodes/", "activeMatch": "^/nodes" },
   {
     "text": "Playground",
     "link": "/playground/",
     "activeMatch": "^/playground"
-  },
-  {
-    "text": "持久执行",
-    "items": [
-      { "text": "运行时边界", "link": "/guide/runtime-contract" },
-      { "text": "重试与等待", "link": "/guide/retries-and-waits" },
-      { "text": "信号与 Hook", "link": "/guide/signals-and-hooks" },
-      { "text": "取消与清理", "link": "/guide/cancellation" }
-    ]
-  },
-  {
-    "text": "核心概念",
-    "items": [
-      { "text": "执行模型", "link": "/concepts/execution-model" },
-      { "text": "持久原语", "link": "/concepts/durable-primitives" },
-      { "text": "工作流图", "link": "/concepts/workflow-dag" },
-      { "text": "子工作流", "link": "/concepts/child-workflows" }
-    ]
-  },
-  {
-    "text": "工作流节点",
-    "items": [
-      { "text": "节点总览", "link": "/nodes/" },
-      {
-        "text": "流程入口",
-        "items": [
-          { "text": "开始", "link": "/nodes/start" },
-          { "text": "条件分支", "link": "/nodes/condition" }
-        ]
-      },
-      {
-        "text": "任务与工具",
-        "items": [
-          { "text": "执行任务", "link": "/nodes/step" },
-          { "text": "批量任务", "link": "/nodes/batch" }
-        ]
-      },
-      {
-        "text": "等待与审批",
-        "items": [
-          { "text": "定时等待", "link": "/nodes/wait" },
-          { "text": "回调与审批", "link": "/nodes/hook" },
-          { "text": "信号等待", "link": "/nodes/signal" }
-        ]
-      },
-      {
-        "text": "子流程",
-        "items": [
-          { "text": "外部任务引用", "link": "/nodes/child-operation" },
-          { "text": "子工作流", "link": "/nodes/child-workflow" },
-          { "text": "子工作流批次", "link": "/nodes/child-workflows" },
-          { "text": "后续运行", "link": "/nodes/continue-as-new" }
-        ]
-      },
-      {
-        "text": "运行状态",
-        "items": [
-          { "text": "运行进度", "link": "/nodes/progress" },
-          { "text": "成功结束", "link": "/nodes/complete" },
-          { "text": "失败结束", "link": "/nodes/fail" },
-          { "text": "取消运行", "link": "/nodes/cancel" },
-          { "text": "超时结束", "link": "/nodes/timeout" }
-        ]
-      },
-      {
-        "text": "子画布容器",
-        "items": [
-          { "text": "遍历集合", "link": "/nodes/iteration" },
-          { "text": "条件循环", "link": "/nodes/loop" }
-        ]
-      }
-    ]
-  },
-  {
-    "text": "生产运行",
-    "items": [
-      { "text": "存储与迁移", "link": "/operations/persistence" },
-      { "text": "Worker 与发布", "link": "/operations/production" },
-      { "text": "升级到 1.0", "link": "/operations/upgrading-to-v1" },
-      { "text": "原生 TypeScript", "link": "/runtimes/native-typescript" }
-    ]
-  },
-  {
-    "text": "参考",
-    "items": [
-      { "text": "公共 API", "link": "/reference/api" },
-      { "text": "React 组件与 Hook", "link": "/reference/react" },
-      { "text": "Vue Hook", "link": "/reference/vue" },
-      { "text": "CLI 命令", "link": "/reference/cli" },
-      { "text": "Agent Skill", "link": "/reference/agent-skill" },
-      { "text": "示例索引", "link": "/reference/examples" },
-      { "text": "GitHub", "link": "https://github.com/A3S-Lab/Flow" },
-      { "text": "docs.rs", "link": "https://docs.rs/a3s-flow" }
-    ]
   }
 ]

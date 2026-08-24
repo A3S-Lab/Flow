@@ -1,102 +1,13 @@
 [
-  { "text": "Get started", "link": "/guide/", "activeMatch": "^/guide/$" },
+  {
+    "text": "Docs",
+    "link": "/guide/",
+    "activeMatch": "^/(guide|concepts|operations|runtimes|reference)"
+  },
+  { "text": "Nodes", "link": "/nodes/", "activeMatch": "^/nodes" },
   {
     "text": "Playground",
     "link": "/playground/",
     "activeMatch": "^/playground"
-  },
-  {
-    "text": "Durable execution",
-    "items": [
-      { "text": "Runtime boundary", "link": "/guide/runtime-contract" },
-      { "text": "Retries and waits", "link": "/guide/retries-and-waits" },
-      { "text": "Signals and hooks", "link": "/guide/signals-and-hooks" },
-      { "text": "Cancellation and cleanup", "link": "/guide/cancellation" }
-    ]
-  },
-  {
-    "text": "Core concepts",
-    "items": [
-      { "text": "Execution model", "link": "/concepts/execution-model" },
-      { "text": "Durable primitives", "link": "/concepts/durable-primitives" },
-      { "text": "Workflow graph", "link": "/concepts/workflow-dag" },
-      { "text": "Child workflows", "link": "/concepts/child-workflows" }
-    ]
-  },
-  {
-    "text": "Workflow nodes",
-    "items": [
-      { "text": "Node catalog", "link": "/nodes/" },
-      {
-        "text": "Orchestration",
-        "items": [
-          { "text": "Start", "link": "/nodes/start" },
-          { "text": "Condition", "link": "/nodes/condition" }
-        ]
-      },
-      {
-        "text": "Tasks and tools",
-        "items": [
-          { "text": "Run step", "link": "/nodes/step" },
-          { "text": "Step batch", "link": "/nodes/batch" }
-        ]
-      },
-      {
-        "text": "Wait and approval",
-        "items": [
-          { "text": "Wait until", "link": "/nodes/wait" },
-          { "text": "Callback and approval", "link": "/nodes/hook" },
-          { "text": "Signal wait", "link": "/nodes/signal" }
-        ]
-      },
-      {
-        "text": "Child work",
-        "items": [
-          { "text": "Child operation", "link": "/nodes/child-operation" },
-          { "text": "Child workflow", "link": "/nodes/child-workflow" },
-          { "text": "Child workflow batch", "link": "/nodes/child-workflows" },
-          { "text": "Continue as new", "link": "/nodes/continue-as-new" }
-        ]
-      },
-      {
-        "text": "Run state",
-        "items": [
-          { "text": "Progress", "link": "/nodes/progress" },
-          { "text": "Complete", "link": "/nodes/complete" },
-          { "text": "Fail", "link": "/nodes/fail" },
-          { "text": "Cancel", "link": "/nodes/cancel" },
-          { "text": "Timeout", "link": "/nodes/timeout" }
-        ]
-      },
-      {
-        "text": "Child-canvas containers",
-        "items": [
-          { "text": "Iteration", "link": "/nodes/iteration" },
-          { "text": "Loop", "link": "/nodes/loop" }
-        ]
-      }
-    ]
-  },
-  {
-    "text": "Production",
-    "items": [
-      { "text": "Stores and migrations", "link": "/operations/persistence" },
-      { "text": "Workers and rollout", "link": "/operations/production" },
-      { "text": "Upgrade to 1.0", "link": "/operations/upgrading-to-v1" },
-      { "text": "Native TypeScript", "link": "/runtimes/native-typescript" }
-    ]
-  },
-  {
-    "text": "Reference",
-    "items": [
-      { "text": "Public API", "link": "/reference/api" },
-      { "text": "React components and hook", "link": "/reference/react" },
-      { "text": "Vue hook", "link": "/reference/vue" },
-      { "text": "CLI commands", "link": "/reference/cli" },
-      { "text": "Agent Skill", "link": "/reference/agent-skill" },
-      { "text": "Example index", "link": "/reference/examples" },
-      { "text": "GitHub", "link": "https://github.com/A3S-Lab/Flow" },
-      { "text": "docs.rs", "link": "https://docs.rs/a3s-flow" }
-    ]
   }
 ]

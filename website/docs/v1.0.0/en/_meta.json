@@ -1,10 +1,10 @@
 [
   { "type": "section-header", "label": "A3S Flow 1.0" },
-  { "type": "dir", "name": "playground", "label": "Workflow Playground" },
   { "type": "dir", "name": "guide", "label": "Get started" },
   { "type": "dir", "name": "concepts", "label": "Core concepts" },
   { "type": "dir", "name": "nodes", "label": "Workflow nodes" },
   { "type": "dir", "name": "operations", "label": "Production" },
   { "type": "dir", "name": "runtimes", "label": "Runtimes" },
-  { "type": "dir", "name": "reference", "label": "Reference" }
+  { "type": "dir", "name": "reference", "label": "Reference" },
+  { "type": "dir", "name": "playground", "label": "Workflow Playground" }
 ]

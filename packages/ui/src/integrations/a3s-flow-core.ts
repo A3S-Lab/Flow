@@ -354,6 +354,7 @@ const controlFlowNodes: readonly A3SFlowCoreNodeDefinition[] = [
         _input_type: 'JSONInput',
         value: {},
         input_types: ['FlowValue'],
+        advanced: true,
         ui_group: 'condition',
         ui_group_label: 'Condition',
       },

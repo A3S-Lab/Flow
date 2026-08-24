@@ -65,25 +65,31 @@ assertIncludes(
 );
 assertIncludes(
   home,
-  '把 Agent、工具、人工审批和子工作流编进同一张图',
+  '把 Agent 任务、工具调用、人工审批和子工作流放进同一张图',
   'Chinese homepage content',
 );
 assertIncludes(
   englishHome,
-  'Put Agents, tools, human approval, and child workflows on one graph',
+  'Put Agent tasks, tool calls, human approval, and child workflows on one graph',
   'English homepage content',
 );
 assertIncludes(home, 'AI 原生', 'Chinese homepage title line one');
 assertIncludes(home, '工作流引擎', 'Chinese homepage title line two');
 assertIncludes(
   home,
-  '从画布里的一个节点，到生产中的一次运行',
+  '一份节点清单怎样走到编辑器、CLI 和运行时',
   'Chinese product system',
 );
 assertIncludes(
   englishHome,
-  'From one canvas node to one production run',
+  'How one node catalog reaches the editor, CLI, and runtime',
   'English product system',
+);
+assertIncludes(home, 'flow-motion-scene', 'Playground-style homepage motion');
+assertIncludes(
+  home,
+  'flow-hero-canvas__inspector',
+  'homepage configuration-panel scene',
 );
 assertIncludes(
   home,
