@@ -726,29 +726,72 @@
 }
 
 .a3s-workflow-cached-variables {
+  --workflow-variable-translate: translateX(-50%);
   left: 50%;
   display: inline-flex;
   min-height: 38px;
-  padding: 0 13px;
-  border-radius: 999px;
+  padding: 4px 11px 4px 4px;
+  border-radius: 10px;
+  background: var(--workflow-surface);
+  box-shadow: 0 2px 7px rgba(35, 55, 84, 0.09);
   align-items: center;
-  gap: 8px;
-  color: var(--workflow-muted);
+  gap: 7px;
+  color: #435269;
+  font-family: var(--workflow-sans);
   font-size: 11px;
-  font-weight: 620;
+  font-weight: 500;
+  font-synthesis: none;
+  letter-spacing: 0.005em;
+  line-height: 1;
   cursor: pointer;
-  transform: translateX(-50%);
+  transform: var(--workflow-variable-translate);
+  transition:
+    right 180ms ease-out,
+    bottom 180ms ease-out,
+    left 180ms ease-out,
+    background-color 140ms ease-out,
+    border-color 140ms ease-out,
+    box-shadow 140ms ease-out,
+    color 140ms ease-out,
+    transform 140ms ease-out;
 }
 
 .a3s-workflow-cached-variables:hover {
   border-color: var(--workflow-line-strong);
-  background: var(--workflow-surface);
+  background: #ffffff;
+  box-shadow: 0 5px 14px rgba(35, 55, 84, 0.12);
   color: var(--workflow-blue-dark);
+  transform: var(--workflow-variable-translate) translateY(-1px);
+}
+
+.a3s-workflow-cached-variables:focus-visible {
+  border-color: #8ab4ff;
+  outline: 0;
+  box-shadow:
+    0 0 0 3px rgba(18, 100, 255, 0.16),
+    0 2px 7px rgba(35, 55, 84, 0.09);
+}
+
+.a3s-workflow-cached-variables:active {
+  box-shadow: 0 1px 4px rgba(35, 55, 84, 0.1);
+  transform: var(--workflow-variable-translate) scale(0.98);
 }
 
 .a3s-workflow-cached-variables svg {
-  width: 15px;
-  height: 15px;
+  width: 26px;
+  height: 26px;
+  padding: 5px;
+  border-radius: 7px;
+  background: var(--workflow-blue-soft);
+  color: var(--workflow-blue-dark);
+  flex: 0 0 auto;
+  transition:
+    background-color 140ms ease-out,
+    color 140ms ease-out;
+}
+
+.a3s-workflow-cached-variables:hover svg {
+  background: #dce9ff;
 }
 
 .has-right-panel .a3s-workflow-cached-variables {
