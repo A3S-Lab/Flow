@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { addIntoGraph } from './WorkflowPlayground.graph';
+import {
+  addIntoGraph,
+  layoutPlaygroundGraph,
+} from './WorkflowPlayground.graph';
 import { createSampleWorkflow } from './WorkflowPlayground.model';
 
 describe('Workflow Playground graph editing', () => {
@@ -47,5 +50,26 @@ describe('Workflow Playground graph editing', () => {
 
     expect(result.graph.nodes).toHaveLength(sample.nodes.length + 1);
     expect(result.graph.edges).toContainEqual(originalEdge);
+  });
+
+  it('lays out dependencies in columns and leaves annotations in place', () => {
+    const sample = createSampleWorkflow('en');
+    sample.annotations.push({
+      id: 'note_1',
+      type: 'annotation',
+      position: { x: 33, y: 44 },
+      data: { kind: 'note', text: 'Keep this note here.' },
+    });
+
+    const result = layoutPlaygroundGraph(sample);
+    const position = (id: string) =>
+      result.nodes.find((node) => node.id === id)?.position;
+
+    expect(position('start_1')?.x).toBeLessThan(position('step_1')?.x ?? 0);
+    expect(position('step_1')?.x).toBeLessThan(position('condition_1')?.x ?? 0);
+    expect(position('complete_1')?.x).toBe(position('fail_1')?.x);
+    expect(position('complete_1')?.y).not.toBe(position('fail_1')?.y);
+    expect(result.annotations[0].position).toEqual({ x: 33, y: 44 });
+    expect(sample.nodes[0].position).toEqual({ x: 60, y: 285 });
   });
 });

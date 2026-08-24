@@ -135,12 +135,12 @@ assertIncludes(
 );
 assertIncludes(
   playground,
-  'aria-label="曲线" aria-pressed="true"',
+  'aria-label="切换为折线" data-routing="curve"',
   'Chinese Playground default connection routing',
 );
 assertIncludes(
   englishPlayground,
-  'aria-label="Curved connections" aria-pressed="true"',
+  'aria-label="Switch to orthogonal connections" data-routing="curve"',
   'English Playground default connection routing',
 );
 assertRouteLink(

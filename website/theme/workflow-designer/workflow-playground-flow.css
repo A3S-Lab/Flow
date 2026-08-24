@@ -46,7 +46,8 @@ body:has(.a3s-workflow-playground) :where(#root, #app) {
   pointer-events: none;
 }
 
-.a3s-workflow-canvas .flow-playground-canvas__drop-hint {
+.a3s-workflow-canvas .flow-playground-canvas__drop-hint,
+.a3s-workflow-canvas .flow-playground-canvas__comment-hint {
   position: absolute;
   z-index: 9;
   top: 18px;
@@ -60,6 +61,12 @@ body:has(.a3s-workflow-playground) :where(#root, #app) {
   font-weight: 650;
   pointer-events: none;
   transform: translateX(-50%);
+}
+
+.a3s-workflow-canvas .flow-playground-canvas__comment-hint {
+  border-color: rgb(103 80 184 / 22%);
+  background: var(--workflow-violet-soft);
+  color: var(--workflow-violet);
 }
 
 .a3s-workflow-canvas .react-flow__node-flowNode {
@@ -81,6 +88,15 @@ body:has(.a3s-workflow-playground) :where(#root, #app) {
 .a3s-workflow-node-shell > .a3s-form-workflow-node-preview {
   max-width: none;
   cursor: pointer;
+}
+
+.a3s-workflow-node-shell:not(.is-container)
+  .a3s-form-workflow-node-preview-description {
+  box-sizing: border-box;
+  max-height: calc(2.8em + 11px);
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: 2;
 }
 
 .a3s-workflow-node-shell .a3s-form-workflow-node-preview-compact-ports i {

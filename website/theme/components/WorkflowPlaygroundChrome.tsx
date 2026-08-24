@@ -3,25 +3,35 @@ import {
   ArrowLeft,
   ArrowUUpLeft,
   ArrowUUpRight,
+  ArrowsOutSimple,
   BezierCurve,
+  ChatCircleDots,
   CheckCircle,
   ClockCounterClockwise,
   Cursor,
   Database,
   DotsThree,
   DownloadSimple,
+  Eye,
+  EyeSlash,
   FileCode,
   Hand,
   LineSegments,
+  NotePencil,
   Play,
   Plus,
   Stop,
+  TreeStructure,
   WarningCircle,
 } from '@phosphor-icons/react';
 import type { WorkflowPlaygroundCopy } from './WorkflowPlayground.copy';
-import type { PlaygroundEdgeRouting } from './WorkflowPlayground.model';
+import {
+  PLAYGROUND_EDGE_COLORS,
+  type PlaygroundEdgeColor,
+  type PlaygroundEdgeRouting,
+} from './WorkflowPlayground.model';
 
-export type PlaygroundCanvasMode = 'pan' | 'select';
+export type PlaygroundCanvasMode = 'pan' | 'select' | 'comment';
 export type PlaygroundDebugTab = 'trace' | 'variables' | 'history';
 
 type PlaygroundHeaderProps = {
@@ -152,31 +162,65 @@ export function WorkflowPlaygroundHeader({
 type PlaygroundRailProps = {
   copy: WorkflowPlaygroundCopy;
   mode: PlaygroundCanvasMode;
+  running: boolean;
+  edgeColor: PlaygroundEdgeColor;
   edgeRouting: PlaygroundEdgeRouting;
+  minimapVisible: boolean;
   onAdd: () => void;
-  onEdgeRoutingChange: (routing: PlaygroundEdgeRouting) => void;
+  onAddNote: () => void;
+  onArrange: () => void;
+  onEdgeColorChange: (color: PlaygroundEdgeColor) => void;
+  onEdgeRoutingToggle: () => void;
+  onFitView: () => void;
+  onMinimapToggle: () => void;
   onModeChange: (mode: PlaygroundCanvasMode) => void;
+  onOpenVariables: () => void;
 };
 
 export function WorkflowPlaygroundRail({
   copy,
   mode,
+  running,
+  edgeColor,
   edgeRouting,
+  minimapVisible,
   onAdd,
-  onEdgeRoutingChange,
+  onAddNote,
+  onArrange,
+  onEdgeColorChange,
+  onEdgeRoutingToggle,
+  onFitView,
+  onMinimapToggle,
   onModeChange,
+  onOpenVariables,
 }: PlaygroundRailProps) {
+  const nextRouting: PlaygroundEdgeRouting =
+    edgeRouting === 'curve' ? 'orthogonal' : 'curve';
+  const RoutingIcon = nextRouting === 'curve' ? BezierCurve : LineSegments;
+
   return (
-    <nav className="a3s-workflow-rail" aria-label={copy.pageTitle}>
+    <nav className="a3s-workflow-rail" aria-label={copy.canvasTools}>
       <button
         aria-label={copy.addNode}
         className="is-primary"
+        disabled={running}
         onClick={onAdd}
         title={copy.addNode}
         type="button"
       >
         <Plus aria-hidden="true" weight="bold" />
       </button>
+      <button
+        aria-label={copy.addNote}
+        className="is-secondary"
+        disabled={running}
+        onClick={onAddNote}
+        title={copy.addNote}
+        type="button"
+      >
+        <NotePencil aria-hidden="true" />
+      </button>
+      <span className="a3s-workflow-rail__divider" aria-hidden="true" />
       <button
         aria-label={copy.selectMode}
         aria-pressed={mode === 'select'}
@@ -197,32 +241,102 @@ export function WorkflowPlaygroundRail({
       >
         <Hand aria-hidden="true" />
       </button>
-      <div
-        aria-label={copy.edgeRouting}
-        className="a3s-workflow-rail__routing"
-        role="group"
+      <button
+        aria-label={copy.addComment}
+        aria-pressed={mode === 'comment'}
+        className={`is-secondary${mode === 'comment' ? ' is-active' : ''}`}
+        disabled={running}
+        onClick={() => onModeChange('comment')}
+        title={copy.addComment}
+        type="button"
       >
-        <button
-          aria-label={copy.curvedEdges}
-          aria-pressed={edgeRouting === 'curve'}
-          className={edgeRouting === 'curve' ? 'is-active' : undefined}
-          onClick={() => onEdgeRoutingChange('curve')}
-          title={copy.curvedEdges}
-          type="button"
-        >
-          <BezierCurve aria-hidden="true" />
-        </button>
-        <button
-          aria-label={copy.orthogonalEdges}
-          aria-pressed={edgeRouting === 'orthogonal'}
-          className={edgeRouting === 'orthogonal' ? 'is-active' : undefined}
-          onClick={() => onEdgeRoutingChange('orthogonal')}
-          title={copy.orthogonalEdges}
-          type="button"
-        >
-          <LineSegments aria-hidden="true" />
-        </button>
-      </div>
+        <ChatCircleDots aria-hidden="true" />
+      </button>
+      <button
+        aria-label={copy.arrangeNodes}
+        className="is-secondary"
+        disabled={running}
+        onClick={onArrange}
+        title={copy.arrangeNodes}
+        type="button"
+      >
+        <TreeStructure aria-hidden="true" />
+      </button>
+      <span className="a3s-workflow-rail__divider" aria-hidden="true" />
+      <button
+        aria-label={copy.edgeRoutingToggle[edgeRouting]}
+        data-routing={edgeRouting}
+        onClick={onEdgeRoutingToggle}
+        title={copy.edgeRoutingToggle[edgeRouting]}
+        type="button"
+      >
+        <RoutingIcon aria-hidden="true" />
+      </button>
+      <details className="a3s-workflow-rail__menu">
+        <summary aria-label={copy.moreActions} title={copy.moreActions}>
+          <DotsThree aria-hidden="true" weight="bold" />
+        </summary>
+        <div className="a3s-workflow-rail__popover">
+          <button onClick={onFitView} type="button">
+            <ArrowsOutSimple aria-hidden="true" />
+            <span>{copy.fitView}</span>
+          </button>
+          <button disabled={running} onClick={onAddNote} type="button">
+            <NotePencil aria-hidden="true" />
+            <span>{copy.addNote}</span>
+          </button>
+          <button
+            disabled={running}
+            onClick={() => onModeChange('comment')}
+            type="button"
+          >
+            <ChatCircleDots aria-hidden="true" />
+            <span>{copy.addComment}</span>
+          </button>
+          <button disabled={running} onClick={onArrange} type="button">
+            <TreeStructure aria-hidden="true" />
+            <span>{copy.arrangeNodes}</span>
+          </button>
+          <button onClick={onMinimapToggle} type="button">
+            {minimapVisible ? (
+              <EyeSlash aria-hidden="true" />
+            ) : (
+              <Eye aria-hidden="true" />
+            )}
+            <span>{minimapVisible ? copy.hideMinimap : copy.showMinimap}</span>
+          </button>
+          <button onClick={onOpenVariables} type="button">
+            <Database aria-hidden="true" />
+            <span>{copy.variables}</span>
+          </button>
+          <fieldset>
+            <legend>{copy.edgeColor}</legend>
+            <div className="a3s-workflow-edge-colors">
+              {(
+                Object.keys(PLAYGROUND_EDGE_COLORS) as PlaygroundEdgeColor[]
+              ).map((color) => (
+                <button
+                  aria-label={copy.edgeColorNames[color]}
+                  aria-pressed={edgeColor === color}
+                  className={edgeColor === color ? 'is-active' : undefined}
+                  key={color}
+                  onClick={() => onEdgeColorChange(color)}
+                  title={copy.edgeColorNames[color]}
+                  type="button"
+                >
+                  <i
+                    aria-hidden="true"
+                    style={{
+                      backgroundColor: PLAYGROUND_EDGE_COLORS[color].active,
+                    }}
+                  />
+                  <span>{copy.edgeColorNames[color]}</span>
+                </button>
+              ))}
+            </div>
+          </fieldset>
+        </div>
+      </details>
     </nav>
   );
 }

@@ -1,4 +1,8 @@
 import type { FlowWebsiteLocale } from './flow-node-catalog';
+import type {
+  PlaygroundEdgeColor,
+  PlaygroundEdgeRouting,
+} from './WorkflowPlayground.model';
 
 export type WorkflowPlaygroundCopy = {
   pageTitle: string;
@@ -17,13 +21,30 @@ export type WorkflowPlaygroundCopy = {
   exportGraph: string;
   openDocument: string;
   addNode: string;
+  addNote: string;
+  addComment: string;
   addNamedNode: (name: string) => string;
   selectMode: string;
   panMode: string;
+  commentHelp: string;
+  noteLabel: string;
+  commentLabel: string;
+  notePlaceholder: string;
+  commentPlaceholder: string;
+  deleteAnnotation: string;
+  annotationAdded: Record<'note' | 'comment', string>;
+  arrangeNodes: string;
+  nodesArranged: string;
   edgeRouting: string;
   curvedEdges: string;
   orthogonalEdges: string;
-  edgeRoutingChanged: Record<'curve' | 'orthogonal', string>;
+  edgeRoutingToggle: Record<PlaygroundEdgeRouting, string>;
+  edgeRoutingChanged: Record<PlaygroundEdgeRouting, string>;
+  edgeColor: string;
+  edgeColorNames: Record<PlaygroundEdgeColor, string>;
+  edgeColorChanged: (name: string) => string;
+  showMinimap: string;
+  hideMinimap: string;
   canvasTools: string;
   undo: string;
   redo: string;
@@ -111,16 +132,44 @@ export const workflowPlaygroundCopy: Readonly<
     exportGraph: '导出工作流',
     openDocument: '查看 DSL',
     addNode: '添加节点',
+    addNote: '添加便笺',
+    addComment: '添加批注',
     addNamedNode: (name) => `添加${name}`,
     selectMode: '选择并移动节点',
     panMode: '平移画布',
+    commentHelp: '在画布空白处单击，放下一条批注',
+    noteLabel: '便笺',
+    commentLabel: '批注',
+    notePlaceholder: '记下这段流程的设计说明…',
+    commentPlaceholder: '写下需要讨论或修改的地方…',
+    deleteAnnotation: '删除',
+    annotationAdded: {
+      note: '便笺已添加。',
+      comment: '批注已添加。',
+    },
+    arrangeNodes: '整理节点',
+    nodesArranged: '节点已按执行顺序排列。',
     edgeRouting: '连线路由',
     curvedEdges: '曲线',
     orthogonalEdges: '折线',
+    edgeRoutingToggle: {
+      curve: '切换为折线',
+      orthogonal: '切换为曲线',
+    },
     edgeRoutingChanged: {
       curve: '连线已切换为曲线。',
       orthogonal: '连线已切换为折线。',
     },
+    edgeColor: '连线颜色',
+    edgeColorNames: {
+      blue: '蓝色',
+      teal: '青绿色',
+      violet: '紫色',
+      amber: '琥珀色',
+    },
+    edgeColorChanged: (name) => `连线颜色已切换为${name}。`,
+    showMinimap: '显示缩略图',
+    hideMinimap: '隐藏缩略图',
     canvasTools: '画布工具',
     undo: '撤销',
     redo: '重做',
@@ -216,16 +265,44 @@ export const workflowPlaygroundCopy: Readonly<
     exportGraph: 'Export workflow',
     openDocument: 'View DSL',
     addNode: 'Add node',
+    addNote: 'Add note',
+    addComment: 'Add comment',
     addNamedNode: (name) => `Add ${name}`,
     selectMode: 'Select and move nodes',
     panMode: 'Pan canvas',
+    commentHelp: 'Click an empty area of the canvas to place a comment',
+    noteLabel: 'Note',
+    commentLabel: 'Comment',
+    notePlaceholder: 'Record a design note for this part of the workflow…',
+    commentPlaceholder: 'Write down what needs discussion or revision…',
+    deleteAnnotation: 'Delete',
+    annotationAdded: {
+      note: 'Note added.',
+      comment: 'Comment added.',
+    },
+    arrangeNodes: 'Tidy nodes',
+    nodesArranged: 'Nodes arranged in execution order.',
     edgeRouting: 'Connection routing',
     curvedEdges: 'Curved connections',
     orthogonalEdges: 'Orthogonal connections',
+    edgeRoutingToggle: {
+      curve: 'Switch to orthogonal connections',
+      orthogonal: 'Switch to curved connections',
+    },
     edgeRoutingChanged: {
       curve: 'Connections now use curves.',
       orthogonal: 'Connections now use orthogonal lines.',
     },
+    edgeColor: 'Connection color',
+    edgeColorNames: {
+      blue: 'Blue',
+      teal: 'Teal',
+      violet: 'Violet',
+      amber: 'Amber',
+    },
+    edgeColorChanged: (name) => `Connection color changed to ${name}.`,
+    showMinimap: 'Show minimap',
+    hideMinimap: 'Hide minimap',
     canvasTools: 'Canvas tools',
     undo: 'Undo',
     redo: 'Redo',

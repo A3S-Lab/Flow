@@ -18,6 +18,7 @@ function WorkflowPlaygroundEdgeComponent({
   sourcePosition,
   targetPosition,
   markerEnd,
+  style,
   data,
   selected,
 }: EdgeProps<PlaygroundEdge>) {
@@ -41,6 +42,7 @@ function WorkflowPlaygroundEdgeComponent({
         id={id}
         markerEnd={markerEnd}
         path={path}
+        style={style}
       />
       <EdgeLabelRenderer>
         <div

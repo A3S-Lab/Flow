@@ -30,6 +30,37 @@ export type PlaygroundNodeData = {
 export type PlaygroundNode = Node<PlaygroundNodeData, 'flowNode'>;
 
 export type PlaygroundEdgeRouting = 'curve' | 'orthogonal';
+export type PlaygroundEdgeColor = 'blue' | 'teal' | 'violet' | 'amber';
+
+export const PLAYGROUND_EDGE_COLORS: Readonly<
+  Record<PlaygroundEdgeColor, { line: string; active: string }>
+> = {
+  blue: { line: '#6886c5', active: '#155eef' },
+  teal: { line: '#4a9b92', active: '#087a6f' },
+  violet: { line: '#8a78c5', active: '#6e4cc7' },
+  amber: { line: '#c18b40', active: '#925a10' },
+};
+
+export type PlaygroundAnnotationKind = 'note' | 'comment';
+
+export type PlaygroundAnnotationData = {
+  kind: PlaygroundAnnotationKind;
+  text: string;
+  label?: string;
+  placeholder?: string;
+  deleteLabel?: string;
+  onTextChange?: (id: string, text: string) => void;
+  onEditStart?: () => void;
+  onEditEnd?: () => void;
+  onDelete?: (id: string) => void;
+} & Record<string, unknown>;
+
+export type PlaygroundAnnotationNode = Node<
+  PlaygroundAnnotationData,
+  'annotation'
+>;
+
+export type PlaygroundCanvasNode = PlaygroundNode | PlaygroundAnnotationNode;
 
 export type PlaygroundEdgeData = {
   routing?: PlaygroundEdgeRouting;
@@ -43,6 +74,7 @@ export type PlaygroundEdge = Edge<PlaygroundEdgeData, 'workflow'>;
 export type PlaygroundGraphState = {
   nodes: PlaygroundNode[];
   edges: PlaygroundEdge[];
+  annotations: PlaygroundAnnotationNode[];
 };
 
 export type ConnectionRejection =
@@ -250,7 +282,7 @@ export function createSampleWorkflow(
       locale,
     ),
   ];
-  return { nodes, edges };
+  return { nodes, edges, annotations: [] };
 }
 
 export function createNodeAddition(
@@ -265,6 +297,7 @@ export function createNodeAddition(
     return {
       nodes: [createNode(nodeId, type, position, locale, { selected: true })],
       edges: [],
+      annotations: [],
     };
   }
 
@@ -294,7 +327,7 @@ export function createNodeAddition(
       locale,
     ),
   ];
-  return { nodes, edges };
+  return { nodes, edges, annotations: [] };
 }
 
 function nodeScope(node: PlaygroundNode): string | null {
