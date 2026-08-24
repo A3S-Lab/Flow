@@ -219,6 +219,64 @@ describe("A3S Flow authoring manifests", () => {
     expect(document.metadata.owner).toBe("A3S UI");
   });
 
+  it("keeps every visible configuration control on the A3S UI form contract", () => {
+    let inputCount = 0;
+    let selectCount = 0;
+    let textareaCount = 0;
+
+    for (const manifest of a3sFlowDagNodeRegistry.list()) {
+      const dagNode = createA3SFlowDagNode(`a3s-ui-contract-${manifest.type}`, manifest);
+      const view = render(
+        createElement(A3SFlowDagNodeConfigurationPanel, {
+          dagNode,
+          locale: "zh-CN",
+          onChange: () => undefined,
+        }),
+      );
+      const renderer = view.container.querySelector(".a3s-form-renderer");
+      if (!renderer) {
+        cleanup();
+        continue;
+      }
+
+      for (const input of renderer.querySelectorAll("input")) {
+        inputCount += 1;
+        const visuallyHidden = input.classList.contains("a3s-form-visually-hidden");
+        expect(
+          visuallyHidden || input.classList.contains("input"),
+          `${manifest.type} rendered an input outside the A3S UI input contract`,
+        ).toBe(true);
+      }
+      for (const select of renderer.querySelectorAll("select")) {
+        selectCount += 1;
+        expect(
+          select.classList.contains("select"),
+          `${manifest.type} rendered a select outside the A3S UI select contract`,
+        ).toBe(true);
+        expect(select.closest(".a3s-form-select-control")).not.toBeNull();
+      }
+      for (const textarea of renderer.querySelectorAll("textarea")) {
+        textareaCount += 1;
+        expect(
+          textarea.classList.contains("textarea"),
+          `${manifest.type} rendered a textarea outside the A3S UI textarea contract`,
+        ).toBe(true);
+      }
+
+      expect(
+        view.container.querySelector(".a3s-form-workflow-node-title-input")?.classList,
+      ).toContain("input");
+      expect(
+        view.container.querySelector(".a3s-form-workflow-node-description-input")?.classList,
+      ).toContain("input");
+      cleanup();
+    }
+
+    expect(inputCount).toBeGreaterThan(0);
+    expect(selectCount).toBeGreaterThan(0);
+    expect(textareaCount).toBeGreaterThan(0);
+  });
+
   it("compiles, validates, renders, edits, and serializes the complete manifest matrix", () => {
     const catalog = createA3SFlowDagNodeCatalog([customRegistration()]);
 
@@ -305,6 +363,11 @@ describe("A3S Flow authoring manifests", () => {
     });
     expect(catalog.custom).toEqual([registration]);
     expect(catalog.registry.list({ includeInternal: false })).toHaveLength(19);
+    expect(Object.isFrozen(registration.manifest.fields)).toBe(true);
+    expect(Object.isFrozen(registration.manifest.fields[0])).toBe(true);
+    expect(Object.isFrozen(registration.manifest.ports.inputs)).toBe(true);
+    expect(Object.isFrozen(registration.manifest.ports.inputs[0])).toBe(true);
+    expect(Object.isFrozen(registration.capability)).toBe(true);
   });
 
   it("rejects reserved, internal, duplicate, and unversioned custom registrations", () => {

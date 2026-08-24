@@ -1,0 +1,217 @@
+suite "workflow-custom-node-catalog" {
+    version = 1
+
+    scenario "risk-node-by-capability" {
+        name = "Search and add the risk node by capability ID"
+        surface = "web"
+        timeout_ms = 30000
+
+        viewport "desktop" {
+            width = 1440
+            height = 900
+        }
+
+        navigate "open-playground" {
+            url = "http://127.0.0.1:4173/Flow/playground/"
+        }
+
+        wait "page-ready" {
+            text = "跨境高价值订单履约"
+        }
+
+        click "open-node-library" {
+            target = role("button", "添加节点")
+        }
+
+        click "open-custom-catalog" {
+            target = role("tab", "自定义节点 3")
+        }
+
+        fill "search-capability" {
+            target = placeholder("搜索节点名称、说明或类型")
+            value = "commerce/risk-score"
+        }
+
+        expect "risk-result" {
+            text = "订单风险评分"
+        }
+
+        click "add-risk-node" {
+            target = role("button", "添加订单风险评分")
+        }
+
+        expect "risk-panel" {
+            text = "评分请求"
+        }
+
+        expect "risk-threshold" {
+            text = "人工复核阈值"
+        }
+
+        expect "risk-slider-uses-a3s-ui" {
+            visible = css(".a3s-form-workflow-node-panel .a3s-form-slider > input.input[type=range]")
+        }
+
+        expect "risk-slider-copy" {
+            text = "步长 0.01"
+        }
+
+        screenshot "risk-node" {
+            path = "screenshots/risk-node.png"
+        }
+
+        console "risk-console" {
+            path = "evidence/risk-console.json"
+            clear = false
+        }
+
+        page_errors "risk-page-errors" {
+            path = "evidence/risk-page-errors.json"
+            clear = false
+        }
+    }
+
+    scenario "inventory-node-by-handler" {
+        name = "Search and add the inventory node by handler"
+        surface = "web"
+        timeout_ms = 30000
+
+        viewport "desktop" {
+            width = 1440
+            height = 900
+        }
+
+        navigate "open-playground" {
+            url = "http://127.0.0.1:4173/Flow/playground/"
+        }
+
+        wait "page-ready" {
+            text = "跨境高价值订单履约"
+        }
+
+        click "open-node-library" {
+            target = role("button", "添加节点")
+        }
+
+        click "open-custom-catalog" {
+            target = role("tab", "自定义节点 3")
+        }
+
+        fill "search-handler" {
+            target = placeholder("搜索节点名称、说明或类型")
+            value = "inventory.reserve"
+        }
+
+        expect "inventory-result" {
+            text = "预留库存"
+        }
+
+        click "add-inventory-node" {
+            target = role("button", "添加预留库存")
+        }
+
+        expect "inventory-panel" {
+            text = "库存请求"
+        }
+
+        expect "reservation-window" {
+            text = "保留时长"
+        }
+
+        expect "duration-input-uses-a3s-ui" {
+            visible = css(".a3s-form-workflow-duration > input.input[type=number]")
+        }
+
+        expect "duration-select-uses-a3s-ui" {
+            visible = css(".a3s-form-workflow-duration .a3s-form-select-control > select.select")
+        }
+
+        expect "duration-unit-localized" {
+            text = "分钟"
+        }
+
+        screenshot "inventory-node" {
+            path = "screenshots/inventory-node.png"
+        }
+
+        console "inventory-console" {
+            path = "evidence/inventory-console.json"
+            clear = false
+        }
+
+        page_errors "inventory-page-errors" {
+            path = "evidence/inventory-page-errors.json"
+            clear = false
+        }
+    }
+
+    scenario "message-node-by-type" {
+        name = "Search and add the message node by type"
+        surface = "web"
+        timeout_ms = 30000
+
+        viewport "desktop" {
+            width = 1440
+            height = 900
+        }
+
+        navigate "open-playground" {
+            url = "http://127.0.0.1:4173/Flow/playground/"
+        }
+
+        wait "page-ready" {
+            text = "跨境高价值订单履约"
+        }
+
+        click "open-node-library" {
+            target = role("button", "添加节点")
+        }
+
+        click "open-custom-catalog" {
+            target = role("tab", "自定义节点 3")
+        }
+
+        fill "search-type" {
+            target = placeholder("搜索节点名称、说明或类型")
+            value = "commerce.message.dispatch"
+        }
+
+        expect "message-result" {
+            text = "发送履约通知"
+        }
+
+        click "add-message-node" {
+            target = role("button", "添加发送履约通知")
+        }
+
+        expect "message-panel" {
+            text = "通知内容"
+        }
+
+        expect "recipient-sources" {
+            text = "收件人来源"
+        }
+
+        expect "sortable-select-uses-a3s-ui" {
+            visible = css(".a3s-form-workflow-sortable .a3s-form-select-control > select.select")
+        }
+
+        expect "sortable-copy-localized" {
+            text = "添加一项…"
+        }
+
+        screenshot "message-node" {
+            path = "screenshots/message-node.png"
+        }
+
+        console "message-console" {
+            path = "evidence/message-console.json"
+            clear = false
+        }
+
+        page_errors "message-page-errors" {
+            path = "evidence/message-page-errors.json"
+            clear = false
+        }
+    }
+}

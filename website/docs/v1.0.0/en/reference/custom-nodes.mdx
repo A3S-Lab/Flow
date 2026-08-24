@@ -21,6 +21,8 @@ Use a custom node when the operation has a stable business meaning that deserves
 
 The configuration panel uses `FormRenderer` from `@a3s-lab/ui/form/react`. Ordinary text, number, select, switch, slider, password, tags, and textarea fields reach A3S UI through `NativeWidget`. Flow UI supplies composite editors for workflow expressions, schemas, batches, child scopes, prompts, structured JSON, durations, and ordered lists.
 
+The package test matrix renders every registered node and rejects visible inputs, selects, or textareas that leave the A3S UI form contract. Composite editors may own workflow-specific state and layout, but their atomic controls still use the A3S UI `input`, `select`, `textarea`, and button primitives.
+
 ## Define one registration
 
 Register the manifest and its executor capability together. This prevents the editor from advertising a node that the release pipeline cannot authorize.
@@ -116,22 +118,24 @@ The capability ID must be namespaced. Its version is one exact semantic version,
 
 Choose the simplest field type that describes the value. The manifest remains the source of truth for defaults, required values, enum choices, ranges, groups, and conditional visibility.
 
-| Manifest input           | Rendered control        | Notes                                         |
-| ------------------------ | ----------------------- | --------------------------------------------- |
-| `StrInput`               | A3S UI text input       | Add `multiline` only for longer prose         |
-| `DropdownInput`          | A3S UI select           | Put stable machine values in `options`        |
-| `IntInput`, `FloatInput` | A3S UI number input     | Use `range_spec` for bounds and step          |
-| `BoolInput`              | A3S UI switch           | Use a direct action label                     |
-| `SliderInput`            | A3S UI slider           | Give the user a meaningful min, max, and step |
-| `MultilineInput`         | A3S UI textarea         | Suitable for notes, not structured data       |
-| `JSONInput`              | Structured JSON editor  | The field schema remains an object            |
-| `DurationInput`          | Amount and unit control | Store `{ value, unit }` as the default        |
-| `PromptInput`            | Prompt editor           | Supports workflow variable insertion          |
-| `SortableListInput`      | Ordered list editor     | Use stable option values                      |
-| `A3SFlowExpressionInput` | Flow expression editor  | Use for replay-safe references and operators  |
-| `A3SFlowSchemaInput`     | Flow schema editor      | Use for workflow input and output contracts   |
+| Manifest input           | Rendered control        | Notes                                           |
+| ------------------------ | ----------------------- | ----------------------------------------------- |
+| `StrInput`               | A3S UI text input       | Add `multiline` only for longer prose           |
+| `DropdownInput`          | A3S UI select           | Put stable machine values in `options`          |
+| `IntInput`, `FloatInput` | A3S UI number input     | Use `range_spec` for bounds and step            |
+| `BoolInput`              | A3S UI switch           | Use a direct action label                       |
+| `SliderInput`            | A3S UI slider           | Give the user a meaningful min, max, and step   |
+| `MultilineInput`         | A3S UI textarea         | Suitable for notes, not structured data         |
+| `JSONInput`              | Structured JSON editor  | The field schema remains an object              |
+| `DurationInput`          | Amount and unit control | Store `{ value, unit }` as the default          |
+| `PromptInput`            | Prompt editor           | Supports workflow variable insertion            |
+| `SortableListInput`      | Ordered list editor     | Use stable option values                        |
+| `A3SFlowExpressionInput` | Flow expression editor  | Use for replay-safe references and operators    |
+| `A3SFlowSchemaInput`     | Flow schema editor      | Use for workflow input and output contracts     |
+| `A3SFlowSpecInput`       | Workflow spec editor    | Pins workflow, runtime, entrypoint, and export  |
+| `A3SFlowChildrenInput`   | Child workflow editor   | Keeps 1 to 64 unique child definitions in order |
 
-`validateA3SFlowDagNodeConfiguration` first compiles the generated A3S UI form and validates the value against its plan. Built-in nodes then receive their additional Flow semantic checks. Custom nodes receive the same form compiler and value validation without pretending that Flow knows the host service's business rules.
+`validateA3SFlowDagNodeConfiguration` first compiles the generated A3S UI form and validates the value against its plan. It then checks every Flow expression contract, date-time and token purpose, JSON Schema root, duration unit, workflow spec, and child-workflow member. Built-in nodes add command-specific checks such as retry bounds, stable callback tokens, unique batch keys, and connected failure ports. These checks apply to custom manifests as well; rules that depend on the host service or tenant still belong to the host.
 
 ## Use the catalog in an editor
 

@@ -1,4 +1,6 @@
+import type { A3SFlowDagNodeCatalog } from '@a3s-lab/flow-ui';
 import type { FlowWebsiteLocale } from './flow-node-catalog';
+import { createPlaygroundNodeCatalog } from './WorkflowPlayground.custom-nodes';
 import {
   createPlaygroundEdge,
   type PlaygroundGraphState,
@@ -18,6 +20,7 @@ import { createSampleScopes } from './WorkflowPlayground.sample.scopes';
 
 export function createSampleWorkflow(
   locale: FlowWebsiteLocale,
+  catalog: A3SFlowDagNodeCatalog = createPlaygroundNodeCatalog(locale),
 ): PlaygroundGraphState {
   const branch = (zh: string, en: string) => localize(locale, [zh, en]);
   const orderInputSchema: SampleJsonObject = {
@@ -26,6 +29,7 @@ export function createSampleWorkflow(
     required: [
       'order_id',
       'customer_id',
+      'customer',
       'market',
       'items',
       'amount',
@@ -41,6 +45,17 @@ export function createSampleWorkflow(
       customer_id: {
         type: 'string',
         title: branch('客户 ID', 'Customer ID'),
+      },
+      customer: {
+        type: 'object',
+        title: branch('客户联系方式', 'Customer contacts'),
+        additionalProperties: false,
+        required: ['account_id', 'email', 'phone'],
+        properties: {
+          account_id: { type: 'string' },
+          email: { type: 'string' },
+          phone: { type: 'string' },
+        },
       },
       market: {
         type: 'string',
@@ -97,7 +112,7 @@ export function createSampleWorkflow(
     },
   };
 
-  const scopes = createSampleScopes(locale);
+  const scopes = createSampleScopes(locale, catalog.registry);
   const { iteration, loop } = scopes;
 
   const nodes: PlaygroundNode[] = [
@@ -276,12 +291,36 @@ export function createSampleWorkflow(
         },
       },
     ),
+    sampleNode(
+      'score_order_risk',
+      'commerce.risk.score',
+      { x: 1_260, y: 100 },
+      locale,
+      ['计算订单风险分', 'Score order risk'],
+      [
+        '调用已授权的风险策略，给出风险分和人工复核建议，再进入逐项锁库。',
+        'Apply an authorized risk policy before inventory allocation and return a score plus review recommendation.',
+      ],
+      {
+        registry: catalog.registry,
+        configuration: {
+          order: expression(field('input')),
+          policy: 'strict-v1',
+          review_threshold: 0.78,
+          strict_validation: true,
+          parameters: {
+            market: 'cross-border',
+            velocity_window_minutes: 20,
+          },
+        },
+      },
+    ),
     iteration,
     ...scopes.iterationNodes,
     sampleNode(
       'route_risk',
       'flow.condition',
-      { x: 2_490, y: 100 },
+      { x: 2_790, y: 100 },
       locale,
       ['选择自动履约或人工复核', 'Choose automatic fulfillment or review'],
       [
@@ -314,7 +353,7 @@ export function createSampleWorkflow(
     sampleNode(
       'warehouse_operation',
       'flow.child-operation',
-      { x: 2_790, y: -80 },
+      { x: 3_090, y: -80 },
       locale,
       ['关联仓内拣配作业', 'Link warehouse operation'],
       [
@@ -338,7 +377,7 @@ export function createSampleWorkflow(
     sampleNode(
       'regional_fulfillment',
       'flow.child-workflows',
-      { x: 3_090, y: -80 },
+      { x: 3_390, y: -80 },
       locale,
       ['并行启动区域履约子流程', 'Start regional fulfillment workflows'],
       [
@@ -389,7 +428,7 @@ export function createSampleWorkflow(
     sampleNode(
       'customs_clearance',
       'flow.child-workflow',
-      { x: 3_390, y: -80 },
+      { x: 3_690, y: -80 },
       locale,
       ['启动报关子流程', 'Start customs clearance workflow'],
       [
@@ -418,7 +457,7 @@ export function createSampleWorkflow(
     sampleNode(
       'logistics_callback',
       'flow.hook',
-      { x: 4_920, y: -80 },
+      { x: 5_220, y: -80 },
       locale,
       ['等待物流平台回调', 'Wait for logistics callback'],
       [
@@ -448,7 +487,7 @@ export function createSampleWorkflow(
     sampleNode(
       'fulfillment_timeout',
       'flow.timeout',
-      { x: 5_220, y: 330 },
+      { x: 5_520, y: 330 },
       locale,
       ['物流回调超时', 'Logistics callback timed out'],
       [
@@ -465,7 +504,7 @@ export function createSampleWorkflow(
     sampleNode(
       'delivery_signal',
       'flow.signal',
-      { x: 5_220, y: -80 },
+      { x: 5_520, y: -80 },
       locale,
       ['等待财务确认信号', 'Wait for finance confirmation signal'],
       [
@@ -482,7 +521,7 @@ export function createSampleWorkflow(
     sampleNode(
       'fulfillment_progress',
       'flow.progress',
-      { x: 5_520, y: -80 },
+      { x: 5_820, y: -80 },
       locale,
       ['记录履约完成进度', 'Record fulfillment progress'],
       [
@@ -503,9 +542,40 @@ export function createSampleWorkflow(
       },
     ),
     sampleNode(
+      'send_fulfillment_notice',
+      'commerce.message.dispatch',
+      { x: 6_120, y: -80 },
+      locale,
+      ['发送履约完成通知', 'Send fulfillment completion notice'],
+      [
+        '按客户可用联系方式发送履约结果，并保留可审计的消息标签。',
+        'Send the fulfillment result through the first available customer channel and retain audit metadata.',
+      ],
+      {
+        registry: catalog.registry,
+        configuration: {
+          channel: 'in-app',
+          template: branch(
+            '订单 {{input.order_id}} 已完成跨境履约。',
+            'Order {{input.order_id}} has completed cross-border fulfillment.',
+          ),
+          recipient_sources: [
+            'input.customer.account_id',
+            'input.customer.email',
+            'input.customer.phone',
+          ],
+          metadata: {
+            purpose: 'fulfillment-complete',
+            audit: true,
+            workflow: 'commerce.cross_border_fulfillment',
+          },
+        },
+      },
+    ),
+    sampleNode(
       'complete_order',
       'flow.complete',
-      { x: 5_820, y: -80 },
+      { x: 6_420, y: -80 },
       locale,
       ['完成订单履约', 'Complete order fulfillment'],
       [
@@ -524,7 +594,7 @@ export function createSampleWorkflow(
     sampleNode(
       'wait_review_window',
       'flow.wait',
-      { x: 2_790, y: 700 },
+      { x: 3_090, y: 700 },
       locale,
       ['等待复核窗口', 'Wait for review window'],
       [
@@ -540,7 +610,7 @@ export function createSampleWorkflow(
     sampleNode(
       'human_approval',
       'flow.hook',
-      { x: 3_090, y: 700 },
+      { x: 3_390, y: 700 },
       locale,
       ['请求风控人员审批', 'Request risk approval'],
       [
@@ -568,7 +638,7 @@ export function createSampleWorkflow(
     sampleNode(
       'route_approval',
       'flow.condition',
-      { x: 3_390, y: 700 },
+      { x: 3_690, y: 700 },
       locale,
       ['处理人工审批结果', 'Handle approval result'],
       [
@@ -591,7 +661,7 @@ export function createSampleWorkflow(
     sampleNode(
       'review_timeout',
       'flow.timeout',
-      { x: 3_390, y: 1_000 },
+      { x: 3_690, y: 1_000 },
       locale,
       ['人工复核已超时', 'Manual review timed out'],
       [
@@ -609,7 +679,7 @@ export function createSampleWorkflow(
     sampleNode(
       'continue_fulfillment',
       'flow.continue-as-new',
-      { x: 3_690, y: 600 },
+      { x: 3_990, y: 600 },
       locale,
       ['以审批结果继续新运行', 'Continue in a new approved run'],
       [
@@ -630,7 +700,7 @@ export function createSampleWorkflow(
     sampleNode(
       'cancel_order',
       'flow.cancel',
-      { x: 3_690, y: 820 },
+      { x: 3_990, y: 820 },
       locale,
       ['取消被拒绝的订单', 'Cancel rejected order'],
       [
@@ -646,7 +716,8 @@ export function createSampleWorkflow(
     connection('validate_order', 'failed', 'fail_intake'),
     connection('route_serviceability', 'matched', 'compliance_batch'),
     connection('route_serviceability', 'otherwise', 'fail_market'),
-    connection('compliance_batch', 'done', 'item_iteration'),
+    connection('compliance_batch', 'done', 'score_order_risk'),
+    connection('score_order_risk', 'next', 'item_iteration'),
     connection('compliance_batch', 'recoverable_failure', 'fail_compliance'),
     connection('item_iteration', 'done', 'route_risk'),
     connection('route_risk', 'matched', 'warehouse_operation'),
@@ -658,7 +729,8 @@ export function createSampleWorkflow(
     connection('logistics_callback', 'received', 'delivery_signal'),
     connection('logistics_callback', 'disposed', 'fulfillment_timeout'),
     connection('delivery_signal', 'received', 'fulfillment_progress'),
-    connection('fulfillment_progress', 'recorded', 'complete_order'),
+    connection('fulfillment_progress', 'recorded', 'send_fulfillment_notice'),
+    connection('send_fulfillment_notice', 'next', 'complete_order'),
     connection('wait_review_window', 'resumed', 'human_approval'),
     connection('human_approval', 'received', 'route_approval'),
     connection('human_approval', 'disposed', 'review_timeout'),
@@ -667,7 +739,7 @@ export function createSampleWorkflow(
     ...scopes.connections,
   ];
   const edges = connections.map((value) =>
-    createPlaygroundEdge(value, nodes, locale),
+    createPlaygroundEdge(value, nodes, locale, catalog.registry),
   );
   return { nodes, edges, annotations: [] };
 }

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Hardened custom workflow-node authoring with deeply immutable manifests,
+  shared composite-field validation, exact host capability publication checks,
+  and a complete Playground sample containing every built-in, internal, and
+  registered host node type. Added per-node valid and invalid configuration
+  coverage, Rust DSL custom-node round-trip and digest coverage, and a
+  deterministic A3S Test suite for custom-node search and addition.
+- Enforced the A3S UI form-control contract across every node configuration
+  panel, localized workflow-specific composite controls, and fixed empty file
+  values that were previously displayed as selected files. The component
+  matrix now rejects visible inputs, selects, and textareas that drift from
+  the shared A3S UI primitives.
 - Added `RetryPolicy::exponential` with a finite attempt budget, a maximum
   delay cap, and deterministic full jitter derived from immutable run, step,
   and failed-attempt identities. Delayed retries now calculate their next

@@ -182,6 +182,7 @@ function SchemaFieldRow({
       </div>
       <label className="a3s-form-flow-schema-required">
         <input
+          className="input"
           type="checkbox"
           checked={required}
           disabled={disabled}
@@ -429,6 +430,7 @@ export function A3SFlowSchemaWidget(props: FormWidgetProps) {
         </button>
         <label>
           <input
+            className="input"
             type="checkbox"
             checked={schema.additionalProperties !== false}
             disabled={props.disabled}

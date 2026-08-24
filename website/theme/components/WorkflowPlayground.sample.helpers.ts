@@ -1,5 +1,6 @@
 import {
   createA3SFlowExpression,
+  type A3SFlowDagNodeRegistry,
   type A3SFlowWorkflowDagNode,
 } from '@a3s-lab/flow-ui';
 import type { XYPosition } from '@xyflow/react';
@@ -24,6 +25,7 @@ export type SampleConnection = {
 type SampleNodeOptions = {
   configuration?: SampleJsonObject;
   parentId?: string;
+  registry?: A3SFlowDagNodeRegistry;
 };
 
 const CONTAINER_WIDTH = 1_176;
@@ -64,6 +66,7 @@ export function sampleNode(
       ...(options.configuration ?? {}),
     },
     parentId: options.parentId,
+    registry: options.registry,
   });
 }
 

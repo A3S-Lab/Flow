@@ -109,6 +109,17 @@ function nonEmpty(value: string, label: string): void {
   if (!value.trim()) throw new TypeError(`${label} must not be empty.`);
 }
 
+function deepFreeze<T>(value: T, visited = new WeakSet<object>()): T {
+  if (value === null || typeof value !== 'object' || visited.has(value)) {
+    return value;
+  }
+  visited.add(value);
+  for (const child of Object.values(value as Record<string, unknown>)) {
+    deepFreeze(child, visited);
+  }
+  return Object.freeze(value);
+}
+
 export function defineA3SFlowDagNodeManifest(
   input: A3SFlowDagNodeManifestInput,
 ): A3SFlowDagNodeManifest {
@@ -135,16 +146,17 @@ export function defineA3SFlowDagNodeManifest(
     );
   }
 
-  return Object.freeze({
-    ...input,
+  const copy = structuredClone(input);
+  return deepFreeze({
+    ...copy,
     manifestVersion: 1 as const,
     owner: 'host' as const,
-    documentation: input.documentation ?? FLOW_DOCUMENTATION,
-    beta: input.beta ?? false,
-    legacy: input.legacy ?? false,
-    official: input.official ?? true,
-    tool_mode: input.tool_mode ?? false,
-    base_classes: input.base_classes ?? ['A3SFlowDagNode'],
+    documentation: copy.documentation ?? FLOW_DOCUMENTATION,
+    beta: copy.beta ?? false,
+    legacy: copy.legacy ?? false,
+    official: copy.official ?? true,
+    tool_mode: copy.tool_mode ?? false,
+    base_classes: copy.base_classes ?? ['A3SFlowDagNode'],
   });
 }
 

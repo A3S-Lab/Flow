@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { a3sFlowDagNodeRegistry } from '@a3s-lab/flow-ui';
 import {
   buildPlaygroundDocument,
   collectDeletionIds,
@@ -11,16 +10,22 @@ import {
   validatePlaygroundConfigurations,
   validatePlaygroundConnection,
 } from './WorkflowPlayground.model';
+import { createPlaygroundNodeCatalog } from './WorkflowPlayground.custom-nodes';
 import { createSampleWorkflow } from './WorkflowPlayground.sample';
 
 describe('Workflow Playground graph model', () => {
   it('starts with a compilable sample that covers every node manifest', () => {
-    const sample = createSampleWorkflow('en');
-    const compilation = compilePlaygroundGraph(sample.nodes, sample.edges);
+    const catalog = createPlaygroundNodeCatalog('en');
+    const sample = createSampleWorkflow('en', catalog);
+    const compilation = compilePlaygroundGraph(
+      sample.nodes,
+      sample.edges,
+      catalog,
+    );
     const sampleTypes = [
       ...new Set(sample.nodes.map((node) => node.data.dagNode.data.type)),
     ].sort();
-    const catalogTypes = a3sFlowDagNodeRegistry
+    const catalogTypes = catalog.registry
       .list()
       .map(({ type }) => type)
       .sort();
@@ -48,7 +53,11 @@ describe('Workflow Playground graph model', () => {
     );
     expect(sampleTypes).toEqual(catalogTypes);
     expect(
-      validatePlaygroundConfigurations(sample.nodes, sample.edges),
+      validatePlaygroundConfigurations(
+        sample.nodes,
+        sample.edges,
+        catalog.registry,
+      ),
     ).toEqual([]);
   });
 
@@ -72,6 +81,42 @@ describe('Workflow Playground graph model', () => {
         },
       },
     });
+  });
+
+  it('adds and publishes every public built-in and custom node type', () => {
+    const catalog = createPlaygroundNodeCatalog('en');
+
+    for (const manifest of catalog.registry.list({ includeInternal: false })) {
+      const addition = createNodeAddition(
+        manifest.type,
+        { x: 100, y: 120 },
+        'en',
+        [],
+        undefined,
+        catalog.registry,
+      );
+      const compilation = compilePlaygroundGraph(
+        addition.nodes,
+        addition.edges,
+        catalog,
+      );
+
+      expect(
+        addition.nodes.some(
+          ({ data }) => data.dagNode.data.type === manifest.type,
+        ),
+        manifest.type,
+      ).toBe(true);
+      expect(compilation, manifest.type).toMatchObject({ ok: true });
+      expect(
+        validatePlaygroundConfigurations(
+          addition.nodes,
+          addition.edges,
+          catalog.registry,
+        ),
+        manifest.type,
+      ).toEqual([]);
+    }
   });
 
   it('shows only useful port labels and follows edited condition branch names', () => {

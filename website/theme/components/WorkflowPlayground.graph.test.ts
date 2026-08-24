@@ -3,6 +3,7 @@ import {
   addIntoGraph,
   layoutPlaygroundGraph,
 } from './WorkflowPlayground.graph';
+import { createPlaygroundNodeCatalog } from './WorkflowPlayground.custom-nodes';
 import { compilePlaygroundGraph } from './WorkflowPlayground.model';
 import { createSampleWorkflow } from './WorkflowPlayground.sample';
 
@@ -55,7 +56,8 @@ describe('Workflow Playground graph editing', () => {
   });
 
   it('inserts a node into an iteration child scope and makes room for it', () => {
-    const sample = createSampleWorkflow('en');
+    const catalog = createPlaygroundNodeCatalog('en');
+    const sample = createSampleWorkflow('en', catalog);
     const originalEdge = sample.edges.find(
       ({ source, target }) =>
         source === 'item_iteration_start' && target === 'normalize_line',
@@ -74,6 +76,7 @@ describe('Workflow Playground graph editing', () => {
       { x: 1_640, y: 180 },
       'en',
       originalEdge?.id,
+      catalog.registry,
     );
     const inserted = result.graph.nodes.find(
       ({ id }) => id === result.selectedNodeId,
@@ -109,7 +112,7 @@ describe('Workflow Playground graph editing', () => {
       Number(originalContainer?.style?.width),
     );
     expect(
-      compilePlaygroundGraph(result.graph.nodes, result.graph.edges),
+      compilePlaygroundGraph(result.graph.nodes, result.graph.edges, catalog),
     ).toMatchObject({ ok: true });
   });
 

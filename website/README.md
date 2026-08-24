@@ -24,6 +24,15 @@ Run all source checks before committing documentation changes:
 npm run check --prefix website
 ```
 
+The custom-node catalog has a deterministic A3S Test suite. Start the local
+site on the suite's fixed origin, then validate and run it from `website/`:
+
+```sh
+npm run dev -- --host 127.0.0.1 --port 4173
+a3s-test check tests/e2e/workflow-custom-nodes.acl --json
+a3s-test run tests/e2e/workflow-custom-nodes.acl --browser-driver standalone --browser-executable agent-browser --json
+```
+
 ## Current homepage
 
 The current release uses a product homepage centered on the AI Native Workflow Engine. It explains the shared node manifests, React and Vue components, CLI, Skill, graph compiler, and durable runtime as one system. The homepage uses real `@a3s-lab/flow-ui` node components rather than a separate playground implementation.
