@@ -142,7 +142,7 @@ function WorkflowPlaygroundSurface() {
   const { site } = useSite();
   const defaultVersion = site.multiVersion.default ?? version;
   const versions = site.multiVersion.versions ?? [version];
-  const storageKey = `a3s-flow-playground:v3:${version}:${locale}`;
+  const storageKey = `a3s-flow-playground:v4:${version}:${locale}`;
   const {
     graph,
     canUndo,
@@ -154,7 +154,7 @@ function WorkflowPlaygroundSurface() {
     restore,
     beginDrag,
     endDrag,
-  } = usePlaygroundDocument(() => createSampleWorkflow(locale));
+  } = usePlaygroundDocument(() => createSampleWorkflow(locale, catalog));
   const { edgeColor, edgeRouting, saveState, setEdgeColor, setEdgeRouting } =
     usePlaygroundDraft(storageKey, graph, restore);
   const { fitView, screenToFlowPosition, setViewport } = useReactFlow<
@@ -857,7 +857,7 @@ function WorkflowPlaygroundSurface() {
 
   const resetWorkflow = useCallback(() => {
     stopRun();
-    restore(createSampleWorkflow(locale));
+    restore(createSampleWorkflow(locale, catalog));
     setSelectedNodeId(undefined);
     setSelectedAnnotationId(undefined);
     setSelectedEdgeId(undefined);
@@ -869,7 +869,7 @@ function WorkflowPlaygroundSurface() {
       () => void setViewport(INITIAL_PLAYGROUND_VIEWPORT, { duration: 280 }),
       0,
     );
-  }, [copy.resetDone, locale, restore, setViewport, stopRun]);
+  }, [catalog, copy.resetDone, locale, restore, setViewport, stopRun]);
 
   const copyDocument = useCallback(() => {
     void navigator.clipboard

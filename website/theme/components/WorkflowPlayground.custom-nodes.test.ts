@@ -1,5 +1,6 @@
 import {
   createA3SFlowDagNode,
+  createA3SFlowExpression,
   createWorkflowNodeDefaultValue,
   mergeA3SFlowDagNodeConfiguration,
   selectA3SFlowDagNodeConfiguration,
@@ -14,11 +15,51 @@ import {
   createPlaygroundNode,
 } from './WorkflowPlayground.model';
 
-const EDITS = {
-  'commerce.risk.score': { review_threshold: 0.84 },
-  'commerce.inventory.reserve': { quantity: 4 },
-  'commerce.message.dispatch': { channel: 'sms' },
-} as const;
+type JsonObject = Parameters<typeof validateA3SFlowDagNodeConfiguration>[1];
+
+const EDITS: Readonly<Record<string, JsonObject>> = {
+  'commerce.risk.score': {
+    order: createA3SFlowExpression({
+      op: 'field',
+      path: 'input.checkout.order',
+    }),
+    policy: 'strict-v1',
+    review_threshold: 0.84,
+    strict_validation: false,
+    parameters: { market: 'cross-border', velocity_window_minutes: 15 },
+  },
+  'commerce.inventory.reserve': {
+    sku: createA3SFlowExpression({
+      op: 'field',
+      path: 'iteration.item.sku',
+    }),
+    quantity: 4,
+    warehouse: 'eu-central',
+    reservation_window: { value: 2, unit: 'Hours' },
+    note: 'Hold inventory while customs documents are prepared.',
+  },
+  'commerce.message.dispatch': {
+    channel: 'sms',
+    template: 'Order {{input.order.id}} is ready for pickup.',
+    recipient_sources: ['input.customer.phone', 'input.customer.account_id'],
+    metadata: { purpose: 'pickup-ready', audit: true },
+  },
+};
+
+const INVALID_EDITS: Readonly<Record<string, JsonObject>> = {
+  'commerce.risk.score': {
+    order: {
+      apiVersion: '0',
+      expression: { op: 'field', path: 'input.order' },
+    },
+  },
+  'commerce.inventory.reserve': {
+    reservation_window: { value: 2, unit: 'Days' },
+  },
+  'commerce.message.dispatch': {
+    recipient_sources: ['input.customer.phone', 'input.customer.phone'],
+  },
+};
 
 describe('Workflow Playground custom nodes', () => {
   it.each(['zh', 'en'] as const)(
@@ -29,9 +70,17 @@ describe('Workflow Playground custom nodes', () => {
       expect(catalog.custom).toHaveLength(3);
       for (const { manifest, capability } of catalog.custom) {
         const defaults = createWorkflowNodeDefaultValue(manifest);
+        const edits = EDITS[manifest.type];
 
         expect(
           validateA3SFlowDagNodeConfiguration(manifest, defaults),
+          manifest.type,
+        ).toEqual({ ok: true, errors: [] });
+        expect(Object.keys(edits).sort(), manifest.type).toEqual(
+          manifest.fields.map(({ name }) => name).sort(),
+        );
+        expect(
+          validateA3SFlowDagNodeConfiguration(manifest, edits),
           manifest.type,
         ).toEqual({ ok: true, errors: [] });
         expect(capability.nodeType).toBe(manifest.type);
@@ -71,7 +120,7 @@ describe('Workflow Playground custom nodes', () => {
       custom.data.dagNode = mergeA3SFlowDagNodeConfiguration(
         custom.data.dagNode,
         manifest,
-        { ...current, ...EDITS[manifest.type as keyof typeof EDITS] },
+        { ...current, ...EDITS[manifest.type] },
       );
       const nodes = [start, custom, complete];
       const edges = [
@@ -117,8 +166,24 @@ describe('Workflow Playground custom nodes', () => {
       >;
       expect(restored.workflow.graph.nodes[1].data.type).toBe(manifest.type);
       expect(restored.workflow.graph.nodes[1].data).toMatchObject(
-        EDITS[manifest.type as keyof typeof EDITS],
+        EDITS[manifest.type],
       );
+    }
+  });
+
+  it('rejects an invalid composite or native field for every custom node', () => {
+    const catalog = createPlaygroundNodeCatalog('en');
+
+    for (const { manifest } of catalog.custom) {
+      const valid = EDITS[manifest.type];
+      const invalid = INVALID_EDITS[manifest.type];
+      const result = validateA3SFlowDagNodeConfiguration(manifest, {
+        ...structuredClone(valid),
+        ...structuredClone(invalid),
+      });
+
+      expect(result.ok, manifest.type).toBe(false);
+      expect(result.errors.length, manifest.type).toBeGreaterThan(0);
     }
   });
 

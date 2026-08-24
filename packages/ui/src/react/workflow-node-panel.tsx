@@ -273,7 +273,7 @@ export function WorkflowNodeConfigurationPanel(props: WorkflowNodeConfigurationP
                 <>
                   <h2 className="a3s-form-workflow-node-title-accessible">{displayTitle}</h2>
                   <input
-                    className="a3s-form-workflow-node-title-input"
+                    className="input a3s-form-workflow-node-title-input"
                     aria-label={copy.nodeTitle}
                     value={displayTitle}
                     disabled={props.readOnly}
@@ -296,7 +296,7 @@ export function WorkflowNodeConfigurationPanel(props: WorkflowNodeConfigurationP
             </span>
             {taskPresentation && props.onDescriptionChange ? (
               <input
-                className="a3s-form-workflow-node-description-input"
+                className="input a3s-form-workflow-node-description-input"
                 aria-label={copy.nodeDescription}
                 placeholder={copy.descriptionPlaceholder}
                 value={displayDescription}

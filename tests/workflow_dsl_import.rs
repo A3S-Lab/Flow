@@ -191,6 +191,91 @@ fn extracted_graph_digest_is_order_and_layout_independent() {
 }
 
 #[test]
+fn custom_host_node_round_trips_compiles_and_binds_its_configuration() {
+    let source = json!({
+        "nodes": [
+            {
+                "id": "start",
+                "position": {"x": 0, "y": 0},
+                "data": {"type": "flow.start"}
+            },
+            {
+                "id": "risk",
+                "position": {"x": 320, "y": 0},
+                "data": {
+                    "type": "commerce.risk.score",
+                    "policy": "strict-v1",
+                    "review_threshold": 0.78,
+                    "strict_validation": true,
+                    "parameters": {"market": "cross-border"},
+                    "x-host-capability": {
+                        "id": "commerce/risk-score",
+                        "version": "1.2.3",
+                        "handler": "risk.score-order"
+                    }
+                }
+            },
+            {
+                "id": "complete",
+                "position": {"x": 640, "y": 0},
+                "data": {"type": "flow.complete"}
+            }
+        ],
+        "edges": [
+            {"id": "start-risk", "source": "start", "target": "risk"},
+            {"id": "risk-complete", "source": "risk", "target": "complete"}
+        ]
+    });
+    let graph = WorkflowDag::from_json(&source.to_string()).expect("custom-node graph");
+
+    assert_eq!(
+        graph
+            .execution_plan()
+            .expect("custom node participates in the deterministic plan")
+            .top_level(),
+        ["start", "risk", "complete"]
+    );
+    let risk = graph.node("risk").expect("custom risk node");
+    assert_eq!(risk.node_type(), "commerce.risk.score");
+    assert_eq!(risk.data()["review_threshold"], json!(0.78));
+    assert_eq!(
+        risk.data()["x-host-capability"]["handler"],
+        json!("risk.score-order")
+    );
+
+    let encoded = graph.to_json().expect("serialize custom-node graph");
+    assert_eq!(
+        WorkflowDag::from_json(&encoded).expect("re-import custom-node graph"),
+        graph
+    );
+
+    let original_digest = graph.execution_digest().expect("custom-node digest");
+    let mut configuration_change = source.clone();
+    configuration_change["nodes"][1]["data"]["review_threshold"] = json!(0.91);
+    let configuration_change =
+        WorkflowDag::from_json(&configuration_change.to_string()).expect("configuration change");
+    assert_ne!(
+        configuration_change
+            .execution_digest()
+            .expect("changed custom-node digest"),
+        original_digest,
+        "custom-node configuration is part of executable semantics"
+    );
+
+    let mut layout_change = source;
+    layout_change["nodes"][1]["position"] = json!({"x": 999, "y": -400});
+    let layout_change =
+        WorkflowDag::from_json(&layout_change.to_string()).expect("layout-only change");
+    assert_eq!(
+        layout_change
+            .execution_digest()
+            .expect("layout-only custom-node digest"),
+        original_digest,
+        "custom-node canvas layout is not executable semantics"
+    );
+}
+
+#[test]
 fn workflow_dsl_version_compatibility_matches_the_wire_contract() {
     let document = WorkflowDsl::from_yaml(WORKFLOW_DSL_ECHO).expect("current fixture");
     assert_eq!(

@@ -1,9 +1,24 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { canonicalize, type JsonObject, type JsonValue } from '@a3s-lab/ui/form/core';
 import { WORKFLOW_CONFIGURATION_WIDGETS } from '../integrations/workflow-node-form';
-import { DesignerIcon, type DesignerIconName } from './designer-icons';
+import { DesignerIcon } from './designer-icons';
 import { type FormWidgetProps, type FormWidgetRegistry, NativeWidget } from '@a3s-lab/ui/form/react';
 import { SelectControl } from './select-control';
+import {
+  workflowDurationUnitLabel,
+  workflowWidgetCopy,
+} from './workflow-configuration-copy';
+import {
+  WorkflowCodeWidget,
+  WorkflowDataDisplayWidget,
+  WorkflowFileWidget,
+  WorkflowJsonWidget,
+  WorkflowMcpControl,
+  WorkflowMultilineWidget,
+  WorkflowPromptWidget,
+  WorkflowSliderWidget,
+} from './workflow-configuration-editors';
+import { WorkflowMetadataIcon } from './workflow-metadata-icon';
 
 export interface WorkflowFieldValueRequest {
   nodeId: string;
@@ -48,78 +63,6 @@ export interface WorkflowFieldAccessoryProps
 
 const REAL_TIME_REFRESH_DEBOUNCE_MS = 250;
 
-function workflowWidgetCopy(locale: string | undefined) {
-  const chinese = locale?.toLocaleLowerCase().startsWith('zh') === true;
-  return chinese
-    ? {
-        live: '实时',
-        toolInput: '工具输入',
-        workflowInput: '工作流输入',
-        runtimeConfigured: '由运行时提供',
-        refreshField: (label: string) => `刷新${label}`,
-        copyField: (label: string) => `复制${label}`,
-        connectField: (label: string) => `连接${label}`,
-        workflowInputLegend: (label: string) => `${label}工作流输入`,
-        connect: '连接',
-        connectionSet: '已连接',
-        connectFromCanvas: '从工作流画布连接',
-        anyCompatibleOutput: '任意兼容输出',
-        change: '更换',
-        choose: '选择',
-        connectionLabel: (label: string, connected: boolean) =>
-          `${connected ? '更换' : '选择'}${label}的连接`,
-        expand: '展开',
-        collapse: '收起',
-        editorLabel: (label: string, expanded: boolean) =>
-          `${expanded ? '收起' : '展开'}${label}编辑器`,
-        empty: '空',
-        lineCount: (count: number) => `${count} 行`,
-        invalidJson: '请输入有效的 JSON 后再更新。',
-      }
-    : {
-        live: 'Live',
-        toolInput: 'Tool input',
-        workflowInput: 'Workflow input',
-        runtimeConfigured: 'Runtime configured',
-        refreshField: (label: string) => `Refresh ${label}`,
-        copyField: (label: string) => `Copy ${label}`,
-        connectField: (label: string) => `Connect ${label}`,
-        workflowInputLegend: (label: string) => `${label} workflow input`,
-        connect: 'Connect',
-        connectionSet: 'Connection set',
-        connectFromCanvas: 'Connect from the workflow canvas',
-        anyCompatibleOutput: 'Any compatible output',
-        change: 'Change',
-        choose: 'Choose',
-        connectionLabel: (label: string, connected: boolean) =>
-          `${connected ? 'Change' : 'Choose'} ${label} connection`,
-        expand: 'Expand',
-        collapse: 'Collapse',
-        editorLabel: (label: string, expanded: boolean) =>
-          `${expanded ? 'Collapse' : 'Expand'} ${label} editor`,
-        empty: 'Empty',
-        lineCount: (count: number) => `${count} ${count === 1 ? 'line' : 'lines'}`,
-        invalidJson: 'Enter valid JSON to update this value.',
-      };
-}
-
-const WORKFLOW_ICON_ALIASES: Readonly<Record<string, DesignerIconName>> = {
-  'arrow-down': 'arrow-down',
-  'arrow-up': 'arrow-up',
-  'arrow-up-down': 'list',
-  columns: 'columns-3',
-  'copy-x': 'copy',
-  filter: 'search',
-  hash: 'hash',
-  'hard-drive': 'desktop',
-  'id-card': 'card',
-  pencil: 'edit',
-  'pencil-line': 'edit',
-  replace: 'redo',
-  search: 'search',
-  sparkles: 'sparkles',
-};
-
 function stringArray(value: JsonValue | undefined): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string')
@@ -148,27 +91,6 @@ function optionIcon(value: JsonValue): string | undefined {
   return typeof value.icon === 'string' ? value.icon : undefined;
 }
 
-function workflowMetadataIconName(value: string): DesignerIconName {
-  return WORKFLOW_ICON_ALIASES[value.toLocaleLowerCase()] ?? 'components';
-}
-
-function WorkflowMetadataIcon({ name, size = 13 }: { name: string; size?: number }) {
-  return (
-    <span title={name}>
-      <DesignerIcon name={workflowMetadataIconName(name)} size={size} />
-    </span>
-  );
-}
-
-function customString(
-  props: WorkflowFieldActionTarget,
-  camelCaseKey: string,
-  sourceKey: string,
-): string | undefined {
-  const value = props.node.customProps?.[camelCaseKey] ?? props.node.customProps?.[sourceKey];
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
-}
-
 function copyFieldEnabled(props: WorkflowFieldActionTarget): boolean {
   return props.node.customProps?.copyField === true || props.node.customProps?.copy_field === true;
 }
@@ -176,10 +98,6 @@ function copyFieldEnabled(props: WorkflowFieldActionTarget): boolean {
 function sortableListLimit(props: FormWidgetProps): number | undefined {
   const value = props.node.customProps?.limit ?? props.schema?.maxItems;
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined;
-}
-
-function finiteNumber(value: JsonValue | undefined): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function inputTypes(props: WorkflowFieldActionTarget): string[] {
@@ -448,6 +366,7 @@ function ConnectionWidget(props: FormWidgetProps, callbacks: WorkflowConfigurati
 }
 
 function ModelControl(props: FormWidgetProps) {
+  const copy = workflowWidgetCopy(props.locale);
   const modelType =
     typeof props.node.customProps?.modelType === 'string'
       ? props.node.customProps.modelType
@@ -468,7 +387,7 @@ function ModelControl(props: FormWidgetProps) {
             onBlur={props.onBlur}
             onFocus={props.onFocus}
           >
-            <option value="">{props.node.placeholder ?? 'Select a model'}</option>
+            <option value="">{props.node.placeholder ?? copy.selectModel}</option>
             {props.options.map((option) => (
               <option key={`${option.label}-${String(option.value)}`} value={String(option.value)}>
                 {option.label}
@@ -481,7 +400,7 @@ function ModelControl(props: FormWidgetProps) {
             className="input"
             aria-label={props.node.label ?? props.node.id}
             value={typeof props.value === 'string' ? props.value : ''}
-            placeholder={props.node.placeholder ?? `Choose a ${modelType} model`}
+            placeholder={props.node.placeholder ?? copy.chooseModel(modelType)}
             disabled={props.disabled}
             onChange={(event) => props.onChange(event.target.value)}
             onBlur={props.onBlur}
@@ -526,11 +445,18 @@ function TabsWidget(props: FormWidgetProps) {
 }
 
 function SortableListWidget(props: FormWidgetProps) {
+  const copy = workflowWidgetCopy(props.locale);
+  const label = props.node.label ?? props.node.id;
   const choices = sourceOptions(props);
   const selected = Array.isArray(props.value) ? props.value : [];
   const limit = sortableListLimit(props);
   const atLimit = limit !== undefined && selected.length >= limit;
-  const addLabel = customString(props, 'listAddLabel', 'list_add_label') ?? 'Add an operation…';
+  const configuredAddLabel =
+    props.node.customProps?.listAddLabel ?? props.node.customProps?.list_add_label;
+  const addLabel =
+    typeof configuredAddLabel === 'string' && configuredAddLabel.length > 0
+      ? configuredAddLabel
+      : copy.addOperation;
   const selectedNames = new Set(selected.flatMap((item) => optionName(item) ?? []));
   const available = choices.filter((option) => {
     const name = optionName(option);
@@ -546,7 +472,7 @@ function SortableListWidget(props: FormWidgetProps) {
   return (
     <div className="a3s-form-workflow-sortable">
       {selected.length > 0 ? (
-        <ol aria-label={`${props.node.label ?? props.node.id} order`}>
+        <ol aria-label={copy.sortableOrder(label)}>
           {selected.map((item, index) => {
             const name = optionName(item) ?? String(item);
             const icon = optionIcon(item);
@@ -581,7 +507,7 @@ function SortableListWidget(props: FormWidgetProps) {
                         className="btn"
                         data-size="icon-sm"
                         data-variant="ghost"
-                        aria-label={`Move ${name} up`}
+                        aria-label={copy.moveUp(name)}
                         disabled={props.disabled || index === 0}
                         onClick={() => move(index, -1)}
                       >
@@ -592,7 +518,7 @@ function SortableListWidget(props: FormWidgetProps) {
                         className="btn"
                         data-size="icon-sm"
                         data-variant="ghost"
-                        aria-label={`Move ${name} down`}
+                        aria-label={copy.moveDown(name)}
                         disabled={props.disabled || index === selected.length - 1}
                         onClick={() => move(index, 1)}
                       >
@@ -605,7 +531,7 @@ function SortableListWidget(props: FormWidgetProps) {
                     className="btn"
                     data-size="icon-sm"
                     data-variant="ghost"
-                    aria-label={`Remove ${name}`}
+                    aria-label={copy.removeItem(name)}
                     disabled={props.disabled}
                     onClick={() =>
                       props.onChange(selected.filter((_, itemIndex) => itemIndex !== index))
@@ -619,12 +545,12 @@ function SortableListWidget(props: FormWidgetProps) {
           })}
         </ol>
       ) : (
-        <p className="a3s-form-workflow-empty-control">No operations selected.</p>
+        <p className="a3s-form-workflow-empty-control">{copy.noOperations}</p>
       )}
       {available.length > 0 && (
         <SelectControl
           id={props.id}
-          aria-label={`Add ${props.node.label ?? props.node.id}`}
+          aria-label={copy.addSortableItem(label)}
           disabled={props.disabled || atLimit}
           value=""
           onChange={(event) => {
@@ -649,7 +575,7 @@ function SortableListWidget(props: FormWidgetProps) {
       )}
       {limit !== undefined && (
         <small role="status">
-          {selected.length} of {limit} selected
+          {copy.selectedCount(selected.length, limit)}
         </small>
       )}
     </div>
@@ -657,6 +583,8 @@ function SortableListWidget(props: FormWidgetProps) {
 }
 
 function DurationWidget(props: FormWidgetProps) {
+  const copy = workflowWidgetCopy(props.locale);
+  const label = props.node.label ?? props.node.id;
   const value =
     props.value && typeof props.value === 'object' && !Array.isArray(props.value)
       ? props.value
@@ -673,18 +601,18 @@ function DurationWidget(props: FormWidgetProps) {
         min={0}
         value={amount}
         disabled={props.disabled}
-        aria-label={`${props.node.label ?? props.node.id} value`}
+        aria-label={copy.durationValue(label)}
         onChange={(event) => props.onChange({ value: event.target.valueAsNumber || 0, unit })}
       />
       <SelectControl
-        aria-label={`${props.node.label ?? props.node.id} unit`}
+        aria-label={copy.durationUnit(label)}
         value={unit}
         disabled={props.disabled}
         onChange={(event) => props.onChange({ value: amount, unit: event.target.value })}
       >
         {(units.length > 0 ? units : ['Seconds', 'Minutes', 'Hours', 'Days']).map((candidate) => (
           <option value={candidate} key={candidate}>
-            {candidate}
+            {workflowDurationUnitLabel(candidate, props.locale)}
           </option>
         ))}
       </SelectControl>
@@ -693,6 +621,7 @@ function DurationWidget(props: FormWidgetProps) {
 }
 
 function ActionPickerWidget(props: FormWidgetProps) {
+  const copy = workflowWidgetCopy(props.locale);
   const values = stringArray(props.value);
   const [draft, setDraft] = useState('');
   const add = () => {
@@ -712,7 +641,7 @@ function ActionPickerWidget(props: FormWidgetProps) {
               className="btn"
               data-size="icon-xs"
               data-variant="ghost"
-              aria-label={`Remove ${value}`}
+              aria-label={copy.removeItem(value)}
               disabled={props.disabled}
               onClick={() => props.onChange(values.filter((candidate) => candidate !== value))}
             >
@@ -727,7 +656,7 @@ function ActionPickerWidget(props: FormWidgetProps) {
           className="input"
           value={draft}
           disabled={props.disabled}
-          placeholder="Add a decision"
+          placeholder={copy.decisionPlaceholder}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             if (event.key !== 'Enter') return;
@@ -743,362 +672,9 @@ function ActionPickerWidget(props: FormWidgetProps) {
           disabled={props.disabled || !draft.trim()}
           onClick={add}
         >
-          Add
+          {copy.addDecision}
         </button>
       </div>
-    </div>
-  );
-}
-
-function EditorExpandButton({
-  expanded,
-  label,
-  locale,
-  targetId,
-  onChange,
-}: {
-  expanded: boolean;
-  label: string;
-  locale?: string;
-  targetId: string;
-  onChange: () => void;
-}) {
-  const copy = workflowWidgetCopy(locale);
-  return (
-    <button
-      type="button"
-      className="btn a3s-form-workflow-editor-expand"
-      data-size="xs"
-      data-variant="ghost"
-      aria-controls={targetId}
-      aria-expanded={expanded}
-      aria-label={copy.editorLabel(label, expanded)}
-      onClick={onChange}
-    >
-      <DesignerIcon name={expanded ? 'collapse' : 'desktop'} size={12} />
-      {expanded ? copy.collapse : copy.expand}
-    </button>
-  );
-}
-
-function MultilineWidget(props: FormWidgetProps) {
-  const text = typeof props.value === 'string' ? props.value : '';
-  const [expanded, setExpanded] = useState(false);
-  const lineCount = text.length === 0 ? 0 : text.split('\n').length;
-  const copy = workflowWidgetCopy(props.locale);
-  return (
-    <div
-      className="a3s-form-workflow-source-editor is-multiline"
-      data-expanded={expanded || undefined}
-    >
-      <textarea
-        id={props.id}
-        className="textarea"
-        spellCheck={true}
-        value={text}
-        disabled={props.disabled}
-        aria-label={props.labelledBy ? undefined : (props.node.label ?? props.node.id)}
-        aria-labelledby={props.labelledBy}
-        aria-invalid={props.invalid || undefined}
-        aria-describedby={props.describedBy}
-        placeholder={props.node.placeholder}
-        onChange={(event) => props.onChange(event.target.value)}
-        onBlur={props.onBlur}
-        onFocus={props.onFocus}
-      />
-      <div className="a3s-form-workflow-editor-footer">
-        <span>{lineCount === 0 ? copy.empty : copy.lineCount(lineCount)}</span>
-        <EditorExpandButton
-          expanded={expanded}
-          label={props.node.label ?? props.node.id}
-          locale={props.locale}
-          targetId={props.id}
-          onChange={() => setExpanded((current) => !current)}
-        />
-      </div>
-    </div>
-  );
-}
-
-function JsonWidget(props: FormWidgetProps) {
-  const source =
-    typeof props.value === 'string' ? props.value : JSON.stringify(props.value ?? {}, null, 2);
-  const [draft, setDraft] = useState(source);
-  const [invalid, setInvalid] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const copy = workflowWidgetCopy(props.locale);
-  useEffect(() => setDraft(source), [source]);
-  const stringValue = typeof props.value === 'string';
-  const update = (next: string) => {
-    setDraft(next);
-    if (stringValue) {
-      setInvalid(false);
-      props.onChange(next);
-      return;
-    }
-    try {
-      const parsed: unknown = JSON.parse(next);
-      if (parsed === undefined) return;
-      props.onChange(parsed as JsonValue);
-      setInvalid(false);
-    } catch {
-      setInvalid(true);
-    }
-  };
-  return (
-    <div
-      className="a3s-form-workflow-source-editor"
-      data-expanded={expanded || undefined}
-      data-invalid={invalid || undefined}
-    >
-      <textarea
-        id={props.id}
-        className="textarea"
-        spellCheck={false}
-        value={draft}
-        disabled={props.disabled}
-        aria-label={props.labelledBy ? undefined : (props.node.label ?? props.node.id)}
-        aria-labelledby={props.labelledBy}
-        aria-invalid={props.invalid || invalid || undefined}
-        aria-describedby={props.describedBy}
-        placeholder={props.node.placeholder}
-        onChange={(event) => update(event.target.value)}
-        onBlur={props.onBlur}
-        onFocus={props.onFocus}
-      />
-      <div className="a3s-form-workflow-editor-footer">
-        <span role="status">{invalid ? copy.invalidJson : 'JSON'}</span>
-        <EditorExpandButton
-          expanded={expanded}
-          label={props.node.label ?? props.node.id}
-          locale={props.locale}
-          targetId={props.id}
-          onChange={() => setExpanded((current) => !current)}
-        />
-      </div>
-    </div>
-  );
-}
-
-function CodeWidget(props: FormWidgetProps) {
-  const text = typeof props.value === 'string' ? props.value : '';
-  const [expanded, setExpanded] = useState(false);
-  const copy = workflowWidgetCopy(props.locale);
-  return (
-    <div className="a3s-form-workflow-source-editor is-code" data-expanded={expanded || undefined}>
-      <textarea
-        id={props.id}
-        className="textarea"
-        spellCheck={false}
-        value={text}
-        disabled={props.disabled}
-        aria-label={props.labelledBy ? undefined : (props.node.label ?? props.node.id)}
-        aria-labelledby={props.labelledBy}
-        aria-invalid={props.invalid || undefined}
-        aria-describedby={props.describedBy}
-        placeholder={props.node.placeholder}
-        onChange={(event) => props.onChange(event.target.value)}
-        onBlur={props.onBlur}
-        onFocus={props.onFocus}
-      />
-      <div className="a3s-form-workflow-editor-footer">
-        <span>{text.length === 0 ? copy.empty : copy.lineCount(text.split('\n').length)}</span>
-        <EditorExpandButton
-          expanded={expanded}
-          label={props.node.label ?? props.node.id}
-          locale={props.locale}
-          targetId={props.id}
-          onChange={() => setExpanded((current) => !current)}
-        />
-      </div>
-    </div>
-  );
-}
-
-function PromptWidget(props: FormWidgetProps) {
-  const text = typeof props.value === 'string' ? props.value : '';
-  const [expanded, setExpanded] = useState(false);
-  const variables = useMemo(() => {
-    const names = new Set<string>();
-    for (const match of text.matchAll(/\{\{?\s*([\w.-]+)\s*\}?\}/g)) names.add(match[1]);
-    return [...names];
-  }, [text]);
-  return (
-    <div className="a3s-form-workflow-prompt-editor" data-expanded={expanded || undefined}>
-      <textarea
-        id={props.id}
-        className="textarea"
-        value={text}
-        disabled={props.disabled}
-        aria-label={props.labelledBy ? undefined : (props.node.label ?? props.node.id)}
-        aria-labelledby={props.labelledBy}
-        aria-invalid={props.invalid || undefined}
-        aria-describedby={props.describedBy}
-        placeholder={props.node.placeholder}
-        onChange={(event) => props.onChange(event.target.value)}
-        onBlur={props.onBlur}
-        onFocus={props.onFocus}
-      />
-      <div className="a3s-form-workflow-editor-footer">
-        <div className="item-group">
-          {variables.map((variable) => (
-            <code className="badge" data-variant="outline" key={variable}>
-              {variable}
-            </code>
-          ))}
-        </div>
-        <EditorExpandButton
-          expanded={expanded}
-          label={props.node.label ?? props.node.id}
-          locale={props.locale}
-          targetId={props.id}
-          onChange={() => setExpanded((current) => !current)}
-        />
-      </div>
-    </div>
-  );
-}
-
-function FileWidget(props: FormWidgetProps) {
-  const fileTypes = customStringArray(props.node.customProps?.fileTypes);
-  const multiple = props.schema?.type === 'array';
-  const current = multiple
-    ? stringArray(props.value)
-    : typeof props.value === 'string'
-      ? [props.value]
-      : [];
-  return (
-    <div className="a3s-form-workflow-file-control" data-empty={current.length === 0 || undefined}>
-      <label className="btn" data-variant="secondary" data-size="sm" htmlFor={props.id}>
-        <DesignerIcon name="file" size={14} />
-        Choose {multiple ? 'files' : 'a file'}
-      </label>
-      <input
-        id={props.id}
-        className="a3s-form-visually-hidden"
-        type="file"
-        multiple={multiple}
-        accept={
-          fileTypes.length > 0
-            ? fileTypes.map((type) => `.${type.replace(/^\./, '')}`).join(',')
-            : undefined
-        }
-        disabled={props.disabled}
-        aria-label={props.labelledBy ? undefined : (props.node.label ?? props.node.id)}
-        aria-labelledby={props.labelledBy}
-        onChange={(event) => {
-          const names = Array.from(event.target.files ?? []).map((file) => file.name);
-          props.onChange(multiple ? names : (names[0] ?? ''));
-        }}
-      />
-      <span>{current.length > 0 ? current.join(', ') : 'No file selected'}</span>
-      {fileTypes.length > 0 && <small>{fileTypes.join(' · ')}</small>}
-    </div>
-  );
-}
-
-function McpControl(props: FormWidgetProps) {
-  return (
-    <div className="a3s-form-workflow-mcp-control">
-      <div className="a3s-form-workflow-mcp-status">
-        <span className="a3s-form-workflow-control-icon">
-          <DesignerIcon name="components" size={15} />
-        </span>
-        <span>
-          <strong>MCP server</strong>
-          <small>
-            {props.value && typeof props.value === 'object'
-              ? 'Configuration ready'
-              : 'Not configured'}
-          </small>
-        </span>
-      </div>
-      <JsonWidget {...props} />
-    </div>
-  );
-}
-
-function DataDisplayWidget({
-  callbacks,
-  ...props
-}: FormWidgetProps & { callbacks: WorkflowConfigurationWidgetCallbacks }) {
-  const content =
-    props.value === undefined || props.value === null || props.value === ''
-      ? 'No data available.'
-      : typeof props.value === 'object'
-        ? JSON.stringify(props.value, null, 2)
-        : String(props.value);
-  const buttonText = customString(props, 'buttonText', 'button_text');
-  const buttonIcon = customString(props, 'buttonIcon', 'button_icon');
-  return (
-    <div className="a3s-form-workflow-data-display-control">
-      <textarea
-        id={props.id}
-        className="textarea a3s-form-workflow-data-display"
-        rows={4}
-        readOnly
-        value={content}
-        aria-label={props.labelledBy ? undefined : (props.node.label ?? props.node.id)}
-        aria-labelledby={props.labelledBy}
-      />
-      {buttonText && (
-        <button
-          type="button"
-          className="btn"
-          data-size="sm"
-          data-variant="secondary"
-          disabled={props.disabled || !callbacks.onDataDisplayAction}
-          onClick={() =>
-            callbacks.onDataDisplayAction?.({
-              nodeId: props.node.id,
-              valuePath: props.valuePath,
-              value: props.value,
-              buttonText,
-              buttonIcon,
-            })
-          }
-        >
-          {buttonIcon && <WorkflowMetadataIcon name={buttonIcon} />}
-          {buttonText}
-        </button>
-      )}
-    </div>
-  );
-}
-
-function WorkflowSliderWidget(props: FormWidgetProps) {
-  const minimum = finiteNumber(props.schema?.minimum);
-  const maximum = finiteNumber(props.schema?.maximum);
-  const schemaStep = finiteNumber(props.schema?.multipleOf);
-  const customStep = finiteNumber(props.node.customProps?.step);
-  const step = schemaStep !== undefined && schemaStep > 0 ? schemaStep : customStep;
-  const metadata: Array<readonly [string, number]> = [];
-  if (minimum !== undefined) metadata.push(['Min', minimum]);
-  if (maximum !== undefined) metadata.push(['Max', maximum]);
-  if (step !== undefined && step > 0) metadata.push(['Step', step]);
-  const numberFormat = new Intl.NumberFormat(props.locale, { maximumFractionDigits: 20 });
-  const sliderNode = {
-    ...props.node,
-    widget: 'slider',
-    customProps: step
-      ? {
-          ...props.node.customProps,
-          step,
-        }
-      : props.node.customProps,
-  };
-  return (
-    <div className="a3s-form-workflow-slider">
-      <NativeWidget {...props} node={sliderNode} />
-      {metadata.length > 0 && (
-        <div className="a3s-form-workflow-field-flags">
-          {metadata.map(([label, value]) => (
-            <span className="badge" data-variant="outline" key={label}>
-              {label} {numberFormat.format(value)}
-            </span>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -1117,13 +693,13 @@ function parameterControl(
     case WORKFLOW_CONFIGURATION_WIDGETS.model:
       return <ModelControl {...props} />;
     case WORKFLOW_CONFIGURATION_WIDGETS.file:
-      return <FileWidget {...props} />;
+      return <WorkflowFileWidget {...props} />;
     case WORKFLOW_CONFIGURATION_WIDGETS.code:
-      return <CodeWidget {...props} />;
+      return <WorkflowCodeWidget {...props} />;
     case WORKFLOW_CONFIGURATION_WIDGETS.prompt:
-      return <PromptWidget {...props} />;
+      return <WorkflowPromptWidget {...props} />;
     case WORKFLOW_CONFIGURATION_WIDGETS.json:
-      return <JsonWidget {...props} />;
+      return <WorkflowJsonWidget {...props} />;
     case WORKFLOW_CONFIGURATION_WIDGETS.tabs:
       return <TabsWidget {...props} />;
     case WORKFLOW_CONFIGURATION_WIDGETS.sortableList:
@@ -1133,11 +709,11 @@ function parameterControl(
     case WORKFLOW_CONFIGURATION_WIDGETS.actionPicker:
       return <ActionPickerWidget {...props} />;
     case WORKFLOW_CONFIGURATION_WIDGETS.mcp:
-      return <McpControl {...props} />;
+      return <WorkflowMcpControl {...props} />;
     case WORKFLOW_CONFIGURATION_WIDGETS.dataDisplay:
-      return <DataDisplayWidget {...props} callbacks={callbacks} />;
+      return <WorkflowDataDisplayWidget {...props} callbacks={callbacks} />;
     case 'textarea':
-      return <MultilineWidget {...props} />;
+      return <WorkflowMultilineWidget {...props} />;
     case 'slider':
       return <WorkflowSliderWidget {...props} />;
     default:

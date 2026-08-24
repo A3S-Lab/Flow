@@ -1,3 +1,4 @@
+import type { A3SFlowDagNodeRegistry } from '@a3s-lab/flow-ui';
 import type { FlowWebsiteLocale } from './flow-node-catalog';
 import type { PlaygroundNode } from './WorkflowPlayground.model';
 import {
@@ -19,12 +20,15 @@ type SampleScopes = {
   connections: SampleConnection[];
 };
 
-export function createSampleScopes(locale: FlowWebsiteLocale): SampleScopes {
+export function createSampleScopes(
+  locale: FlowWebsiteLocale,
+  registry: A3SFlowDagNodeRegistry,
+): SampleScopes {
   const branch = (zh: string, en: string) => localize(locale, [zh, en]);
   const iteration = sampleContainer(
     'item_iteration',
     'iteration',
-    { x: 1_260, y: 20 },
+    { x: 1_560, y: 20 },
     locale,
     ['逐项分配库存', 'Allocate inventory per line'],
     [
@@ -39,7 +43,7 @@ export function createSampleScopes(locale: FlowWebsiteLocale): SampleScopes {
   const loop = sampleContainer(
     'shipment_loop',
     'loop',
-    { x: 3_690, y: -160 },
+    { x: 3_990, y: -160 },
     locale,
     ['跟踪国际运输状态', 'Track international shipment'],
     [
@@ -127,7 +131,7 @@ export function createSampleScopes(locale: FlowWebsiteLocale): SampleScopes {
     ),
     sampleNode(
       'reserve_stock',
-      'flow.step',
+      'commerce.inventory.reserve',
       { x: 900, y: 70 },
       locale,
       ['锁定可用库存', 'Reserve available stock'],
@@ -137,12 +141,13 @@ export function createSampleScopes(locale: FlowWebsiteLocale): SampleScopes {
       ],
       {
         parentId: iteration.id,
+        registry,
         configuration: {
-          step_name: 'inventory.reserve',
-          input: expression(field('input')),
-          max_attempts: 4,
-          retry_delay_ms: 1_200,
-          on_exhausted: 'fail_run',
+          sku: expression(field('iteration.item.sku')),
+          quantity: 2,
+          warehouse: 'eu-central',
+          reservation_window: { value: 45, unit: 'Minutes' },
+          note: 'Reserve against the current normalized order line.',
         },
       },
     ),

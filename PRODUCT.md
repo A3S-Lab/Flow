@@ -37,12 +37,14 @@ not a separate product or site. It is the hands-on workflow authoring surface
 and must use the real `@a3s-lab/flow-ui` manifest registry, node previews,
 configuration panels, and DAG compiler.
 
-The Playground supports browsing grouped nodes, adding nodes by click or drag,
-moving and selecting nodes, connecting and deleting graph elements, editing the
-selected node with the production configuration form, resetting a sample,
-compiling the graph, and inspecting the emitted workflow document. It must
-remain usable with a keyboard and adapt to smaller screens without hiding the
-core authoring task.
+The Playground supports searching separate built-in and host-owned node
+catalogs, adding nodes by click or drag, moving and selecting nodes, connecting
+and deleting graph elements, editing the selected node with the production
+configuration form, resetting a sample, compiling the graph, and inspecting
+the emitted workflow document. The default sample contains every supported
+node type, including registered host nodes and both container start types. It
+must remain usable with a keyboard and adapt to smaller screens without hiding
+the core authoring task.
 
 The node catalog workshop remains a focused reference surface. There is no
 separate form-only Playground.

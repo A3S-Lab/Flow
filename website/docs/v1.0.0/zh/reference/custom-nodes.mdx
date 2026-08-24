@@ -21,6 +21,8 @@ description: 注册宿主节点，用 A3S UI 渲染配置表单，并在发布�
 
 配置面板使用 `@a3s-lab/ui/form/react` 提供的 `FormRenderer`。普通文本、数字、选择、开关、滑块、密码、标签和文本域会通过 `NativeWidget` 交给 A3S UI。工作流表达式、Schema、批量任务、子作用域、Prompt、结构化 JSON、时长和有序列表由 Flow UI 补充组合编辑能力。
 
+包内测试会渲染每一个已注册节点。任何可见输入框、选择器或文本域只要脱离 A3S UI 表单契约，测试就会失败。组合编辑器可以管理工作流专用的状态和布局，内部的输入、选择、文本域与按钮仍然使用 A3S UI 原子组件。
+
 ## 注册一个节点
 
 manifest 与执行能力要放在同一次注册中。这样编辑器不会展示一个无法通过发布检查的节点。
@@ -130,8 +132,10 @@ export const flowCatalog = createA3SFlowDagNodeCatalog([scoreOrder]);
 | `SortableListInput`      | 有序列表编辑器     | 选项值应保持稳定                 |
 | `A3SFlowExpressionInput` | Flow 表达式编辑器  | 用于可重放的引用与运算           |
 | `A3SFlowSchemaInput`     | Flow Schema 编辑器 | 用于工作流输入输出契约           |
+| `A3SFlowSpecInput`       | 工作流说明编辑器   | 固定工作流、运行时、入口与导出   |
+| `A3SFlowChildrenInput`   | 子工作流编辑器     | 按顺序保存 1 至 64 个唯一子项    |
 
-`validateA3SFlowDagNodeConfiguration` 会先编译生成的 A3S UI 表单，再按编译计划校验字段值。内置节点随后运行 Flow 语义校验。自定义节点获得相同的表单编译和字段校验，宿主服务内部的业务规则仍由宿主负责。
+`validateA3SFlowDagNodeConfiguration` 会先编译生成的 A3S UI 表单，再按编译计划校验字段值。随后逐项检查 Flow 表达式契约、时间与令牌用途、JSON Schema 根结构、时长单位、工作流说明和子工作流成员。内置节点还会检查重试范围、回调标识、批量任务唯一 ID 和已连接的失败端口。自定义 manifest 同样经过这些检查，依赖宿主服务或租户策略的业务规则仍由宿主负责。
 
 ## 在编辑器里使用同一份 registry
 
