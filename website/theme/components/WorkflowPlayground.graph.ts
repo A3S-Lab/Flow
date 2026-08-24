@@ -57,6 +57,78 @@ function visualHeight(node: PlaygroundNode): number {
   return typeof height === 'number' ? height : 126;
 }
 
+const CHILD_NODE_GAP = 48;
+const CONTAINER_PADDING = 36;
+
+function downstreamNodeIds(
+  startId: string,
+  parentId: string,
+  nodes: readonly PlaygroundNode[],
+  edges: Readonly<PlaygroundGraphState['edges']>,
+): ReadonlySet<string> {
+  const scopedIds = new Set(
+    nodes.filter((node) => node.parentId === parentId).map(({ id }) => id),
+  );
+  const outgoing = new Map<string, string[]>();
+  for (const edge of edges) {
+    if (!scopedIds.has(edge.source) || !scopedIds.has(edge.target)) continue;
+    outgoing.set(edge.source, [
+      ...(outgoing.get(edge.source) ?? []),
+      edge.target,
+    ]);
+  }
+
+  const downstream = new Set<string>();
+  const pending = [startId];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current || downstream.has(current)) continue;
+    downstream.add(current);
+    pending.push(...(outgoing.get(current) ?? []));
+  }
+  return downstream;
+}
+
+function shiftNodeHorizontally(
+  node: PlaygroundNode,
+  amount: number,
+): PlaygroundNode {
+  const position = { x: node.position.x + amount, y: node.position.y };
+  return {
+    ...node,
+    position,
+    data: {
+      ...node.data,
+      dagNode: {
+        ...node.data.dagNode,
+        position: structuredClone(position),
+      },
+    },
+  };
+}
+
+function expandContainerToFitChildren(
+  nodes: readonly PlaygroundNode[],
+  parentId: string,
+): PlaygroundNode[] {
+  const requiredWidth = Math.ceil(
+    Math.max(
+      0,
+      ...nodes
+        .filter((node) => node.parentId === parentId)
+        .map((node) => node.position.x + visualWidth(node)),
+    ) + CONTAINER_PADDING,
+  );
+  return nodes.map((node) =>
+    node.id === parentId && requiredWidth > visualWidth(node)
+      ? {
+          ...node,
+          style: { ...node.style, width: requiredWidth },
+        }
+      : node,
+  );
+}
+
 function compareVisualOrder(left: PlaygroundNode, right: PlaygroundNode) {
   return (
     left.position.y - right.position.y ||
@@ -159,9 +231,29 @@ export function addIntoGraph(
   locale: FlowWebsiteLocale,
   insertEdgeId?: string,
 ): { graph: PlaygroundGraphState; selectedNodeId: string } {
-  const addition = createNodeAddition(type, position, locale, graph.nodes);
+  const edgeToReplace = insertEdgeId
+    ? graph.edges.find(({ id }) => id === insertEdgeId)
+    : undefined;
+  const sourceNode = edgeToReplace
+    ? graph.nodes.find(({ id }) => id === edgeToReplace.source)
+    : undefined;
+  const targetNode = edgeToReplace
+    ? graph.nodes.find(({ id }) => id === edgeToReplace.target)
+    : undefined;
+  const insertionParentId =
+    sourceNode?.parentId && sourceNode.parentId === targetNode?.parentId
+      ? sourceNode.parentId
+      : undefined;
+  const addition = createNodeAddition(
+    type,
+    insertionParentId && targetNode ? targetNode.position : position,
+    locale,
+    graph.nodes,
+    insertionParentId,
+  );
   const selectedNode =
-    addition.nodes.find((node) => !node.parentId) ?? addition.nodes[0];
+    addition.nodes.find((node) => node.parentId === insertionParentId) ??
+    addition.nodes[0];
   const additionNodes = addition.nodes.map((node) => ({
     ...node,
     selected: false,
@@ -170,9 +262,6 @@ export function addIntoGraph(
     ...graph.nodes.map((node) => ({ ...node, selected: false })),
     ...additionNodes,
   ];
-  const edgeToReplace = insertEdgeId
-    ? graph.edges.find(({ id }) => id === insertEdgeId)
-    : undefined;
 
   if (
     !edgeToReplace?.sourceHandle ||
@@ -220,9 +309,31 @@ export function addIntoGraph(
       ) {
         continue;
       }
+      const downstream =
+        insertionParentId && targetNode
+          ? downstreamNodeIds(
+              targetNode.id,
+              insertionParentId,
+              graph.nodes,
+              graph.edges,
+            )
+          : undefined;
       return {
         graph: {
-          nodes,
+          nodes:
+            insertionParentId && downstream
+              ? expandContainerToFitChildren(
+                  nodes.map((node) =>
+                    downstream.has(node.id)
+                      ? shiftNodeHorizontally(
+                          node,
+                          visualWidth(selectedNode) + CHILD_NODE_GAP,
+                        )
+                      : node,
+                  ),
+                  insertionParentId,
+                )
+              : nodes,
           edges: [
             ...baseEdges,
             incomingEdge,

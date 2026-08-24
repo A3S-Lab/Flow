@@ -3,13 +3,15 @@ import {
   addIntoGraph,
   layoutPlaygroundGraph,
 } from './WorkflowPlayground.graph';
-import { createSampleWorkflow } from './WorkflowPlayground.model';
+import { compilePlaygroundGraph } from './WorkflowPlayground.model';
+import { createSampleWorkflow } from './WorkflowPlayground.sample';
 
 describe('Workflow Playground graph editing', () => {
   it('replaces a compatible edge when inserting a node', () => {
     const sample = createSampleWorkflow('en');
     const originalEdge = sample.edges.find(
-      ({ source, target }) => source === 'step_1' && target === 'batch_1',
+      ({ source, target }) =>
+        source === 'validate_order' && target === 'route_serviceability',
     );
     expect(originalEdge).toBeDefined();
 
@@ -26,12 +28,12 @@ describe('Workflow Playground graph editing', () => {
     expect(result.graph.edges).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          source: 'step_1',
+          source: 'validate_order',
           target: result.selectedNodeId,
         }),
         expect.objectContaining({
           source: result.selectedNodeId,
-          target: 'batch_1',
+          target: 'route_serviceability',
         }),
       ]),
     );
@@ -52,6 +54,65 @@ describe('Workflow Playground graph editing', () => {
     expect(result.graph.edges).toContainEqual(originalEdge);
   });
 
+  it('inserts a node into an iteration child scope and makes room for it', () => {
+    const sample = createSampleWorkflow('en');
+    const originalEdge = sample.edges.find(
+      ({ source, target }) =>
+        source === 'item_iteration_start' && target === 'normalize_line',
+    );
+    const originalTask = sample.nodes.find(({ id }) => id === 'normalize_line');
+    const originalContainer = sample.nodes.find(
+      ({ id }) => id === 'item_iteration',
+    );
+    expect(originalEdge).toBeDefined();
+    expect(originalTask).toBeDefined();
+    expect(originalContainer).toBeDefined();
+
+    const result = addIntoGraph(
+      sample,
+      'flow.condition',
+      { x: 1_640, y: 180 },
+      'en',
+      originalEdge?.id,
+    );
+    const inserted = result.graph.nodes.find(
+      ({ id }) => id === result.selectedNodeId,
+    );
+    const movedTask = result.graph.nodes.find(
+      ({ id }) => id === 'normalize_line',
+    );
+    const expandedContainer = result.graph.nodes.find(
+      ({ id }) => id === 'item_iteration',
+    );
+
+    expect(inserted).toMatchObject({
+      parentId: 'item_iteration',
+      data: { dagNode: { parentId: 'item_iteration' } },
+    });
+    expect(result.graph.edges).not.toContainEqual(originalEdge);
+    expect(result.graph.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: 'item_iteration_start',
+          target: result.selectedNodeId,
+        }),
+        expect.objectContaining({
+          source: result.selectedNodeId,
+          target: 'normalize_line',
+        }),
+      ]),
+    );
+    expect(movedTask?.position.x).toBeGreaterThan(
+      originalTask?.position.x ?? 0,
+    );
+    expect(Number(expandedContainer?.style?.width)).toBeGreaterThan(
+      Number(originalContainer?.style?.width),
+    );
+    expect(
+      compilePlaygroundGraph(result.graph.nodes, result.graph.edges),
+    ).toMatchObject({ ok: true });
+  });
+
   it('lays out dependencies in columns and leaves annotations in place', () => {
     const sample = createSampleWorkflow('en');
     sample.annotations.push({
@@ -65,17 +126,19 @@ describe('Workflow Playground graph editing', () => {
     const position = (id: string) =>
       result.nodes.find((node) => node.id === id)?.position;
 
-    expect(position('start_1')?.x).toBeLessThan(
-      position('route_primary')?.x ?? 0,
+    expect(position('order_start')?.x).toBeLessThan(
+      position('validate_order')?.x ?? 0,
     );
-    expect(position('route_primary')?.x).toBeLessThan(
-      position('step_1')?.x ?? 0,
+    expect(position('validate_order')?.x).toBeLessThan(
+      position('route_serviceability')?.x ?? 0,
     );
-    expect(position('step_1')?.x).toBeLessThan(position('batch_1')?.x ?? 0);
-    expect(position('route_secondary')?.x).toBeLessThan(
-      position('wait_1')?.x ?? 0,
+    expect(position('route_serviceability')?.x).toBeLessThan(
+      position('compliance_batch')?.x ?? 0,
+    );
+    expect(position('route_risk')?.x).toBeLessThan(
+      position('wait_review_window')?.x ?? 0,
     );
     expect(result.annotations[0].position).toEqual({ x: 33, y: 44 });
-    expect(sample.nodes[0].position).toEqual({ x: 60, y: 590 });
+    expect(sample.nodes[0].position).toEqual({ x: 60, y: 650 });
   });
 });

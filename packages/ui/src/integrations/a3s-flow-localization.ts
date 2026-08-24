@@ -84,12 +84,12 @@ const CHINESE_NODE_COPY: Readonly<Record<string, LocalizedNodeCopy>> = {
       },
       matched_label: {
         label: '成立分支名称',
-        help: '只修改画布上的显示名称，已有连线不会变化。',
+        help: '修改画布连线上的分支名称，端口 ID 始终保持 matched。',
         group: '分支名称',
       },
       otherwise_label: {
         label: '其他分支名称',
-        help: '只修改画布上的显示名称，已有连线不会变化。',
+        help: '修改画布连线上的分支名称，端口 ID 始终保持 otherwise。',
         group: '分支名称',
       },
     },

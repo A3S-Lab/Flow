@@ -119,7 +119,7 @@ export const workflowPlaygroundCopy: Readonly<
 > = {
   zh: {
     pageTitle: 'A3S Flow 工作流设计器',
-    workflowName: '客户支持工作流',
+    workflowName: '跨境高价值订单履约',
     localDraft: '本地草稿',
     saved: '已保存到本地',
     saving: '正在保存',
@@ -254,7 +254,7 @@ export const workflowPlaygroundCopy: Readonly<
   },
   en: {
     pageTitle: 'A3S Flow workflow designer',
-    workflowName: 'Customer support workflow',
+    workflowName: 'Cross-border high-value order fulfillment',
     localDraft: 'Local draft',
     saved: 'Saved locally',
     saving: 'Saving',
