@@ -65,6 +65,10 @@ A workflow document may describe task names, runtime entry points, input mapping
 
 Unknown semantic extensions in an imported document are preserved by default. Position, dimensions, title, description, and selection are editor data and can change without affecting semantic identity. The agent must never invent a digest or runtime binding, and it must not silence validation by deleting fields or edges whose purpose has not been understood.
 
+## Project-owned custom nodes
+
+The packaged Skill knows the official CLI catalog. It does not infer custom node fields or executor handlers. A project that permits custom nodes should give the agent a local reference naming the catalog module, admitted node types, capability owner, and typed publication command. The agent then follows that project command instead of weakening an `unknown_node` failure. The [custom node guide](./custom-nodes) defines the required registry and capability checks.
+
 ## Verify the installation
 
 ```bash

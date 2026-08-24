@@ -1,0 +1,208 @@
+---
+title: 自定义节点
+description: 注册宿主节点，用 A3S UI 渲染配置表单，并在发布前核对执行能力。
+---
+
+# 自定义节点
+
+自定义节点把宿主能力放进工作流编辑器，同时保留内置节点目录。宿主负责 manifest、执行器、授权和发布流程。Flow UI 负责类型化图契约，并把 manifest 转成 A3S UI 表单。
+
+一项操作有稳定业务含义，作者又需要明确的节点卡片、受约束的配置表单或类型化数据端口时，可以为它注册节点。偶尔使用的操作继续放在 `flow.step` 里，通过任务名称找到处理器即可。
+
+## 各层负责什么
+
+| 范围                                 | 负责人       |
+| ------------------------------------ | ------------ |
+| 表单文档、编译、校验、布局和通用控件 | A3S UI Form  |
+| manifest 转换和工作流专用组合控件    | Flow UI      |
+| 自定义节点名称、字段、端口和能力声明 | 宿主应用     |
+| 处理器查找、凭据、权限、队列和副作用 | 宿主运行时   |
+| 最终发布决定                         | 宿主发布流程 |
+
+配置面板使用 `@a3s-lab/ui/form/react` 提供的 `FormRenderer`。普通文本、数字、选择、开关、滑块、密码、标签和文本域会通过 `NativeWidget` 交给 A3S UI。工作流表达式、Schema、批量任务、子作用域、Prompt、结构化 JSON、时长和有序列表由 Flow UI 补充组合编辑能力。
+
+## 注册一个节点
+
+manifest 与执行能力要放在同一次注册中。这样编辑器不会展示一个无法通过发布检查的节点。
+
+```ts
+import {
+  createA3SFlowDagNodeCatalog,
+  defineA3SFlowCustomDagNode,
+} from '@a3s-lab/flow-ui';
+
+const scoreOrder = defineA3SFlowCustomDagNode({
+  manifest: {
+    type: 'commerce.risk.score',
+    display_name: '订单风险评分',
+    description: '调用宿主风险服务，为订单生成风险分。',
+    category: 'custom',
+    categoryLabel: '自定义节点',
+    role: 'host',
+    icon: 'shield-check',
+    ports: {
+      inputs: [
+        { id: 'in', label: '进入', kind: 'control', types: ['FlowControl'] },
+        { id: 'order', label: '订单', kind: 'data', types: ['Json'] },
+      ],
+      outputs: [
+        { id: 'next', label: '继续', kind: 'control', types: ['FlowControl'] },
+        { id: 'score', label: '风险分', kind: 'data', types: ['Number'] },
+      ],
+    },
+    input_types: ['Json'],
+    output_types: ['Number'],
+    fields: [
+      {
+        name: 'policy',
+        display_name: '评分策略',
+        info: '选择宿主已经发布并授权的策略。',
+        type: 'str',
+        _input_type: 'DropdownInput',
+        value: 'balanced-v2',
+        options: [
+          { label: '均衡策略 v2', value: 'balanced-v2' },
+          { label: '严格复核', value: 'strict-v1' },
+        ],
+        required: true,
+      },
+      {
+        name: 'review_threshold',
+        display_name: '人工复核阈值',
+        info: '评分达到这个值时送入人工复核。',
+        type: 'slider',
+        _input_type: 'SliderInput',
+        value: 0.72,
+        range_spec: { min: 0, max: 1, step: 0.01 },
+        required: true,
+      },
+      {
+        name: 'strict_validation',
+        display_name: '严格校验',
+        info: '订单缺少必要字段时停止评分。',
+        type: 'bool',
+        _input_type: 'BoolInput',
+        value: true,
+      },
+    ],
+    outputs: [
+      {
+        name: 'score',
+        display_name: '风险分',
+        types: ['Number'],
+        group_outputs: false,
+        allows_loop: false,
+        tool_mode: false,
+      },
+    ],
+  },
+  capability: {
+    id: 'commerce/risk-score',
+    version: '1.2.3',
+    handler: 'risk.score-order',
+  },
+});
+
+export const flowCatalog = createA3SFlowDagNodeCatalog([scoreOrder]);
+```
+
+类型名称至少包含三个小写命名段。`flow.*`、`iteration`、`loop` 以及两个内部起始类型都已保留。自定义 manifest 必须公开并使用 `host` 角色，也不能声明 Flow 运行命令或容器绑定。
+
+能力 ID 要有命名空间。版本只能写一个确定的 SemVer，不能写版本范围。`handler` 是宿主运行时查找执行代码的稳定名称。注册过程会检查这些值，也会拒绝与内置节点或已有自定义节点重名的类型。
+
+`createA3SFlowDagNodeCatalog` 每次返回一份新的只读 registry。它不会修改 `a3sFlowDagNodeRegistry`，测试、不同项目和多个编辑器之间不会互相污染。
+
+## 字段与控件
+
+字段类型应直接描述要保存的值。默认值、必填、枚举、范围、分组与条件显示都写在 manifest 中，配置面板不会再维护另一份手写规则。
+
+| manifest 输入            | 表单控件           | 使用说明                         |
+| ------------------------ | ------------------ | -------------------------------- |
+| `StrInput`               | A3S UI 文本框      | 长文本再打开 `multiline`         |
+| `DropdownInput`          | A3S UI 选择框      | `options` 中保存稳定机器值       |
+| `IntInput`、`FloatInput` | A3S UI 数字框      | 通过 `range_spec` 设置范围与步长 |
+| `BoolInput`              | A3S UI 开关        | 标签直接说明打开后会发生什么     |
+| `SliderInput`            | A3S UI 滑块        | 最小值、最大值和步长要有业务含义 |
+| `MultilineInput`         | A3S UI 文本域      | 适合备注，不用于结构化数据       |
+| `JSONInput`              | 结构化 JSON 编辑器 | 字段 Schema 仍是对象             |
+| `DurationInput`          | 数值与单位组合控件 | 默认值保存为 `{ value, unit }`   |
+| `PromptInput`            | Prompt 编辑器      | 可以插入工作流变量               |
+| `SortableListInput`      | 有序列表编辑器     | 选项值应保持稳定                 |
+| `A3SFlowExpressionInput` | Flow 表达式编辑器  | 用于可重放的引用与运算           |
+| `A3SFlowSchemaInput`     | Flow Schema 编辑器 | 用于工作流输入输出契约           |
+
+`validateA3SFlowDagNodeConfiguration` 会先编译生成的 A3S UI 表单，再按编译计划校验字段值。内置节点随后运行 Flow 语义校验。自定义节点获得相同的表单编译和字段校验，宿主服务内部的业务规则仍由宿主负责。
+
+## 在编辑器里使用同一份 registry
+
+节点创建、Hook、画布卡片、配置面板、连线校验与序列化都应接收同一份 registry。如果其中一个位置退回内置单例，节点可能出现在目录里，却无法在画布或配置面板中打开。
+
+```tsx
+import {
+  A3SFlowDagNodeConfigurationPanel,
+  A3SFlowDagNodePreview,
+  useA3SFlowNode,
+} from '@a3s-lab/flow-ui/react';
+import { flowCatalog } from './flow-catalog';
+
+export function RiskNodeEditor() {
+  const state = useA3SFlowNode({
+    id: 'score-order',
+    type: 'commerce.risk.score',
+    registry: flowCatalog.registry,
+  });
+
+  return (
+    <>
+      <A3SFlowDagNodePreview
+        dagNode={state.node}
+        registry={flowCatalog.registry}
+      />
+      <A3SFlowDagNodeConfigurationPanel
+        dagNode={state.node}
+        onChange={state.setNode}
+        registry={flowCatalog.registry}
+      />
+    </>
+  );
+}
+```
+
+Vue 的 `useA3SFlowNode` 也接受 `registry`。宿主需要按项目切换目录时，可以传入 `ref` 或 getter。
+
+## 发布前核对执行能力
+
+结构编译会把 `data.type` 当成不透明字符串。宿主在发布阶段加入 registry 与能力检查。
+
+```ts
+import { compileA3SFlowWorkflowDagForPublication } from '@a3s-lab/flow-ui';
+import { flowCatalog } from './flow-catalog';
+
+const result = compileA3SFlowWorkflowDagForPublication(
+  document.workflow.graph,
+  flowCatalog.registry,
+  flowCatalog.capabilities,
+);
+
+if (!result.ok) {
+  throw new Error(JSON.stringify(result.issues));
+}
+```
+
+发布检查会拒绝未注册类型、出现在顶层的内部节点、缺失能力绑定、类型不一致、格式错误的能力 ID、版本范围和空处理器。检查通过只能证明文档指向已准入的处理器身份。处理器是否安装、当前项目能否调用、它可以读取哪些凭据，仍由宿主决定。
+
+## CLI 与 Skill 的边界
+
+随包提供的 `a3s-flow` CLI 只包含官方内置目录，也不会加载应用代码。它遇到自定义类型时会报告未知节点。使用自定义节点的项目应增加一条类型化校验命令，导入项目 catalog，并调用 `compileA3SFlowWorkflowDagForPublication`。
+
+随包提供的 A3S Flow Skill 遵循同一条边界。Agent 可以通过 CLI 查询和编辑内置节点。项目要让 Agent 使用自定义节点，还需提供项目文档，写明 catalog 模块、支持的类型、能力负责人和发布校验命令。Agent 不应自行编造处理器，也不能跳过宿主授权。
+
+## 常见错误
+
+| 错误                         | 处理方法                                               |
+| ---------------------------- | ------------------------------------------------------ |
+| `node_type_unregistered`     | 导入项目 catalog，并把它的 registry 传到所有编辑入口   |
+| `capability_binding_missing` | 用一个 `defineA3SFlowCustomDagNode` 同时注册节点与能力 |
+| `capability_binding_invalid` | 核对节点类型、命名空间 ID、确定版本与非空处理器        |
+| `manifest_form_invalid`      | 修正字段类型、默认值、选项或控件契约                   |
+| 表单字段错误                 | 修正错误指向的字段，同时保留节点其余数据               |

@@ -83,3 +83,5 @@ Hook 创建带 manifest 默认值的节点，并把每次修改归一化。`conf
 `connectedOutputPortIds` 让语义校验知道哪些控制出口已经连线。步骤把 `on_exhausted` 设为 `continue_workflow` 时，应连接 `failed`。`onRequestConnection` 可以把字段旁的连接动作交给画布。`onChange` 每次收到完整新节点，宿主应把它写回自己的图状态。
 
 面板不会保存工作流、管理凭据或调用任务。保存、撤销、多人协作和发布仍由宿主编辑器负责。提交前使用 `a3s-flow validate` 检查整张图，单个表单通过不能证明容器作用域和所有连线都有效。
+
+宿主自定义类型需要把同一份组合 registry 传给 Hook、节点卡片和配置面板。[自定义节点](./custom-nodes)说明了注册、A3S UI 字段渲染、执行能力与发布检查。

@@ -1,5 +1,4 @@
 import {
-  a3sFlowDagNodeRegistry,
   getA3SFlowCoreNode,
   isA3SFlowCorePortAvailable,
   localizeA3SFlowDagManifest,
@@ -10,6 +9,7 @@ import { Copy, Play, Trash } from '@phosphor-icons/react';
 import { Handle, NodeToolbar, Position, type NodeProps } from '@xyflow/react';
 import { workflowPlaygroundCopy } from './WorkflowPlayground.copy';
 import type { PlaygroundNode } from './WorkflowPlayground.model';
+import { useWorkflowPlaygroundRegistry } from './WorkflowPlayground.registry';
 
 function handleTop(index: number, total: number, container: boolean): string {
   if (container) return '76px';
@@ -28,7 +28,8 @@ export function WorkflowPlaygroundNode({
   selected,
   isConnectable,
 }: NodeProps<PlaygroundNode>) {
-  const manifest = a3sFlowDagNodeRegistry.require(data.dagNode.data.type);
+  const registry = useWorkflowPlaygroundRegistry();
+  const manifest = registry.require(data.dagNode.data.type);
   const localized = localizeA3SFlowDagManifest(manifest, data.locale);
   const text = workflowPlaygroundCopy[data.locale];
   const coreDefinition = getA3SFlowCoreNode(manifest.type);

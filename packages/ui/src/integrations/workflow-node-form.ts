@@ -277,7 +277,7 @@ function schemaForField(field: WorkflowNodeFieldDefinition): JsonSchema {
   }
   if (type === "object") schema.additionalProperties = true;
   if (type === "string" && field.required) schema.minLength = 1;
-  if (type !== "array" && options.length > 0)
+  if (type !== "array" && type !== "object" && options.length > 0)
     schema.enum = options.map((option) => option.value);
   if ((type === "integer" || type === "number") && range) {
     if (Number.isFinite(range.min)) schema.minimum = range.min;

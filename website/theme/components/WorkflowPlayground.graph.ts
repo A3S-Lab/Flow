@@ -1,6 +1,7 @@
 import {
   a3sFlowDagNodeRegistry,
   localizeA3SFlowDagManifest,
+  type A3SFlowDagNodeRegistry,
 } from '@a3s-lab/flow-ui';
 import type { XYPosition } from '@xyflow/react';
 import {
@@ -15,11 +16,12 @@ import type { FlowWebsiteLocale } from './flow-node-catalog';
 export function nodeDisplayName(
   node: PlaygroundNode,
   locale: FlowWebsiteLocale,
+  registry: A3SFlowDagNodeRegistry = a3sFlowDagNodeRegistry,
 ): string {
   const title = node.data.dagNode.data.title;
   if (typeof title === 'string' && title.trim()) return title;
   return localizeA3SFlowDagManifest(
-    a3sFlowDagNodeRegistry.require(node.data.dagNode.data.type),
+    registry.require(node.data.dagNode.data.type),
     locale,
   ).display_name;
 }
@@ -230,6 +232,7 @@ export function addIntoGraph(
   position: XYPosition,
   locale: FlowWebsiteLocale,
   insertEdgeId?: string,
+  registry: A3SFlowDagNodeRegistry = a3sFlowDagNodeRegistry,
 ): { graph: PlaygroundGraphState; selectedNodeId: string } {
   const edgeToReplace = insertEdgeId
     ? graph.edges.find(({ id }) => id === insertEdgeId)
@@ -250,6 +253,7 @@ export function addIntoGraph(
     locale,
     graph.nodes,
     insertionParentId,
+    registry,
   );
   const selectedNode =
     addition.nodes.find((node) => node.parentId === insertionParentId) ??
@@ -282,7 +286,7 @@ export function addIntoGraph(
     ...graph.edges.filter(({ id }) => id !== edgeToReplace.id),
     ...addition.edges,
   ];
-  const manifest = a3sFlowDagNodeRegistry.require(type);
+  const manifest = registry.require(type);
 
   for (const input of manifest.ports.inputs) {
     const incoming = {
@@ -291,8 +295,14 @@ export function addIntoGraph(
       target: selectedNode.id,
       targetHandle: input.id,
     };
-    if (!validatePlaygroundConnection(incoming, nodes, baseEdges).ok) continue;
-    const incomingEdge = createPlaygroundEdge(incoming, nodes, locale);
+    if (!validatePlaygroundConnection(incoming, nodes, baseEdges, registry).ok)
+      continue;
+    const incomingEdge = createPlaygroundEdge(
+      incoming,
+      nodes,
+      locale,
+      registry,
+    );
 
     for (const output of manifest.ports.outputs) {
       const outgoing = {
@@ -302,10 +312,12 @@ export function addIntoGraph(
         targetHandle: edgeToReplace.targetHandle,
       };
       if (
-        !validatePlaygroundConnection(outgoing, nodes, [
-          ...baseEdges,
-          incomingEdge,
-        ]).ok
+        !validatePlaygroundConnection(
+          outgoing,
+          nodes,
+          [...baseEdges, incomingEdge],
+          registry,
+        ).ok
       ) {
         continue;
       }
@@ -337,7 +349,7 @@ export function addIntoGraph(
           edges: [
             ...baseEdges,
             incomingEdge,
-            createPlaygroundEdge(outgoing, nodes, locale),
+            createPlaygroundEdge(outgoing, nodes, locale, registry),
           ],
           annotations: graph.annotations,
         },

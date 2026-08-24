@@ -82,7 +82,9 @@ import {
   type PlaygroundNode,
 } from './WorkflowPlayground.model';
 import { createSampleWorkflow } from './WorkflowPlayground.sample';
+import { createPlaygroundNodeCatalog } from './WorkflowPlayground.custom-nodes';
 import { WorkflowPlaygroundNode } from './WorkflowPlaygroundNode';
+import { WorkflowPlaygroundRegistryContext } from './WorkflowPlayground.registry';
 import { flowNodeGroups, type FlowWebsiteLocale } from './flow-node-catalog';
 
 const DRAG_MIME = 'application/x-a3s-flow-node';
@@ -135,6 +137,7 @@ function MarkdownPlayground({
 function WorkflowPlaygroundSurface() {
   const locale: FlowWebsiteLocale = useLang() === 'en' ? 'en' : 'zh';
   const copy = workflowPlaygroundCopy[locale];
+  const catalog = useMemo(() => createPlaygroundNodeCatalog(locale), [locale]);
   const version = useVersion();
   const { site } = useSite();
   const defaultVersion = site.multiVersion.default ?? version;
@@ -201,12 +204,17 @@ function WorkflowPlaygroundSurface() {
   } as CSSProperties;
 
   const compilation = useMemo(
-    () => compilePlaygroundGraph(graph.nodes, graph.edges),
-    [graph.edges, graph.nodes],
+    () => compilePlaygroundGraph(graph.nodes, graph.edges, catalog),
+    [catalog, graph.edges, graph.nodes],
   );
   const configurationIssues = useMemo(
-    () => validatePlaygroundConfigurations(graph.nodes, graph.edges),
-    [graph.edges, graph.nodes],
+    () =>
+      validatePlaygroundConfigurations(
+        graph.nodes,
+        graph.edges,
+        catalog.registry,
+      ),
+    [catalog.registry, graph.edges, graph.nodes],
   );
   const issueCount =
     (compilation.ok ? 0 : compilation.issues.length) +
@@ -335,7 +343,7 @@ function WorkflowPlaygroundSurface() {
   const addNode = useCallback(
     (type: string, requestedPosition?: XYPosition) => {
       const manifest = localizeA3SFlowDagManifest(
-        a3sFlowDagNodeRegistry.require(type),
+        catalog.registry.require(type),
         locale,
       );
       const result = addIntoGraph(
@@ -344,6 +352,7 @@ function WorkflowPlaygroundSurface() {
         requestedPosition ?? pendingNodePosition ?? centerPosition(),
         locale,
         insertEdgeId,
+        catalog.registry,
       );
       commit(result.graph);
       setSelectedNodeId(result.selectedNodeId);
@@ -359,6 +368,7 @@ function WorkflowPlaygroundSurface() {
     },
     [
       centerPosition,
+      catalog.registry,
       closeNodeLibrary,
       commit,
       copy,
@@ -455,7 +465,7 @@ function WorkflowPlaygroundSurface() {
       if (!completed) return;
       const step = {
         nodeId,
-        label: nodeDisplayName(node, locale),
+        label: nodeDisplayName(node, locale, catalog.registry),
         type: node.data.dagNode.data.type,
         durationMs: 420,
       };
@@ -465,7 +475,7 @@ function WorkflowPlaygroundSurface() {
       setRunning(false);
       setAnnouncement(copy.runComplete);
     },
-    [copy.runComplete, graph.nodes, locale, running],
+    [catalog.registry, copy.runComplete, graph.nodes, locale, running],
   );
 
   const runWorkflow = useCallback(async () => {
@@ -496,7 +506,7 @@ function WorkflowPlaygroundSurface() {
       if (!(await waitForPreview(280, controller.signal))) return;
       const step = {
         nodeId,
-        label: nodeDisplayName(node, locale),
+        label: nodeDisplayName(node, locale, catalog.registry),
         type: node.data.dagNode.data.type,
         durationMs: 280,
       };
@@ -524,6 +534,7 @@ function WorkflowPlaygroundSurface() {
     setAnnouncement(copy.runComplete);
   }, [
     compilation,
+    catalog.registry,
     configurationIssues.length,
     copy.runComplete,
     graph.nodes,
@@ -597,6 +608,7 @@ function WorkflowPlaygroundSurface() {
         connection,
         graph.nodes,
         graph.edges,
+        catalog.registry,
       );
       if (!validation.ok) {
         setAnnouncement(copy.connectionRejected[validation.reason]);
@@ -619,6 +631,7 @@ function WorkflowPlaygroundSurface() {
         },
         graph.nodes,
         locale,
+        catalog.registry,
       );
       commit((current) => ({
         ...current,
@@ -626,7 +639,7 @@ function WorkflowPlaygroundSurface() {
       }));
       setAnnouncement(copy.connectionCreated);
     },
-    [commit, copy, graph.edges, graph.nodes, locale],
+    [catalog.registry, commit, copy, graph.edges, graph.nodes, locale],
   );
 
   const isValidConnection = useCallback(
@@ -640,8 +653,9 @@ function WorkflowPlaygroundSurface() {
         },
         graph.nodes,
         graph.edges,
+        catalog.registry,
       ).ok,
-    [graph.edges, graph.nodes],
+    [catalog.registry, graph.edges, graph.nodes],
   );
 
   const updateSelectedNode = useCallback(
@@ -796,6 +810,7 @@ function WorkflowPlaygroundSurface() {
           edge,
           graph.nodes,
           locale,
+          catalog.registry,
         );
         const animated =
           running &&
@@ -826,6 +841,7 @@ function WorkflowPlaygroundSurface() {
       }),
     [
       copy.addNode,
+      catalog.registry,
       edgePalette.active,
       edgePalette.line,
       edgeRouting,
@@ -887,13 +903,13 @@ function WorkflowPlaygroundSurface() {
       event.preventDefault();
       const type = event.dataTransfer.getData(DRAG_MIME) || draggedType;
       setDraggedType(undefined);
-      if (!type || !a3sFlowDagNodeRegistry.get(type)) return;
+      if (!type || !catalog.registry.get(type)) return;
       addNode(
         type,
         screenToFlowPosition({ x: event.clientX, y: event.clientY }),
       );
     },
-    [addNode, draggedType, screenToFlowPosition],
+    [addNode, catalog.registry, draggedType, screenToFlowPosition],
   );
 
   const rightPanelOpen = Boolean(
@@ -1018,120 +1034,122 @@ function WorkflowPlaygroundSurface() {
           onDrop={onCanvasDrop}
           ref={canvasRef}
         >
-          <ReactFlow<PlaygroundCanvasNode, PlaygroundEdge>
-            ariaLabelConfig={
-              locale === 'zh'
-                ? {
-                    'controls.ariaLabel': copy.zoomControls,
-                    'minimap.ariaLabel': copy.minimap,
-                  }
-                : undefined
-            }
-            connectionLineType={
-              edgeRouting === 'curve'
-                ? ConnectionLineType.Bezier
-                : ConnectionLineType.SmoothStep
-            }
-            connectionLineStyle={{
-              stroke: edgePalette.active,
-              strokeWidth: 2,
-            }}
-            defaultViewport={INITIAL_PLAYGROUND_VIEWPORT}
-            defaultEdgeOptions={defaultEdgeOptions}
-            deleteKeyCode={null}
-            edges={displayEdges}
-            edgeTypes={edgeTypes}
-            elementsSelectable={!running}
-            isValidConnection={isValidConnection}
-            maxZoom={1.6}
-            minZoom={0.25}
-            nodeTypes={nodeTypes}
-            nodes={displayNodes}
-            nodesConnectable={!running}
-            nodesDraggable={!running}
-            onConnect={onConnect}
-            onEdgeClick={(_, edge) => {
-              setSelectedEdgeId(edge.id);
-              setSelectedNodeId(undefined);
-              setSelectedAnnotationId(undefined);
-              if (activePanel === 'settings') setActivePanel(undefined);
-            }}
-            onEdgesChange={onEdgesChange}
-            onNodeClick={(_, node) => {
-              setSelectedEdgeId(undefined);
-              if (node.type === 'annotation') {
-                setSelectedAnnotationId(node.id);
+          <WorkflowPlaygroundRegistryContext.Provider value={catalog.registry}>
+            <ReactFlow<PlaygroundCanvasNode, PlaygroundEdge>
+              ariaLabelConfig={
+                locale === 'zh'
+                  ? {
+                      'controls.ariaLabel': copy.zoomControls,
+                      'minimap.ariaLabel': copy.minimap,
+                    }
+                  : undefined
+              }
+              connectionLineType={
+                edgeRouting === 'curve'
+                  ? ConnectionLineType.Bezier
+                  : ConnectionLineType.SmoothStep
+              }
+              connectionLineStyle={{
+                stroke: edgePalette.active,
+                strokeWidth: 2,
+              }}
+              defaultViewport={INITIAL_PLAYGROUND_VIEWPORT}
+              defaultEdgeOptions={defaultEdgeOptions}
+              deleteKeyCode={null}
+              edges={displayEdges}
+              edgeTypes={edgeTypes}
+              elementsSelectable={!running}
+              isValidConnection={isValidConnection}
+              maxZoom={1.6}
+              minZoom={0.25}
+              nodeTypes={nodeTypes}
+              nodes={displayNodes}
+              nodesConnectable={!running}
+              nodesDraggable={!running}
+              onConnect={onConnect}
+              onEdgeClick={(_, edge) => {
+                setSelectedEdgeId(edge.id);
                 setSelectedNodeId(undefined);
-                if (activePanel === 'settings') setActivePanel(undefined);
-              } else {
-                setSelectedNodeId(node.id);
                 setSelectedAnnotationId(undefined);
-                setActivePanel('settings');
-              }
-            }}
-            onNodeDragStart={beginDrag}
-            onNodeDragStop={endDrag}
-            onNodesChange={onNodesChange}
-            onPaneClick={(event) => {
-              if (canvasMode === 'comment') {
-                addAnnotation(
-                  'comment',
-                  screenToFlowPosition({
-                    x: event.clientX,
-                    y: event.clientY,
-                  }),
-                );
-                setCanvasMode('select');
-                return;
-              }
-              setSelectedNodeId(undefined);
-              setSelectedAnnotationId(undefined);
-              setSelectedEdgeId(undefined);
-              if (activePanel === 'settings') setActivePanel(undefined);
-            }}
-            onPaneContextMenu={(event) => {
-              event.preventDefault();
-              openNodeLibrary(
-                undefined,
-                screenToFlowPosition({ x: event.clientX, y: event.clientY }),
-              );
-            }}
-            panOnDrag={canvasMode === 'pan'}
-            panOnScroll
-            proOptions={{ hideAttribution: true }}
-            selectionOnDrag={canvasMode === 'select'}
-            snapGrid={[14, 14]}
-            snapToGrid
-            zoomOnDoubleClick={false}
-          >
-            <Background
-              color="#cbd5e1"
-              gap={14}
-              size={1}
-              variant={BackgroundVariant.Dots}
-            />
-            {minimapVisible && (
-              <MiniMap<PlaygroundCanvasNode>
-                ariaLabel={copy.minimap}
-                bgColor="#ffffff"
-                maskColor="rgb(18 100 255 / 8%)"
-                nodeBorderRadius={5}
-                nodeColor={(node) =>
-                  node.type === 'annotation' ? '#ddae4c' : '#b8c5d7'
+                if (activePanel === 'settings') setActivePanel(undefined);
+              }}
+              onEdgesChange={onEdgesChange}
+              onNodeClick={(_, node) => {
+                setSelectedEdgeId(undefined);
+                if (node.type === 'annotation') {
+                  setSelectedAnnotationId(node.id);
+                  setSelectedNodeId(undefined);
+                  if (activePanel === 'settings') setActivePanel(undefined);
+                } else {
+                  setSelectedNodeId(node.id);
+                  setSelectedAnnotationId(undefined);
+                  setActivePanel('settings');
                 }
-                nodeStrokeColor="#8999ad"
-                pannable
-                position="bottom-right"
-                zoomable
+              }}
+              onNodeDragStart={beginDrag}
+              onNodeDragStop={endDrag}
+              onNodesChange={onNodesChange}
+              onPaneClick={(event) => {
+                if (canvasMode === 'comment') {
+                  addAnnotation(
+                    'comment',
+                    screenToFlowPosition({
+                      x: event.clientX,
+                      y: event.clientY,
+                    }),
+                  );
+                  setCanvasMode('select');
+                  return;
+                }
+                setSelectedNodeId(undefined);
+                setSelectedAnnotationId(undefined);
+                setSelectedEdgeId(undefined);
+                if (activePanel === 'settings') setActivePanel(undefined);
+              }}
+              onPaneContextMenu={(event) => {
+                event.preventDefault();
+                openNodeLibrary(
+                  undefined,
+                  screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+                );
+              }}
+              panOnDrag={canvasMode === 'pan'}
+              panOnScroll
+              proOptions={{ hideAttribution: true }}
+              selectionOnDrag={canvasMode === 'select'}
+              snapGrid={[14, 14]}
+              snapToGrid
+              zoomOnDoubleClick={false}
+            >
+              <Background
+                color="#cbd5e1"
+                gap={14}
+                size={1}
+                variant={BackgroundVariant.Dots}
               />
-            )}
-            <Controls
-              aria-label={copy.zoomControls}
-              fitViewOptions={{ padding: 0.16 }}
-              position="bottom-right"
-              showInteractive={false}
-            />
-          </ReactFlow>
+              {minimapVisible && (
+                <MiniMap<PlaygroundCanvasNode>
+                  ariaLabel={copy.minimap}
+                  bgColor="#ffffff"
+                  maskColor="rgb(18 100 255 / 8%)"
+                  nodeBorderRadius={5}
+                  nodeColor={(node) =>
+                    node.type === 'annotation' ? '#ddae4c' : '#b8c5d7'
+                  }
+                  nodeStrokeColor="#8999ad"
+                  pannable
+                  position="bottom-right"
+                  zoomable
+                />
+              )}
+              <Controls
+                aria-label={copy.zoomControls}
+                fitViewOptions={{ padding: 0.16 }}
+                position="bottom-right"
+                showInteractive={false}
+              />
+            </ReactFlow>
+          </WorkflowPlaygroundRegistryContext.Provider>
           {draggedType && (
             <div className="flow-playground-canvas__drop-hint">
               {copy.dropHelp}
@@ -1145,6 +1163,7 @@ function WorkflowPlaygroundSurface() {
         </div>
 
         <WorkflowPlaygroundLibrary
+          catalog={catalog}
           copy={copy}
           locale={locale}
           onClose={closeNodeLibrary}
@@ -1164,6 +1183,7 @@ function WorkflowPlaygroundSurface() {
             edges={graph.edges}
             lastRunNodeIds={lastRunNodeIds}
             locale={locale}
+            registry={catalog.registry}
             nodes={graph.nodes}
             onApply={() => setAnnouncement(copy.nodeUpdated)}
             onClose={() => setActivePanel(undefined)}

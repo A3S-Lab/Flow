@@ -35,28 +35,32 @@ Every edge has a stable `id`, a `source`, and a `target`. Set `sourceHandle` and
 
 ## Public node catalog
 
-| Type | Purpose | Primary settings |
-| --- | --- | --- |
-| `flow.start` | Define workflow identity, runtime entry, accepted input, and duplicate protection. | `workflow_name`, `workflow_version`, `runtime_kind`, `entrypoint`, `export_name`, `input_schema`, duplicate policy fields |
-| `flow.step` | Run one registered task with retry and exhaustion behavior. | `step_name`, `input`, `max_attempts`, `retry_delay_ms`, `on_exhausted` |
-| `flow.batch` | Run an ordered collection of registered tasks. | `steps` |
-| `flow.condition` | Route control through deterministic cases and a fallback branch. | `expression`, case definitions |
-| `flow.wait` | Suspend until an absolute replay-safe UTC time. | `resume_at` |
-| `flow.hook` | Create a resumable manual or webhook boundary. | `kind`, `token_expression`, webhook delivery settings |
-| `flow.complete` | Complete the run with a result value. | `output_expression` |
-| `flow.fail` | Fail the run with structured error data. | `error_expression` |
-| `flow.cancel` | Cancel the run. | No settings |
-| `flow.timeout` | End the run at a UTC deadline with optional context. | `deadline`, `reason` |
-| `flow.continue-as-new` | Start a successor history segment. | `input` |
-| `flow.progress` | Persist replay-stable progress. | `progress_id`, `completed`, `total`, `message`, `details` |
-| `flow.child-operation` | Link an existing child operation. | `operation_id` |
-| `flow.child-workflow` | Start one child workflow. | `child_id`, `spec`, `input`, `cancellation_policy` |
-| `flow.child-workflows` | Start an ordered collection of child workflows. | `children` |
-| `flow.signal` | Wait for a named external signal. | `signal_name` |
-| `iteration` | Run a child scope once per collection item. | `start_node_id`, `items` |
-| `loop` | Repeat a child scope while a deterministic condition remains true. | `start_node_id`, `condition`, `max_iterations` |
+| Type                   | Purpose                                                                            | Primary settings                                                                                                          |
+| ---------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `flow.start`           | Define workflow identity, runtime entry, accepted input, and duplicate protection. | `workflow_name`, `workflow_version`, `runtime_kind`, `entrypoint`, `export_name`, `input_schema`, duplicate policy fields |
+| `flow.step`            | Run one registered task with retry and exhaustion behavior.                        | `step_name`, `input`, `max_attempts`, `retry_delay_ms`, `on_exhausted`                                                    |
+| `flow.batch`           | Run an ordered collection of registered tasks.                                     | `steps`                                                                                                                   |
+| `flow.condition`       | Route control through deterministic cases and a fallback branch.                   | `expression`, case definitions                                                                                            |
+| `flow.wait`            | Suspend until an absolute replay-safe UTC time.                                    | `resume_at`                                                                                                               |
+| `flow.hook`            | Create a resumable manual or webhook boundary.                                     | `kind`, `token_expression`, webhook delivery settings                                                                     |
+| `flow.complete`        | Complete the run with a result value.                                              | `output_expression`                                                                                                       |
+| `flow.fail`            | Fail the run with structured error data.                                           | `error_expression`                                                                                                        |
+| `flow.cancel`          | Cancel the run.                                                                    | No settings                                                                                                               |
+| `flow.timeout`         | End the run at a UTC deadline with optional context.                               | `deadline`, `reason`                                                                                                      |
+| `flow.continue-as-new` | Start a successor history segment.                                                 | `input`                                                                                                                   |
+| `flow.progress`        | Persist replay-stable progress.                                                    | `progress_id`, `completed`, `total`, `message`, `details`                                                                 |
+| `flow.child-operation` | Link an existing child operation.                                                  | `operation_id`                                                                                                            |
+| `flow.child-workflow`  | Start one child workflow.                                                          | `child_id`, `spec`, `input`, `cancellation_policy`                                                                        |
+| `flow.child-workflows` | Start an ordered collection of child workflows.                                    | `children`                                                                                                                |
+| `flow.signal`          | Wait for a named external signal.                                                  | `signal_name`                                                                                                             |
+| `iteration`            | Run a child scope once per collection item.                                        | `start_node_id`, `items`                                                                                                  |
+| `loop`                 | Repeat a child scope while a deterministic condition remains true.                 | `start_node_id`, `condition`, `max_iterations`                                                                            |
 
 Use `a3s-flow node <type> --pretty` for exact types, defaults, allowed values, field order, ports, and runtime binding.
+
+## Project-owned custom nodes
+
+The packaged CLI intentionally validates against the official catalog. A project-owned type requires a host catalog created with `defineA3SFlowCustomDagNode` and `createA3SFlowDagNodeCatalog`. Its release command must call `compileA3SFlowWorkflowDagForPublication` with both the composed registry and exact capability bindings. Do not replace an `unknown_node` error with a guessed manifest or handler.
 
 ## Container scopes
 

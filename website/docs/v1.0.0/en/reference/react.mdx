@@ -82,3 +82,5 @@ Container previews represent a child canvas. An iteration requires one nested `i
 Pass `connectedOutputPortIds` so semantic validation knows which control exits are wired. A step using `continue_workflow` after retry exhaustion should connect `failed`. `onRequestConnection` can hand the field-level connection action to the host canvas. Every `onChange` receives a complete next node that the editor should write back to its graph state.
 
 The panel does not save workflows, manage credentials, or execute tasks. Persistence, undo, collaboration, and publication belong to the host editor. Run `a3s-flow validate` before publication because one valid form does not prove that scopes and graph edges are valid.
+
+For a host-owned type, pass one composed registry to the hook, preview, and panel. The [custom node guide](./custom-nodes) covers registration, A3S UI field rendering, executor capabilities, and publication checks.

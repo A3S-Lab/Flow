@@ -6,8 +6,8 @@ import {
   X,
 } from '@phosphor-icons/react';
 import {
-  a3sFlowDagNodeRegistry,
   localizeA3SFlowDagManifest,
+  type A3SFlowDagNodeRegistry,
   type A3SFlowWorkflowDagCompilation,
   type A3SFlowWorkflowDagNode,
 } from '@a3s-lab/flow-ui';
@@ -31,6 +31,7 @@ type WorkflowPlaygroundInspectorProps = {
   documentJson: string;
   edges: readonly PlaygroundEdge[];
   locale: FlowWebsiteLocale;
+  registry: A3SFlowDagNodeRegistry;
   nodes: readonly PlaygroundNode[];
   onApply: () => void;
   onClose: () => void;
@@ -46,11 +47,12 @@ function nodeLabel(
   nodeId: string,
   nodes: readonly PlaygroundNode[],
   locale: FlowWebsiteLocale,
+  registry: A3SFlowDagNodeRegistry,
 ): string {
   const node = nodes.find(({ id }) => id === nodeId);
   if (!node) return nodeId;
   const manifest = localizeA3SFlowDagManifest(
-    a3sFlowDagNodeRegistry.require(node.data.dagNode.data.type),
+    registry.require(node.data.dagNode.data.type),
     locale,
   );
   const title = node.data.dagNode.data.title;
@@ -202,9 +204,15 @@ function ValidationPanel({
   copy,
   locale,
   nodes,
+  registry,
 }: Pick<
   WorkflowPlaygroundInspectorProps,
-  'compilation' | 'configurationIssues' | 'copy' | 'locale' | 'nodes'
+  | 'compilation'
+  | 'configurationIssues'
+  | 'copy'
+  | 'locale'
+  | 'nodes'
+  | 'registry'
 >) {
   const valid = compilation.ok && configurationIssues.length === 0;
   return (
@@ -269,7 +277,7 @@ function ValidationPanel({
             <strong>{copy.topLevel}</strong>
             <ol>
               {compilation.plan.topLevel.map((id) => (
-                <li key={id}>{nodeLabel(id, nodes, locale)}</li>
+                <li key={id}>{nodeLabel(id, nodes, locale, registry)}</li>
               ))}
             </ol>
             {Object.entries(compilation.plan.scopes).map(([scope, ids]) => (
@@ -277,7 +285,7 @@ function ValidationPanel({
                 <strong>{`${copy.scope} · ${scope}`}</strong>
                 <ol>
                   {ids.map((id) => (
-                    <li key={id}>{nodeLabel(id, nodes, locale)}</li>
+                    <li key={id}>{nodeLabel(id, nodes, locale, registry)}</li>
                   ))}
                 </ol>
               </div>
@@ -298,6 +306,7 @@ export function WorkflowPlaygroundInspector({
   edges,
   locale,
   nodes,
+  registry,
   onApply,
   onClose,
   onCopyDocument,
@@ -349,6 +358,7 @@ export function WorkflowPlaygroundInspector({
           }
           onReset={onNodeChange}
           onRun={() => onRunNode(selectedNode.id)}
+          registry={registry}
         />
       )}
 
@@ -362,6 +372,7 @@ export function WorkflowPlaygroundInspector({
               copy={copy}
               locale={locale}
               nodes={nodes}
+              registry={registry}
             />
           </div>
         </>

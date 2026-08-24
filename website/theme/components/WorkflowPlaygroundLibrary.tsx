@@ -1,6 +1,7 @@
 import {
   ArrowClockwise,
   ArrowsClockwise,
+  Archive,
   Broadcast,
   ChartLineUp,
   CheckCircle,
@@ -9,10 +10,12 @@ import {
   GitBranch,
   Lightning,
   MagnifyingGlass,
+  PaperPlaneTilt,
   Play,
   PlugsConnected,
   Prohibit,
   Repeat,
+  ShieldCheck,
   Stack,
   Timer,
   TreeStructure,
@@ -21,10 +24,16 @@ import {
   XCircle,
 } from '@phosphor-icons/react';
 import {
-  a3sFlowDagNodeRegistry,
   localizeA3SFlowDagManifest,
+  type A3SFlowDagNodeCatalog,
 } from '@a3s-lab/flow-ui';
-import { useMemo, useState, type DragEvent } from 'react';
+import {
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent,
+} from 'react';
 import type { WorkflowPlaygroundCopy } from './WorkflowPlayground.copy';
 import { flowNodeGroups, type FlowWebsiteLocale } from './flow-node-catalog';
 
@@ -47,6 +56,9 @@ const iconByType: Readonly<Record<string, typeof Play>> = {
   'flow.timeout': Timer,
   iteration: Repeat,
   loop: ArrowClockwise,
+  'commerce.risk.score': ShieldCheck,
+  'commerce.inventory.reserve': Archive,
+  'commerce.message.dispatch': PaperPlaneTilt,
 };
 
 function toneForType(type: string): string {
@@ -63,6 +75,7 @@ function toneForType(type: string): string {
 }
 
 type WorkflowPlaygroundLibraryProps = {
+  catalog: A3SFlowDagNodeCatalog;
   copy: WorkflowPlaygroundCopy;
   locale: FlowWebsiteLocale;
   open: boolean;
@@ -73,6 +86,7 @@ type WorkflowPlaygroundLibraryProps = {
 };
 
 export function WorkflowPlaygroundLibrary({
+  catalog,
   copy,
   locale,
   open,
@@ -81,29 +95,63 @@ export function WorkflowPlaygroundLibrary({
   onDragStart,
   onSelect,
 }: WorkflowPlaygroundLibraryProps) {
+  const [activeTab, setActiveTab] = useState<'built-in' | 'custom'>('built-in');
   const [query, setQuery] = useState('');
-  const groups = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase(locale);
+  const builtInTabRef = useRef<HTMLButtonElement>(null);
+  const customTabRef = useRef<HTMLButtonElement>(null);
+  const normalizedQuery = query.trim().toLocaleLowerCase(locale);
+  const matchesQuery = (values: readonly string[]) =>
+    !normalizedQuery ||
+    values.join(' ').toLocaleLowerCase(locale).includes(normalizedQuery);
+  const builtInGroups = useMemo(() => {
     return flowNodeGroups
       .map((group) => ({
         ...group,
         nodes: group.types
           .map((type) =>
-            localizeA3SFlowDagManifest(
-              a3sFlowDagNodeRegistry.require(type),
-              locale,
-            ),
+            localizeA3SFlowDagManifest(catalog.registry.require(type), locale),
           )
           .filter((manifest) => {
-            if (!normalized) return true;
-            return [manifest.display_name, manifest.description, manifest.type]
-              .join(' ')
-              .toLocaleLowerCase(locale)
-              .includes(normalized);
+            return matchesQuery([
+              manifest.display_name,
+              manifest.description,
+              manifest.type,
+            ]);
           }),
       }))
       .filter(({ nodes }) => nodes.length > 0);
-  }, [locale, query]);
+  }, [catalog.registry, locale, normalizedQuery]);
+  const customNodes = useMemo(
+    () =>
+      catalog.custom.filter(({ manifest, capability }) =>
+        matchesQuery([
+          manifest.display_name,
+          manifest.description,
+          manifest.type,
+          capability.id,
+          capability.version,
+          capability.handler,
+        ]),
+      ),
+    [catalog.custom, locale, normalizedQuery],
+  );
+  const onTabKeyDown = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    tab: 'built-in' | 'custom',
+  ) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const next =
+      event.key === 'Home'
+        ? 'built-in'
+        : event.key === 'End'
+          ? 'custom'
+          : tab === 'built-in'
+            ? 'custom'
+            : 'built-in';
+    setActiveTab(next);
+    (next === 'built-in' ? builtInTabRef : customTabRef).current?.focus();
+  };
 
   if (!open) return null;
 
@@ -140,20 +188,109 @@ export function WorkflowPlaygroundLibrary({
         />
       </label>
 
-      <div className="a3s-node-library__groups">
-        {groups.map((group) => (
-          <section
-            aria-labelledby={`workflow-group-${group.id}`}
-            key={group.id}
-          >
-            <h3 id={`workflow-group-${group.id}`}>{group.label[locale]}</h3>
+      <div
+        aria-label={copy.nodeLibrary}
+        className="a3s-node-library__tabs"
+        role="tablist"
+      >
+        <button
+          aria-controls="workflow-built-in-nodes"
+          aria-selected={activeTab === 'built-in'}
+          className={activeTab === 'built-in' ? 'is-active' : undefined}
+          id="workflow-built-in-tab"
+          onClick={() => setActiveTab('built-in')}
+          onKeyDown={(event) => onTabKeyDown(event, 'built-in')}
+          ref={builtInTabRef}
+          role="tab"
+          tabIndex={activeTab === 'built-in' ? 0 : -1}
+          type="button"
+        >
+          {copy.builtInNodes}
+          <span>
+            {catalog.registry.list({ includeInternal: false }).length -
+              catalog.custom.length}
+          </span>
+        </button>
+        <button
+          aria-controls="workflow-custom-nodes"
+          aria-selected={activeTab === 'custom'}
+          className={activeTab === 'custom' ? 'is-active' : undefined}
+          id="workflow-custom-tab"
+          onClick={() => setActiveTab('custom')}
+          onKeyDown={(event) => onTabKeyDown(event, 'custom')}
+          ref={customTabRef}
+          role="tab"
+          tabIndex={activeTab === 'custom' ? 0 : -1}
+          type="button"
+        >
+          {copy.customNodes}
+          <span>{catalog.custom.length}</span>
+        </button>
+      </div>
+
+      <div
+        aria-labelledby={
+          activeTab === 'built-in'
+            ? 'workflow-built-in-tab'
+            : 'workflow-custom-tab'
+        }
+        className="a3s-node-library__groups"
+        id={
+          activeTab === 'built-in'
+            ? 'workflow-built-in-nodes'
+            : 'workflow-custom-nodes'
+        }
+        role="tabpanel"
+      >
+        {activeTab === 'built-in' &&
+          builtInGroups.map((group) => (
+            <section
+              aria-labelledby={`workflow-group-${group.id}`}
+              key={group.id}
+            >
+              <h3 id={`workflow-group-${group.id}`}>{group.label[locale]}</h3>
+              <div>
+                {group.nodes.map((manifest) => {
+                  const Icon = iconByType[manifest.type] ?? FlowArrow;
+                  return (
+                    <button
+                      aria-label={copy.addNamedNode(manifest.display_name)}
+                      data-node-tone={toneForType(manifest.type)}
+                      draggable
+                      key={manifest.type}
+                      onClick={() => onSelect(manifest.type)}
+                      onDragEnd={onDragEnd}
+                      onDragStart={(event) => onDragStart(event, manifest.type)}
+                      type="button"
+                    >
+                      <span aria-hidden="true">
+                        <Icon weight="duotone" />
+                      </span>
+                      <span>
+                        <strong>{manifest.display_name}</strong>
+                        <small>{manifest.description}</small>
+                        <code>{manifest.type}</code>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        {activeTab === 'built-in' && builtInGroups.length === 0 && (
+          <p className="a3s-node-library__empty">{copy.noNodes}</p>
+        )}
+        {activeTab === 'custom' && customNodes.length > 0 && (
+          <section aria-labelledby="workflow-group-custom">
+            <h3 id="workflow-group-custom">{copy.customNodes}</h3>
             <div>
-              {group.nodes.map((manifest) => {
+              {customNodes.map(({ manifest, capability }) => {
                 const Icon = iconByType[manifest.type] ?? FlowArrow;
                 return (
                   <button
                     aria-label={copy.addNamedNode(manifest.display_name)}
-                    data-node-tone={toneForType(manifest.type)}
+                    className="is-custom"
+                    data-node-tone="violet"
                     draggable
                     key={manifest.type}
                     onClick={() => onSelect(manifest.type)}
@@ -168,15 +305,22 @@ export function WorkflowPlaygroundLibrary({
                       <strong>{manifest.display_name}</strong>
                       <small>{manifest.description}</small>
                       <code>{manifest.type}</code>
+                      <span className="a3s-node-library__capability">
+                        <span>{copy.capabilityReady}</span>
+                        <code>{`${capability.id}@${capability.version}`}</code>
+                        <small>{`${copy.capabilityHandler} · ${capability.handler}`}</small>
+                      </span>
                     </span>
                   </button>
                 );
               })}
             </div>
           </section>
-        ))}
-        {groups.length === 0 && (
-          <p className="a3s-node-library__empty">{copy.noNodes}</p>
+        )}
+        {activeTab === 'custom' && customNodes.length === 0 && (
+          <p className="a3s-node-library__empty">
+            {catalog.custom.length === 0 ? copy.noCustomNodes : copy.noNodes}
+          </p>
         )}
       </div>
     </aside>
