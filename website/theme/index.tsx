@@ -8,9 +8,14 @@ import './home-system.css';
 import './home-product.css';
 import './home-responsive.css';
 import './nodes.css';
-import './playground.css';
 import './playground-inspector.css';
-import './playground-responsive.css';
+import './workflow-designer/workflow-playground-base.css';
+import './workflow-designer/workflow-playground-graph.css';
+import './workflow-designer/workflow-playground-editor-panels.css';
+import './workflow-designer/workflow-playground-debug.css';
+import './workflow-designer/workflow-playground-overlays.css';
+import './workflow-designer/workflow-playground-responsive.css';
+import './workflow-designer/workflow-playground-flow.css';
 
 export { HomeLayout } from './components/HomeLayout';
 export { Layout } from './components/Layout';

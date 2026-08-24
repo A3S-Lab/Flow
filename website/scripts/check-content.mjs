@@ -107,9 +107,32 @@ async function verifyPage(page, locale, version, localeRoot) {
 
   const visibleProse = extractVisibleProse(source, frontmatter[0]);
   const isCurrentHome = version === defaultVersion && route === 'index.mdx';
+  const isCurrentPlayground =
+    version === defaultVersion && route === 'playground/index.mdx';
   if (isCurrentHome) {
     if (!/^pageType:\s*home$/mu.test(frontmatter[1])) {
       throw new Error(`The current homepage must use pageType home: ${page}`);
+    }
+    return;
+  }
+  if (isCurrentPlayground) {
+    for (const field of [
+      'pageType: blank',
+      'navbar: false',
+      'sidebar: false',
+      'outline: false',
+      'footer: false',
+      'search: false',
+    ]) {
+      if (!frontmatter[1].split(/\r?\n/u).includes(field)) {
+        throw new Error(`Playground must declare ${field}: ${page}`);
+      }
+    }
+    if (visibleProse.trim() !== '') {
+      throw new Error(`Playground must not include document prose: ${page}`);
+    }
+    if (!source.includes('<WorkflowPlayground />')) {
+      throw new Error(`Playground must render the workflow designer: ${page}`);
     }
     return;
   }

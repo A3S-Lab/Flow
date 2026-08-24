@@ -129,13 +129,13 @@ assertIncludes(
 );
 assertIncludes(
   playground,
-  'aria-label="添加等待回调"',
-  'Chinese Playground node catalog',
+  'aria-label="曲线" aria-pressed="true"',
+  'Chinese Playground default connection routing',
 );
 assertIncludes(
   englishPlayground,
-  'aria-label="Add Wait for Callback"',
-  'English Playground node catalog',
+  'aria-label="Curved connections" aria-pressed="true"',
+  'English Playground default connection routing',
 );
 assertRouteLink(
   playground,

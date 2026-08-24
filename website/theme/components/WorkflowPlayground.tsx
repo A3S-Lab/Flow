@@ -1,22 +1,14 @@
-import {
-  ArrowCounterClockwise,
-  CheckCircle,
-  CornersOut,
-  DotsSixVertical,
-  MagnifyingGlass,
-  Plus,
-  Trash,
-  WarningCircle,
-} from '@phosphor-icons/react';
+import { CheckCircle } from '@phosphor-icons/react';
 import {
   a3sFlowDagNodeRegistry,
   localizeA3SFlowDagManifest,
   type A3SFlowWorkflowDagNode,
 } from '@a3s-lab/flow-ui';
-import { useLang, useVersion } from '@rspress/core/runtime';
+import { useLang, useSite, useVersion, withBase } from '@rspress/core/runtime';
 import {
   Background,
   BackgroundVariant,
+  ConnectionLineType,
   Controls,
   MarkerType,
   MiniMap,
@@ -44,134 +36,85 @@ import {
   type WorkflowPlaygroundCopy,
 } from './WorkflowPlayground.copy';
 import {
+  WorkflowPlaygroundCanvasDock,
+  WorkflowPlaygroundHeader,
+  WorkflowPlaygroundRail,
+  type PlaygroundCanvasMode,
+  type PlaygroundDebugTab,
+} from './WorkflowPlaygroundChrome';
+import {
+  WorkflowPlaygroundDebug,
+  type PlaygroundRunRecord,
+  type PlaygroundRunStep,
+} from './WorkflowPlaygroundDebug';
+import { WorkflowPlaygroundEdge } from './WorkflowPlaygroundEdge';
+import { usePlaygroundDocument } from './WorkflowPlayground.history';
+import { usePlaygroundDraft } from './WorkflowPlayground.persistence';
+import {
+  WorkflowPlaygroundInspector,
+  type InspectorTab,
+} from './WorkflowPlaygroundInspector';
+import { WorkflowPlaygroundLibrary } from './WorkflowPlaygroundLibrary';
+import {
+  addIntoGraph,
+  nodeDisplayName,
+  waitForPreview,
+} from './WorkflowPlayground.graph';
+import { pageHref } from './WorkflowPlayground.routes';
+import {
   buildPlaygroundDocument,
   collectDeletionIds,
   compilePlaygroundGraph,
-  createNodeAddition,
   createPlaygroundEdge,
   createSampleWorkflow,
   validatePlaygroundConfigurations,
   validatePlaygroundConnection,
   type PlaygroundEdge,
-  type PlaygroundGraphState,
   type PlaygroundNode,
 } from './WorkflowPlayground.model';
-import {
-  WorkflowPlaygroundInspector,
-  type InspectorTab,
-} from './WorkflowPlaygroundInspector';
 import { WorkflowPlaygroundNode } from './WorkflowPlaygroundNode';
 import { flowNodeGroups, type FlowWebsiteLocale } from './flow-node-catalog';
 
 const DRAG_MIME = 'application/x-a3s-flow-node';
 const nodeTypes = { flowNode: WorkflowPlaygroundNode };
+const edgeTypes = { workflow: WorkflowPlaygroundEdge };
 const defaultEdgeOptions: DefaultEdgeOptions = {
-  type: 'smoothstep',
-  markerEnd: { type: MarkerType.ArrowClosed, color: '#8190a7' },
-  style: { stroke: '#8190a7', strokeWidth: 1.7 },
+  type: 'workflow',
+  markerEnd: { type: MarkerType.ArrowClosed, color: '#8797ad' },
+  style: { stroke: '#9cabc0', strokeWidth: 1.5 },
   interactionWidth: 24,
 };
 
-type PaletteProps = {
-  copy: WorkflowPlaygroundCopy;
-  locale: FlowWebsiteLocale;
-  onAdd: (type: string) => void;
-  onDragEnd: () => void;
-  onDragStart: (event: DragEvent<HTMLButtonElement>, type: string) => void;
-  query: string;
-  setQuery: (query: string) => void;
-};
-
-function NodePalette({
-  copy,
+function MarkdownPlayground({
   locale,
-  onAdd,
-  onDragEnd,
-  onDragStart,
-  query,
-  setQuery,
-}: PaletteProps) {
-  const normalizedQuery = query.trim().toLocaleLowerCase(locale);
-  const groups = flowNodeGroups
-    .map((group) => ({
-      ...group,
-      nodes: group.types
-        .map((type) =>
-          localizeA3SFlowDagManifest(
-            a3sFlowDagNodeRegistry.require(type),
-            locale,
-          ),
-        )
-        .filter((manifest) => {
-          if (!normalizedQuery) return true;
-          return [manifest.display_name, manifest.description, manifest.type]
-            .join(' ')
-            .toLocaleLowerCase(locale)
-            .includes(normalizedQuery);
-        }),
-    }))
-    .filter(({ nodes }) => nodes.length > 0);
-
+  copy,
+}: {
+  locale: FlowWebsiteLocale;
+  copy: WorkflowPlaygroundCopy;
+}) {
   return (
-    <aside className="flow-playground-palette" aria-label={copy.catalog}>
-      <header>
-        <strong>{copy.catalog}</strong>
-        <span>18</span>
-      </header>
-      <label className="flow-playground-search">
-        <span className="flow-playground-sr-only">{copy.searchLabel}</span>
-        <MagnifyingGlass aria-hidden="true" size={15} />
-        <input
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder={copy.searchPlaceholder}
-          type="search"
-          value={query}
-        />
-      </label>
-      <div className="flow-playground-palette__groups">
-        {groups.map((group) => (
-          <section key={group.id}>
-            <header>
-              <div>
-                <strong>{group.label[locale]}</strong>
-                <small>{group.detail[locale]}</small>
-              </div>
-              <span>{group.nodes.length}</span>
-            </header>
-            <div>
-              {group.nodes.map((manifest) => (
-                <button
-                  aria-label={copy.addNode(manifest.display_name)}
-                  draggable
-                  key={manifest.type}
-                  onClick={() => onAdd(manifest.type)}
-                  onDragEnd={onDragEnd}
-                  onDragStart={(event) => onDragStart(event, manifest.type)}
-                  title={copy.dragNode(manifest.display_name)}
-                  type="button"
-                >
-                  <DotsSixVertical
-                    aria-hidden="true"
-                    className="flow-playground-palette__drag"
-                    size={15}
-                  />
-                  <span>
-                    <strong>{manifest.display_name}</strong>
-                    <code>{manifest.type}</code>
-                  </span>
-                  <Plus aria-hidden="true" size={14} weight="bold" />
-                </button>
-              ))}
-            </div>
-          </section>
-        ))}
-        {groups.length === 0 && (
-          <p className="flow-playground-palette__empty">
-            {copy.noSearchResults}
-          </p>
-        )}
-      </div>
-    </aside>
+    <main data-flow-playground="">
+      <h1>{copy.pageTitle}</h1>
+      <p>{copy.nodeLibraryDescription}</p>
+      {flowNodeGroups.map((group) => (
+        <section key={group.id}>
+          <h2>{group.label[locale]}</h2>
+          <ul>
+            {group.types.map((type) => {
+              const node = localizeA3SFlowDagManifest(
+                a3sFlowDagNodeRegistry.require(type),
+                locale,
+              );
+              return (
+                <li key={type}>
+                  <strong>{node.display_name}</strong>: {node.description}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ))}
+    </main>
   );
 }
 
@@ -179,20 +122,52 @@ function WorkflowPlaygroundSurface() {
   const locale: FlowWebsiteLocale = useLang() === 'en' ? 'en' : 'zh';
   const copy = workflowPlaygroundCopy[locale];
   const version = useVersion();
-  const [graph, setGraph] = useState<PlaygroundGraphState>(() =>
-    createSampleWorkflow(locale),
+  const { site } = useSite();
+  const defaultVersion = site.multiVersion.default ?? version;
+  const versions = site.multiVersion.versions ?? [version];
+  const storageKey = `a3s-flow-playground:${version}:${locale}`;
+  const {
+    graph,
+    canUndo,
+    canRedo,
+    commit,
+    updateTransient,
+    undo,
+    redo,
+    restore,
+    beginDrag,
+    endDrag,
+  } = usePlaygroundDocument(() => createSampleWorkflow(locale));
+  const { edgeRouting, saveState, setEdgeRouting } = usePlaygroundDraft(
+    storageKey,
+    graph,
+    restore,
   );
-  const [query, setQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<InspectorTab>('settings');
-  const [draggedType, setDraggedType] = useState<string>();
-  const [announcement, setAnnouncement] = useState('');
-  const [pendingConnection, setPendingConnection] = useState('');
-  const [fitRevision, setFitRevision] = useState(0);
-  const canvasRef = useRef<HTMLDivElement>(null);
   const { fitView, screenToFlowPosition } = useReactFlow<
     PlaygroundNode,
     PlaygroundEdge
   >();
+  const [selectedNodeId, setSelectedNodeId] = useState<string>();
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
+  const [activePanel, setActivePanel] = useState<InspectorTab>();
+  const [canvasMode, setCanvasMode] = useState<PlaygroundCanvasMode>('pan');
+  const [nodeLibraryOpen, setNodeLibraryOpen] = useState(false);
+  const [insertEdgeId, setInsertEdgeId] = useState<string>();
+  const [pendingNodePosition, setPendingNodePosition] = useState<XYPosition>();
+  const [draggedType, setDraggedType] = useState<string>();
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [debugTab, setDebugTab] = useState<PlaygroundDebugTab>('trace');
+  const [announcement, setAnnouncement] = useState('');
+  const [statuses, setStatuses] = useState<
+    Record<string, PlaygroundNode['data']['runtimeStatus']>
+  >({});
+  const [running, setRunning] = useState(false);
+  const [runningNodeId, setRunningNodeId] = useState<string>();
+  const [trace, setTrace] = useState<PlaygroundRunStep[]>([]);
+  const [history, setHistory] = useState<PlaygroundRunRecord[]>([]);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const runAbort = useRef<AbortController | undefined>(undefined);
+  const runCounter = useRef(1);
 
   const compilation = useMemo(
     () => compilePlaygroundGraph(graph.nodes, graph.edges),
@@ -202,8 +177,10 @@ function WorkflowPlaygroundSurface() {
     () => validatePlaygroundConfigurations(graph.nodes, graph.edges),
     [graph.edges, graph.nodes],
   );
-  const valid = compilation.ok && configurationIssues.length === 0;
-  const selectedNode = graph.nodes.find(({ selected }) => selected);
+  const issueCount =
+    (compilation.ok ? 0 : compilation.issues.length) +
+    configurationIssues.length;
+  const selectedNode = graph.nodes.find(({ id }) => id === selectedNodeId);
   const documentJson = useMemo(
     () =>
       JSON.stringify(
@@ -213,18 +190,41 @@ function WorkflowPlaygroundSurface() {
       ),
     [graph.edges, graph.nodes],
   );
+  const lastRunNodeIds = useMemo(
+    () => new Set(trace.map(({ nodeId }) => nodeId)),
+    [trace],
+  );
+
+  useEffect(() => () => runAbort.current?.abort(), []);
 
   useEffect(() => {
-    if (fitRevision === 0) return;
-    const frame = window.requestAnimationFrame(() => {
-      void fitView({ padding: 0.16, duration: 260 });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [fitRevision, fitView]);
+    if (!announcement) return;
+    const timeout = window.setTimeout(() => {
+      setAnnouncement((current) => (current === announcement ? '' : current));
+    }, 2400);
+    return () => window.clearTimeout(timeout);
+  }, [announcement]);
+
+  const closeNodeLibrary = useCallback(() => {
+    setNodeLibraryOpen(false);
+    setInsertEdgeId(undefined);
+    setPendingNodePosition(undefined);
+    setDraggedType(undefined);
+  }, []);
+
+  const openNodeLibrary = useCallback(
+    (edgeId?: string, position?: XYPosition) => {
+      if (running) return;
+      setInsertEdgeId(edgeId);
+      setPendingNodePosition(position);
+      setNodeLibraryOpen(true);
+    },
+    [running],
+  );
 
   const centerPosition = useCallback((): XYPosition => {
     const bounds = canvasRef.current?.getBoundingClientRect();
-    if (!bounds) return { x: 180, y: 180 };
+    if (!bounds) return { x: 260, y: 240 };
     return screenToFlowPosition({
       x: bounds.left + bounds.width / 2,
       y: bounds.top + bounds.height / 2,
@@ -237,66 +237,243 @@ function WorkflowPlaygroundSurface() {
         a3sFlowDagNodeRegistry.require(type),
         locale,
       );
-      const position = requestedPosition ?? centerPosition();
-      setGraph((current) => {
-        const addition = createNodeAddition(
-          type,
-          position,
-          locale,
-          current.nodes,
-        );
-        return {
-          nodes: [
-            ...current.nodes.map((node) => ({ ...node, selected: false })),
-            ...addition.nodes,
-          ],
-          edges: [
-            ...current.edges.map((edge) => ({ ...edge, selected: false })),
-            ...addition.edges,
-          ],
-        };
-      });
-      setActiveTab('settings');
-      setPendingConnection('');
+      const result = addIntoGraph(
+        graph,
+        type,
+        requestedPosition ?? pendingNodePosition ?? centerPosition(),
+        locale,
+        insertEdgeId,
+      );
+      commit(result.graph);
+      setSelectedNodeId(result.selectedNodeId);
+      setSelectedEdgeId(undefined);
+      setActivePanel('settings');
+      closeNodeLibrary();
       setAnnouncement(
         manifest.container
           ? copy.containerAdded(manifest.display_name)
           : copy.nodeAdded(manifest.display_name),
       );
     },
-    [centerPosition, copy, locale],
+    [
+      centerPosition,
+      closeNodeLibrary,
+      commit,
+      copy,
+      graph,
+      insertEdgeId,
+      locale,
+      pendingNodePosition,
+    ],
   );
 
-  const onNodesChange = useCallback((changes: NodeChange<PlaygroundNode>[]) => {
-    setGraph((current) => {
-      const requestedDeletion = new Set(
-        changes
-          .filter((change) => change.type === 'remove')
-          .map(({ id }) => id),
-      );
-      const deletion = collectDeletionIds(current.nodes, requestedDeletion);
-      const extraRemovals: NodeChange<PlaygroundNode>[] = [...deletion]
-        .filter((id) => !requestedDeletion.has(id))
-        .map((id) => ({ id, type: 'remove' }));
-      return {
-        nodes: applyNodeChanges([...changes, ...extraRemovals], current.nodes),
-        edges:
-          deletion.size > 0
-            ? current.edges.filter(
-                ({ source, target }) =>
-                  !deletion.has(source) && !deletion.has(target),
-              )
-            : current.edges,
-      };
-    });
-  }, []);
+  const deleteNode = useCallback(
+    (nodeId: string) => {
+      if (running) return;
+      commit((current) => {
+        const deletion = collectDeletionIds(current.nodes, new Set([nodeId]));
+        return {
+          nodes: current.nodes.filter(({ id }) => !deletion.has(id)),
+          edges: current.edges.filter(
+            ({ source, target }) =>
+              !deletion.has(source) && !deletion.has(target),
+          ),
+        };
+      });
+      if (selectedNodeId === nodeId) {
+        setSelectedNodeId(undefined);
+        setActivePanel(undefined);
+      }
+      setAnnouncement(copy.selectionDeleted);
+    },
+    [commit, copy.selectionDeleted, running, selectedNodeId],
+  );
 
-  const onEdgesChange = useCallback((changes: EdgeChange<PlaygroundEdge>[]) => {
-    setGraph((current) => ({
-      ...current,
-      edges: applyEdgeChanges(changes, current.edges),
-    }));
-  }, []);
+  const duplicateNode = useCallback(
+    (nodeId: string) => {
+      if (running) return;
+      const source = graph.nodes.find(({ id }) => id === nodeId);
+      if (!source) return;
+      if (source.data.container) {
+        addNode(source.data.dagNode.data.type, {
+          x: source.position.x + 48,
+          y: source.position.y + 48,
+        });
+        return;
+      }
+      let id = `${source.id}_copy`;
+      let index = 2;
+      while (graph.nodes.some((node) => node.id === id)) {
+        id = `${source.id}_copy_${index++}`;
+      }
+      const duplicate = structuredClone(source);
+      duplicate.id = id;
+      duplicate.data.dagNode.id = id;
+      duplicate.position = {
+        x: source.position.x + 48,
+        y: source.position.y + 48,
+      };
+      duplicate.data.dagNode.position = structuredClone(duplicate.position);
+      duplicate.selected = false;
+      commit((current) => ({
+        ...current,
+        nodes: [...current.nodes, duplicate],
+      }));
+      setSelectedNodeId(id);
+      setSelectedEdgeId(undefined);
+      setActivePanel('settings');
+    },
+    [addNode, commit, graph.nodes, running],
+  );
+
+  const stopRun = useCallback(() => {
+    runAbort.current?.abort();
+    setRunning(false);
+    setRunningNodeId(undefined);
+    setStatuses({});
+    setAnnouncement(copy.runStopped);
+  }, [copy.runStopped]);
+
+  const runNode = useCallback(
+    async (nodeId: string) => {
+      if (running) return;
+      const node = graph.nodes.find(({ id }) => id === nodeId);
+      if (!node) return;
+      const controller = new AbortController();
+      runAbort.current?.abort();
+      runAbort.current = controller;
+      setRunning(true);
+      setDebugOpen(true);
+      setDebugTab('trace');
+      setRunningNodeId(nodeId);
+      setStatuses({ [nodeId]: 'running' });
+      const completed = await waitForPreview(420, controller.signal);
+      if (!completed) return;
+      const step = {
+        nodeId,
+        label: nodeDisplayName(node, locale),
+        type: node.data.dagNode.data.type,
+        durationMs: 420,
+      };
+      setTrace([step]);
+      setStatuses({ [nodeId]: 'success' });
+      setRunningNodeId(undefined);
+      setRunning(false);
+      setAnnouncement(copy.runComplete);
+    },
+    [copy.runComplete, graph.nodes, locale, running],
+  );
+
+  const runWorkflow = useCallback(async () => {
+    if (running) return;
+    if (!compilation.ok || configurationIssues.length > 0) {
+      setActivePanel('validation');
+      return;
+    }
+    const controller = new AbortController();
+    runAbort.current?.abort();
+    runAbort.current = controller;
+    const order = [
+      ...compilation.plan.topLevel,
+      ...Object.values(compilation.plan.scopes).flat(),
+    ];
+    const steps: PlaygroundRunStep[] = [];
+    setRunning(true);
+    setDebugOpen(true);
+    setDebugTab('trace');
+    setTrace([]);
+    setStatuses({});
+
+    for (const nodeId of order) {
+      const node = graph.nodes.find(({ id }) => id === nodeId);
+      if (!node) continue;
+      setRunningNodeId(nodeId);
+      setStatuses((current) => ({ ...current, [nodeId]: 'running' }));
+      if (!(await waitForPreview(280, controller.signal))) return;
+      const step = {
+        nodeId,
+        label: nodeDisplayName(node, locale),
+        type: node.data.dagNode.data.type,
+        durationMs: 280,
+      };
+      steps.push(step);
+      setTrace([...steps]);
+      setStatuses((current) => ({ ...current, [nodeId]: 'success' }));
+    }
+
+    const durationMs = steps.reduce(
+      (total, step) => total + step.durationMs,
+      0,
+    );
+    const record: PlaygroundRunRecord = {
+      id: `run-${String(runCounter.current++).padStart(3, '0')}`,
+      startedAt: new Date().toLocaleTimeString(
+        locale === 'zh' ? 'zh-CN' : 'en-US',
+        { hour: '2-digit', minute: '2-digit', second: '2-digit' },
+      ),
+      durationMs,
+      steps,
+    };
+    setHistory((current) => [record, ...current].slice(0, 12));
+    setRunningNodeId(undefined);
+    setRunning(false);
+    setAnnouncement(copy.runComplete);
+  }, [
+    compilation,
+    configurationIssues.length,
+    copy.runComplete,
+    graph.nodes,
+    locale,
+    running,
+  ]);
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange<PlaygroundNode>[]) => {
+      const meaningful = changes.filter((change) => change.type !== 'select');
+      if (meaningful.length === 0) return;
+      const removals = meaningful.filter((change) => change.type === 'remove');
+      if (removals.length > 0) {
+        commit((current) => {
+          const deletion = collectDeletionIds(
+            current.nodes,
+            new Set(removals.map(({ id }) => id)),
+          );
+          return {
+            nodes: current.nodes.filter(({ id }) => !deletion.has(id)),
+            edges: current.edges.filter(
+              ({ source, target }) =>
+                !deletion.has(source) && !deletion.has(target),
+            ),
+          };
+        });
+        return;
+      }
+      updateTransient((current) => ({
+        ...current,
+        nodes: applyNodeChanges(meaningful, current.nodes),
+      }));
+    },
+    [commit, updateTransient],
+  );
+
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange<PlaygroundEdge>[]) => {
+      const meaningful = changes.filter((change) => change.type !== 'select');
+      if (meaningful.length === 0) return;
+      if (meaningful.some((change) => change.type === 'remove')) {
+        commit((current) => ({
+          ...current,
+          edges: applyEdgeChanges(meaningful, current.edges),
+        }));
+        return;
+      }
+      updateTransient((current) => ({
+        ...current,
+        edges: applyEdgeChanges(meaningful, current.edges),
+      }));
+    },
+    [commit, updateTransient],
+  );
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -327,14 +504,13 @@ function WorkflowPlaygroundSurface() {
         graph.nodes,
         locale,
       );
-      setGraph((current) => ({
+      commit((current) => ({
         ...current,
         edges: [...current.edges, edge],
       }));
-      setPendingConnection('');
       setAnnouncement(copy.connectionCreated);
     },
-    [copy, graph.edges, graph.nodes, locale],
+    [commit, copy, graph.edges, graph.nodes, locale],
   );
 
   const isValidConnection = useCallback(
@@ -352,42 +528,9 @@ function WorkflowPlaygroundSurface() {
     [graph.edges, graph.nodes],
   );
 
-  const deleteSelection = useCallback(() => {
-    const selectedNodeIds = new Set(
-      graph.nodes.filter(({ selected }) => selected).map(({ id }) => id),
-    );
-    const deletion = collectDeletionIds(graph.nodes, selectedNodeIds);
-    const selectedEdgeIds = new Set(
-      graph.edges.filter(({ selected }) => selected).map(({ id }) => id),
-    );
-    if (deletion.size === 0 && selectedEdgeIds.size === 0) {
-      setAnnouncement(copy.nothingSelected);
-      return;
-    }
-    setGraph((current) => ({
-      nodes: current.nodes.filter(({ id }) => !deletion.has(id)),
-      edges: current.edges.filter(
-        ({ id, source, target }) =>
-          !selectedEdgeIds.has(id) &&
-          !deletion.has(source) &&
-          !deletion.has(target),
-      ),
-    }));
-    setPendingConnection('');
-    setAnnouncement(copy.selectionDeleted);
-  }, [copy.nothingSelected, copy.selectionDeleted, graph.edges, graph.nodes]);
-
-  const reset = useCallback(() => {
-    setGraph(createSampleWorkflow(locale));
-    setActiveTab('settings');
-    setPendingConnection('');
-    setFitRevision((revision) => revision + 1);
-    setAnnouncement(copy.resetDone);
-  }, [copy.resetDone, locale]);
-
   const updateSelectedNode = useCallback(
     (dagNode: A3SFlowWorkflowDagNode) => {
-      setGraph((current) => ({
+      commit((current) => ({
         ...current,
         nodes: current.nodes.map((node) =>
           node.id === dagNode.id
@@ -400,8 +543,122 @@ function WorkflowPlaygroundSurface() {
       }));
       setAnnouncement(copy.nodeUpdated);
     },
-    [copy.nodeUpdated],
+    [commit, copy.nodeUpdated],
   );
+
+  const deleteSelection = useCallback(() => {
+    if (selectedNodeId) {
+      deleteNode(selectedNodeId);
+      return;
+    }
+    if (selectedEdgeId) {
+      commit((current) => ({
+        ...current,
+        edges: current.edges.filter(({ id }) => id !== selectedEdgeId),
+      }));
+      setSelectedEdgeId(undefined);
+      setAnnouncement(copy.selectionDeleted);
+      return;
+    }
+    setAnnouncement(copy.nothingSelected);
+  }, [commit, copy, deleteNode, selectedEdgeId, selectedNodeId]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        return;
+      }
+      const command = event.ctrlKey || event.metaKey;
+      if (command && event.key.toLocaleLowerCase() === 'z') {
+        event.preventDefault();
+        event.shiftKey ? redo() : undo();
+      } else if (
+        command &&
+        event.key.toLocaleLowerCase() === 'd' &&
+        selectedNodeId
+      ) {
+        event.preventDefault();
+        duplicateNode(selectedNodeId);
+      } else if (event.key === 'Delete' || event.key === 'Backspace') {
+        event.preventDefault();
+        deleteSelection();
+      } else if (event.key === 'Escape') {
+        closeNodeLibrary();
+        setActivePanel(undefined);
+        setDebugOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    closeNodeLibrary,
+    deleteSelection,
+    duplicateNode,
+    redo,
+    selectedNodeId,
+    undo,
+  ]);
+
+  const displayNodes = useMemo(
+    () =>
+      graph.nodes.map((node) => ({
+        ...node,
+        selected: node.id === selectedNodeId,
+        data: {
+          ...node.data,
+          runtimeStatus: statuses[node.id] ?? 'idle',
+          onRun: runNode,
+          onDuplicate: duplicateNode,
+          onDelete: deleteNode,
+        },
+      })),
+    [deleteNode, duplicateNode, graph.nodes, runNode, selectedNodeId, statuses],
+  );
+
+  const displayEdges = useMemo(
+    () =>
+      graph.edges.map((edge) => ({
+        ...edge,
+        selected: edge.id === selectedEdgeId,
+        animated:
+          running &&
+          (statuses[edge.source] === 'running' ||
+            statuses[edge.target] === 'running'),
+        data: {
+          ...edge.data,
+          routing: edgeRouting,
+          insertLabel: copy.addNode,
+          onInsert: openNodeLibrary,
+        },
+      })),
+    [
+      copy.addNode,
+      edgeRouting,
+      graph.edges,
+      openNodeLibrary,
+      running,
+      selectedEdgeId,
+      statuses,
+    ],
+  );
+
+  const resetWorkflow = useCallback(() => {
+    stopRun();
+    restore(createSampleWorkflow(locale));
+    setSelectedNodeId(undefined);
+    setSelectedEdgeId(undefined);
+    setActivePanel(undefined);
+    setTrace([]);
+    setHistory([]);
+    setAnnouncement(copy.resetDone);
+    window.setTimeout(() => void fitView({ duration: 280, padding: 0.18 }), 0);
+  }, [copy.resetDone, fitView, locale, restore, stopRun]);
 
   const copyDocument = useCallback(() => {
     void navigator.clipboard
@@ -410,230 +667,315 @@ function WorkflowPlaygroundSurface() {
       .catch(() => setAnnouncement(copy.copyFailed));
   }, [copy.copied, copy.copyFailed, documentJson]);
 
-  const onPaletteDragStart = (
-    event: DragEvent<HTMLButtonElement>,
-    type: string,
-  ) => {
-    event.dataTransfer.effectAllowed = 'copy';
-    event.dataTransfer.setData(DRAG_MIME, type);
-    setDraggedType(type);
-  };
+  const exportGraph = useCallback(() => {
+    const blob = new Blob([documentJson], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'a3s-flow-workflow.json';
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setAnnouncement(copy.graphExported);
+  }, [copy.graphExported, documentJson]);
 
-  const onCanvasDrop = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const type = event.dataTransfer.getData(DRAG_MIME) || draggedType;
-    setDraggedType(undefined);
-    if (!type || !a3sFlowDagNodeRegistry.get(type)) return;
-    addNode(type, screenToFlowPosition({ x: event.clientX, y: event.clientY }));
-  };
+  const onPaletteDragStart = useCallback(
+    (event: DragEvent<HTMLButtonElement>, type: string) => {
+      event.dataTransfer.effectAllowed = 'copy';
+      event.dataTransfer.setData(DRAG_MIME, type);
+      setDraggedType(type);
+    },
+    [],
+  );
 
-  const hasSelection =
-    graph.nodes.some(({ selected }) => selected) ||
-    graph.edges.some(({ selected }) => selected);
+  const onCanvasDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const type = event.dataTransfer.getData(DRAG_MIME) || draggedType;
+      setDraggedType(undefined);
+      if (!type || !a3sFlowDagNodeRegistry.get(type)) return;
+      addNode(
+        type,
+        screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+      );
+    },
+    [addNode, draggedType, screenToFlowPosition],
+  );
+
+  const rightPanelOpen = Boolean(
+    activePanel && (activePanel !== 'settings' || selectedNode),
+  );
+  const shellClass = [
+    'a3s-workflow-playground',
+    rightPanelOpen ? 'has-right-panel' : '',
+    debugOpen ? 'has-debug-panel' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const homeHref = pageHref('/', locale, version, defaultVersion);
+  const languageHref = pageHref(
+    'playground',
+    locale === 'zh' ? 'en' : 'zh',
+    version,
+    defaultVersion,
+  );
 
   return (
-    <section
-      className="flow-playground rp-not-doc"
-      data-flow-playground
-      data-validation={valid ? 'valid' : 'invalid'}
+    <main
+      className={shellClass}
+      data-canvas-mode={canvasMode}
+      data-flow-playground=""
+      data-language={locale}
+      data-testid="workflow-playground"
     >
-      <header className="flow-playground__header">
-        <div>
-          <h2>{copy.title}</h2>
-          <p>{copy.intro}</p>
-        </div>
-        <div className="flow-playground__contract">
-          <span>{copy.version(version)}</span>
-          <strong className={valid ? 'is-valid' : 'is-invalid'}>
-            {valid ? (
-              <CheckCircle aria-hidden="true" size={15} weight="fill" />
-            ) : (
-              <WarningCircle aria-hidden="true" size={15} weight="fill" />
-            )}
-            {valid ? copy.ready : copy.needsAttention}
-          </strong>
-        </div>
-      </header>
-
-      <div className="flow-playground__toolbar">
-        <div>
-          <span>{copy.nodes(graph.nodes.length)}</span>
-          <span>{copy.edges(graph.edges.length)}</span>
-        </div>
-        <div>
-          <button
-            className="is-primary"
-            onClick={() => setActiveTab('validation')}
-            type="button"
+      <a className="a3s-workflow-skip" href="#workflow-canvas">
+        {copy.canvasLabel}
+      </a>
+      <WorkflowPlaygroundHeader
+        copy={copy}
+        homeHref={homeHref}
+        issueCount={issueCount}
+        languageHref={languageHref}
+        locale={locale}
+        logoSrc={withBase('/a3s-logo.png')}
+        onExport={exportGraph}
+        onOpenDocument={() => setActivePanel('document')}
+        onReset={resetWorkflow}
+        onRunToggle={() => (running ? stopRun() : void runWorkflow())}
+        onValidate={() => setActivePanel('validation')}
+        onVersionChange={(targetVersion) => {
+          const target =
+            targetVersion === defaultVersion
+              ? pageHref('playground', locale, targetVersion, defaultVersion)
+              : pageHref('/', locale, targetVersion, defaultVersion);
+          window.location.assign(target);
+        }}
+        running={running}
+        saveState={saveState}
+        version={version}
+        versions={versions}
+      />
+      <noscript>
+        {versions.map((targetVersion) => (
+          <a
+            href={
+              targetVersion === defaultVersion
+                ? pageHref('playground', locale, targetVersion, defaultVersion)
+                : pageHref('/', locale, targetVersion, defaultVersion)
+            }
+            key={targetVersion}
           >
-            <CheckCircle aria-hidden="true" size={15} />
-            {copy.validate}
-          </button>
-          <button
-            disabled={!hasSelection}
-            onClick={deleteSelection}
-            type="button"
-          >
-            <Trash aria-hidden="true" size={15} />
-            {copy.deleteSelection}
-          </button>
-          <button onClick={reset} type="button">
-            <ArrowCounterClockwise aria-hidden="true" size={15} />
-            {copy.reset}
-          </button>
-        </div>
-      </div>
+            {targetVersion}
+          </a>
+        ))}
+      </noscript>
 
-      <div className="flow-playground__workspace">
-        <NodePalette
+      <section className="a3s-workflow-stage">
+        <WorkflowPlaygroundRail
+          copy={copy}
+          edgeRouting={edgeRouting}
+          mode={canvasMode}
+          onAdd={() => openNodeLibrary()}
+          onEdgeRoutingChange={(routing) => {
+            if (routing === edgeRouting) return;
+            setEdgeRouting(routing);
+            setAnnouncement(copy.edgeRoutingChanged[routing]);
+          }}
+          onModeChange={setCanvasMode}
+        />
+        <WorkflowPlaygroundCanvasDock
+          canRedo={canRedo}
+          canUndo={canUndo}
+          copy={copy}
+          onDebugTab={(tab) => {
+            setDebugOpen(true);
+            setDebugTab(tab);
+          }}
+          onRedo={redo}
+          onUndo={undo}
+          running={running}
+        />
+
+        <div
+          aria-label={copy.canvasLabel}
+          className={`a3s-workflow-canvas${draggedType ? ' is-dragging-node' : ''}`}
+          id="workflow-canvas"
+          onDragOver={(event) => {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+          }}
+          onDrop={onCanvasDrop}
+          ref={canvasRef}
+        >
+          <ReactFlow<PlaygroundNode, PlaygroundEdge>
+            ariaLabelConfig={
+              locale === 'zh'
+                ? {
+                    'controls.ariaLabel': copy.zoomControls,
+                    'minimap.ariaLabel': copy.minimap,
+                  }
+                : undefined
+            }
+            connectionLineType={
+              edgeRouting === 'curve'
+                ? ConnectionLineType.Bezier
+                : ConnectionLineType.SmoothStep
+            }
+            defaultEdgeOptions={defaultEdgeOptions}
+            deleteKeyCode={null}
+            edges={displayEdges}
+            edgeTypes={edgeTypes}
+            elementsSelectable={!running}
+            fitView
+            fitViewOptions={{ padding: 0.16, minZoom: 0.4, maxZoom: 1 }}
+            isValidConnection={isValidConnection}
+            maxZoom={1.6}
+            minZoom={0.25}
+            nodeTypes={nodeTypes}
+            nodes={displayNodes}
+            nodesConnectable={!running}
+            nodesDraggable={!running}
+            onConnect={onConnect}
+            onEdgeClick={(_, edge) => {
+              setSelectedEdgeId(edge.id);
+              setSelectedNodeId(undefined);
+              if (activePanel === 'settings') setActivePanel(undefined);
+            }}
+            onEdgesChange={onEdgesChange}
+            onNodeClick={(_, node) => {
+              setSelectedNodeId(node.id);
+              setSelectedEdgeId(undefined);
+              setActivePanel('settings');
+            }}
+            onNodeDragStart={beginDrag}
+            onNodeDragStop={endDrag}
+            onNodesChange={onNodesChange}
+            onPaneClick={() => {
+              setSelectedNodeId(undefined);
+              setSelectedEdgeId(undefined);
+              if (activePanel === 'settings') setActivePanel(undefined);
+            }}
+            onPaneContextMenu={(event) => {
+              event.preventDefault();
+              openNodeLibrary(
+                undefined,
+                screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+              );
+            }}
+            panOnDrag={canvasMode === 'pan'}
+            panOnScroll
+            proOptions={{ hideAttribution: true }}
+            selectionOnDrag={canvasMode === 'select'}
+            snapGrid={[14, 14]}
+            snapToGrid
+            zoomOnDoubleClick={false}
+          >
+            <Background
+              color="#cbd5e1"
+              gap={14}
+              size={1}
+              variant={BackgroundVariant.Dots}
+            />
+            <MiniMap<PlaygroundNode>
+              ariaLabel={copy.minimap}
+              bgColor="#ffffff"
+              maskColor="rgb(18 100 255 / 8%)"
+              nodeBorderRadius={5}
+              nodeColor="#b8c5d7"
+              nodeStrokeColor="#8999ad"
+              pannable
+              position="bottom-right"
+              zoomable
+            />
+            <Controls
+              aria-label={copy.zoomControls}
+              fitViewOptions={{ padding: 0.16 }}
+              position="bottom-right"
+              showInteractive={false}
+            />
+          </ReactFlow>
+          <p className="a3s-workflow-hint">{copy.keyboardHint}</p>
+          {draggedType && (
+            <div className="flow-playground-canvas__drop-hint">
+              {copy.dropHelp}
+            </div>
+          )}
+        </div>
+
+        <WorkflowPlaygroundLibrary
           copy={copy}
           locale={locale}
-          onAdd={(type) => addNode(type)}
+          onClose={closeNodeLibrary}
           onDragEnd={() => setDraggedType(undefined)}
           onDragStart={onPaletteDragStart}
-          query={query}
-          setQuery={setQuery}
+          onSelect={(type) => addNode(type)}
+          open={nodeLibraryOpen}
         />
 
-        <section className="flow-playground-canvas" aria-label={copy.canvas}>
-          <header>
-            <div>
-              <strong>{copy.canvas}</strong>
-              <small>{copy.canvasHelp}</small>
-            </div>
-            <button
-              onClick={() => void fitView({ padding: 0.16, duration: 260 })}
-              type="button"
-            >
-              <CornersOut aria-hidden="true" size={14} />
-              {copy.fit}
-            </button>
-          </header>
-          <div
-            className={`flow-playground-canvas__stage${draggedType ? ' is-dragging-node' : ''}`}
-            onDragOver={(event) => {
-              event.preventDefault();
-              event.dataTransfer.dropEffect = 'copy';
-            }}
-            onDrop={onCanvasDrop}
-            ref={canvasRef}
-          >
-            <ReactFlow<PlaygroundNode, PlaygroundEdge>
-              ariaLabelConfig={
-                locale === 'zh'
-                  ? {
-                      'controls.ariaLabel': copy.zoomControls,
-                      'minimap.ariaLabel': copy.minimap,
-                    }
-                  : undefined
-              }
-              defaultEdgeOptions={defaultEdgeOptions}
-              deleteKeyCode={['Backspace', 'Delete']}
-              edges={graph.edges}
-              fitView
-              fitViewOptions={{ padding: 0.16 }}
-              isValidConnection={isValidConnection}
-              maxZoom={1.6}
-              minZoom={0.45}
-              nodeTypes={nodeTypes}
-              nodes={graph.nodes}
-              onConnect={onConnect}
-              onEdgeClick={() => setPendingConnection('')}
-              onEdgesChange={onEdgesChange}
-              onNodeClick={() => {
-                setActiveTab('settings');
-                setPendingConnection('');
-              }}
-              onNodesChange={onNodesChange}
-              proOptions={{ hideAttribution: true }}
-              snapGrid={[10, 10]}
-              snapToGrid
-              zoomOnDoubleClick={false}
-            >
-              <Background
-                color="#c8d3e2"
-                gap={20}
-                size={1.25}
-                variant={BackgroundVariant.Dots}
-              />
-              <Controls
-                aria-label={copy.zoomControls}
-                fitViewOptions={{ padding: 0.16 }}
-                position="bottom-left"
-                showInteractive={false}
-              />
-              <MiniMap<PlaygroundNode>
-                ariaLabel={copy.minimap}
-                bgColor="#f8faff"
-                maskColor="rgb(225 232 243 / 68%)"
-                nodeBorderRadius={6}
-                nodeColor={(node) =>
-                  node.data.container
-                    ? '#dce8ff'
-                    : node.data.internal
-                      ? '#e8edf5'
-                      : '#ffffff'
-                }
-                nodeStrokeColor={(node) =>
-                  node.selected ? '#1456f0' : '#aab7c8'
-                }
-                pannable
-                position="bottom-right"
-                zoomable
-              />
-            </ReactFlow>
+        {rightPanelOpen && activePanel && (
+          <WorkflowPlaygroundInspector
+            activeTab={activePanel}
+            compilation={compilation}
+            configurationIssues={configurationIssues}
+            copy={copy}
+            documentJson={documentJson}
+            edges={graph.edges}
+            lastRunNodeIds={lastRunNodeIds}
+            locale={locale}
+            nodes={graph.nodes}
+            onApply={() => setAnnouncement(copy.nodeUpdated)}
+            onClose={() => setActivePanel(undefined)}
+            onCopyDocument={copyDocument}
+            onNodeChange={updateSelectedNode}
+            onRequestConnection={(valuePath) =>
+              setAnnouncement(copy.connectionRequest(valuePath))
+            }
+            onRunNode={(nodeId) => void runNode(nodeId)}
+            selectedNode={selectedNode}
+          />
+        )}
 
-            {graph.nodes.length === 0 && (
-              <div className="flow-playground-canvas__empty">
-                <Plus aria-hidden="true" size={24} />
-                <strong>{copy.emptyCanvas}</strong>
-                <p>{copy.emptyCanvasDetail}</p>
-              </div>
-            )}
-            {draggedType && (
-              <div className="flow-playground-canvas__drop-hint">
-                <Plus aria-hidden="true" size={16} weight="bold" />
-                {copy.dropHelp}
-              </div>
-            )}
-            {pendingConnection && (
-              <div className="flow-playground-canvas__connection-hint">
-                {pendingConnection}
-              </div>
-            )}
-          </div>
-        </section>
-
-        <WorkflowPlaygroundInspector
-          activeTab={activeTab}
-          compilation={compilation}
-          configurationIssues={configurationIssues}
+        <WorkflowPlaygroundDebug
+          activeTab={debugTab}
           copy={copy}
-          documentJson={documentJson}
-          edges={graph.edges}
-          locale={locale}
-          nodes={graph.nodes}
-          onApply={() => setAnnouncement(copy.nodeUpdated)}
-          onCopyDocument={copyDocument}
-          onNodeChange={updateSelectedNode}
-          onRequestConnection={(valuePath) => {
-            const note = copy.connectionRequest(valuePath);
-            setPendingConnection(note);
-            setAnnouncement(note);
+          history={history}
+          onClose={() => setDebugOpen(false)}
+          onSelectNode={(nodeId) => {
+            setSelectedNodeId(nodeId);
+            setSelectedEdgeId(undefined);
+            setActivePanel('settings');
           }}
-          onTabChange={setActiveTab}
-          selectedNode={selectedNode}
+          onTabChange={setDebugTab}
+          open={debugOpen}
+          runningNodeId={runningNodeId}
+          trace={trace}
+          variables={{
+            'workflow.name': copy.workflowName,
+            'workflow.version': version,
+            'graph.nodes': String(graph.nodes.length),
+            'graph.edges': String(graph.edges.length),
+          }}
         />
-      </div>
+      </section>
 
-      <output className="flow-playground-sr-only" aria-live="polite">
+      {announcement && (
+        <output className="a3s-workflow-toast" role="status">
+          <CheckCircle aria-hidden="true" weight="fill" />
+          {announcement}
+        </output>
+      )}
+      <output className="a3s-visually-hidden" aria-live="polite">
         {announcement}
       </output>
-    </section>
+    </main>
   );
 }
 
 export default function WorkflowPlayground() {
+  const locale: FlowWebsiteLocale = useLang() === 'en' ? 'en' : 'zh';
+  const copy = workflowPlaygroundCopy[locale];
+  if (import.meta.env.SSG_MD) {
+    return <MarkdownPlayground copy={copy} locale={locale} />;
+  }
   return (
     <ReactFlowProvider>
       <WorkflowPlaygroundSurface />

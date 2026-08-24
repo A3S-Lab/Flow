@@ -1,36 +1,58 @@
 import type { FlowWebsiteLocale } from './flow-node-catalog';
 
 export type WorkflowPlaygroundCopy = {
-  title: string;
-  intro: string;
-  version: (version: string) => string;
-  nodes: (count: number) => string;
-  edges: (count: number) => string;
-  ready: string;
-  needsAttention: string;
-  catalog: string;
-  searchLabel: string;
-  searchPlaceholder: string;
-  noSearchResults: string;
-  addNode: (name: string) => string;
-  dragNode: (name: string) => string;
-  canvas: string;
-  canvasHelp: string;
-  dropHelp: string;
-  fit: string;
-  reset: string;
+  pageTitle: string;
+  workflowName: string;
+  localDraft: string;
+  saved: string;
+  saving: string;
+  backHome: string;
+  language: string;
+  version: string;
   validate: string;
-  deleteSelection: string;
-  emptyCanvas: string;
-  emptyCanvasDetail: string;
+  run: string;
+  stop: string;
+  moreActions: string;
+  reset: string;
+  exportGraph: string;
+  openDocument: string;
+  addNode: string;
+  addNamedNode: (name: string) => string;
+  selectMode: string;
+  panMode: string;
+  edgeRouting: string;
+  curvedEdges: string;
+  orthogonalEdges: string;
+  edgeRoutingChanged: Record<'curve' | 'orthogonal', string>;
+  canvasTools: string;
+  undo: string;
+  redo: string;
+  history: string;
+  variables: string;
+  trace: string;
+  close: string;
+  nodeLibrary: string;
+  nodeLibraryDescription: string;
+  searchNodes: string;
+  noNodes: string;
+  canvasLabel: string;
+  keyboardHint: string;
+  dropHelp: string;
+  fitView: string;
+  minimap: string;
+  zoomControls: string;
+  noSelection: string;
+  noSelectionDetail: string;
   settings: string;
   validation: string;
   document: string;
-  noSelection: string;
-  noSelectionDetail: string;
-  selectNode: string;
+  runStep: string;
+  duplicate: string;
+  delete: string;
+  selectedNode: string;
   connectedOutputs: (count: number) => string;
-  browserOnly: string;
+  validationReady: string;
+  validationNeedsWork: (count: number) => string;
   validTitle: string;
   validDetail: string;
   invalidTitle: string;
@@ -40,13 +62,13 @@ export type WorkflowPlaygroundCopy = {
   configurationInvalid: (count: number) => string;
   planTitle: string;
   graphIssues: string;
-  configurationIssues: string;
   topLevel: string;
   scope: string;
   copyDocument: string;
   copied: string;
   copyFailed: string;
   resetDone: string;
+  graphExported: string;
   nodeAdded: (name: string) => string;
   containerAdded: (name: string) => string;
   selectionDeleted: string;
@@ -59,78 +81,105 @@ export type WorkflowPlaygroundCopy = {
   targetHandle: (name: string) => string;
   childCanvas: string;
   internalNode: string;
-  minimap: string;
-  zoomControls: string;
+  localRun: string;
+  runComplete: string;
+  runStopped: string;
+  noTrace: string;
+  noHistory: string;
+  runHistory: string;
+  cachedVariables: string;
+  documentPreview: string;
 };
 
 export const workflowPlaygroundCopy: Readonly<
   Record<FlowWebsiteLocale, WorkflowPlaygroundCopy>
 > = {
   zh: {
-    title: '在浏览器里把一张工作流图接起来',
-    intro:
-      '节点、端口、默认值、配置表单和编译结果都来自当前版本的 Flow 契约。这里生成的文档可以继续交给 CLI 校验，也可以交给宿主编辑器保存。',
-    version: (version) => `契约 ${version}`,
-    nodes: (count) => `${count} 个节点`,
-    edges: (count) => `${count} 条连线`,
-    ready: '可以编译',
-    needsAttention: '需要处理',
-    catalog: '节点库',
-    searchLabel: '搜索节点',
-    searchPlaceholder: '按名称或类型搜索',
-    noSearchResults: '没有找到匹配的节点。',
-    addNode: (name) => `添加${name}`,
-    dragNode: (name) => `拖动${name}到画布，或点击直接添加`,
-    canvas: '工作流画布',
-    canvasHelp: '拖动节点调整位置，从输出端口拉线到输入端口。',
-    dropHelp: '松开后添加节点',
-    fit: '适应画布',
+    pageTitle: 'A3S Flow 工作流设计器',
+    workflowName: '客户支持工作流',
+    localDraft: '本地草稿',
+    saved: '已保存到本地',
+    saving: '正在保存',
+    backHome: '返回 A3S Flow 文档',
+    language: '切换到英文',
+    version: '版本',
+    validate: '校验',
+    run: '试运行',
+    stop: '停止',
+    moreActions: '更多操作',
     reset: '恢复示例',
-    validate: '检查工作流',
-    deleteSelection: '删除选中项',
-    emptyCanvas: '画布还是空的',
-    emptyCanvasDetail: '从左侧点击一个节点，或把节点拖到这里。',
-    settings: '配置',
-    validation: '校验',
-    document: 'DSL',
+    exportGraph: '导出工作流',
+    openDocument: '查看 DSL',
+    addNode: '添加节点',
+    addNamedNode: (name) => `添加${name}`,
+    selectMode: '选择并移动节点',
+    panMode: '平移画布',
+    edgeRouting: '连线路由',
+    curvedEdges: '曲线',
+    orthogonalEdges: '折线',
+    edgeRoutingChanged: {
+      curve: '连线已切换为曲线。',
+      orthogonal: '连线已切换为折线。',
+    },
+    canvasTools: '画布工具',
+    undo: '撤销',
+    redo: '重做',
+    history: '运行历史',
+    variables: '变量检查',
+    trace: '运行轨迹',
+    close: '关闭',
+    nodeLibrary: '节点库',
+    nodeLibraryDescription: '18 个节点都来自当前版本的 Flow 节点清单。',
+    searchNodes: '搜索节点名称、说明或类型',
+    noNodes: '没有匹配的节点。',
+    canvasLabel: '交互式工作流画布',
+    keyboardHint: '拖动节点，滚动平移，Ctrl 或 Cmd + Z 撤销。',
+    dropHelp: '松开后把节点放到这里',
+    fitView: '适应画布',
+    minimap: '工作流缩略图',
+    zoomControls: '画布缩放控制',
     noSelection: '还没有选中节点',
-    noSelectionDetail: '选择画布中的节点后，这里会打开它的真实配置表单。',
-    selectNode: '在画布中选择节点',
+    noSelectionDetail: '选择画布中的节点后，这里会打开它的配置表单。',
+    settings: '配置',
+    validation: '校验结果',
+    document: '工作流 DSL',
+    runStep: '试运行当前节点',
+    duplicate: '复制节点',
+    delete: '删除节点',
+    selectedNode: '当前节点',
     connectedOutputs: (count) => `已连接 ${count} 个输出端口`,
-    browserOnly:
-      '这个页面负责编辑和编译，不会在浏览器里执行外部任务。实际运行由接入 Flow 的宿主和 Worker 完成。',
-    validTitle: '图结构可以编译',
-    validDetail:
-      '拓扑顺序已经生成。保存或执行前仍应由宿主确认凭据、权限与任务实现。',
-    invalidTitle: '还有问题需要处理',
-    invalidDetail: '按下面的路径修改图结构或节点配置，再重新检查。',
+    validationReady: '图结构有效',
+    validationNeedsWork: (count) => `${count} 个问题待处理`,
+    validTitle: '工作流可以编译',
+    validDetail: '节点配置和图结构已经通过当前版本的契约检查。',
+    invalidTitle: '工作流还不能编译',
+    invalidDetail: '按路径修改节点配置或连线后再校验。',
     configurationTitle: '节点配置',
     configurationValid: '所有可检查的节点配置均有效。',
     configurationInvalid: (count) => `发现 ${count} 个配置问题。`,
     planTitle: '编译顺序',
     graphIssues: '图结构问题',
-    configurationIssues: '节点配置问题',
-    topLevel: '顶层',
+    topLevel: '顶层画布',
     scope: '子画布',
     copyDocument: '复制 DSL',
-    copied: 'DSL 已复制到剪贴板。',
-    copyFailed: '无法写入剪贴板，请从代码区手动复制。',
+    copied: 'DSL 已复制。',
+    copyFailed: '浏览器没有允许写入剪贴板，请从代码区手动复制。',
     resetDone: '已恢复示例工作流。',
+    graphExported: '工作流文件已导出。',
     nodeAdded: (name) => `已添加${name}。`,
-    containerAdded: (name) => `已添加${name}，并创建内部起始节点和示例任务。`,
+    containerAdded: (name) => `已添加${name}及其内部起始节点。`,
     selectionDeleted: '已删除选中的节点或连线。',
-    nothingSelected: '请先选择要删除的节点或连线。',
+    nothingSelected: '请先选择节点或连线。',
     nodeUpdated: '节点配置已更新。',
     connectionCreated: '连线已创建。',
-    connectionRequest: (path) =>
-      `请从上游数据端口拉线到当前节点。目标字段 ${path}`,
+    connectionRequest: (path) => `请连接上游数据到字段 ${path}。`,
     connectionRejected: {
       missing_endpoint: '连线必须同时指定起点和终点。',
       missing_handle: '请从明确的输出端口连接到输入端口。',
       missing_node: '连线引用的节点已经不存在。',
       unknown_port: '这个端口不属于当前节点。',
       unavailable_port: '当前配置下，这个输出端口不可用。',
-      incompatible_port: '两个端口承载的数据类型不兼容。',
+      incompatible_port: '两个端口的数据类型不兼容。',
       cross_scope: '顶层画布和子画布之间不能直接拉线。',
       self_edge: '节点不能连接到自己。',
       duplicate_edge: '这条连线已经存在。',
@@ -141,83 +190,109 @@ export const workflowPlaygroundCopy: Readonly<
     targetHandle: (name) => `${name}输入端口`,
     childCanvas: '子画布',
     internalNode: '内部节点',
-    minimap: '工作流缩略图',
-    zoomControls: '画布缩放控制',
+    localRun: '试运行只展示本地执行顺序，不会调用外部任务。',
+    runComplete: '试运行完成。',
+    runStopped: '试运行已停止。',
+    noTrace: '还没有运行记录。',
+    noHistory: '完成一次试运行后，这里会保留最近记录。',
+    runHistory: '运行历史',
+    cachedVariables: '变量检查',
+    documentPreview: '当前 DSL',
   },
   en: {
-    title: 'Connect a workflow graph in the browser',
-    intro:
-      'Nodes, ports, defaults, configuration forms, and compiler output all come from the current Flow contract. Continue with the CLI for validation or hand the document to a host editor for persistence.',
-    version: (version) => `Contract ${version}`,
-    nodes: (count) => `${count} nodes`,
-    edges: (count) => `${count} edges`,
-    ready: 'Compiles',
-    needsAttention: 'Needs attention',
-    catalog: 'Node library',
-    searchLabel: 'Search nodes',
-    searchPlaceholder: 'Search by name or type',
-    noSearchResults: 'No nodes match this search.',
-    addNode: (name) => `Add ${name}`,
-    dragNode: (name) => `Drag ${name} to the canvas or click to add it`,
-    canvas: 'Workflow canvas',
-    canvasHelp: 'Move nodes, then connect an output port to an input port.',
-    dropHelp: 'Release to add the node',
-    fit: 'Fit canvas',
+    pageTitle: 'A3S Flow workflow designer',
+    workflowName: 'Customer support workflow',
+    localDraft: 'Local draft',
+    saved: 'Saved locally',
+    saving: 'Saving',
+    backHome: 'Back to A3S Flow documentation',
+    language: 'Switch to Chinese',
+    version: 'Version',
+    validate: 'Validate',
+    run: 'Test run',
+    stop: 'Stop',
+    moreActions: 'More actions',
     reset: 'Reset sample',
-    validate: 'Check workflow',
-    deleteSelection: 'Delete selection',
-    emptyCanvas: 'The canvas is empty',
-    emptyCanvasDetail:
-      'Click a node in the library or drag one onto the canvas.',
-    settings: 'Configure',
-    validation: 'Validate',
-    document: 'DSL',
+    exportGraph: 'Export workflow',
+    openDocument: 'View DSL',
+    addNode: 'Add node',
+    addNamedNode: (name) => `Add ${name}`,
+    selectMode: 'Select and move nodes',
+    panMode: 'Pan canvas',
+    edgeRouting: 'Connection routing',
+    curvedEdges: 'Curved connections',
+    orthogonalEdges: 'Orthogonal connections',
+    edgeRoutingChanged: {
+      curve: 'Connections now use curves.',
+      orthogonal: 'Connections now use orthogonal lines.',
+    },
+    canvasTools: 'Canvas tools',
+    undo: 'Undo',
+    redo: 'Redo',
+    history: 'Run history',
+    variables: 'Variable inspect',
+    trace: 'Run trace',
+    close: 'Close',
+    nodeLibrary: 'Node library',
+    nodeLibraryDescription:
+      'All 18 nodes come from the current Flow manifest registry.',
+    searchNodes: 'Search by node name, description, or type',
+    noNodes: 'No nodes match this search.',
+    canvasLabel: 'Interactive workflow canvas',
+    keyboardHint:
+      'Drag nodes, scroll to pan, and press Ctrl or Cmd + Z to undo.',
+    dropHelp: 'Release to place the node here',
+    fitView: 'Fit canvas',
+    minimap: 'Workflow minimap',
+    zoomControls: 'Canvas zoom controls',
     noSelection: 'No node selected',
     noSelectionDetail:
-      'Select a canvas node to open its production configuration form here.',
-    selectNode: 'Select a node on the canvas',
+      'Select a canvas node to open its configuration form here.',
+    settings: 'Settings',
+    validation: 'Validation',
+    document: 'Workflow DSL',
+    runStep: 'Test this node',
+    duplicate: 'Duplicate node',
+    delete: 'Delete node',
+    selectedNode: 'Selected node',
     connectedOutputs: (count) => `${count} output ports connected`,
-    browserOnly:
-      'This page edits and compiles the document. External tasks do not run in the browser; an integrated Flow host and its workers perform execution.',
-    validTitle: 'The graph compiles',
+    validationReady: 'Graph is valid',
+    validationNeedsWork: (count) => `${count} issues to resolve`,
+    validTitle: 'The workflow compiles',
     validDetail:
-      'A deterministic topology is available. The host still confirms credentials, authorization, and task implementations before execution.',
-    invalidTitle: 'Some issues still need attention',
+      'Node settings and graph structure satisfy the current contract.',
+    invalidTitle: 'The workflow cannot compile yet',
     invalidDetail:
-      'Update the graph or node configuration at the listed paths, then check again.',
+      'Update the listed settings or connections and validate again.',
     configurationTitle: 'Node configuration',
-    configurationValid:
-      'Every configuration that can be checked here is valid.',
+    configurationValid: 'Every configuration checked here is valid.',
     configurationInvalid: (count) => `${count} configuration issues found.`,
     planTitle: 'Compilation order',
     graphIssues: 'Graph issues',
-    configurationIssues: 'Node configuration issues',
-    topLevel: 'Top level',
+    topLevel: 'Top-level canvas',
     scope: 'Child canvas',
     copyDocument: 'Copy DSL',
-    copied: 'DSL copied to the clipboard.',
+    copied: 'DSL copied.',
     copyFailed:
-      'Clipboard access failed. Copy the document from the code area.',
+      'Clipboard access was denied. Copy the document from the code area.',
     resetDone: 'The sample workflow has been restored.',
+    graphExported: 'The workflow file has been exported.',
     nodeAdded: (name) => `${name} added.`,
-    containerAdded: (name) =>
-      `${name} added with its internal start node and an example task.`,
-    selectionDeleted: 'The selected nodes or edges were deleted.',
-    nothingSelected: 'Select a node or edge before deleting.',
-    nodeUpdated: 'Node configuration updated.',
+    containerAdded: (name) => `${name} and its internal start node added.`,
+    selectionDeleted: 'The selected node or connection was deleted.',
+    nothingSelected: 'Select a node or connection first.',
+    nodeUpdated: 'Node settings updated.',
     connectionCreated: 'Connection created.',
-    connectionRequest: (path) =>
-      `Connect an upstream data port to the current node. Target field: ${path}`,
+    connectionRequest: (path) => `Connect upstream data to ${path}.`,
     connectionRejected: {
       missing_endpoint: 'A connection needs both a source and a target.',
       missing_handle: 'Connect a specific output port to an input port.',
       missing_node: 'A referenced node no longer exists.',
       unknown_port: 'This port does not belong to the current node.',
       unavailable_port:
-        'This output port is unavailable with the current configuration.',
+        'This output port is unavailable with the current settings.',
       incompatible_port: 'The two ports carry incompatible data types.',
-      cross_scope:
-        'Top-level and child-canvas nodes cannot be connected directly.',
+      cross_scope: 'Top-level and child-canvas nodes cannot connect directly.',
       self_edge: 'A node cannot connect to itself.',
       duplicate_edge: 'This connection already exists.',
       occupied_input: 'This input port already has a connection.',
@@ -227,7 +302,14 @@ export const workflowPlaygroundCopy: Readonly<
     targetHandle: (name) => `${name} input port`,
     childCanvas: 'Child canvas',
     internalNode: 'Internal node',
-    minimap: 'Workflow minimap',
-    zoomControls: 'Canvas zoom controls',
+    localRun:
+      'The test run only previews local execution order and never calls external tasks.',
+    runComplete: 'Test run complete.',
+    runStopped: 'Test run stopped.',
+    noTrace: 'No run trace yet.',
+    noHistory: 'Recent records appear here after a test run.',
+    runHistory: 'Run history',
+    cachedVariables: 'Variable inspect',
+    documentPreview: 'Current DSL',
   },
 };

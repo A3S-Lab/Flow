@@ -21,15 +21,24 @@ export type PlaygroundNodeData = {
   locale: FlowWebsiteLocale;
   internal: boolean;
   container: boolean;
+  runtimeStatus?: 'idle' | 'running' | 'success' | 'waiting' | 'error';
+  onRun?: (nodeId: string) => void;
+  onDuplicate?: (nodeId: string) => void;
+  onDelete?: (nodeId: string) => void;
 } & Record<string, unknown>;
 
 export type PlaygroundNode = Node<PlaygroundNodeData, 'flowNode'>;
 
+export type PlaygroundEdgeRouting = 'curve' | 'orthogonal';
+
 export type PlaygroundEdgeData = {
+  routing?: PlaygroundEdgeRouting;
   sourcePortLabel?: string;
+  insertLabel?: string;
+  onInsert?: (edgeId: string, position: XYPosition) => void;
 } & Record<string, unknown>;
 
-export type PlaygroundEdge = Edge<PlaygroundEdgeData, 'smoothstep'>;
+export type PlaygroundEdge = Edge<PlaygroundEdgeData, 'workflow'>;
 
 export type PlaygroundGraphState = {
   nodes: PlaygroundNode[];
@@ -74,9 +83,9 @@ export type PlaygroundConfigurationIssue = {
   message: string;
 };
 
-const NORMAL_NODE_WIDTH = 292;
-const CONTAINER_NODE_WIDTH = 760;
-const CONTAINER_NODE_HEIGHT = 390;
+const NORMAL_NODE_WIDTH = 240;
+const CONTAINER_NODE_WIDTH = 520;
+const CONTAINER_NODE_HEIGHT = 340;
 
 function sanitizeId(value: string): string {
   return value.replace(/^flow\./u, '').replace(/[^a-z0-9]+/giu, '_');
@@ -103,12 +112,17 @@ function createNode(
 ): PlaygroundNode {
   const manifest = a3sFlowDagNodeRegistry.require(type);
   const localized = localizeA3SFlowDagManifest(manifest, locale);
+  const configuration = {
+    title: localized.display_name,
+    desc: localized.description,
+    ...(options.configuration ?? {}),
+  };
   const dagNode = options.parentId
-    ? createA3SFlowDagNode(id, manifest, options.configuration ?? {}, {
+    ? createA3SFlowDagNode(id, manifest, configuration, {
         parentId: options.parentId,
         position: { x: position.x, y: position.y },
       })
-    : createA3SFlowDagNode(id, manifest, options.configuration ?? {}, {
+    : createA3SFlowDagNode(id, manifest, configuration, {
         position: { x: position.x, y: position.y },
       });
   const container = manifest.role === 'container';
@@ -175,7 +189,7 @@ export function createPlaygroundEdge(
     sourceHandle: connection.sourceHandle,
     target: connection.target,
     targetHandle: connection.targetHandle,
-    type: 'smoothstep',
+    type: 'workflow',
     label: showLabel ? sourcePort.label : undefined,
     data: { sourcePortLabel: sourcePort?.label },
     ariaLabel: sourcePort
@@ -188,13 +202,11 @@ export function createSampleWorkflow(
   locale: FlowWebsiteLocale,
 ): PlaygroundGraphState {
   const nodes = [
-    createNode('start_1', 'flow.start', { x: 50, y: 110 }, locale),
-    createNode('step_1', 'flow.step', { x: 390, y: 110 }, locale),
-    createNode('condition_1', 'flow.condition', { x: 390, y: 410 }, locale, {
-      selected: true,
-    }),
-    createNode('complete_1', 'flow.complete', { x: 730, y: 285 }, locale),
-    createNode('fail_1', 'flow.fail', { x: 730, y: 585 }, locale),
+    createNode('start_1', 'flow.start', { x: 60, y: 285 }, locale),
+    createNode('step_1', 'flow.step', { x: 380, y: 285 }, locale),
+    createNode('condition_1', 'flow.condition', { x: 700, y: 285 }, locale),
+    createNode('complete_1', 'flow.complete', { x: 1020, y: 175 }, locale),
+    createNode('fail_1', 'flow.fail', { x: 1020, y: 425 }, locale),
   ];
   const edges = [
     createPlaygroundEdge(

@@ -1,0 +1,311 @@
+body:has(.a3s-workflow-playground) {
+  margin: 0;
+  overflow: hidden;
+}
+
+body:has(.a3s-workflow-playground) :where(#root, #app) {
+  min-height: 100dvh;
+}
+
+.a3s-workflow-logo {
+  display: block;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border-radius: 9px;
+  box-shadow: 0 3px 8px rgb(24 79 188 / 18%);
+}
+
+.a3s-workflow-version {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+}
+
+.a3s-workflow-version select {
+  height: 34px;
+  padding: 0 26px 0 10px;
+  border: 1px solid var(--workflow-line);
+  border-radius: 8px;
+  background-color: var(--workflow-surface);
+  color: var(--workflow-muted);
+  cursor: pointer;
+  font-family: var(--workflow-mono);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.a3s-workflow-canvas.is-dragging-node::after {
+  position: absolute;
+  z-index: 8;
+  inset: 10px;
+  border: 1px dashed var(--workflow-blue);
+  border-radius: 12px;
+  background: rgb(18 100 255 / 4%);
+  content: '';
+  pointer-events: none;
+}
+
+.a3s-workflow-canvas .flow-playground-canvas__drop-hint {
+  position: absolute;
+  z-index: 9;
+  top: 18px;
+  left: 50%;
+  padding: 7px 11px;
+  border: 1px solid rgb(18 100 255 / 22%);
+  border-radius: 8px;
+  background: var(--workflow-blue-soft);
+  color: var(--workflow-blue-dark);
+  font-size: 11px;
+  font-weight: 650;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.a3s-workflow-canvas .react-flow__node-flowNode {
+  border: 0;
+  background: transparent;
+  font-family: var(--workflow-sans);
+}
+
+.a3s-workflow-node-shell {
+  position: relative;
+  width: 240px;
+}
+
+.a3s-workflow-node-shell.is-container {
+  width: 520px;
+  height: 340px;
+}
+
+.a3s-workflow-node-shell > .a3s-form-workflow-node-preview {
+  max-width: none;
+  cursor: pointer;
+}
+
+.a3s-workflow-node-shell .a3s-form-workflow-node-preview-compact-ports i {
+  opacity: 0;
+}
+
+.a3s-workflow-node-shell .flow-playground-node__handle.react-flow__handle {
+  z-index: 8;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--workflow-surface);
+  border-radius: 50%;
+  outline: 1px solid var(--workflow-topology-strong);
+  background: var(--workflow-surface);
+  box-shadow: none;
+  transition:
+    background 130ms ease-out,
+    outline-color 130ms ease-out,
+    transform 130ms ease-out;
+}
+
+.a3s-workflow-node-shell.is-selected
+  .flow-playground-node__handle.react-flow__handle,
+.a3s-workflow-node-shell
+  .flow-playground-node__handle.react-flow__handle:hover {
+  outline-color: var(--workflow-blue);
+  background: var(--workflow-blue);
+  transform: scale(1.08);
+}
+
+.a3s-workflow-node-shell .flow-playground-node__handle.react-flow__handle-left {
+  left: -5px;
+}
+
+.a3s-workflow-node-shell
+  .flow-playground-node__handle.react-flow__handle-right {
+  right: -5px;
+}
+
+.a3s-workflow-node-shell .flow-playground-node__child-label,
+.a3s-workflow-node-shell .flow-playground-node__internal-label {
+  position: absolute;
+  z-index: 4;
+  right: 11px;
+  bottom: 9px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--workflow-faint);
+  font-size: 9px;
+  pointer-events: none;
+}
+
+.a3s-workflow-node-shell .flow-playground-node__child-label code {
+  font-family: var(--workflow-mono);
+  font-size: 9px;
+}
+
+.a3s-node-library__groups
+  section
+  > div
+  > button[data-node-tone='cyan']
+  > span:first-child {
+  background: var(--workflow-cyan-soft);
+  color: var(--workflow-cyan);
+}
+
+.a3s-node-library__groups
+  section
+  > div
+  > button[data-node-tone='green']
+  > span:first-child {
+  background: var(--workflow-green-soft);
+  color: var(--workflow-green);
+}
+
+.a3s-node-library__groups
+  section
+  > div
+  > button[data-node-tone='orange']
+  > span:first-child {
+  background: var(--workflow-amber-soft);
+  color: var(--workflow-amber);
+}
+
+.a3s-node-library__groups
+  section
+  > div
+  > button[data-node-tone='violet']
+  > span:first-child {
+  background: var(--workflow-violet-soft);
+  color: var(--workflow-violet);
+}
+
+.a3s-node-library__groups
+  section
+  > div
+  > button[data-node-tone='red']
+  > span:first-child {
+  background: var(--workflow-red-soft);
+  color: var(--workflow-red);
+}
+
+.flow-playground-side-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.flow-playground-side-panel > .a3s-form-workflow-node-panel {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.flow-playground-side-panel
+  > .a3s-form-workflow-node-panel
+  .a3s-form-workflow-node-settings {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
+.flow-playground-side-panel__header {
+  display: flex;
+  min-height: 58px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--workflow-line);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.flow-playground-side-panel__header h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 690;
+  letter-spacing: -0.015em;
+}
+
+.flow-playground-side-panel__header button {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  align-items: center;
+  justify-content: center;
+  color: var(--workflow-muted);
+  cursor: pointer;
+}
+
+.flow-playground-side-panel__header button:hover {
+  background: var(--workflow-surface-muted);
+}
+
+.flow-playground-side-panel__header svg {
+  width: 16px;
+  height: 16px;
+}
+
+.flow-playground-side-panel__scroll {
+  height: calc(100% - 58px);
+  overflow-y: auto;
+}
+
+.flow-playground-side-panel .flow-playground-validation {
+  padding: 14px;
+}
+
+.flow-playground-side-panel .flow-playground-document {
+  display: grid;
+  height: calc(100% - 58px);
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: 12px;
+}
+
+.flow-playground-side-panel .flow-playground-document pre {
+  height: 100%;
+  max-height: none;
+}
+
+.flow-playground-last-run {
+  display: grid;
+  min-height: 190px;
+  padding: 22px;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.flow-playground-last-run svg {
+  color: var(--workflow-green);
+  font-size: 22px;
+}
+
+.flow-playground-last-run p {
+  max-width: 31ch;
+  margin: 0;
+  color: var(--workflow-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.a3s-debug-trace__detail > p {
+  max-width: 52ch;
+  margin: 0;
+  color: var(--workflow-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+@media (max-width: 760px) {
+  .a3s-workflow-version {
+    display: none;
+  }
+
+  .a3s-workflow-logo {
+    width: 30px;
+    height: 30px;
+  }
+
+  .a3s-workflow-node-shell.is-container {
+    width: min(520px, calc(100vw - 76px));
+  }
+}
