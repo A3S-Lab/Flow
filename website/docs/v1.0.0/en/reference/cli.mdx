@@ -14,6 +14,8 @@ npm install @a3s-lab/flow-ui @a3s-lab/ui
 npx a3s-flow help --pretty
 ```
 
+The second command should return JSON with `ok` set to `true` and list `nodes`, `new`, `validate`, `compile`, and `digest`. If the shell cannot find the command, confirm that the dependencies are installed in the current project and invoke the local binary through `npx` or a project script.
+
 A project script can call the locally installed binary directly.
 
 ```json
@@ -84,4 +86,6 @@ In CI, validate first and retain the compiled plan and digest as build artifacts
 
 ## Diagnosing failures
 
-`unknown_node` means the installed package does not expose the requested public type, so inspect `nodes` before changing the document. `flow.node.internal_scope_required` means an internal start marker has escaped its matching container. Graph errors usually point to an incorrect handle, a cross-scope edge, or a back edge. Field errors identify the exact node data path under `workflow.graph.nodes`. After repair, run validation, compilation, and digesting again and review the final plan rather than relying on a previously generated artifact.
+`unknown_node` means the installed package does not expose the requested public type, so inspect `nodes` before changing the document. `flow.node.internal_scope_required` means an internal start marker has escaped its matching container. Graph errors usually point to an incorrect handle, a cross-scope edge, or a back edge. Field errors identify the exact node data path under `workflow.graph.nodes`.
+
+For a file-read failure, check the working directory and supplied path first. When standard input never completes, the upstream command has probably kept its output open; write the document to a temporary file and validate it separately. After repair, rerun validation, compilation, and digesting so the final plan and release document come from the same check.

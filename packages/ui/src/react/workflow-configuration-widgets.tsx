@@ -31,17 +31,77 @@ export interface WorkflowConfigurationWidgetCallbacks {
   onDataDisplayAction?: (request: WorkflowDataDisplayActionRequest) => void;
 }
 
-type WorkflowFieldActionTarget = Pick<FormWidgetProps, 'node' | 'valuePath' | 'disabled'> & {
+type WorkflowFieldActionTarget = Pick<
+  FormWidgetProps,
+  'node' | 'valuePath' | 'disabled'
+> & {
   value?: FormWidgetProps['value'];
+  locale?: string;
 };
 
 export interface WorkflowFieldAccessoryProps
   extends Pick<FormWidgetProps, 'node' | 'valuePath' | 'disabled'> {
   value?: FormWidgetProps['value'];
   callbacks?: WorkflowConfigurationWidgetCallbacks;
+  locale?: string;
 }
 
 const REAL_TIME_REFRESH_DEBOUNCE_MS = 250;
+
+function workflowWidgetCopy(locale: string | undefined) {
+  const chinese = locale?.toLocaleLowerCase().startsWith('zh') === true;
+  return chinese
+    ? {
+        live: '实时',
+        toolInput: '工具输入',
+        workflowInput: '工作流输入',
+        runtimeConfigured: '由运行时提供',
+        refreshField: (label: string) => `刷新${label}`,
+        copyField: (label: string) => `复制${label}`,
+        connectField: (label: string) => `连接${label}`,
+        workflowInputLegend: (label: string) => `${label}工作流输入`,
+        connect: '连接',
+        connectionSet: '已连接',
+        connectFromCanvas: '从工作流画布连接',
+        anyCompatibleOutput: '任意兼容输出',
+        change: '更换',
+        choose: '选择',
+        connectionLabel: (label: string, connected: boolean) =>
+          `${connected ? '更换' : '选择'}${label}的连接`,
+        expand: '展开',
+        collapse: '收起',
+        editorLabel: (label: string, expanded: boolean) =>
+          `${expanded ? '收起' : '展开'}${label}编辑器`,
+        empty: '空',
+        lineCount: (count: number) => `${count} 行`,
+        invalidJson: '请输入有效的 JSON 后再更新。',
+      }
+    : {
+        live: 'Live',
+        toolInput: 'Tool input',
+        workflowInput: 'Workflow input',
+        runtimeConfigured: 'Runtime configured',
+        refreshField: (label: string) => `Refresh ${label}`,
+        copyField: (label: string) => `Copy ${label}`,
+        connectField: (label: string) => `Connect ${label}`,
+        workflowInputLegend: (label: string) => `${label} workflow input`,
+        connect: 'Connect',
+        connectionSet: 'Connection set',
+        connectFromCanvas: 'Connect from the workflow canvas',
+        anyCompatibleOutput: 'Any compatible output',
+        change: 'Change',
+        choose: 'Choose',
+        connectionLabel: (label: string, connected: boolean) =>
+          `${connected ? 'Change' : 'Choose'} ${label} connection`,
+        expand: 'Expand',
+        collapse: 'Collapse',
+        editorLabel: (label: string, expanded: boolean) =>
+          `${expanded ? 'Collapse' : 'Expand'} ${label} editor`,
+        empty: 'Empty',
+        lineCount: (count: number) => `${count} ${count === 1 ? 'line' : 'lines'}`,
+        invalidJson: 'Enter valid JSON to update this value.',
+      };
+}
 
 const WORKFLOW_ICON_ALIASES: Readonly<Record<string, DesignerIconName>> = {
   'arrow-down': 'arrow-down',
@@ -170,17 +230,18 @@ function RealTimeRefreshEffect({
 
 function FieldFlags({ props }: { props: WorkflowFieldActionTarget }) {
   const flags = fieldFlags(props);
+  const copy = workflowWidgetCopy(props.locale);
   if (!flags.realtime && !flags.toolMode) return null;
   return (
     <div className="a3s-form-workflow-field-flags">
       {flags.realtime && (
         <span className="badge" data-variant="outline">
-          Live
+          {copy.live}
         </span>
       )}
       {flags.toolMode && (
         <span className="badge" data-variant="secondary">
-          Tool input
+          {copy.toolInput}
         </span>
       )}
     </div>
@@ -195,13 +256,15 @@ function RefreshButton({
   callbacks: WorkflowConfigurationWidgetCallbacks;
 }) {
   if (!fieldFlags(props).refresh) return null;
+  const copy = workflowWidgetCopy(props.locale);
+  const label = props.node.label ?? props.node.id;
   return (
     <button
       type="button"
       className="btn a3s-form-workflow-inline-action"
       data-size="icon-sm"
       data-variant="ghost"
-      aria-label={`Refresh ${props.node.label ?? props.node.id}`}
+      aria-label={copy.refreshField(label)}
       disabled={props.disabled || !callbacks.onRefreshField}
       onClick={() =>
         callbacks.onRefreshField?.({
@@ -225,13 +288,15 @@ function CopyButton({
   callbacks: WorkflowConfigurationWidgetCallbacks;
 }) {
   if (!copyFieldEnabled(props)) return null;
+  const copy = workflowWidgetCopy(props.locale);
+  const label = props.node.label ?? props.node.id;
   return (
     <button
       type="button"
       className="btn a3s-form-workflow-inline-action"
       data-size="icon-sm"
       data-variant="ghost"
-      aria-label={`Copy ${props.node.label ?? props.node.id}`}
+      aria-label={copy.copyField(label)}
       disabled={props.disabled || !callbacks.onCopyField}
       onClick={() =>
         callbacks.onCopyField?.({
@@ -254,6 +319,8 @@ function ConnectionAction({
   callbacks: WorkflowConfigurationWidgetCallbacks;
 }) {
   const accepted = inputTypes(props);
+  const copy = workflowWidgetCopy(props.locale);
+  const label = props.node.label ?? props.node.id;
   if (accepted.length === 0) return null;
   return (
     <button
@@ -262,7 +329,7 @@ function ConnectionAction({
       data-size="sm"
       data-variant="ghost"
       disabled={props.disabled || !callbacks.onRequestConnection}
-      aria-label={`Connect ${props.node.label ?? props.node.id}`}
+      aria-label={copy.connectField(label)}
       title={accepted.join(' · ')}
       onClick={() =>
         callbacks.onRequestConnection?.({
@@ -273,7 +340,7 @@ function ConnectionAction({
       }
     >
       <DesignerIcon name="link" size={13} />
-      Connect
+      {copy.connect}
     </button>
   );
 }
@@ -307,6 +374,8 @@ export function WorkflowFieldAccessory({ callbacks = {}, ...props }: WorkflowFie
   const accepted = inputTypes(props);
   const flags = fieldFlags(props);
   const copyable = copyFieldEnabled(props);
+  const copy = workflowWidgetCopy(props.locale);
+  const label = props.node.label ?? props.node.id;
   if (accepted.length === 0 && !copyable && !flags.refresh && !flags.realtime && !flags.toolMode) {
     return null;
   }
@@ -318,15 +387,13 @@ export function WorkflowFieldAccessory({ callbacks = {}, ...props }: WorkflowFie
         data-size="sm"
         data-variant="outline"
       >
-        <legend className="a3s-form-visually-hidden">
-          {props.node.label ?? props.node.id} workflow input
-        </legend>
+        <legend className="a3s-form-visually-hidden">{copy.workflowInputLegend(label)}</legend>
         <span className="a3s-form-workflow-control-icon">
           <DesignerIcon name="link" size={15} />
         </span>
         <span className="a3s-form-workflow-control-copy">
-          <strong>Workflow input</strong>
-          <small>{accepted.length > 0 ? accepted.join(' · ') : 'Runtime configured'}</small>
+          <strong>{copy.workflowInput}</strong>
+          <small>{accepted.length > 0 ? accepted.join(' · ') : copy.runtimeConfigured}</small>
         </span>
         <div className="a3s-form-workflow-field-accessory-actions">
           <FieldFlags props={props} />
@@ -342,6 +409,8 @@ export function WorkflowFieldAccessory({ callbacks = {}, ...props }: WorkflowFie
 function ConnectionWidget(props: FormWidgetProps, callbacks: WorkflowConfigurationWidgetCallbacks) {
   const accepted = inputTypes(props);
   const connected = props.value !== null && props.value !== undefined && props.value !== '';
+  const copy = workflowWidgetCopy(props.locale);
+  const label = props.node.label ?? props.node.id;
   return (
     <div
       className="a3s-form-workflow-connection item"
@@ -353,8 +422,8 @@ function ConnectionWidget(props: FormWidgetProps, callbacks: WorkflowConfigurati
         <DesignerIcon name="link" size={16} />
       </span>
       <span className="a3s-form-workflow-control-copy">
-        <strong>{connected ? 'Connection set' : 'Connect from the workflow canvas'}</strong>
-        <small>{accepted.length > 0 ? accepted.join(' · ') : 'Any compatible output'}</small>
+        <strong>{connected ? copy.connectionSet : copy.connectFromCanvas}</strong>
+        <small>{accepted.length > 0 ? accepted.join(' · ') : copy.anyCompatibleOutput}</small>
       </span>
       <button
         id={props.id}
@@ -363,7 +432,7 @@ function ConnectionWidget(props: FormWidgetProps, callbacks: WorkflowConfigurati
         data-size="sm"
         data-variant={connected ? 'secondary' : 'outline'}
         disabled={props.disabled || !callbacks.onRequestConnection}
-        aria-label={`${connected ? 'Change' : 'Choose'} ${props.node.label ?? props.node.id} connection`}
+        aria-label={copy.connectionLabel(label, connected)}
         onClick={() =>
           callbacks.onRequestConnection?.({
             nodeId: props.node.id,
@@ -372,7 +441,7 @@ function ConnectionWidget(props: FormWidgetProps, callbacks: WorkflowConfigurati
           })
         }
       >
-        {connected ? 'Change' : 'Connect'}
+        {connected ? copy.change : copy.connect}
       </button>
     </div>
   );
@@ -684,14 +753,17 @@ function ActionPickerWidget(props: FormWidgetProps) {
 function EditorExpandButton({
   expanded,
   label,
+  locale,
   targetId,
   onChange,
 }: {
   expanded: boolean;
   label: string;
+  locale?: string;
   targetId: string;
   onChange: () => void;
 }) {
+  const copy = workflowWidgetCopy(locale);
   return (
     <button
       type="button"
@@ -700,11 +772,11 @@ function EditorExpandButton({
       data-variant="ghost"
       aria-controls={targetId}
       aria-expanded={expanded}
-      aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label} editor`}
+      aria-label={copy.editorLabel(label, expanded)}
       onClick={onChange}
     >
       <DesignerIcon name={expanded ? 'collapse' : 'desktop'} size={12} />
-      {expanded ? 'Collapse' : 'Expand'}
+      {expanded ? copy.collapse : copy.expand}
     </button>
   );
 }
@@ -713,6 +785,7 @@ function MultilineWidget(props: FormWidgetProps) {
   const text = typeof props.value === 'string' ? props.value : '';
   const [expanded, setExpanded] = useState(false);
   const lineCount = text.length === 0 ? 0 : text.split('\n').length;
+  const copy = workflowWidgetCopy(props.locale);
   return (
     <div
       className="a3s-form-workflow-source-editor is-multiline"
@@ -734,12 +807,11 @@ function MultilineWidget(props: FormWidgetProps) {
         onFocus={props.onFocus}
       />
       <div className="a3s-form-workflow-editor-footer">
-        <span>
-          {lineCount === 0 ? 'Empty' : `${lineCount} ${lineCount === 1 ? 'line' : 'lines'}`}
-        </span>
+        <span>{lineCount === 0 ? copy.empty : copy.lineCount(lineCount)}</span>
         <EditorExpandButton
           expanded={expanded}
           label={props.node.label ?? props.node.id}
+          locale={props.locale}
           targetId={props.id}
           onChange={() => setExpanded((current) => !current)}
         />
@@ -754,6 +826,7 @@ function JsonWidget(props: FormWidgetProps) {
   const [draft, setDraft] = useState(source);
   const [invalid, setInvalid] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const copy = workflowWidgetCopy(props.locale);
   useEffect(() => setDraft(source), [source]);
   const stringValue = typeof props.value === 'string';
   const update = (next: string) => {
@@ -794,10 +867,11 @@ function JsonWidget(props: FormWidgetProps) {
         onFocus={props.onFocus}
       />
       <div className="a3s-form-workflow-editor-footer">
-        <span role="status">{invalid ? 'Enter valid JSON to update this value.' : 'JSON'}</span>
+        <span role="status">{invalid ? copy.invalidJson : 'JSON'}</span>
         <EditorExpandButton
           expanded={expanded}
           label={props.node.label ?? props.node.id}
+          locale={props.locale}
           targetId={props.id}
           onChange={() => setExpanded((current) => !current)}
         />
@@ -809,6 +883,7 @@ function JsonWidget(props: FormWidgetProps) {
 function CodeWidget(props: FormWidgetProps) {
   const text = typeof props.value === 'string' ? props.value : '';
   const [expanded, setExpanded] = useState(false);
+  const copy = workflowWidgetCopy(props.locale);
   return (
     <div className="a3s-form-workflow-source-editor is-code" data-expanded={expanded || undefined}>
       <textarea
@@ -827,10 +902,11 @@ function CodeWidget(props: FormWidgetProps) {
         onFocus={props.onFocus}
       />
       <div className="a3s-form-workflow-editor-footer">
-        <span>{text.length === 0 ? 'Empty' : `${text.split('\n').length} lines`}</span>
+        <span>{text.length === 0 ? copy.empty : copy.lineCount(text.split('\n').length)}</span>
         <EditorExpandButton
           expanded={expanded}
           label={props.node.label ?? props.node.id}
+          locale={props.locale}
           targetId={props.id}
           onChange={() => setExpanded((current) => !current)}
         />
@@ -874,6 +950,7 @@ function PromptWidget(props: FormWidgetProps) {
         <EditorExpandButton
           expanded={expanded}
           label={props.node.label ?? props.node.id}
+          locale={props.locale}
           targetId={props.id}
           onChange={() => setExpanded((current) => !current)}
         />

@@ -7,7 +7,7 @@ import type {
   JsonValue,
   UiNode,
   UiOption,
-} from '@a3s-lab/ui/form/core';
+} from "@a3s-lab/ui/form/core";
 import type {
   WorkflowNodeDefinition,
   WorkflowNodeFieldDefinition,
@@ -1082,8 +1082,9 @@ export function createWorkflowNodeForm(
     ui: { root: rootId, nodes },
     rules: [],
     dataSources: [],
-    actions: (options.actions ?? defaultActions(options.locale)).map((action) =>
-      structuredClone(action),
-    ),
+    actions: (
+      options.actions ??
+      (taskPresentation ? [] : defaultActions(options.locale))
+    ).map((action) => structuredClone(action)),
   };
 }

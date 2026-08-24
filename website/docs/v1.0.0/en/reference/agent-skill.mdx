@@ -5,14 +5,16 @@ description: Install and invoke the A3S Flow Skill so coding agents create and v
 
 # a3s-flow Skill
 
-The `a3s-flow` Skill ships inside `@a3s-lab/flow-ui` under `skills/a3s-flow`. It instructs a coding agent to inspect the locally installed CLI before creating nodes, wiring ports, validating a graph, reviewing deterministic order, and producing semantic digests. The Skill does not carry a second node catalog and does not guess which fields a package version supports.
+After installation, a coding agent can invoke `$a3s-flow` to create or update workflow documents. The Skill first inspects the local CLI, then creates nodes, wires ports, validates the graph, reviews deterministic order, and produces semantic digests. It ships with `@a3s-lab/flow-ui`, carries no second node catalog, and does not guess which fields a package version supports.
 
 ## Locate and install it
 
 ```bash
 npm install @a3s-lab/flow-ui @a3s-lab/ui
-node -p "require.resolve('@a3s-lab/flow-ui/package.json')"
+node --input-type=module -e "console.log(import.meta.resolve('@a3s-lab/flow-ui/skill'))"
 ```
+
+The second command prints the package URL for `SKILL.md`. Its containing `a3s-flow` directory is the complete Skill to register.
 
 The package contains this complete directory.
 
@@ -23,7 +25,7 @@ skills/a3s-flow/
   references/workflow-dsl.md
 ```
 
-Register the whole `a3s-flow` directory with the coding agent's Skill root. A personal Codex installation normally places it at `$CODEX_HOME/skills/a3s-flow`. A team repository can instead document a reproducible link or copy step from the installed package. Keep the reference file with the entry point because document envelopes and container-scope rules live there.
+Register the whole `a3s-flow` directory with the coding agent's Skill root. A personal Codex installation normally places it at `$CODEX_HOME/skills/a3s-flow`. A team repository can instead keep a reproducible link or copy command. Keep the reference file with the entry point because document envelopes and container-scope rules live there.
 
 ## When to invoke it
 
@@ -72,3 +74,7 @@ npx a3s-flow validate workflow.json --pretty
 ```
 
 The catalog should report 18 public nodes. The sample should contain start, task, and completion nodes. Once validation passes, the Skill has a complete local source of truth. Repeat these checks after upgrading `@a3s-lab/flow-ui`, and have the agent read the new manifests instead of relying on field names remembered from an earlier session.
+
+If `import.meta.resolve` cannot find the package, run the command from the project where the dependencies were installed. A global installation does not pin the node version for the current project.
+
+If the Skill reports `unknown_node`, run `npx a3s-flow nodes --pretty` and compare the requested type with the installed catalog. When validation fails, repair the reported path or edge before running `compile` and `digest`. Field names remembered from an earlier session never replace the local manifest.

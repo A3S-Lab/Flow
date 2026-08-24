@@ -541,9 +541,8 @@ function WorkflowPlaygroundSurface() {
             : node,
         ),
       }));
-      setAnnouncement(copy.nodeUpdated);
     },
-    [commit, copy.nodeUpdated],
+    [commit],
   );
 
   const deleteSelection = useCallback(() => {

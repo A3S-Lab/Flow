@@ -232,6 +232,7 @@
   --a3s-line-strong: #c8d3e1;
   --a3s-blue: var(--flow-accent);
   --a3s-ui-font: var(--flow-font);
+  --flow-hero-cycle: 13.5s;
   position: relative;
   min-width: 0;
   overflow: hidden;
@@ -245,163 +246,761 @@
 
 .flow-hero-canvas > header {
   display: flex;
-  min-height: 52px;
-  padding: 0 16px;
+  min-height: 56px;
+  padding: 0 13px;
   border-bottom: 1px solid var(--flow-line);
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.flow-hero-canvas > header > div {
+.flow-hero-canvas__identity {
   display: inline-flex;
   min-width: 0;
   color: var(--flow-text);
   align-items: center;
-  gap: 7px;
-  font-size: 12px;
+  gap: 9px;
 }
 
-.flow-hero-canvas > header > div svg {
+.flow-hero-canvas__identity > span:first-child {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  background: var(--flow-accent-soft);
+  color: var(--flow-accent);
+  place-items: center;
+}
+
+.flow-hero-canvas__identity > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.flow-hero-canvas__identity strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 690;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-hero-canvas__identity small {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  color: var(--flow-faint);
+  font-size: 8px;
+}
+
+.flow-hero-canvas__identity small i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--flow-line-strong);
+}
+
+.flow-hero-canvas__identity svg {
   color: var(--flow-accent);
 }
 
-.flow-hero-canvas > header > span {
-  display: inline-flex;
-  min-height: 25px;
-  padding: 0 8px;
-  border-radius: 6px;
-  background: var(--flow-success-soft);
-  color: var(--flow-success);
+.flow-hero-canvas__actions {
+  display: flex;
+  flex: 0 0 auto;
   align-items: center;
+  gap: 5px;
+}
+
+.flow-hero-canvas__actions > span {
+  display: inline-flex;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--flow-line);
+  border-radius: 7px;
+  background: var(--flow-surface);
+  align-items: center;
+  gap: 5px;
+  color: var(--flow-muted);
   font-size: 10px;
   font-weight: 680;
 }
 
-.flow-hero-canvas__board {
-  position: relative;
-  height: 452px;
-  overflow: hidden;
-  background-color: #f8faff;
-  background-image: radial-gradient(circle, #ccd7e6 1px, transparent 1px);
-  background-size: 21px 21px;
+.flow-hero-canvas__actions .is-valid {
+  border-color: color-mix(in srgb, var(--flow-success) 28%, var(--flow-line));
+  background: var(--flow-success-soft);
+  color: var(--flow-success);
 }
 
-.flow-hero-canvas__board > svg {
+.flow-hero-canvas__actions .is-run {
+  border-color: var(--flow-accent);
+  background: var(--flow-accent);
+  color: #fff;
+}
+
+.flow-hero-canvas__board {
+  position: relative;
+  height: 466px;
+  overflow: hidden;
+  background-color: #f8faff;
+  background-image: radial-gradient(circle, #ced8e7 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+.flow-hero-canvas__edges {
   position: absolute;
+  z-index: 1;
   inset: 0;
   width: 100%;
   height: 100%;
 }
 
-.flow-hero-canvas__board > svg path {
+.flow-hero-canvas__edges path {
   fill: none;
-  stroke: #9eb5d5;
-  stroke-width: 2;
+  stroke: #a4b4c9;
+  stroke-linecap: round;
+  stroke-width: 1.5;
   vector-effect: non-scaling-stroke;
 }
 
-.flow-hero-canvas.is-motion-active .flow-hero-canvas__board > svg path {
-  animation: flow-route 6s linear infinite;
-  stroke-dasharray: 8 7;
+.flow-hero-canvas__rail {
+  position: absolute;
+  z-index: 5;
+  top: 82px;
+  left: 13px;
+  display: flex;
+  width: 38px;
+  padding: 4px;
+  border: 1px solid var(--flow-line);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 96%);
+  box-shadow: 0 8px 18px -12px rgb(15 35 70 / 45%);
+  flex-direction: column;
+  gap: 3px;
+}
+
+.flow-hero-canvas__rail span {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  color: var(--flow-muted);
+  place-items: center;
+}
+
+.flow-hero-canvas__rail span.is-primary {
+  background: var(--flow-accent);
+  color: #fff;
+}
+
+.flow-hero-canvas__rail span.is-active {
+  background: var(--flow-accent-soft);
+  color: var(--flow-accent-strong);
+}
+
+.flow-hero-canvas__rail svg {
+  width: 14px;
+  height: 14px;
+}
+
+.flow-hero-canvas__rail i {
+  width: 21px;
+  height: 1px;
+  margin: 2px auto;
+  background: var(--flow-line);
 }
 
 .flow-hero-canvas__node {
+  --flow-hero-node-scale: 0.72;
   position: absolute;
-  z-index: 1;
-  width: 260px;
-  transform: scale(0.8);
+  z-index: 3;
+  width: 240px;
+  transform: scale(var(--flow-hero-node-scale));
   transform-origin: top left;
 }
 
 .flow-hero-canvas__node.is-1 {
-  top: 26px;
-  left: 24px;
+  top: 136px;
+  left: 78px;
 }
 
 .flow-hero-canvas__node.is-2 {
-  top: 145px;
-  right: -18px;
+  top: 136px;
+  left: 292px;
 }
 
 .flow-hero-canvas__node.is-3 {
-  bottom: 8px;
-  left: 112px;
+  top: 136px;
+  left: 506px;
 }
 
-.flow-hero-canvas__child {
+.flow-hero-canvas__cursor {
   position: absolute;
-  right: 18px;
-  bottom: 17px;
+  z-index: 12;
+  top: 168px;
+  left: 416px;
+  display: grid;
+  width: 23px;
+  height: 23px;
+  border: 1px solid rgb(255 255 255 / 82%);
+  border-radius: 7px;
+  background: var(--flow-text);
+  box-shadow: 0 5px 13px rgb(15 35 70 / 22%);
+  color: #fff;
+  place-items: center;
+  transform: rotate(-8deg);
+}
+
+.flow-hero-canvas__inspector {
+  position: absolute;
+  z-index: 10;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  width: 242px;
+  border-left: 1px solid var(--flow-line);
+  background: var(--flow-surface);
+  box-shadow: -16px 0 30px -24px rgb(15 35 70 / 42%);
+  flex-direction: column;
+}
+
+.flow-hero-canvas__inspector > header {
+  display: grid;
+  min-height: 72px;
+  padding: 12px;
+  border-bottom: 1px solid var(--flow-line);
+  align-items: center;
+  gap: 8px;
+  grid-template-columns: 30px minmax(0, 1fr) 22px;
+}
+
+.flow-hero-canvas__inspector > header > span {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--flow-accent-soft);
+  color: var(--flow-accent);
+  place-items: center;
+}
+
+.flow-hero-canvas__inspector > header > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.flow-hero-canvas__inspector > header strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 690;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-hero-canvas__inspector > header small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--flow-faint);
+  font-size: 9px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.flow-hero-canvas__inspector > header > svg {
+  color: var(--flow-faint);
+}
+
+.flow-hero-canvas__tabs {
+  display: flex;
+  min-height: 40px;
+  padding: 0 13px;
+  border-bottom: 1px solid var(--flow-line);
+  align-items: end;
+  gap: 18px;
+}
+
+.flow-hero-canvas__tabs :is(strong, span) {
+  position: relative;
   display: inline-flex;
+  min-height: 39px;
+  color: var(--flow-faint);
+  align-items: center;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.flow-hero-canvas__tabs strong {
+  color: var(--flow-text);
+}
+
+.flow-hero-canvas__tabs strong::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--flow-accent);
+  content: '';
+}
+
+.flow-hero-canvas__inspector > section {
+  display: grid;
+  padding: 16px 13px;
+  gap: 14px;
+}
+
+.flow-hero-canvas__inspector label {
+  display: grid;
+  gap: 7px;
+}
+
+.flow-hero-canvas__inspector label > span {
+  color: var(--flow-muted);
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.flow-hero-canvas__field-value {
+  position: relative;
+  display: flex;
   min-height: 34px;
   padding: 0 10px;
-  border: 1px solid color-mix(in srgb, var(--flow-wait) 28%, var(--flow-line));
-  border-radius: 8px;
-  background: var(--flow-wait-soft);
-  color: var(--flow-wait);
+  overflow: hidden;
+  border: 1px solid var(--flow-line-strong);
+  border-radius: 7px;
+  background: var(--flow-surface);
   align-items: center;
-  gap: 6px;
-  font-size: 10px;
-  font-weight: 650;
+  font-family: var(--flow-mono);
+  font-size: 9px;
+  font-weight: 570;
 }
 
-.flow-hero-canvas > footer {
-  display: grid;
-  min-height: 78px;
-  padding: 12px 16px;
+.flow-hero-canvas__field-value :is(i, em) {
+  position: absolute;
+  color: var(--flow-text);
+  font-style: normal;
+}
+
+.flow-hero-canvas__field-value i {
+  opacity: 0;
+}
+
+.flow-hero-canvas__retry {
+  display: flex;
+  min-height: 46px;
+  padding-top: 12px;
   border-top: 1px solid var(--flow-line);
   align-items: center;
-  gap: 14px;
-  grid-template-columns: minmax(140px, 0.7fr) minmax(0, 1.3fr);
+  justify-content: space-between;
+  gap: 10px;
 }
 
-.flow-hero-canvas > footer > span {
-  display: inline-flex;
-  color: var(--flow-success);
-  align-items: center;
-  gap: 6px;
-  font-size: 10px;
-  font-weight: 650;
-}
-
-.flow-hero-canvas > footer ol {
+.flow-hero-canvas__retry > span {
   display: grid;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  gap: 5px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-width: 0;
+  gap: 3px;
 }
 
-.flow-hero-canvas > footer li {
+.flow-hero-canvas__retry strong {
+  font-size: 10px;
+  font-weight: 660;
+}
+
+.flow-hero-canvas__retry small {
+  color: var(--flow-faint);
+  font-size: 8px;
+  line-height: 1.35;
+}
+
+.flow-hero-canvas__retry > i {
+  position: relative;
+  width: 28px;
+  height: 16px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--flow-accent);
+}
+
+.flow-hero-canvas__retry > i::after {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(15 35 70 / 22%);
+  content: '';
+}
+
+.flow-hero-canvas__retry-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.flow-hero-canvas__retry-fields span,
+.flow-hero-canvas__next {
   display: flex;
-  min-width: 0;
-  padding: 6px 7px;
+  min-height: 34px;
+  padding: 0 9px;
+  border: 1px solid var(--flow-line);
   border-radius: 7px;
   background: var(--flow-bg);
   align-items: center;
-  gap: 6px;
-}
-
-.flow-hero-canvas > footer li.is-current {
-  background: var(--flow-accent-soft);
-}
-
-.flow-hero-canvas > footer li b {
-  color: var(--flow-accent-strong);
-  font-family: var(--flow-mono);
-  font-size: 9px;
-}
-
-.flow-hero-canvas > footer li small {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--flow-faint);
-  font-family: var(--flow-mono);
+  color: var(--flow-muted);
   font-size: 8px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.flow-hero-canvas__next {
+  gap: 6px;
+  background: var(--flow-surface);
+  color: var(--flow-accent-strong);
+}
+
+.flow-hero-canvas__inspector > footer {
+  display: flex;
+  min-height: 42px;
+  margin-top: auto;
+  padding: 0 13px;
+  border-top: 1px solid var(--flow-line);
+  align-items: center;
+  gap: 6px;
+  color: var(--flow-success);
+  font-size: 8px;
+  font-weight: 630;
+}
+
+.flow-hero-canvas__toast {
+  position: absolute;
+  z-index: 13;
+  bottom: 18px;
+  left: calc(50% - 102px);
+  display: inline-flex;
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid
+    color-mix(in srgb, var(--flow-success) 25%, var(--flow-line));
+  border-radius: 8px;
+  background: var(--flow-surface);
+  box-shadow: 0 8px 20px -13px rgb(15 35 70 / 52%);
+  align-items: center;
+  gap: 6px;
+  color: var(--flow-success);
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.flow-hero-canvas.is-motion-active .flow-hero-canvas__node.is-1 {
+  animation: flow-hero-node-1 var(--flow-hero-cycle)
+    cubic-bezier(0.16, 1, 0.3, 1) infinite both;
+}
+
+.flow-hero-canvas.is-motion-active .flow-hero-canvas__node.is-2 {
+  animation: flow-hero-node-2 var(--flow-hero-cycle)
+    cubic-bezier(0.16, 1, 0.3, 1) infinite both;
+}
+
+.flow-hero-canvas.is-motion-active .flow-hero-canvas__node.is-3 {
+  animation: flow-hero-node-3 var(--flow-hero-cycle)
+    cubic-bezier(0.16, 1, 0.3, 1) infinite both;
+}
+
+.flow-hero-canvas.is-motion-active .flow-hero-canvas__edges .is-edge-1 {
+  animation: flow-hero-edge-1 var(--flow-hero-cycle) ease-out infinite both;
+}
+
+.flow-hero-canvas.is-motion-active .flow-hero-canvas__edges .is-edge-2 {
+  animation: flow-hero-edge-2 var(--flow-hero-cycle) ease-out infinite both;
+}
+
+.flow-hero-canvas.is-motion-active
+  .flow-hero-canvas__node.is-target
+  .a3s-form-flow-node-preview {
+  animation: flow-hero-node-select var(--flow-hero-cycle) ease infinite both;
+}
+
+.flow-hero-canvas.is-motion-active .flow-hero-canvas__cursor {
+  animation: flow-hero-cursor var(--flow-hero-cycle)
+    cubic-bezier(0.2, 0.75, 0.2, 1) infinite both;
+}
+
+.flow-hero-canvas.is-motion-active .flow-hero-canvas__inspector {
+  animation: flow-hero-inspector var(--flow-hero-cycle)
+    cubic-bezier(0.16, 1, 0.3, 1) infinite both;
+}
+
+.flow-hero-canvas.is-motion-active .flow-hero-canvas__field-value i {
+  animation: flow-hero-field-before var(--flow-hero-cycle) ease infinite both;
+}
+
+.flow-hero-canvas.is-motion-active .flow-hero-canvas__field-value em {
+  animation: flow-hero-field-after var(--flow-hero-cycle) ease infinite both;
+}
+
+.flow-hero-canvas.is-motion-active .flow-hero-canvas__retry > i {
+  animation: flow-hero-retry-switch var(--flow-hero-cycle) ease infinite both;
+}
+
+.flow-hero-canvas.is-motion-active .flow-hero-canvas__retry > i::after {
+  animation: flow-hero-retry-knob var(--flow-hero-cycle) ease infinite both;
+}
+
+.flow-hero-canvas.is-motion-active .flow-hero-canvas__retry-fields,
+.flow-hero-canvas.is-motion-active .flow-hero-canvas__next,
+.flow-hero-canvas.is-motion-active .flow-hero-canvas__inspector > footer {
+  animation: flow-hero-config-reveal var(--flow-hero-cycle) ease infinite both;
+}
+
+.flow-hero-canvas.is-motion-active .flow-hero-canvas__actions .is-run {
+  animation: flow-hero-run-button var(--flow-hero-cycle) ease infinite both;
+}
+
+.flow-hero-canvas.is-motion-active .flow-hero-canvas__toast {
+  animation: flow-hero-toast var(--flow-hero-cycle)
+    cubic-bezier(0.16, 1, 0.3, 1) infinite both;
+}
+
+@keyframes flow-hero-node-1 {
+  0%,
+  4% {
+    opacity: 0;
+    filter: blur(5px);
+    transform: translateY(12px) scale(var(--flow-hero-node-scale));
+  }
+  8%,
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(var(--flow-hero-node-scale));
+  }
+}
+
+@keyframes flow-hero-node-2 {
+  0%,
+  17% {
+    opacity: 0;
+    filter: blur(5px);
+    transform: translateY(12px) scale(var(--flow-hero-node-scale));
+  }
+  21%,
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(var(--flow-hero-node-scale));
+  }
+}
+
+@keyframes flow-hero-node-3 {
+  0%,
+  33% {
+    opacity: 0;
+    filter: blur(5px);
+    transform: translateY(12px) scale(var(--flow-hero-node-scale));
+  }
+  37%,
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(var(--flow-hero-node-scale));
+  }
+}
+
+@keyframes flow-hero-edge-1 {
+  0%,
+  10% {
+    opacity: 0;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+  }
+  15%,
+  100% {
+    opacity: 1;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes flow-hero-edge-2 {
+  0%,
+  26% {
+    opacity: 0;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+  }
+  31%,
+  100% {
+    opacity: 1;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes flow-hero-node-select {
+  0%,
+  42% {
+    border-color: var(--a3s-form-line-strong);
+    box-shadow: 0 2px 5px rgb(20 27 43 / 6%);
+  }
+  47%,
+  100% {
+    border-color: var(--flow-accent);
+    box-shadow:
+      inset 0 0 0 1px #fff,
+      0 0 0 1px var(--flow-accent),
+      0 4px 10px rgb(20 86 240 / 14%);
+  }
+}
+
+@keyframes flow-hero-cursor {
+  0%,
+  3% {
+    opacity: 0;
+    transform: translate(-376px, -73px) rotate(-8deg);
+  }
+  6% {
+    opacity: 1;
+    transform: translate(-376px, -73px) rotate(-8deg);
+  }
+  18% {
+    opacity: 1;
+    transform: translate(-185px, 5px) rotate(-8deg);
+  }
+  42% {
+    opacity: 1;
+    transform: translate(0, 0) rotate(-8deg);
+  }
+  54% {
+    opacity: 1;
+    transform: translate(158px, -76px) rotate(-8deg);
+  }
+  63% {
+    opacity: 1;
+    transform: translate(166px, 70px) rotate(-8deg);
+  }
+  72% {
+    opacity: 1;
+    transform: translate(177px, 148px) rotate(-8deg);
+  }
+  85% {
+    opacity: 1;
+    transform: translate(160px, -151px) rotate(-8deg);
+  }
+  91%,
+  100% {
+    opacity: 0;
+    transform: translate(160px, -151px) rotate(-8deg);
+  }
+}
+
+@keyframes flow-hero-inspector {
+  0%,
+  45% {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  51%,
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes flow-hero-field-before {
+  0%,
+  59% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  64%,
+  100% {
+    opacity: 0;
+    transform: translateY(-7px);
+  }
+}
+
+@keyframes flow-hero-field-after {
+  0%,
+  59% {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  64%,
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes flow-hero-retry-switch {
+  0%,
+  67% {
+    background: var(--flow-line-strong);
+  }
+  72%,
+  100% {
+    background: var(--flow-accent);
+  }
+}
+
+@keyframes flow-hero-retry-knob {
+  0%,
+  67% {
+    right: 14px;
+  }
+  72%,
+  100% {
+    right: 2px;
+  }
+}
+
+@keyframes flow-hero-config-reveal {
+  0%,
+  70% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  76%,
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes flow-hero-run-button {
+  0%,
+  82%,
+  92%,
+  100% {
+    box-shadow: none;
+    transform: translateY(0);
+  }
+  86% {
+    box-shadow: 0 0 0 4px
+      color-mix(in srgb, var(--flow-accent) 16%, transparent);
+    transform: translateY(-1px);
+  }
+}
+
+@keyframes flow-hero-toast {
+  0%,
+  87% {
+    opacity: 0;
+    filter: blur(3px);
+    transform: translateY(8px) scale(0.97);
+  }
+  92%,
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(1);
+  }
 }
 
 .flow-assurance {

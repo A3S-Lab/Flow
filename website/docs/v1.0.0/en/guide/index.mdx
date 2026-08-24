@@ -5,7 +5,7 @@ description: Run a two-phase workflow in memory, inspect its snapshot and histor
 
 # Run the first durable workflow
 
-This page follows one complete executable path. The workflow schedules a step, the step output enters history, and replay completes the run. It uses the in-memory store so you can verify the runtime boundary and event order first.
+After completing this page, you will have a minimal workflow that runs without external infrastructure. It schedules one task, commits the task result to history, replays, and finishes. The terminal should print `Completed`, and the output should contain `hello Ada`. The in-memory store keeps the first run focused on the runtime boundary and event order.
 
 ## Prerequisites
 
@@ -108,13 +108,21 @@ Run the application.
 cargo run
 ```
 
-The final snapshot should be `Completed`, with output from the committed `greet` step. The workflow ran twice for a reason.
+The final snapshot should be `Completed`, with output from the committed `greet` step. The workflow function ran twice.
 
 1. The first replay has no `greet` output and returns `ScheduleStep`.
 2. The step executes and commits `StepCompleted`.
 3. The second replay reads that output and returns `Complete`.
 
 No process-local variable records the workflow position. History does.
+
+## When the result differs
+
+An `unknown step` error means the name passed to `schedule_step` does not match a branch in `run_step`. Check `greet_user`, correct the mismatch, and run the example again.
+
+`RunConflict` during startup means the same run ID already belongs to a different definition or input. Use a new ID during development. In production, first decide whether the caller is retrying the original request or creating a genuinely new run.
+
+If the status remains `Running` or `Suspended`, print raw history and inspect the last committed event. When no task result was committed, inspect the error returned by `run_step`. When the run is waiting for a timer, hook, or signal, continue with the matching guide instead of polling in process memory.
 
 ## Why the run ID is stable
 

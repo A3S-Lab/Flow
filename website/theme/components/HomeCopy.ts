@@ -11,6 +11,24 @@ export type HomeCopy = {
     status: string;
     run: string;
     resumed: string;
+    draft: string;
+    saved: string;
+    validate: string;
+    testRun: string;
+    addNode: string;
+    selectTool: string;
+    panTool: string;
+    settings: string;
+    lastRun: string;
+    taskName: string;
+    taskNameBefore: string;
+    taskNameAfter: string;
+    retry: string;
+    retryDetail: string;
+    attempts: string;
+    delay: string;
+    nextStep: string;
+    autoSaved: string;
   };
   assuranceTitle: string;
   assurances: readonly { title: string; detail: string }[];
@@ -98,36 +116,54 @@ export const homeCopy: Readonly<Record<HomeLocale, HomeCopy>> = {
       meta: 'AI Native Workflow Engine',
       languageLabel: '首页语言',
       title: ['A3S Flow', 'AI 原生工作流引擎'],
-      body: '把 Agent、工具、人工审批和子工作流编进同一张图。Flow 将每次决定和结果写入事件历史，进程退出、Worker 更换或等待数天后，仍从已确认的位置继续。',
+      body: '把 Agent 任务、工具调用、人工审批和子工作流放进同一张图。每次决定与结果都会写入事件历史。进程退出、Worker 更换，或者流程暂停几天，下一次运行仍从已确认的位置继续。',
       primary: '开始构建工作流',
       secondary: '打开 Playground',
-      status: '运行中',
-      run: '订单审核 · run_01J8K4',
-      resumed: '已从事件 18 恢复',
+      status: '图结构有效',
+      run: '客户支持工作流',
+      resumed: '试运行完成 · 5 个节点',
+      draft: '本地草稿',
+      saved: '已自动保存',
+      validate: '校验',
+      testRun: '试运行',
+      addNode: '添加节点',
+      selectTool: '选择节点',
+      panTool: '平移画布',
+      settings: '配置',
+      lastRun: '运行结果',
+      taskName: '任务名称',
+      taskNameBefore: 'agent.review',
+      taskNameAfter: 'risk.review',
+      retry: '失败时重试',
+      retryDetail: '短暂故障会在当前节点内重试',
+      attempts: '最多 3 次',
+      delay: '间隔 1 秒',
+      nextStep: '下一步 · 条件分支',
+      autoSaved: '配置已写入本地草稿',
     },
-    assuranceTitle: '工作流引擎该守住的四件事',
+    assuranceTitle: '一条运行能长期继续，需要守住四件事',
     assurances: [
       {
-        title: '退出以后还能接着跑',
-        detail: '状态来自事件历史，任意兼容 Worker 都能接手',
+        title: '进程退出后可以继续',
+        detail: '新 Worker 从已经提交的事件恢复状态',
       },
       {
-        title: '外部调用边界清楚',
-        detail: '宿主执行 Agent 与工具，Flow 记录输入、结果和重试',
+        title: '外部调用有明确边界',
+        detail: '宿主执行任务，Flow 记录输入、结果与尝试次数',
       },
       {
-        title: '等待不会占住 Worker',
-        detail: '审批、回调和信号到达后，再把运行投递回来',
+        title: '等待期间不占 Worker',
+        detail: '审批、回调或信号到达后再投递运行',
       },
       {
-        title: '子工作流独立运行',
-        detail: '每个子运行都有自己的历史、结果与取消策略',
+        title: '子工作流保留独立历史',
+        detail: '父流程只协调请求、结果和取消传播',
       },
     ],
     system: {
       eyebrow: 'ENGINE · COMPONENTS · CLI · SKILL',
-      title: '从画布里的一个节点，到生产中的一次运行',
-      body: '18 个节点 manifest 是共同起点。React 与 Vue 用它渲染节点和配置表单，CLI 与 Skill 用它生成和校验工作流，编译后的图交给同一套持久执行引擎。字段、端口和默认值只维护一次。',
+      title: '一份节点清单怎样走到编辑器、CLI 和运行时',
+      body: 'Flow 1.0 提供 18 个公开节点。每个 manifest 都声明字段、端口、默认值和运行绑定。React 与 Vue 据此渲染界面，CLI 与 Skill 据此创建和校验文档。图通过校验以后，才交给持久执行引擎。',
       mapLabel: 'A3S Flow 产品组成',
       items: [
         { title: '节点 manifest', detail: '字段、端口、默认值与运行绑定' },
@@ -139,10 +175,10 @@ export const homeCopy: Readonly<Record<HomeLocale, HomeCopy>> = {
     },
     engine: {
       chapter: ['01', 'DURABLE ENGINE'],
-      title: '进程可以退出，已经完成的工作不会重做',
-      body: '工作流代码只读取已经提交的历史，并返回下一项持久决定。步骤结果、等待时间、Hook、信号和子运行状态都进入同一条事件流。',
+      title: '进程退出后，运行从已提交的事件继续',
+      body: '工作流代码读取已经提交的历史，再返回下一项持久决定。步骤结果、等待时间、Hook、信号和子运行状态都写入同一条事件流。',
       detail:
-        '外部调用放在宿主任务中。Flow 至少交付一次任务，宿主用运行 ID、节点 ID 和尝试次数生成幂等键。进程在外部调用成功后退出，下一次交付仍可返回原结果。',
+        '外部调用留在宿主任务中。Flow 可能再次交付同一任务，宿主可用运行 ID、节点 ID 和尝试次数生成幂等键。即使进程在调用成功后退出，下一次交付也能取回原结果。',
       link: '阅读执行模型',
       timelineTitle: '一次恢复怎样发生',
       stages: [
@@ -178,10 +214,10 @@ export const homeCopy: Readonly<Record<HomeLocale, HomeCopy>> = {
     },
     authoring: {
       chapter: ['02', 'FRONTEND COMPONENTS'],
-      title: '组件读清单，配置表单不再另写一套',
-      body: '18 个节点覆盖入口、条件、任务、等待、审批、子工作流、运行终态和子画布容器。每个 manifest 同时声明字段、默认值、端口、运行绑定和持久身份。',
+      title: '节点卡片和配置表单读取同一份 manifest',
+      body: '18 个公开节点覆盖入口、条件、任务、等待、审批、子工作流、运行终态和子画布容器。每个 manifest 同时声明字段、默认值、端口、运行绑定和持久身份。',
       detail:
-        'React 节点卡片与配置面板直接读取 manifest。Vue Hook 管理同一节点对象。CLI 和 Skill 查询同一目录，文档、编辑器和自动化使用完全相同的字段。',
+        'React 的节点卡片和配置面板直接读取 manifest，Vue Hook 管理同一种节点对象。CLI、Skill 和文档也查询这份目录，修改字段时不需要同步另一套手写结构。',
       action: '打开节点工作台',
       catalog: '节点目录',
       selected: '配置面板',
@@ -196,35 +232,35 @@ export const homeCopy: Readonly<Record<HomeLocale, HomeCopy>> = {
     },
     agents: {
       chapter: ['03', 'AI WORKLOADS'],
-      title: 'Agent 可以重试，流程不能重复做错事',
+      title: 'Agent 任务的重试由稳定身份约束',
       body: '模型调用、MCP 工具、业务 API 和人工审批通过宿主任务或等待节点接入。凭据和权限仍由宿主管理，Flow 保存每次决定以及已经确认的结果。',
       rows: [
         {
           title: 'Agent 任务',
-          detail: '宿主执行推理或多步 Agent，并用稳定步骤身份提交结果。',
+          detail: '宿主执行推理或多步 Agent，再用稳定步骤身份提交结果。',
           output: 'StepCompleted',
         },
         {
           title: '工具调用',
-          detail: '任务执行本地工具、MCP 或业务服务，重试沿用原输入。',
+          detail: '任务调用本地工具、MCP 或业务服务，重试时沿用原输入。',
           output: 'StepAttempted',
         },
         {
           title: '人工审批',
-          detail: 'Hook 暂停运行并公开一次接收边界，等待期间不占 worker。',
+          detail: 'Hook 暂停运行并提供一次接收边界，等待期间不占 Worker。',
           output: 'HookReceived',
         },
         {
           title: '子工作流',
-          detail: '父运行保存子项请求，协调独立历史、终态和取消传播。',
+          detail: '父运行保存子项请求，并协调独立历史、终态和取消传播。',
           output: 'ChildWorkflowResolved',
         },
       ],
     },
     developer: {
       chapter: ['04', 'DEVELOPER SURFACES'],
-      title: 'React、Vue、CLI 和 Skill 认同同一张图',
-      body: '网页编辑器直接使用节点卡片与配置面板。脚本和编码 Agent 通过 CLI 或 Skill 读取同一 manifest，创建节点以后再做图校验、编译和摘要。',
+      title: '同一份图可以在网页、脚本和编码 Agent 中编辑',
+      body: '网页编辑器直接使用节点卡片与配置面板。脚本和编码 Agent 通过 CLI 或 Skill 读取同一份 manifest。节点创建完成以后，再统一校验连线、编译顺序并生成摘要。',
       tabsLabel: '开发入口',
       copy: '复制代码',
       copied: '已复制',
@@ -292,8 +328,8 @@ and report the semantic digest.`,
     },
     architecture: {
       chapter: ['05', 'RUNTIME PATH'],
-      title: '一条定义怎样走到可恢复运行',
-      body: '作者图先经过字段、端口、作用域和环路校验，再编译成稳定执行计划。运行时命令写入事件历史，调度器和 Worker 只推进当前可以执行的工作。',
+      title: '工作流定义进入运行时之前会经过四步',
+      body: '作者图先检查字段、端口、作用域和环路，再编译成稳定执行计划。运行时命令写入事件历史，调度器和 Worker 只推进当前已经满足条件的工作。',
       layers: [
         { title: 'Authoring', detail: '18 个 manifest、节点卡片、配置面板' },
         { title: 'Graph', detail: 'DAG 校验、容器作用域、语义摘要' },
@@ -305,8 +341,8 @@ and report the semantic digest.`,
     },
     final: {
       eyebrow: 'START WITH A REAL RUN',
-      title: '先把一个真实流程跑通，再交给生产 Worker',
-      body: '快速开始会执行任务、写入事件并读取最终快照。确认运行模型以后，再接入节点组件、持久存储和生产 Worker。',
+      title: '先用一条真实任务验证运行边界',
+      body: '快速开始会执行任务、写入事件并读取最终快照。确认结果符合预期以后，再接入持久存储、节点组件和生产 Worker。',
       primary: '开始构建工作流',
       secondary: '理解执行模型',
     },
@@ -316,37 +352,57 @@ and report the semantic digest.`,
       meta: 'AI Native Workflow Engine',
       languageLabel: 'Homepage language',
       title: ['A3S Flow', 'AI Native Workflow Engine'],
-      body: 'Put Agents, tools, human approval, and child workflows on one graph. Flow records each decision and result in event history, so work continues after process exit, worker replacement, or a wait that lasts for days.',
+      body: 'Put Agent tasks, tool calls, human approval, and child workflows on one graph. Every decision and result enters event history. After a process exits, a worker changes, or a run waits for days, execution continues from the last committed position.',
       primary: 'Build a workflow',
       secondary: 'Open Playground',
-      status: 'Running',
-      run: 'Order review · run_01J8K4',
-      resumed: 'Recovered from event 18',
+      status: 'Graph valid',
+      run: 'Customer support workflow',
+      resumed: 'Test run complete · 5 nodes',
+      draft: 'Local draft',
+      saved: 'Autosaved',
+      validate: 'Validate',
+      testRun: 'Test run',
+      addNode: 'Add node',
+      selectTool: 'Select nodes',
+      panTool: 'Pan canvas',
+      settings: 'Settings',
+      lastRun: 'Last run',
+      taskName: 'Task name',
+      taskNameBefore: 'agent.review',
+      taskNameAfter: 'risk.review',
+      retry: 'Retry on failure',
+      retryDetail: 'Transient failures retry inside this node',
+      attempts: 'Up to 3 attempts',
+      delay: '1 second apart',
+      nextStep: 'Next · Condition',
+      autoSaved: 'Settings saved to the local draft',
     },
-    assuranceTitle: 'Four guarantees the engine must keep',
+    assuranceTitle: 'A long-running workflow depends on four guarantees',
     assurances: [
       {
         title: 'Continue after process exit',
-        detail: 'State comes from history, so any compatible worker can resume',
+        detail: 'A new worker restores state from committed events',
       },
       {
-        title: 'Clear side-effect boundary',
+        title: 'Keep side effects at the host boundary',
         detail:
-          'The host runs Agents and tools while Flow records results and retries',
+          'The host runs tasks while Flow records inputs, results, and attempts',
       },
       {
         title: 'Waiting holds no worker',
-        detail: 'Approval, callbacks, and signals deliver the run when ready',
+        detail:
+          'Approval, callbacks, and signals deliver the run only when ready',
       },
       {
-        title: 'Independent child workflows',
-        detail: 'Each child owns history, outcome, and cancellation policy',
+        title: 'Keep child history independent',
+        detail:
+          'The parent coordinates requests, results, and cancellation propagation',
       },
     ],
     system: {
       eyebrow: 'ENGINE · COMPONENTS · CLI · SKILL',
-      title: 'From one canvas node to one production run',
-      body: 'Eighteen node manifests are the common starting point. React and Vue render nodes and configuration forms from them. The CLI and Skill create and validate the same graph before it reaches one durable execution engine. Fields, ports, and defaults have one owner.',
+      title: 'How one node catalog reaches the editor, CLI, and runtime',
+      body: 'Flow 1.0 exposes 18 public nodes. Each manifest declares fields, ports, defaults, and runtime binding. React and Vue render from that contract, while the CLI and Skill create and validate documents against it. Only a valid graph reaches the durable engine.',
       mapLabel: 'A3S Flow product system',
       items: [
         {
@@ -370,10 +426,10 @@ and report the semantic digest.`,
     },
     engine: {
       chapter: ['01', 'DURABLE ENGINE'],
-      title: 'A process can exit without repeating completed work',
+      title: 'After process exit, execution continues from committed events',
       body: 'Workflow code reads committed history and returns the next durable decision. Step results, timers, hooks, signals, and child-run state all enter one event stream.',
       detail:
-        'External calls belong in host tasks. Flow delivers tasks at least once, and the host derives idempotency from the run, node, and attempt identity. If a process exits after an external call succeeds, redelivery can return the original result.',
+        'External calls stay inside host tasks. Flow may deliver the same task again, so the host can derive idempotency from the run, node, and attempt identity. If a process exits after the call succeeds, redelivery can recover the original result.',
       link: 'Read the execution model',
       timelineTitle: 'How one recovery proceeds',
       stages: [
@@ -409,10 +465,10 @@ and report the semantic digest.`,
     },
     authoring: {
       chapter: ['02', 'FRONTEND COMPONENTS'],
-      title: 'Components read the catalog instead of rebuilding forms',
-      body: 'Eighteen authoring nodes cover entry, conditions, tasks, waits, approval, child workflows, run outcomes, and child-canvas containers. Every manifest declares fields, defaults, ports, runtime binding, and durable identity.',
+      title: 'Node cards and configuration forms read the same manifest',
+      body: 'Eighteen public nodes cover entry, conditions, tasks, waits, approval, child workflows, run outcomes, and child-canvas containers. Every manifest declares fields, defaults, ports, runtime binding, and durable identity.',
       detail:
-        'React cards and panels consume manifests directly. The Vue hook manages the same node object. CLI and Skill query the same catalog, so documentation, editors, and automation do not guess at separate schemas.',
+        'React cards and panels consume manifests directly, and the Vue hook manages the same node object. The CLI, Skill, and documentation query that catalog as well, so a field change does not require another hand-written schema.',
       action: 'Open the node workbench',
       catalog: 'Node catalog',
       selected: 'Configuration panel',
@@ -427,7 +483,7 @@ and report the semantic digest.`,
     },
     agents: {
       chapter: ['03', 'AI WORKLOADS'],
-      title: 'Agents may retry without repeating the wrong side effect',
+      title: 'Stable identity constrains Agent task retries',
       body: 'Model calls, MCP tools, business APIs, and human approval enter through host tasks or wait nodes. The host still owns credentials and permissions. Flow stores each decision and confirmed result.',
       rows: [
         {
@@ -458,8 +514,8 @@ and report the semantic digest.`,
     },
     developer: {
       chapter: ['04', 'DEVELOPER SURFACES'],
-      title: 'React, Vue, CLI, and Skill agree on one graph',
-      body: 'Web editors can use the node card and configuration panel directly. Scripts and coding Agents query the same manifests through the CLI or Skill before graph validation, compilation, and digesting.',
+      title: 'The same graph works in the browser, scripts, and coding agents',
+      body: 'Web editors use the node card and configuration panel directly. Scripts and coding agents query the same manifests through the CLI or Skill. Once nodes are created, one validation and compilation path checks the graph and produces its digest.',
       tabsLabel: 'Developer surfaces',
       copy: 'Copy code',
       copied: 'Copied',
@@ -527,8 +583,8 @@ and report the semantic digest.`,
     },
     architecture: {
       chapter: ['05', 'RUNTIME PATH'],
-      title: 'How one definition becomes a recoverable run',
-      body: 'The authoring graph is checked for fields, ports, scopes, and cycles before compilation into a stable plan. Runtime commands append event history, while schedulers and workers advance only currently actionable work.',
+      title: 'A workflow definition passes four stages before execution',
+      body: 'The authoring graph is checked for fields, ports, scopes, and cycles before compilation into a stable plan. Runtime commands append event history, while schedulers and workers advance only work whose conditions are ready.',
       layers: [
         {
           title: 'Authoring',
@@ -552,8 +608,8 @@ and report the semantic digest.`,
     },
     final: {
       eyebrow: 'START WITH A REAL RUN',
-      title: 'Run one real workflow before handing it to production workers',
-      body: 'The quick start runs tasks, appends events, and reads the terminal snapshot. Once the execution model is clear, add node components, durable storage, and production workers.',
+      title: 'Verify the runtime boundary with one real task',
+      body: 'The quick start runs a task, appends events, and reads the terminal snapshot. Once the result matches expectations, add durable storage, node components, and production workers.',
       primary: 'Build a workflow',
       secondary: 'Understand execution',
     },

@@ -36,7 +36,7 @@
   --workflow-shadow-runtime: 0 14px 40px rgba(24, 76, 57, 0.16);
   --workflow-shadow-console: 0 -12px 34px rgba(35, 55, 84, 0.1);
   --workflow-header-height: 64px;
-  --workflow-panel-width: 390px;
+  --workflow-panel-width: 400px;
   --workflow-debug-height: 304px;
   --workflow-sans:
     'Geist Variable', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif,

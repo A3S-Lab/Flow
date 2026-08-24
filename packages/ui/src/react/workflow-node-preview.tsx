@@ -1,11 +1,15 @@
 import type {
   WorkflowNodeDefinition,
   WorkflowNodeFieldDefinition,
-} from '../integrations/workflow-node-manifest';
-import { DesignerIcon } from './designer-icons';
-import { type WorkflowNodeFamily, workflowNodeVisual } from './workflow-node-visual';
+} from "../integrations/workflow-node-manifest";
+import { DesignerIcon } from "./designer-icons";
+import {
+  type WorkflowNodeFamily,
+  workflowNodeVisual,
+} from "./workflow-node-visual";
 
-export type WorkflowNodePreviewStatus = 'idle' | 'running' | 'success' | 'waiting' | 'error';
+export type WorkflowNodePreviewStatus =
+  "idle" | "running" | "success" | "waiting" | "error";
 
 export interface WorkflowNodePreviewProps {
   node: WorkflowNodeDefinition;
@@ -30,7 +34,7 @@ export interface WorkflowNodePreviewPort {
   id: string;
   label: string;
   types: readonly string[];
-  kind?: 'control' | 'data';
+  kind?: "control" | "data";
 }
 
 export interface WorkflowNodePreviewPorts {
@@ -46,13 +50,14 @@ function previewShape(
   family: WorkflowNodeFamily,
   inputs: readonly WorkflowNodePreviewPort[],
   outputs: readonly WorkflowNodePreviewPort[],
-): WorkflowNodeFamily | 'isolated' {
-  if (family === 'container' || family === 'entry' || family === 'terminal') return family;
-  if (inputs.length === 0 && outputs.length === 0) return 'isolated';
-  if (inputs.length === 0) return 'entry';
-  const controlOutputs = outputs.filter((port) => port.kind === 'control');
-  if (outputs.length === 0) return 'terminal';
-  if (controlOutputs.length > 1) return 'branch';
+): WorkflowNodeFamily | "isolated" {
+  if (family === "container" || family === "entry" || family === "terminal")
+    return family;
+  if (inputs.length === 0 && outputs.length === 0) return "isolated";
+  if (inputs.length === 0) return "entry";
+  const controlOutputs = outputs.filter((port) => port.kind === "control");
+  if (outputs.length === 0) return "terminal";
+  if (controlOutputs.length > 1) return "branch";
   return family;
 }
 
@@ -67,11 +72,13 @@ function inputPorts(node: WorkflowNodeDefinition): WorkflowNodePreviewPort[] {
     id: field.name,
     label: field.display_name ?? field.name,
     types: uniqueTypes(field.input_types),
-    kind: 'data' as const,
+    kind: "data" as const,
   }));
   if (fields.length > 0) return fields;
   const types = uniqueTypes(node.input_types);
-  return types.length > 0 ? [{ id: 'input', label: 'Input', types, kind: 'data' }] : [];
+  return types.length > 0
+    ? [{ id: "input", label: "Input", types, kind: "data" }]
+    : [];
 }
 
 function outputPorts(node: WorkflowNodeDefinition): WorkflowNodePreviewPort[] {
@@ -80,51 +87,55 @@ function outputPorts(node: WorkflowNodeDefinition): WorkflowNodePreviewPort[] {
       id: output.name,
       label: output.display_name || output.name,
       types: uniqueTypes(output.types),
-      kind: output.types.includes('FlowControl') ? ('control' as const) : ('data' as const),
+      kind: output.types.includes("FlowControl")
+        ? ("control" as const)
+        : ("data" as const),
     }));
   }
   const types = uniqueTypes(node.output_types);
-  return types.length > 0 ? [{ id: 'output', label: 'Output', types, kind: 'data' }] : [];
+  return types.length > 0
+    ? [{ id: "output", label: "Output", types, kind: "data" }]
+    : [];
 }
 
 function previewCopy(chinese: boolean) {
   return chinese
     ? {
-        inputPorts: '输入端口',
-        outputPorts: '输出端口',
-        control: '控制流',
-        data: '数据',
-        any: '任意类型',
+        inputPorts: "输入端口",
+        outputPorts: "输出端口",
+        control: "控制流",
+        data: "数据",
+        any: "任意类型",
         addNext: (label: string) => `从「${label}」添加下一个节点`,
-        containerScope: '容器内部画布',
-        containerStart: '容器起点',
-        containerHint: '后续节点在这个作用域内运行',
-        configurationSummary: '配置摘要',
-        entry: '开始',
+        containerScope: "容器内部画布",
+        containerStart: "容器起点",
+        containerHint: "后续节点在这个作用域内运行",
+        configurationSummary: "配置摘要",
+        entry: "开始",
         status: {
-          running: '运行中',
-          success: '运行成功',
-          waiting: '等待中',
-          error: '运行失败',
+          running: "运行中",
+          success: "运行成功",
+          waiting: "等待中",
+          error: "运行失败",
         },
       }
     : {
-        inputPorts: 'Input ports',
-        outputPorts: 'Output ports',
-        control: 'Control',
-        data: 'Data',
-        any: 'Any',
+        inputPorts: "Input ports",
+        outputPorts: "Output ports",
+        control: "Control",
+        data: "Data",
+        any: "Any",
         addNext: (label: string) => `Add next node from ${label}`,
-        containerScope: 'Container canvas',
-        containerStart: 'Scope start',
-        containerHint: 'Following nodes run inside this scope',
-        configurationSummary: 'Current configuration',
-        entry: 'Start',
+        containerScope: "Container canvas",
+        containerStart: "Scope start",
+        containerHint: "Following nodes run inside this scope",
+        configurationSummary: "Current configuration",
+        entry: "Start",
         status: {
-          running: 'Running',
-          success: 'Succeeded',
-          waiting: 'Waiting',
-          error: 'Failed',
+          running: "Running",
+          success: "Succeeded",
+          waiting: "Waiting",
+          error: "Failed",
         },
       };
 }
@@ -136,9 +147,9 @@ function CompactPortList({
   copy,
   onRequestNext,
 }: {
-  direction: 'input' | 'output';
+  direction: "input" | "output";
   ports: readonly WorkflowNodePreviewPort[];
-  shape: WorkflowNodeFamily | 'isolated';
+  shape: WorkflowNodeFamily | "isolated";
   copy: ReturnType<typeof previewCopy>;
   onRequestNext?: (port: WorkflowNodePreviewPort) => void;
 }) {
@@ -147,13 +158,14 @@ function CompactPortList({
     <section
       className="a3s-form-workflow-node-preview-compact-ports"
       data-direction={direction}
-      aria-label={direction === 'input' ? copy.inputPorts : copy.outputPorts}
+      aria-label={direction === "input" ? copy.inputPorts : copy.outputPorts}
     >
       <ul>
         {ports.map((port) => {
-          const kind = port.kind ?? 'data';
-          const showLabel = kind === 'data' || (direction === 'output' && shape === 'branch');
-          const canAddNext = direction === 'output' && kind === 'control' && onRequestNext;
+          const kind = port.kind ?? "data";
+          const canAddNext =
+            direction === "output" && kind === "control" && onRequestNext;
+          const showLabel = Boolean(canAddNext && shape === "branch");
           return (
             <li
               data-port-id={port.id}
@@ -161,7 +173,7 @@ function CompactPortList({
               data-label-visible={showLabel || undefined}
               key={port.id}
             >
-              {direction === 'input' && <i aria-hidden="true" />}
+              {direction === "input" && <i aria-hidden="true" />}
               {showLabel && <strong>{port.label}</strong>}
               {canAddNext && (
                 <button
@@ -173,7 +185,7 @@ function CompactPortList({
                   <span aria-hidden="true">+</span>
                 </button>
               )}
-              {direction === 'output' && <i aria-hidden="true" />}
+              {direction === "output" && <i aria-hidden="true" />}
             </li>
           );
         })}
@@ -189,7 +201,7 @@ function PortList({
   copy,
   onRequestNext,
 }: {
-  direction: 'input' | 'output';
+  direction: "input" | "output";
   ports: readonly WorkflowNodePreviewPort[];
   technical: boolean;
   copy: ReturnType<typeof previewCopy>;
@@ -200,15 +212,19 @@ function PortList({
     <section
       className="a3s-form-workflow-node-preview-port-list"
       data-direction={direction}
-      aria-label={direction === 'input' ? copy.inputPorts : copy.outputPorts}
+      aria-label={direction === "input" ? copy.inputPorts : copy.outputPorts}
     >
-      <span className="a3s-form-workflow-node-preview-port-heading" aria-hidden="true">
-        {direction === 'input' ? copy.inputPorts : copy.outputPorts}
+      <span
+        className="a3s-form-workflow-node-preview-port-heading"
+        aria-hidden="true"
+      >
+        {direction === "input" ? copy.inputPorts : copy.outputPorts}
       </span>
       <ul>
         {ports.map((port) => {
-          const kind = port.kind ?? 'data';
-          const canAddNext = direction === 'output' && kind === 'control' && onRequestNext;
+          const kind = port.kind ?? "data";
+          const canAddNext =
+            direction === "output" && kind === "control" && onRequestNext;
           return (
             <li
               className="a3s-form-workflow-node-preview-port"
@@ -216,13 +232,13 @@ function PortList({
               data-port-kind={kind}
               key={port.id}
             >
-              {direction === 'input' && <i aria-hidden="true" />}
+              {direction === "input" && <i aria-hidden="true" />}
               <span>
                 <strong>{port.label}</strong>
                 <small>
                   {technical
-                    ? port.types.join(' · ') || copy.any
-                    : kind === 'control'
+                    ? port.types.join(" · ") || copy.any
+                    : kind === "control"
                       ? copy.control
                       : copy.data}
                 </small>
@@ -237,7 +253,7 @@ function PortList({
                   <span aria-hidden="true">+</span>
                 </button>
               )}
-              {direction === 'output' && <i aria-hidden="true" />}
+              {direction === "output" && <i aria-hidden="true" />}
             </li>
           );
         })}
@@ -251,28 +267,30 @@ export function WorkflowNodePreview({
   className,
   ports,
   selected = true,
-  locale = 'en',
+  locale = "en",
   technical = true,
-  status = 'idle',
+  status = "idle",
   summary = [],
   onSelect,
   onRequestNext,
 }: WorkflowNodePreviewProps) {
-  const chinese = locale.toLocaleLowerCase().startsWith('zh');
+  const chinese = locale.toLocaleLowerCase().startsWith("zh");
   const copy = previewCopy(chinese);
   const inputs = ports?.inputs ?? inputPorts(node);
   const outputs = ports?.outputs ?? outputPorts(node);
   const runtimeBinding =
-    'runtimeBinding' in node && typeof node.runtimeBinding === 'string'
+    "runtimeBinding" in node && typeof node.runtimeBinding === "string"
       ? node.runtimeBinding
       : undefined;
   const visual = workflowNodeVisual(node);
   const shape = previewShape(visual.family, inputs, outputs);
-  const interactive = typeof onSelect === 'function';
-  const accessibleName = `${node.display_name}${chinese ? '节点预览' : ' workflow node preview'}`;
+  const interactive = typeof onSelect === "function";
+  const accessibleName = `${node.display_name}${chinese ? "节点预览" : " workflow node preview"}`;
   return (
     <article
-      className={['a3s-form-workflow-node-preview', className].filter(Boolean).join(' ')}
+      className={["a3s-form-workflow-node-preview", className]
+        .filter(Boolean)
+        .join(" ")}
       data-node-type={node.type}
       data-node-family={visual.family}
       data-node-shape={shape}
@@ -298,8 +316,10 @@ export function WorkflowNodePreview({
           onClick={onSelect}
         />
       )}
-      {!technical && shape === 'entry' && (
-        <span className="a3s-form-workflow-node-preview-entry-label">{copy.entry}</span>
+      {!technical && shape === "entry" && (
+        <span className="a3s-form-workflow-node-preview-entry-label">
+          {copy.entry}
+        </span>
       )}
       <header>
         <span aria-hidden="true">
@@ -309,7 +329,7 @@ export function WorkflowNodePreview({
           <strong>{node.display_name}</strong>
           {technical && <small>{node.categoryLabel}</small>}
         </div>
-        {status !== 'idle' && (
+        {status !== "idle" && (
           <span
             className="a3s-form-workflow-node-preview-status"
             data-status={status}
@@ -318,7 +338,15 @@ export function WorkflowNodePreview({
           />
         )}
         {(node.beta || node.legacy) && (
-          <em>{node.beta ? (chinese ? '测试版' : 'Beta') : chinese ? '旧版' : 'Legacy'}</em>
+          <em>
+            {node.beta
+              ? chinese
+                ? "测试版"
+                : "Beta"
+              : chinese
+                ? "旧版"
+                : "Legacy"}
+          </em>
         )}
       </header>
       <div className="a3s-form-workflow-node-preview-body">
@@ -336,11 +364,21 @@ export function WorkflowNodePreview({
           </dl>
         )}
         {technical ? (
-          <PortList direction="input" ports={inputs} technical={technical} copy={copy} />
+          <PortList
+            direction="input"
+            ports={inputs}
+            technical={technical}
+            copy={copy}
+          />
         ) : (
-          <CompactPortList direction="input" ports={inputs} shape={shape} copy={copy} />
+          <CompactPortList
+            direction="input"
+            ports={inputs}
+            shape={shape}
+            copy={copy}
+          />
         )}
-        {shape === 'container' && (
+        {shape === "container" && (
           <section
             className="a3s-form-workflow-node-preview-container"
             aria-label={copy.containerScope}
@@ -370,11 +408,17 @@ export function WorkflowNodePreview({
           />
         )}
         {technical && inputs.length === 0 && outputs.length === 0 && (
-          <p>{chinese ? '这个节点不需要连接端口。' : 'This node does not use connection ports.'}</p>
+          <p>
+            {chinese
+              ? "这个节点不需要连接端口。"
+              : "This node does not use connection ports."}
+          </p>
         )}
       </div>
-      {technical && node.description && (
-        <p className="a3s-form-workflow-node-preview-description">{node.description}</p>
+      {node.description && (
+        <p className="a3s-form-workflow-node-preview-description">
+          {node.description}
+        </p>
       )}
       <footer>
         {technical ? (

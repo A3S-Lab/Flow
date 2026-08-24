@@ -228,10 +228,11 @@ export function WorkflowNodeConfigurationPanel(props: WorkflowNodeConfigurationP
         valuePath={valuePath}
         value={value}
         disabled={disabled}
+        locale={props.locale}
         callbacks={workflowCallbacks}
       />
     ),
-    [workflowCallbacks],
+    [props.locale, workflowCallbacks],
   );
 
   if (!compilation.ok || !compilation.plan || !compilation.document) {
