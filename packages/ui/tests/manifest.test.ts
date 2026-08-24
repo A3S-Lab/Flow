@@ -6,6 +6,7 @@ import {
   mergeA3SFlowDagNodeConfiguration,
   requireA3SFlowDagNodeManifest,
   selectA3SFlowDagNodeConfiguration,
+  WORKFLOW_CONFIGURATION_WIDGETS,
 } from "../src";
 import { a3sFlowDagNodePreviewSummary } from "../src/react/a3s-flow-node-summary";
 
@@ -117,5 +118,29 @@ describe("A3S Flow authoring manifests", () => {
       advanced: true,
     });
     expect(manifest.fields.find((field) => field.name === "expression")?.advanced).toBeUndefined();
+    expect(manifest.fields.find((field) => field.name === "matched_label")?.advanced).toBeUndefined();
+    expect(manifest.fields.find((field) => field.name === "otherwise_label")?.advanced).toBeUndefined();
+  });
+
+  it("routes common fields through the A3S UI native-widget adapter", () => {
+    const manifest = requireA3SFlowDagNodeManifest("flow.condition");
+    const document = createWorkflowNodeForm(manifest, { presentation: "task" });
+    const matchedLabel = document.ui.nodes.find(
+      (node) => node.schemaPath === "/properties/matched_label",
+    );
+    const conditionExpression = document.ui.nodes.find(
+      (node) => node.schemaPath === "/properties/expression",
+    );
+    const branchGroup = document.ui.nodes.find((node) =>
+      node.children?.includes(matchedLabel?.id ?? ""),
+    );
+    const root = document.ui.nodes.find((node) => node.id === document.ui.root);
+
+    expect(matchedLabel?.widget).toBe(WORKFLOW_CONFIGURATION_WIDGETS.parameter);
+    expect(conditionExpression?.widget).toBe(
+      WORKFLOW_CONFIGURATION_WIDGETS.flowExpression,
+    );
+    expect(root?.children).toContain(branchGroup?.id);
+    expect(document.metadata.owner).toBe("A3S UI");
   });
 });

@@ -55,6 +55,8 @@ function WorkflowPlaygroundEdgeComponent({
           {data?.onInsert && (
             <button
               aria-label={data.insertLabel}
+              onMouseDown={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => {
                 event.stopPropagation();
                 data.onInsert?.(id, { x: labelX, y: labelY });

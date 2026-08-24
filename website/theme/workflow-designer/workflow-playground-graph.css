@@ -211,6 +211,10 @@
   pointer-events: all;
 }
 
+.a3s-workflow-canvas .react-flow__edgelabel-renderer {
+  z-index: 2;
+}
+
 .a3s-workflow-edge-label > span {
   padding: 3px 7px;
   border: 1px solid var(--workflow-line);

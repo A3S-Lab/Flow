@@ -69,8 +69,9 @@ import {
   collectDeletionIds,
   compilePlaygroundGraph,
   createPlaygroundEdge,
-  createSampleWorkflow,
   PLAYGROUND_EDGE_COLORS,
+  playgroundEdgeAriaLabel,
+  resolvePlaygroundEdgeSourceLabel,
   validatePlaygroundConfigurations,
   validatePlaygroundConnection,
   type PlaygroundAnnotationKind,
@@ -80,6 +81,7 @@ import {
   type PlaygroundEdgeColor,
   type PlaygroundNode,
 } from './WorkflowPlayground.model';
+import { createSampleWorkflow } from './WorkflowPlayground.sample';
 import { WorkflowPlaygroundNode } from './WorkflowPlaygroundNode';
 import { flowNodeGroups, type FlowWebsiteLocale } from './flow-node-catalog';
 
@@ -137,7 +139,7 @@ function WorkflowPlaygroundSurface() {
   const { site } = useSite();
   const defaultVersion = site.multiVersion.default ?? version;
   const versions = site.multiVersion.versions ?? [version];
-  const storageKey = `a3s-flow-playground:v2:${version}:${locale}`;
+  const storageKey = `a3s-flow-playground:v3:${version}:${locale}`;
   const {
     graph,
     canUndo,
@@ -790,12 +792,23 @@ function WorkflowPlaygroundSurface() {
     () =>
       graph.edges.map((edge) => {
         const selected = edge.id === selectedEdgeId;
+        const sourcePortLabel = resolvePlaygroundEdgeSourceLabel(
+          edge,
+          graph.nodes,
+          locale,
+        );
         const animated =
           running &&
           (statuses[edge.source] === 'running' ||
             statuses[edge.target] === 'running');
         return {
           ...edge,
+          ariaLabel: playgroundEdgeAriaLabel(
+            edge.source,
+            edge.target,
+            sourcePortLabel,
+          ),
+          label: sourcePortLabel,
           selected,
           animated,
           markerEnd: {
@@ -804,6 +817,7 @@ function WorkflowPlaygroundSurface() {
           },
           data: {
             ...edge.data,
+            sourcePortLabel,
             routing: edgeRouting,
             insertLabel: copy.addNode,
             onInsert: openNodeLibrary,
@@ -816,6 +830,8 @@ function WorkflowPlaygroundSurface() {
       edgePalette.line,
       edgeRouting,
       graph.edges,
+      graph.nodes,
+      locale,
       openNodeLibrary,
       running,
       selectedEdgeId,

@@ -131,7 +131,7 @@ function nextNodeId(type: string, nodes: readonly PlaygroundNode[]): string {
   return `${base}_${index}`;
 }
 
-function createNode(
+export function createPlaygroundNode(
   id: string,
   type: string,
   position: XYPosition,
@@ -195,20 +195,11 @@ export function createPlaygroundEdge(
   nodes: readonly PlaygroundNode[],
   locale: FlowWebsiteLocale,
 ): PlaygroundEdge {
-  const sourceNode = nodes.find(({ id }) => id === connection.source);
-  const sourceManifest = sourceNode
-    ? localizeA3SFlowDagManifest(
-        a3sFlowDagNodeRegistry.require(sourceNode.data.dagNode.data.type),
-        locale,
-      )
-    : undefined;
-  const sourcePort = sourceManifest?.ports.outputs.find(
-    ({ id }) => id === connection.sourceHandle,
+  const sourcePortLabel = resolvePlaygroundEdgeSourceLabel(
+    connection,
+    nodes,
+    locale,
   );
-  const showLabel =
-    sourcePort &&
-    (Boolean(sourceManifest && sourceManifest.ports.outputs.length > 1) ||
-      sourcePort.kind === 'data');
 
   return {
     id: edgeId(
@@ -222,260 +213,69 @@ export function createPlaygroundEdge(
     target: connection.target,
     targetHandle: connection.targetHandle,
     type: 'workflow',
-    label: showLabel ? sourcePort.label : undefined,
-    data: { sourcePortLabel: sourcePort?.label },
-    ariaLabel: sourcePort
-      ? `${connection.source} ${sourcePort.label} to ${connection.target}`
-      : `${connection.source} to ${connection.target}`,
+    label: sourcePortLabel,
+    data: { sourcePortLabel },
+    ariaLabel: playgroundEdgeAriaLabel(
+      connection.source,
+      connection.target,
+      sourcePortLabel,
+    ),
   };
 }
 
-export function createSampleWorkflow(
+export function playgroundEdgeAriaLabel(
+  source: string,
+  target: string,
+  sourcePortLabel?: string,
+): string {
+  return `${source}${sourcePortLabel ? ` ${sourcePortLabel}` : ''} to ${target}`;
+}
+
+export function resolvePlaygroundEdgeSourceLabel(
+  connection: Pick<PlaygroundEdge, 'source' | 'sourceHandle'>,
+  nodes: readonly PlaygroundNode[],
   locale: FlowWebsiteLocale,
-): PlaygroundGraphState {
-  const iteration = createNode(
-    'iteration_1',
-    'iteration',
-    { x: 1340, y: 30 },
-    locale,
-    { configuration: { start_node_id: 'iteration_1_start' } },
+): string | undefined {
+  const sourceNode = nodes.find(({ id }) => id === connection.source);
+  const sourceManifest = sourceNode
+    ? localizeA3SFlowDagManifest(
+        a3sFlowDagNodeRegistry.require(sourceNode.data.dagNode.data.type),
+        locale,
+      )
+    : undefined;
+  const sourcePort = sourceManifest?.ports.outputs.find(
+    ({ id }) => id === connection.sourceHandle,
   );
-  const iterationStart = createNode(
-    'iteration_1_start',
-    'iteration-start',
-    { x: 36, y: 150 },
-    locale,
-    { parentId: iteration.id },
-  );
-  const iterationTask = createNode(
-    'iteration_1_task',
-    'flow.step',
-    { x: 324, y: 150 },
-    locale,
-    {
-      configuration: { step_name: 'support.process_item' },
-      parentId: iteration.id,
-    },
-  );
-  const loop = createNode('loop_1', 'loop', { x: 1980, y: 30 }, locale, {
-    configuration: { start_node_id: 'loop_1_start' },
-  });
-  const loopStart = createNode(
-    'loop_1_start',
-    'loop-start',
-    { x: 36, y: 150 },
-    locale,
-    { parentId: loop.id },
-  );
-  const loopTask = createNode(
-    'loop_1_task',
-    'flow.step',
-    { x: 324, y: 150 },
-    locale,
-    {
-      configuration: { step_name: 'support.refine_result' },
-      parentId: loop.id,
-    },
-  );
-  const nodes = [
-    createNode('start_1', 'flow.start', { x: 60, y: 590 }, locale, {
-      configuration: {
-        workflow_name: 'workflow.customer_support',
-        workflow_version: '1.0.0',
-      },
-    }),
-    createNode('route_primary', 'flow.condition', { x: 380, y: 590 }, locale),
-    createNode('step_1', 'flow.step', { x: 700, y: 80 }, locale, {
-      configuration: { step_name: 'support.classify_request' },
-    }),
-    createNode('batch_1', 'flow.batch', { x: 1020, y: 80 }, locale),
-    iteration,
-    iterationStart,
-    iterationTask,
-    loop,
-    loopStart,
-    loopTask,
-    createNode('progress_1', 'flow.progress', { x: 2620, y: 80 }, locale, {
-      configuration: { progress_id: 'support-progress' },
-    }),
-    createNode('complete_1', 'flow.complete', { x: 2940, y: 80 }, locale),
-    createNode('route_secondary', 'flow.condition', { x: 700, y: 590 }, locale),
-    createNode('wait_1', 'flow.wait', { x: 1020, y: 460 }, locale),
-    createNode('hook_1', 'flow.hook', { x: 1340, y: 460 }, locale),
-    createNode('signal_1', 'flow.signal', { x: 1660, y: 460 }, locale),
-    createNode('timeout_1', 'flow.timeout', { x: 1980, y: 460 }, locale),
-    createNode('route_children', 'flow.condition', { x: 1020, y: 850 }, locale),
-    createNode(
-      'child_operation_1',
-      'flow.child-operation',
-      { x: 1340, y: 720 },
-      locale,
-    ),
-    createNode(
-      'child_workflow_1',
-      'flow.child-workflow',
-      { x: 1660, y: 720 },
-      locale,
-    ),
-    createNode(
-      'child_workflows_1',
-      'flow.child-workflows',
-      { x: 1980, y: 720 },
-      locale,
-    ),
-    createNode(
-      'continue_as_new_1',
-      'flow.continue-as-new',
-      { x: 2300, y: 720 },
-      locale,
-    ),
-    createNode(
-      'route_terminal',
-      'flow.condition',
-      { x: 1340, y: 1050 },
-      locale,
-    ),
-    createNode('cancel_1', 'flow.cancel', { x: 1660, y: 980 }, locale),
-    createNode('fail_1', 'flow.fail', { x: 1660, y: 1160 }, locale),
-  ];
-  const connections: CompleteConnection[] = [
-    {
-      source: 'start_1',
-      sourceHandle: 'next',
-      target: 'route_primary',
-      targetHandle: 'in',
-    },
-    {
-      source: 'route_primary',
-      sourceHandle: 'matched',
-      target: 'step_1',
-      targetHandle: 'in',
-    },
-    {
-      source: 'step_1',
-      sourceHandle: 'success',
-      target: 'batch_1',
-      targetHandle: 'in',
-    },
-    {
-      source: 'batch_1',
-      sourceHandle: 'done',
-      target: 'iteration_1',
-      targetHandle: 'in',
-    },
-    {
-      source: 'iteration_1',
-      sourceHandle: 'done',
-      target: 'loop_1',
-      targetHandle: 'in',
-    },
-    {
-      source: 'loop_1',
-      sourceHandle: 'done',
-      target: 'progress_1',
-      targetHandle: 'in',
-    },
-    {
-      source: 'progress_1',
-      sourceHandle: 'recorded',
-      target: 'complete_1',
-      targetHandle: 'in',
-    },
-    {
-      source: 'route_primary',
-      sourceHandle: 'otherwise',
-      target: 'route_secondary',
-      targetHandle: 'in',
-    },
-    {
-      source: 'route_secondary',
-      sourceHandle: 'matched',
-      target: 'wait_1',
-      targetHandle: 'in',
-    },
-    {
-      source: 'wait_1',
-      sourceHandle: 'resumed',
-      target: 'hook_1',
-      targetHandle: 'in',
-    },
-    {
-      source: 'hook_1',
-      sourceHandle: 'received',
-      target: 'signal_1',
-      targetHandle: 'in',
-    },
-    {
-      source: 'signal_1',
-      sourceHandle: 'received',
-      target: 'timeout_1',
-      targetHandle: 'in',
-    },
-    {
-      source: 'route_secondary',
-      sourceHandle: 'otherwise',
-      target: 'route_children',
-      targetHandle: 'in',
-    },
-    {
-      source: 'route_children',
-      sourceHandle: 'matched',
-      target: 'child_operation_1',
-      targetHandle: 'in',
-    },
-    {
-      source: 'child_operation_1',
-      sourceHandle: 'linked',
-      target: 'child_workflow_1',
-      targetHandle: 'in',
-    },
-    {
-      source: 'child_workflow_1',
-      sourceHandle: 'completed',
-      target: 'child_workflows_1',
-      targetHandle: 'in',
-    },
-    {
-      source: 'child_workflows_1',
-      sourceHandle: 'completed',
-      target: 'continue_as_new_1',
-      targetHandle: 'in',
-    },
-    {
-      source: 'route_children',
-      sourceHandle: 'otherwise',
-      target: 'route_terminal',
-      targetHandle: 'in',
-    },
-    {
-      source: 'route_terminal',
-      sourceHandle: 'matched',
-      target: 'cancel_1',
-      targetHandle: 'in',
-    },
-    {
-      source: 'route_terminal',
-      sourceHandle: 'otherwise',
-      target: 'fail_1',
-      targetHandle: 'in',
-    },
-    {
-      source: 'iteration_1_start',
-      sourceHandle: 'next',
-      target: 'iteration_1_task',
-      targetHandle: 'in',
-    },
-    {
-      source: 'loop_1_start',
-      sourceHandle: 'next',
-      target: 'loop_1_task',
-      targetHandle: 'in',
-    },
-  ];
-  const edges = connections.map((connection) =>
-    createPlaygroundEdge(connection, nodes, locale),
-  );
-  return { nodes, edges, annotations: [] };
+  if (!sourceNode || !sourceManifest || !sourcePort) return undefined;
+
+  if (sourceNode.data.dagNode.data.type === 'flow.condition') {
+    const field =
+      connection.sourceHandle === 'matched'
+        ? 'matched_label'
+        : connection.sourceHandle === 'otherwise'
+          ? 'otherwise_label'
+          : undefined;
+    const configured = field ? sourceNode.data.dagNode.data[field] : undefined;
+    if (typeof configured === 'string' && configured.trim().length > 0) {
+      return configured.trim();
+    }
+  }
+
+  const coreDefinition = getA3SFlowCoreNode(sourceNode.data.dagNode.data.type);
+  const controlOutputCount = sourceManifest.ports.outputs.filter((port) => {
+    if (port.kind !== 'control') return false;
+    const corePort = coreDefinition?.ports.outputs.find(
+      ({ id }) => id === port.id,
+    );
+    return (
+      !corePort ||
+      isA3SFlowCorePortAvailable(corePort, sourceNode.data.dagNode.data)
+    );
+  }).length;
+  const showLabel =
+    sourcePort.kind === 'data' ||
+    (sourcePort.kind === 'control' && controlOutputCount > 1);
+  return showLabel ? sourcePort.label : undefined;
 }
 
 export function createNodeAddition(
@@ -483,12 +283,18 @@ export function createNodeAddition(
   position: XYPosition,
   locale: FlowWebsiteLocale,
   existingNodes: readonly PlaygroundNode[],
+  parentId?: string,
 ): PlaygroundGraphState {
   const manifest = a3sFlowDagNodeRegistry.require(type);
   const nodeId = nextNodeId(type, existingNodes);
   if (!manifest.container) {
     return {
-      nodes: [createNode(nodeId, type, position, locale, { selected: true })],
+      nodes: [
+        createPlaygroundNode(nodeId, type, position, locale, {
+          parentId,
+          selected: true,
+        }),
+      ],
       edges: [],
       annotations: [],
     };
@@ -497,16 +303,27 @@ export function createNodeAddition(
   const startType = manifest.container.startNodeType;
   const startId = `${nodeId}_start`;
   const taskId = `${nodeId}_task`;
-  const container = createNode(nodeId, type, position, locale, {
+  const container = createPlaygroundNode(nodeId, type, position, locale, {
     configuration: { start_node_id: startId },
+    parentId,
     selected: true,
   });
-  const start = createNode(startId, startType, { x: 36, y: 150 }, locale, {
-    parentId: nodeId,
-  });
-  const task = createNode(taskId, 'flow.step', { x: 324, y: 150 }, locale, {
-    parentId: nodeId,
-  });
+  const start = createPlaygroundNode(
+    startId,
+    startType,
+    { x: 36, y: 150 },
+    locale,
+    {
+      parentId: nodeId,
+    },
+  );
+  const task = createPlaygroundNode(
+    taskId,
+    'flow.step',
+    { x: 324, y: 150 },
+    locale,
+    { parentId: nodeId },
+  );
   const nodes = [container, start, task];
   const edges = [
     createPlaygroundEdge(

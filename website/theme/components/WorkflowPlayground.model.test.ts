@@ -6,10 +6,12 @@ import {
   compilePlaygroundGraph,
   createNodeAddition,
   createPlaygroundEdge,
-  createSampleWorkflow,
+  playgroundEdgeAriaLabel,
+  resolvePlaygroundEdgeSourceLabel,
   validatePlaygroundConfigurations,
   validatePlaygroundConnection,
 } from './WorkflowPlayground.model';
+import { createSampleWorkflow } from './WorkflowPlayground.sample';
 
 describe('Workflow Playground graph model', () => {
   it('starts with a compilable sample that covers every node manifest', () => {
@@ -23,15 +25,27 @@ describe('Workflow Playground graph model', () => {
       .map(({ type }) => type)
       .sort();
 
-    expect(compilation).toMatchObject({
-      ok: true,
-      plan: {
-        scopes: {
-          iteration_1: ['iteration_1_start', 'iteration_1_task'],
-          loop_1: ['loop_1_start', 'loop_1_task'],
-        },
-      },
-    });
+    expect(compilation).toMatchObject({ ok: true });
+    if (!compilation.ok) throw new Error('Sample workflow must compile.');
+    expect(compilation.plan.scopes.item_iteration).toEqual(
+      expect.arrayContaining([
+        'item_iteration_start',
+        'normalize_line',
+        'route_stock',
+        'reserve_stock',
+        'create_backorder',
+      ]),
+    );
+    expect(compilation.plan.scopes.shipment_loop).toEqual(
+      expect.arrayContaining([
+        'shipment_loop_start',
+        'poll_carrier',
+        'route_carrier_state',
+        'reconcile_delivery',
+        'escalate_carrier',
+        'flag_carrier_unreachable',
+      ]),
+    );
     expect(sampleTypes).toEqual(catalogTypes);
     expect(
       validatePlaygroundConfigurations(sample.nodes, sample.edges),
@@ -58,6 +72,38 @@ describe('Workflow Playground graph model', () => {
         },
       },
     });
+  });
+
+  it('shows only useful port labels and follows edited condition branch names', () => {
+    const sample = createSampleWorkflow('en');
+    const startEdge = sample.edges.find(
+      ({ source }) => source === 'order_start',
+    );
+    const condition = sample.nodes.find(
+      ({ id }) => id === 'route_serviceability',
+    );
+    const matchedEdge = sample.edges.find(
+      ({ source, sourceHandle }) =>
+        source === 'route_serviceability' && sourceHandle === 'matched',
+    );
+    expect(startEdge).toBeDefined();
+    expect(condition).toBeDefined();
+    expect(matchedEdge).toBeDefined();
+    expect(
+      resolvePlaygroundEdgeSourceLabel(startEdge!, sample.nodes, 'en'),
+    ).toBeUndefined();
+
+    if (condition) condition.data.dagNode.data.matched_label = 'Eligible order';
+    expect(
+      resolvePlaygroundEdgeSourceLabel(matchedEdge!, sample.nodes, 'en'),
+    ).toBe('Eligible order');
+    expect(
+      playgroundEdgeAriaLabel(
+        matchedEdge!.source,
+        matchedEdge!.target,
+        resolvePlaygroundEdgeSourceLabel(matchedEdge!, sample.nodes, 'en'),
+      ),
+    ).toBe('route_serviceability Eligible order to compliance_batch');
   });
 
   it('rejects a connection that would create a cycle', () => {
@@ -101,9 +147,12 @@ describe('Workflow Playground graph model', () => {
 
     expect(document.version).toBe('0.7.0');
     expect(document.workflow.graph.nodes[0]).toMatchObject({
-      id: 'start_1',
-      position: { x: 60, y: 590 },
-      data: { type: 'flow.start', title: 'Workflow Start' },
+      id: 'order_start',
+      position: { x: 60, y: 650 },
+      data: {
+        type: 'flow.start',
+        title: 'Receive cross-border high-value order',
+      },
     });
     expect(sample.edges.every(({ type }) => type === 'workflow')).toBe(true);
     expect(serialized).not.toContain('flowNode');

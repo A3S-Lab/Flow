@@ -950,6 +950,7 @@ export function createWorkflowNodeForm(
   const flattenedBasicField = firstBasicRun?.fields[0];
   const flattenBasicRun =
     taskPresentation &&
+    basicRuns.length === 1 &&
     firstBasicRun?.fields.length === 1 &&
     flattenedBasicField !== undefined;
   const basicChildren = taskPresentation
@@ -1062,7 +1063,7 @@ export function createWorkflowNodeForm(
         : `${node.display_name} configuration`,
       description: node.description,
       locale: options.locale ?? "en",
-      owner: "A3S Form",
+      owner: "A3S UI",
       tags: ["Workflow node", node.categoryLabel, node.type],
       compatibility: [...(options.compatibility ?? ["a3s-workflow/v1"])],
     },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createSampleWorkflow } from './WorkflowPlayground.model';
+import { createSampleWorkflow } from './WorkflowPlayground.sample';
 import {
   DEFAULT_PLAYGROUND_EDGE_COLOR,
   DEFAULT_PLAYGROUND_EDGE_ROUTING,

@@ -61,7 +61,7 @@ and agent instructions on the same manifest and graph contracts.
 
 | Surface | Current contract |
 | --- | --- |
-| Playground | Integrated visual authoring route with an all-node default graph verified against the real registry, drag and drop, typed connections, production configuration forms, DAG compilation, and DSL inspection |
+| Playground | Integrated visual authoring route with a 35-node cross-border order fulfillment sample covering all 20 registry manifests, drag and drop, typed connections, A3S UI configuration forms, DAG compilation, and DSL inspection |
 | Node catalog | 18 public manifests in six authoring groups, with fields, defaults, ports, runtime bindings, and durable node identity |
 | React | Node preview and configuration components plus `useA3SFlowNode` for controlled-ready node state |
 | Vue | A `useA3SFlowNode` composable over the same node object, defaults, and manifest registry |
