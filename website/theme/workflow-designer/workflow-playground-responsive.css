@@ -139,6 +139,38 @@
     height: 44px;
   }
 
+  .a3s-workflow-rail button.is-secondary {
+    display: none;
+  }
+
+  .a3s-workflow-rail__menu > summary {
+    width: 44px;
+    height: 44px;
+  }
+
+  .a3s-workflow-rail__divider {
+    width: 1px;
+    height: 24px;
+    margin: auto 1px;
+  }
+
+  .a3s-workflow-rail__popover {
+    top: auto;
+    right: 0;
+    bottom: 58px;
+    left: auto;
+  }
+
+  .a3s-workflow-rail .a3s-workflow-rail__popover > button {
+    width: 100%;
+    height: 40px;
+  }
+
+  .a3s-workflow-rail .a3s-workflow-edge-colors button {
+    width: 43px;
+    height: 38px;
+  }
+
   .a3s-workflow-rail__routing {
     padding-top: 0;
     padding-left: 5px;

@@ -29,8 +29,10 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type DragEvent,
 } from 'react';
+import { WorkflowPlaygroundAnnotation } from './WorkflowPlaygroundAnnotation';
 import {
   workflowPlaygroundCopy,
   type WorkflowPlaygroundCopy,
@@ -57,6 +59,7 @@ import {
 import { WorkflowPlaygroundLibrary } from './WorkflowPlaygroundLibrary';
 import {
   addIntoGraph,
+  layoutPlaygroundGraph,
   nodeDisplayName,
   waitForPreview,
 } from './WorkflowPlayground.graph';
@@ -67,23 +70,31 @@ import {
   compilePlaygroundGraph,
   createPlaygroundEdge,
   createSampleWorkflow,
+  PLAYGROUND_EDGE_COLORS,
   validatePlaygroundConfigurations,
   validatePlaygroundConnection,
+  type PlaygroundAnnotationKind,
+  type PlaygroundAnnotationNode,
+  type PlaygroundCanvasNode,
   type PlaygroundEdge,
+  type PlaygroundEdgeColor,
   type PlaygroundNode,
 } from './WorkflowPlayground.model';
 import { WorkflowPlaygroundNode } from './WorkflowPlaygroundNode';
 import { flowNodeGroups, type FlowWebsiteLocale } from './flow-node-catalog';
 
 const DRAG_MIME = 'application/x-a3s-flow-node';
-const nodeTypes = { flowNode: WorkflowPlaygroundNode };
-const edgeTypes = { workflow: WorkflowPlaygroundEdge };
-const defaultEdgeOptions: DefaultEdgeOptions = {
-  type: 'workflow',
-  markerEnd: { type: MarkerType.ArrowClosed, color: '#8797ad' },
-  style: { stroke: '#9cabc0', strokeWidth: 1.5 },
-  interactionWidth: 24,
+const nodeTypes = {
+  flowNode: WorkflowPlaygroundNode,
+  annotation: WorkflowPlaygroundAnnotation,
 };
+const edgeTypes = { workflow: WorkflowPlaygroundEdge };
+
+function nodeChangeId(change: NodeChange<PlaygroundCanvasNode>): string {
+  return change.type === 'add' || change.type === 'replace'
+    ? change.item.id
+    : change.id;
+}
 
 function MarkdownPlayground({
   locale,
@@ -138,16 +149,14 @@ function WorkflowPlaygroundSurface() {
     beginDrag,
     endDrag,
   } = usePlaygroundDocument(() => createSampleWorkflow(locale));
-  const { edgeRouting, saveState, setEdgeRouting } = usePlaygroundDraft(
-    storageKey,
-    graph,
-    restore,
-  );
+  const { edgeColor, edgeRouting, saveState, setEdgeColor, setEdgeRouting } =
+    usePlaygroundDraft(storageKey, graph, restore);
   const { fitView, screenToFlowPosition } = useReactFlow<
-    PlaygroundNode,
+    PlaygroundCanvasNode,
     PlaygroundEdge
   >();
   const [selectedNodeId, setSelectedNodeId] = useState<string>();
+  const [selectedAnnotationId, setSelectedAnnotationId] = useState<string>();
   const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
   const [activePanel, setActivePanel] = useState<InspectorTab>();
   const [canvasMode, setCanvasMode] = useState<PlaygroundCanvasMode>('pan');
@@ -156,6 +165,7 @@ function WorkflowPlaygroundSurface() {
   const [pendingNodePosition, setPendingNodePosition] = useState<XYPosition>();
   const [draggedType, setDraggedType] = useState<string>();
   const [debugOpen, setDebugOpen] = useState(false);
+  const [minimapVisible, setMinimapVisible] = useState(true);
   const [debugTab, setDebugTab] = useState<PlaygroundDebugTab>('trace');
   const [announcement, setAnnouncement] = useState('');
   const [statuses, setStatuses] = useState<
@@ -168,6 +178,24 @@ function WorkflowPlaygroundSurface() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const runAbort = useRef<AbortController | undefined>(undefined);
   const runCounter = useRef(1);
+  const annotationCounter = useRef(1);
+
+  const edgePalette = PLAYGROUND_EDGE_COLORS[edgeColor];
+  const defaultEdgeOptions = useMemo<DefaultEdgeOptions>(
+    () => ({
+      type: 'workflow',
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: edgePalette.line,
+      },
+      interactionWidth: 24,
+    }),
+    [edgePalette.line],
+  );
+  const playgroundStyle = {
+    '--workflow-edge-color': edgePalette.line,
+    '--workflow-edge-active': edgePalette.active,
+  } as CSSProperties;
 
   const compilation = useMemo(
     () => compilePlaygroundGraph(graph.nodes, graph.edges),
@@ -231,6 +259,76 @@ function WorkflowPlaygroundSurface() {
     });
   }, [screenToFlowPosition]);
 
+  const addAnnotation = useCallback(
+    (kind: PlaygroundAnnotationKind, position = centerPosition()) => {
+      if (running) return;
+      let id = `${kind}_${annotationCounter.current++}`;
+      while (graph.annotations.some((annotation) => annotation.id === id)) {
+        id = `${kind}_${annotationCounter.current++}`;
+      }
+      const annotation: PlaygroundAnnotationNode = {
+        id,
+        type: 'annotation',
+        position,
+        data: { kind, text: '' },
+        ariaLabel: kind === 'note' ? copy.noteLabel : copy.commentLabel,
+        focusable: true,
+        selectable: true,
+      };
+      commit((current) => ({
+        ...current,
+        annotations: [...current.annotations, annotation],
+      }));
+      setSelectedAnnotationId(id);
+      setSelectedNodeId(undefined);
+      setSelectedEdgeId(undefined);
+      setActivePanel(undefined);
+      setAnnouncement(copy.annotationAdded[kind]);
+    },
+    [centerPosition, commit, copy, graph.annotations, running],
+  );
+
+  const deleteAnnotation = useCallback(
+    (annotationId: string) => {
+      if (running) return;
+      commit((current) => ({
+        ...current,
+        annotations: current.annotations.filter(
+          ({ id }) => id !== annotationId,
+        ),
+      }));
+      setSelectedAnnotationId((current) =>
+        current === annotationId ? undefined : current,
+      );
+      setAnnouncement(copy.selectionDeleted);
+    },
+    [commit, copy.selectionDeleted, running],
+  );
+
+  const updateAnnotationText = useCallback(
+    (annotationId: string, text: string) => {
+      updateTransient((current) => ({
+        ...current,
+        annotations: current.annotations.map((annotation) =>
+          annotation.id === annotationId
+            ? {
+                ...annotation,
+                data: { ...annotation.data, text },
+              }
+            : annotation,
+        ),
+      }));
+    },
+    [updateTransient],
+  );
+
+  const arrangeNodes = useCallback(() => {
+    if (running) return;
+    commit((current) => layoutPlaygroundGraph(current));
+    setAnnouncement(copy.nodesArranged);
+    window.setTimeout(() => void fitView({ duration: 320, padding: 0.18 }), 0);
+  }, [commit, copy.nodesArranged, fitView, running]);
+
   const addNode = useCallback(
     (type: string, requestedPosition?: XYPosition) => {
       const manifest = localizeA3SFlowDagManifest(
@@ -246,6 +344,7 @@ function WorkflowPlaygroundSurface() {
       );
       commit(result.graph);
       setSelectedNodeId(result.selectedNodeId);
+      setSelectedAnnotationId(undefined);
       setSelectedEdgeId(undefined);
       setActivePanel('settings');
       closeNodeLibrary();
@@ -273,6 +372,7 @@ function WorkflowPlaygroundSurface() {
       commit((current) => {
         const deletion = collectDeletionIds(current.nodes, new Set([nodeId]));
         return {
+          ...current,
           nodes: current.nodes.filter(({ id }) => !deletion.has(id)),
           edges: current.edges.filter(
             ({ source, target }) =>
@@ -320,6 +420,7 @@ function WorkflowPlaygroundSurface() {
         nodes: [...current.nodes, duplicate],
       }));
       setSelectedNodeId(id);
+      setSelectedAnnotationId(undefined);
       setSelectedEdgeId(undefined);
       setActivePanel('settings');
     },
@@ -428,30 +529,42 @@ function WorkflowPlaygroundSurface() {
   ]);
 
   const onNodesChange = useCallback(
-    (changes: NodeChange<PlaygroundNode>[]) => {
+    (changes: NodeChange<PlaygroundCanvasNode>[]) => {
       const meaningful = changes.filter((change) => change.type !== 'select');
       if (meaningful.length === 0) return;
       const removals = meaningful.filter((change) => change.type === 'remove');
       if (removals.length > 0) {
         commit((current) => {
-          const deletion = collectDeletionIds(
-            current.nodes,
-            new Set(removals.map(({ id }) => id)),
-          );
+          const removalIds = new Set(removals.map(({ id }) => id));
+          const deletion = collectDeletionIds(current.nodes, removalIds);
           return {
+            ...current,
             nodes: current.nodes.filter(({ id }) => !deletion.has(id)),
             edges: current.edges.filter(
               ({ source, target }) =>
                 !deletion.has(source) && !deletion.has(target),
             ),
+            annotations: current.annotations.filter(
+              ({ id }) => !removalIds.has(id),
+            ),
           };
         });
         return;
       }
-      updateTransient((current) => ({
-        ...current,
-        nodes: applyNodeChanges(meaningful, current.nodes),
-      }));
+      updateTransient((current) => {
+        const workflowIds = new Set(current.nodes.map(({ id }) => id));
+        const workflowChanges = meaningful.filter((change) =>
+          workflowIds.has(nodeChangeId(change)),
+        ) as NodeChange<PlaygroundNode>[];
+        const annotationChanges = meaningful.filter(
+          (change) => !workflowIds.has(nodeChangeId(change)),
+        ) as NodeChange<PlaygroundAnnotationNode>[];
+        return {
+          ...current,
+          nodes: applyNodeChanges(workflowChanges, current.nodes),
+          annotations: applyNodeChanges(annotationChanges, current.annotations),
+        };
+      });
     },
     [commit, updateTransient],
   );
@@ -546,6 +659,10 @@ function WorkflowPlaygroundSurface() {
   );
 
   const deleteSelection = useCallback(() => {
+    if (selectedAnnotationId) {
+      deleteAnnotation(selectedAnnotationId);
+      return;
+    }
     if (selectedNodeId) {
       deleteNode(selectedNodeId);
       return;
@@ -560,7 +677,15 @@ function WorkflowPlaygroundSurface() {
       return;
     }
     setAnnouncement(copy.nothingSelected);
-  }, [commit, copy, deleteNode, selectedEdgeId, selectedNodeId]);
+  }, [
+    commit,
+    copy,
+    deleteAnnotation,
+    deleteNode,
+    selectedAnnotationId,
+    selectedEdgeId,
+    selectedNodeId,
+  ]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -591,6 +716,7 @@ function WorkflowPlaygroundSurface() {
         closeNodeLibrary();
         setActivePanel(undefined);
         setDebugOpen(false);
+        setCanvasMode('pan');
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -604,9 +730,9 @@ function WorkflowPlaygroundSurface() {
     undo,
   ]);
 
-  const displayNodes = useMemo(
-    () =>
-      graph.nodes.map((node) => ({
+  const displayNodes = useMemo<PlaygroundCanvasNode[]>(
+    () => [
+      ...graph.nodes.map((node) => ({
         ...node,
         selected: node.id === selectedNodeId,
         data: {
@@ -617,27 +743,76 @@ function WorkflowPlaygroundSurface() {
           onDelete: deleteNode,
         },
       })),
-    [deleteNode, duplicateNode, graph.nodes, runNode, selectedNodeId, statuses],
+      ...graph.annotations.map((annotation) => ({
+        ...annotation,
+        selected: annotation.id === selectedAnnotationId,
+        data: {
+          ...annotation.data,
+          label:
+            annotation.data.kind === 'note'
+              ? copy.noteLabel
+              : copy.commentLabel,
+          placeholder:
+            annotation.data.kind === 'note'
+              ? copy.notePlaceholder
+              : copy.commentPlaceholder,
+          deleteLabel: copy.deleteAnnotation,
+          onTextChange: updateAnnotationText,
+          onEditStart: beginDrag,
+          onEditEnd: endDrag,
+          onDelete: deleteAnnotation,
+        },
+      })),
+    ],
+    [
+      beginDrag,
+      copy.commentLabel,
+      copy.commentPlaceholder,
+      copy.deleteAnnotation,
+      copy.noteLabel,
+      copy.notePlaceholder,
+      deleteAnnotation,
+      deleteNode,
+      duplicateNode,
+      endDrag,
+      graph.annotations,
+      graph.nodes,
+      runNode,
+      selectedAnnotationId,
+      selectedNodeId,
+      statuses,
+      updateAnnotationText,
+    ],
   );
 
   const displayEdges = useMemo(
     () =>
-      graph.edges.map((edge) => ({
-        ...edge,
-        selected: edge.id === selectedEdgeId,
-        animated:
+      graph.edges.map((edge) => {
+        const selected = edge.id === selectedEdgeId;
+        const animated =
           running &&
           (statuses[edge.source] === 'running' ||
-            statuses[edge.target] === 'running'),
-        data: {
-          ...edge.data,
-          routing: edgeRouting,
-          insertLabel: copy.addNode,
-          onInsert: openNodeLibrary,
-        },
-      })),
+            statuses[edge.target] === 'running');
+        return {
+          ...edge,
+          selected,
+          animated,
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: selected || animated ? edgePalette.active : edgePalette.line,
+          },
+          data: {
+            ...edge.data,
+            routing: edgeRouting,
+            insertLabel: copy.addNode,
+            onInsert: openNodeLibrary,
+          },
+        };
+      }),
     [
       copy.addNode,
+      edgePalette.active,
+      edgePalette.line,
       edgeRouting,
       graph.edges,
       openNodeLibrary,
@@ -651,6 +826,7 @@ function WorkflowPlaygroundSurface() {
     stopRun();
     restore(createSampleWorkflow(locale));
     setSelectedNodeId(undefined);
+    setSelectedAnnotationId(undefined);
     setSelectedEdgeId(undefined);
     setActivePanel(undefined);
     setTrace([]);
@@ -723,8 +899,10 @@ function WorkflowPlaygroundSurface() {
       className={shellClass}
       data-canvas-mode={canvasMode}
       data-flow-playground=""
+      data-edge-color={edgeColor}
       data-language={locale}
       data-testid="workflow-playground"
+      style={playgroundStyle}
     >
       <a className="a3s-workflow-skip" href="#workflow-canvas">
         {copy.canvasLabel}
@@ -771,15 +949,30 @@ function WorkflowPlaygroundSurface() {
       <section className="a3s-workflow-stage">
         <WorkflowPlaygroundRail
           copy={copy}
+          edgeColor={edgeColor}
           edgeRouting={edgeRouting}
+          minimapVisible={minimapVisible}
           mode={canvasMode}
           onAdd={() => openNodeLibrary()}
-          onEdgeRoutingChange={(routing) => {
-            if (routing === edgeRouting) return;
+          onAddNote={() => addAnnotation('note')}
+          onArrange={arrangeNodes}
+          onEdgeColorChange={(color: PlaygroundEdgeColor) => {
+            setEdgeColor(color);
+            setAnnouncement(copy.edgeColorChanged(copy.edgeColorNames[color]));
+          }}
+          onEdgeRoutingToggle={() => {
+            const routing = edgeRouting === 'curve' ? 'orthogonal' : 'curve';
             setEdgeRouting(routing);
             setAnnouncement(copy.edgeRoutingChanged[routing]);
           }}
+          onFitView={() => void fitView({ duration: 280, padding: 0.18 })}
+          onMinimapToggle={() => setMinimapVisible((current) => !current)}
           onModeChange={setCanvasMode}
+          onOpenVariables={() => {
+            setDebugOpen(true);
+            setDebugTab('variables');
+          }}
+          running={running}
         />
         <WorkflowPlaygroundCanvasDock
           canRedo={canRedo}
@@ -805,7 +998,7 @@ function WorkflowPlaygroundSurface() {
           onDrop={onCanvasDrop}
           ref={canvasRef}
         >
-          <ReactFlow<PlaygroundNode, PlaygroundEdge>
+          <ReactFlow<PlaygroundCanvasNode, PlaygroundEdge>
             ariaLabelConfig={
               locale === 'zh'
                 ? {
@@ -819,6 +1012,10 @@ function WorkflowPlaygroundSurface() {
                 ? ConnectionLineType.Bezier
                 : ConnectionLineType.SmoothStep
             }
+            connectionLineStyle={{
+              stroke: edgePalette.active,
+              strokeWidth: 2,
+            }}
             defaultEdgeOptions={defaultEdgeOptions}
             deleteKeyCode={null}
             edges={displayEdges}
@@ -837,19 +1034,39 @@ function WorkflowPlaygroundSurface() {
             onEdgeClick={(_, edge) => {
               setSelectedEdgeId(edge.id);
               setSelectedNodeId(undefined);
+              setSelectedAnnotationId(undefined);
               if (activePanel === 'settings') setActivePanel(undefined);
             }}
             onEdgesChange={onEdgesChange}
             onNodeClick={(_, node) => {
-              setSelectedNodeId(node.id);
               setSelectedEdgeId(undefined);
-              setActivePanel('settings');
+              if (node.type === 'annotation') {
+                setSelectedAnnotationId(node.id);
+                setSelectedNodeId(undefined);
+                if (activePanel === 'settings') setActivePanel(undefined);
+              } else {
+                setSelectedNodeId(node.id);
+                setSelectedAnnotationId(undefined);
+                setActivePanel('settings');
+              }
             }}
             onNodeDragStart={beginDrag}
             onNodeDragStop={endDrag}
             onNodesChange={onNodesChange}
-            onPaneClick={() => {
+            onPaneClick={(event) => {
+              if (canvasMode === 'comment') {
+                addAnnotation(
+                  'comment',
+                  screenToFlowPosition({
+                    x: event.clientX,
+                    y: event.clientY,
+                  }),
+                );
+                setCanvasMode('select');
+                return;
+              }
               setSelectedNodeId(undefined);
+              setSelectedAnnotationId(undefined);
               setSelectedEdgeId(undefined);
               if (activePanel === 'settings') setActivePanel(undefined);
             }}
@@ -874,17 +1091,21 @@ function WorkflowPlaygroundSurface() {
               size={1}
               variant={BackgroundVariant.Dots}
             />
-            <MiniMap<PlaygroundNode>
-              ariaLabel={copy.minimap}
-              bgColor="#ffffff"
-              maskColor="rgb(18 100 255 / 8%)"
-              nodeBorderRadius={5}
-              nodeColor="#b8c5d7"
-              nodeStrokeColor="#8999ad"
-              pannable
-              position="bottom-right"
-              zoomable
-            />
+            {minimapVisible && (
+              <MiniMap<PlaygroundCanvasNode>
+                ariaLabel={copy.minimap}
+                bgColor="#ffffff"
+                maskColor="rgb(18 100 255 / 8%)"
+                nodeBorderRadius={5}
+                nodeColor={(node) =>
+                  node.type === 'annotation' ? '#ddae4c' : '#b8c5d7'
+                }
+                nodeStrokeColor="#8999ad"
+                pannable
+                position="bottom-right"
+                zoomable
+              />
+            )}
             <Controls
               aria-label={copy.zoomControls}
               fitViewOptions={{ padding: 0.16 }}
@@ -896,6 +1117,11 @@ function WorkflowPlaygroundSurface() {
           {draggedType && (
             <div className="flow-playground-canvas__drop-hint">
               {copy.dropHelp}
+            </div>
+          )}
+          {canvasMode === 'comment' && (
+            <div className="flow-playground-canvas__comment-hint">
+              {copy.commentHelp}
             </div>
           )}
         </div>
@@ -940,6 +1166,7 @@ function WorkflowPlaygroundSurface() {
           onClose={() => setDebugOpen(false)}
           onSelectNode={(nodeId) => {
             setSelectedNodeId(nodeId);
+            setSelectedAnnotationId(undefined);
             setSelectedEdgeId(undefined);
             setActivePanel('settings');
           }}

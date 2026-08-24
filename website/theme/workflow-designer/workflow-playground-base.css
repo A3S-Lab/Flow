@@ -11,6 +11,8 @@
   --workflow-blue: #1264ff;
   --workflow-blue-dark: #084ed0;
   --workflow-blue-soft: #eaf2ff;
+  --workflow-edge-color: #6886c5;
+  --workflow-edge-active: #155eef;
   --workflow-green: #087a5a;
   --workflow-green-soft: #e6f6f0;
   --workflow-amber: #9a6100;
@@ -418,21 +420,26 @@
   cursor: default;
 }
 
+.a3s-workflow-playground[data-canvas-mode='comment'] .react-flow__pane {
+  cursor: crosshair;
+}
+
 .a3s-workflow-canvas .react-flow__edge-path {
-  stroke: #9cabc0;
-  stroke-width: 1.5;
+  stroke: var(--workflow-edge-color);
+  stroke-width: 1.65;
   transition: stroke 140ms ease-out;
 }
 
 .a3s-workflow-canvas .react-flow__edge:hover .react-flow__edge-path,
 .a3s-workflow-canvas .react-flow__edge.selected .react-flow__edge-path,
+.a3s-workflow-canvas .react-flow__edge.animated .react-flow__edge-path,
 .a3s-workflow-canvas .react-flow__edge-path.is-selected {
-  stroke: var(--workflow-blue);
-  stroke-width: 2;
+  stroke: var(--workflow-edge-active);
+  stroke-width: 2.15;
 }
 
 .a3s-workflow-canvas .react-flow__connection-path {
-  stroke: var(--workflow-blue);
+  stroke: var(--workflow-edge-active);
   stroke-width: 2;
 }
 
@@ -531,6 +538,13 @@
   color: var(--workflow-blue-dark);
 }
 
+.a3s-workflow-rail__divider {
+  width: 24px;
+  height: 1px;
+  margin: 1px auto;
+  background: var(--workflow-line);
+}
+
 .a3s-workflow-rail button:active {
   transform: scale(0.96);
 }
@@ -541,6 +555,120 @@
   border-top: 1px solid var(--workflow-line);
   flex-direction: column;
   gap: 4px;
+}
+
+.a3s-workflow-rail__menu {
+  position: relative;
+}
+
+.a3s-workflow-rail__menu > summary {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  align-items: center;
+  justify-content: center;
+  color: var(--workflow-muted);
+  cursor: pointer;
+  list-style: none;
+}
+
+.a3s-workflow-rail__menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.a3s-workflow-rail__menu > summary:hover,
+.a3s-workflow-rail__menu[open] > summary {
+  background: var(--workflow-surface-muted);
+  color: var(--workflow-blue-dark);
+}
+
+.a3s-workflow-rail__popover {
+  position: absolute;
+  top: 0;
+  left: 48px;
+  display: grid;
+  width: 224px;
+  padding: 7px;
+  border: 1px solid var(--workflow-line);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: var(--workflow-shadow-panel);
+  gap: 3px;
+}
+
+.a3s-workflow-rail .a3s-workflow-rail__popover > button {
+  display: grid;
+  width: 100%;
+  height: 36px;
+  padding: 0 9px;
+  border-radius: 7px;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  justify-items: start;
+  text-align: left;
+}
+
+.a3s-workflow-rail__popover > button span {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-workflow-rail__popover fieldset {
+  padding: 8px 5px 4px;
+  margin: 4px 0 0;
+  border: 0;
+  border-top: 1px solid var(--workflow-line);
+}
+
+.a3s-workflow-rail__popover legend {
+  padding: 0 4px;
+  color: var(--workflow-faint);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.a3s-workflow-edge-colors {
+  display: grid;
+  margin-top: 5px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+}
+
+.a3s-workflow-rail .a3s-workflow-edge-colors button {
+  display: flex;
+  width: 43px;
+  height: 38px;
+  border: 1px solid transparent;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.a3s-workflow-rail .a3s-workflow-edge-colors button.is-active {
+  border-color: var(--workflow-line-strong);
+  background: var(--workflow-surface-muted);
+}
+
+.a3s-workflow-edge-colors button i {
+  width: 17px;
+  height: 5px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgba(16, 24, 39, 0.05);
+}
+
+.a3s-workflow-edge-colors button span {
+  max-width: 38px;
+  overflow: hidden;
+  color: var(--workflow-faint);
+  font-size: 8px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .a3s-workflow-rail button.is-primary {
