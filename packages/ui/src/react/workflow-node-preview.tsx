@@ -335,7 +335,10 @@ export function WorkflowNodePreview({
             data-status={status}
             aria-label={copy.status[status]}
             role="status"
-          />
+          >
+            <i aria-hidden="true" />
+            <span>{copy.status[status]}</span>
+          </span>
         )}
         {(node.beta || node.legacy) && (
           <em>

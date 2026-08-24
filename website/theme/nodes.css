@@ -644,12 +644,8 @@
   font-weight: 690;
 }
 
-.flow-node-reference > pre {
-  max-height: 520px;
-  overflow: auto;
-  border: 1px solid #263653;
-  border-radius: 12px;
-  background: var(--flow-code);
+.flow-node-reference > .flow-node-reference__code {
+  margin-block: 1.5rem 2rem;
 }
 
 .flow-node-reference > ul {

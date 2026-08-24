@@ -7,6 +7,7 @@ import {
   type WorkflowNodeTableColumn,
 } from '@a3s-lab/flow-ui';
 import { useLang } from '@rspress/core/runtime';
+import { CodeExample } from './CodeExample';
 import { nodeGuides } from './NodeReference.copy';
 
 type Locale = 'zh' | 'en';
@@ -438,6 +439,13 @@ export default function NodeReference({ type }: { type: string }) {
     { position: { x: 320, y: 160 } },
   );
   const cliType = JSON.stringify(type);
+  const jsonExample = JSON.stringify(example, null, 2);
+  const cliExample = `a3s-flow node ${type} --pretty
+a3s-flow new ${type} --id ${example.id} --pretty
+a3s-flow validate workflow.json --pretty
+a3s-flow compile workflow.json --pretty
+a3s-flow digest workflow.json --pretty`;
+  const skillExample = `Use $a3s-flow to add the ${cliType} node to workflow.json, connect valid ports, and validate the result.`;
 
   return (
     <section className="flow-node-reference">
@@ -640,21 +648,33 @@ export default function NodeReference({ type }: { type: string }) {
 
       <h2>{copy.example}</h2>
       <p>{copy.exampleHelp}</p>
-      <pre>
-        <code>{JSON.stringify(example, null, 2)}</code>
-      </pre>
+      <CodeExample
+        code={jsonExample}
+        containerElementClassName="flow-node-reference__code"
+        height={520}
+        lang="json"
+        lineNumbers
+        title="workflow.json"
+      />
 
       <h2>{copy.cli}</h2>
       <p>{copy.cliHelp}</p>
-      <pre>
-        <code>{`a3s-flow node ${type} --pretty\na3s-flow new ${type} --id ${example.id} --pretty\na3s-flow validate workflow.json --pretty\na3s-flow compile workflow.json --pretty\na3s-flow digest workflow.json --pretty`}</code>
-      </pre>
+      <CodeExample
+        code={cliExample}
+        containerElementClassName="flow-node-reference__code"
+        lang="bash"
+        title="Terminal"
+      />
 
       <h2>{copy.skill}</h2>
       <p>{copy.skillHelp}</p>
-      <pre>
-        <code>{`Use $a3s-flow to add the ${cliType} node to workflow.json, connect valid ports, and validate the result.`}</code>
-      </pre>
+      <CodeExample
+        code={skillExample}
+        containerElementClassName="flow-node-reference__code"
+        lang="text"
+        title="Prompt"
+        wrapCode
+      />
       <p>
         <a href="../reference/cli">{copy.cli}</a> ·{' '}
         <a href="../reference/agent-skill">{copy.skill}</a>

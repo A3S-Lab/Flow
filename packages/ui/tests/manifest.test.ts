@@ -225,7 +225,10 @@ describe("A3S Flow authoring manifests", () => {
     let textareaCount = 0;
 
     for (const manifest of a3sFlowDagNodeRegistry.list()) {
-      const dagNode = createA3SFlowDagNode(`a3s-ui-contract-${manifest.type}`, manifest);
+      const dagNode = createA3SFlowDagNode(
+        `a3s-ui-contract-${manifest.type}`,
+        manifest,
+      );
       const view = render(
         createElement(A3SFlowDagNodeConfigurationPanel, {
           dagNode,
@@ -241,7 +244,9 @@ describe("A3S Flow authoring manifests", () => {
 
       for (const input of renderer.querySelectorAll("input")) {
         inputCount += 1;
-        const visuallyHidden = input.classList.contains("a3s-form-visually-hidden");
+        const visuallyHidden = input.classList.contains(
+          "a3s-form-visually-hidden",
+        );
         expect(
           visuallyHidden || input.classList.contains("input"),
           `${manifest.type} rendered an input outside the A3S UI input contract`,
@@ -257,17 +262,21 @@ describe("A3S Flow authoring manifests", () => {
       }
       for (const textarea of renderer.querySelectorAll("textarea")) {
         textareaCount += 1;
+        const codeEditorOwned = textarea.closest(".code-editor") !== null;
         expect(
-          textarea.classList.contains("textarea"),
+          codeEditorOwned || textarea.classList.contains("textarea"),
           `${manifest.type} rendered a textarea outside the A3S UI textarea contract`,
         ).toBe(true);
       }
 
       expect(
-        view.container.querySelector(".a3s-form-workflow-node-title-input")?.classList,
+        view.container.querySelector(".a3s-form-workflow-node-title-input")
+          ?.classList,
       ).toContain("input");
       expect(
-        view.container.querySelector(".a3s-form-workflow-node-description-input")?.classList,
+        view.container.querySelector(
+          ".a3s-form-workflow-node-description-input",
+        )?.classList,
       ).toContain("input");
       cleanup();
     }

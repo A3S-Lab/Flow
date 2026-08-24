@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import { analyzeExpression, type FormExpression, type JsonObject, type JsonValue } from '@a3s-lab/ui/form/core';
+import type { FormExpression, JsonObject, JsonValue } from '@a3s-lab/ui/form/core';
 import { A3S_FLOW_EXPRESSION_API_VERSION } from '../integrations/a3s-flow-core';
 import {
   A3S_FLOW_COMPARISON_OPERATORS as COMPARISON_OPERATORS,
@@ -14,13 +13,20 @@ import {
   a3sFlowComparisonOperatorLabel as operatorLabel,
   a3sFlowExpressionPreviewText as previewText,
 } from './a3s-flow-expression-format';
+import { AdvancedExpressionEditor } from './a3s-flow-expression-advanced';
+import {
+  A3S_FLOW_DEFAULT_EXPRESSION_VARIABLES,
+  VariableReferenceInput,
+  VariableTemplateTextarea,
+  type A3SFlowExpressionVariable,
+} from './a3s-flow-variable-picker';
 import { DesignerIcon } from './designer-icons';
 import type { FormWidgetProps } from '@a3s-lab/ui/form/react';
 import { SelectControl } from './select-control';
 
 type ExpressionMode = 'none' | 'source' | 'value' | 'compare' | 'template' | 'advanced';
 
-interface FlowExpressionEditorProps {
+export interface FlowExpressionEditorProps {
   id: string;
   value: JsonValue | undefined;
   onChange: (value: JsonValue) => void;
@@ -32,6 +38,7 @@ interface FlowExpressionEditorProps {
   describedBy?: string;
   onBlur?: () => void;
   onFocus?: () => void;
+  variables?: readonly A3SFlowExpressionVariable[];
 }
 
 const INVALID_EXPRESSION_DRAFT = '__a3s_form_invalid_expression_draft__';
@@ -273,78 +280,6 @@ function modeLabel(mode: ExpressionMode, purpose: ExpressionPurpose, chinese: bo
   return chinese ? '固定值' : 'Fixed value';
 }
 
-function AdvancedExpressionEditor({
-  id,
-  expression,
-  onChange,
-  locale,
-  disabled,
-  invalid,
-  describedBy,
-  draftSource,
-  draftInvalid,
-  onInvalidDraft,
-}: {
-  id: string;
-  expression: FormExpression;
-  onChange: (expression: FormExpression) => void;
-  locale: string;
-  disabled?: boolean;
-  invalid?: boolean;
-  describedBy?: string;
-  draftSource?: string;
-  draftInvalid?: boolean;
-  onInvalidDraft: (source: string) => void;
-}) {
-  const chinese = isChinese(locale);
-  const source = draftSource ?? JSON.stringify(expression, null, 2);
-  const [draft, setDraft] = useState(source);
-  const [parseError, setParseError] = useState(Boolean(draftInvalid));
-  const errorId = `${id}-draft-error`;
-  useEffect(() => {
-    setDraft(source);
-    setParseError(Boolean(draftInvalid));
-  }, [draftInvalid, source]);
-  return (
-    <div className="a3s-form-flow-expression-advanced" data-invalid={parseError || undefined}>
-      <textarea
-        id={id}
-        className="textarea"
-        value={draft}
-        disabled={disabled}
-        spellCheck={false}
-        aria-invalid={invalid || parseError || undefined}
-        aria-describedby={
-          [describedBy, parseError ? errorId : undefined].filter(Boolean).join(' ') || undefined
-        }
-        aria-label={chinese ? '高级表达式 JSON' : 'Advanced expression JSON'}
-        onChange={(event) => {
-          const next = event.target.value;
-          setDraft(next);
-          try {
-            const parsed = JSON.parse(next) as unknown;
-            analyzeExpression(parsed);
-            setParseError(false);
-            onChange(parsed as FormExpression);
-          } catch {
-            setParseError(true);
-            onInvalidDraft(next);
-          }
-        }}
-      />
-      <small id={errorId} role={parseError ? 'alert' : undefined}>
-        {parseError
-          ? chinese
-            ? '表达式 JSON 无效，请检查括号、引号和字段名。'
-            : 'Invalid expression JSON. Check brackets, quotes, and field names.'
-          : chinese
-            ? '仅在结构化编辑器无法表达当前规则时使用。'
-            : 'Use only when the structured editor cannot express the rule.'}
-      </small>
-    </div>
-  );
-}
-
 export function FlowExpressionEditor({
   id,
   value,
@@ -357,6 +292,7 @@ export function FlowExpressionEditor({
   describedBy,
   onBlur,
   onFocus,
+  variables = A3S_FLOW_DEFAULT_EXPRESSION_VARIABLES,
 }: FlowExpressionEditorProps) {
   const chinese = isChinese(locale);
   const purpose = purposeFrom(rawPurpose);
@@ -421,16 +357,17 @@ export function FlowExpressionEditor({
           <span aria-hidden="true">
             <DesignerIcon name="field" size={15} />
           </span>
-          <input
+          <VariableReferenceInput
             id={`${id}-value`}
-            className="input"
-            value={expression.op === 'field' ? expression.path : 'input'}
+            path={expression.op === 'field' ? expression.path : 'input'}
+            variables={variables}
+            locale={locale}
             disabled={disabled}
             aria-invalid={invalid || undefined}
             aria-describedby={describedBy}
             aria-label={chinese ? '工作流字段路径' : 'Workflow field path'}
             placeholder="input.record"
-            onChange={(event) => updateExpression({ op: 'field', path: event.target.value })}
+            onPathChange={(path) => updateExpression({ op: 'field', path })}
           />
         </div>
       )}
@@ -470,17 +407,18 @@ export function FlowExpressionEditor({
 
       {mode === 'compare' && isComparison(expression) && (
         <div className="a3s-form-flow-expression-comparison">
-          <input
+          <VariableReferenceInput
             id={`${id}-value`}
-            className="input"
-            value={leftPath}
+            path={leftPath}
+            variables={variables}
+            locale={locale}
             disabled={disabled}
             aria-invalid={invalid || undefined}
             aria-describedby={describedBy}
             aria-label={chinese ? '要判断的字段' : 'Field to evaluate'}
             placeholder="input.approved"
-            onChange={(event) =>
-              updateExpression({ ...expression, left: { op: 'field', path: event.target.value } })
+            onPathChange={(path) =>
+              updateExpression({ ...expression, left: { op: 'field', path } })
             }
           />
           <SelectControl
@@ -514,16 +452,17 @@ export function FlowExpressionEditor({
       )}
 
       {mode === 'template' && expression.op === 'concat' && (
-        <textarea
+        <VariableTemplateTextarea
           id={`${id}-value`}
-          className="textarea"
           value={expressionToTemplate(expression)}
+          variables={variables}
+          locale={locale}
           disabled={disabled}
           aria-invalid={invalid || undefined}
           aria-describedby={describedBy}
           aria-label={chinese ? '失败信息模板' : 'Failure message template'}
           placeholder={chinese ? '任务失败：{{input.reason}}' : 'Task failed: {{input.reason}}'}
-          onChange={(event) => updateExpression(templateToExpression(event.target.value))}
+          onValueChange={(value) => updateExpression(templateToExpression(value))}
         />
       )}
 
@@ -539,6 +478,7 @@ export function FlowExpressionEditor({
           draftSource={draftSource}
           draftInvalid={draftSource !== undefined}
           onInvalidDraft={(source) => onChange(invalidExpressionDraft(source))}
+          variables={variables}
         />
       )}
 
@@ -552,7 +492,11 @@ export function FlowExpressionEditor({
   );
 }
 
-export function A3SFlowExpressionWidget(props: FormWidgetProps) {
+export interface A3SFlowExpressionWidgetProps extends FormWidgetProps {
+  variables?: readonly A3SFlowExpressionVariable[];
+}
+
+export function A3SFlowExpressionWidget(props: A3SFlowExpressionWidgetProps) {
   return (
     <FlowExpressionEditor
       id={props.id}
@@ -570,6 +514,7 @@ export function A3SFlowExpressionWidget(props: FormWidgetProps) {
       describedBy={props.describedBy}
       onBlur={props.onBlur}
       onFocus={props.onFocus}
+      variables={props.variables}
     />
   );
 }

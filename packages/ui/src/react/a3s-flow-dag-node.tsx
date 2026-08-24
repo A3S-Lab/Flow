@@ -12,12 +12,15 @@ import {
   mergeA3SFlowDagNodeConfiguration,
   selectA3SFlowDagNodeConfiguration,
 } from '../integrations/a3s-flow-node-manifest';
+import { WORKFLOW_CONFIGURATION_WIDGETS } from '../integrations/workflow-node-form';
 import { isA3SFlowCorePortAvailable } from '../integrations/a3s-flow-validation';
+import { A3SFlowExpressionWidget } from './a3s-flow-expression-widget';
 import { a3sFlowDagNodePreviewSummary } from './a3s-flow-node-summary';
 import {
   createA3SFlowPanelHostAdapter,
   localizeA3SFlowDagNodeManifest,
 } from './a3s-flow-panel-support';
+import type { A3SFlowExpressionVariable } from './a3s-flow-variable-picker';
 import { a3sFlowWidgetRegistry } from './a3s-flow-widgets';
 import {
   WorkflowNodeConfigurationPanel,
@@ -34,6 +37,7 @@ export interface A3SFlowDagNodeConfigurationPanelProps
   manifest?: A3SFlowDagNodeManifest;
   registry?: A3SFlowDagNodeRegistry;
   connectedOutputPortIds?: readonly string[];
+  expressionVariables?: readonly A3SFlowExpressionVariable[];
   onChange: (node: A3SFlowWorkflowDagNode) => void;
   onApply?: (node: A3SFlowWorkflowDagNode, document: FormDocument) => void | Promise<void>;
   onReset?: (node: A3SFlowWorkflowDagNode) => void;
@@ -140,6 +144,7 @@ export function A3SFlowDagNodeConfigurationPanel({
   className,
   connectedOutputPortIds,
   dagNode,
+  expressionVariables,
   fieldVisibility,
   hostAdapter,
   locale,
@@ -193,8 +198,22 @@ export function A3SFlowDagNodeConfigurationPanel({
     [buildConfig, localizedManifest],
   );
   const resolvedWidgetRegistry = useMemo(
-    () => ({ ...a3sFlowWidgetRegistry, ...widgetRegistry }),
-    [widgetRegistry],
+    () => ({
+      ...a3sFlowWidgetRegistry,
+      ...(expressionVariables
+        ? {
+            [WORKFLOW_CONFIGURATION_WIDGETS.flowExpression]: (
+              widgetProps: Parameters<typeof A3SFlowExpressionWidget>[0],
+            ) =>
+              createElement(A3SFlowExpressionWidget, {
+                ...widgetProps,
+                variables: expressionVariables,
+              }),
+          }
+        : {}),
+      ...widgetRegistry,
+    }),
+    [expressionVariables, widgetRegistry],
   );
   const validatingHostAdapter = useMemo(
     () =>
