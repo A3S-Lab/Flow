@@ -196,11 +196,12 @@
 
   .a3s-workflow-cached-variables,
   .has-right-panel .a3s-workflow-cached-variables {
+    --workflow-variable-translate: translateX(0);
     right: 12px;
     bottom: 78px;
     left: auto;
     min-height: 52px;
-    transform: none;
+    transform: var(--workflow-variable-translate);
   }
 
   .has-debug-panel .a3s-workflow-canvas-tools {

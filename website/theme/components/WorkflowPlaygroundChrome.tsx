@@ -8,6 +8,7 @@ import {
   ChatCircleDots,
   CheckCircle,
   ClockCounterClockwise,
+  Code,
   Cursor,
   Database,
   DotsThree,
@@ -412,7 +413,7 @@ export function WorkflowPlaygroundCanvasDock({
         onClick={() => onDebugTab('variables')}
         type="button"
       >
-        <Database aria-hidden="true" />
+        <Code aria-hidden="true" />
         <span>{copy.variables}</span>
       </button>
     </>
