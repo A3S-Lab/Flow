@@ -84,6 +84,7 @@ import { WorkflowPlaygroundNode } from './WorkflowPlaygroundNode';
 import { flowNodeGroups, type FlowWebsiteLocale } from './flow-node-catalog';
 
 const DRAG_MIME = 'application/x-a3s-flow-node';
+const INITIAL_PLAYGROUND_VIEWPORT = { x: 12, y: 12, zoom: 0.62 } as const;
 const nodeTypes = {
   flowNode: WorkflowPlaygroundNode,
   annotation: WorkflowPlaygroundAnnotation,
@@ -136,7 +137,7 @@ function WorkflowPlaygroundSurface() {
   const { site } = useSite();
   const defaultVersion = site.multiVersion.default ?? version;
   const versions = site.multiVersion.versions ?? [version];
-  const storageKey = `a3s-flow-playground:${version}:${locale}`;
+  const storageKey = `a3s-flow-playground:v2:${version}:${locale}`;
   const {
     graph,
     canUndo,
@@ -151,7 +152,7 @@ function WorkflowPlaygroundSurface() {
   } = usePlaygroundDocument(() => createSampleWorkflow(locale));
   const { edgeColor, edgeRouting, saveState, setEdgeColor, setEdgeRouting } =
     usePlaygroundDraft(storageKey, graph, restore);
-  const { fitView, screenToFlowPosition } = useReactFlow<
+  const { fitView, screenToFlowPosition, setViewport } = useReactFlow<
     PlaygroundCanvasNode,
     PlaygroundEdge
   >();
@@ -832,8 +833,11 @@ function WorkflowPlaygroundSurface() {
     setTrace([]);
     setHistory([]);
     setAnnouncement(copy.resetDone);
-    window.setTimeout(() => void fitView({ duration: 280, padding: 0.18 }), 0);
-  }, [copy.resetDone, fitView, locale, restore, stopRun]);
+    window.setTimeout(
+      () => void setViewport(INITIAL_PLAYGROUND_VIEWPORT, { duration: 280 }),
+      0,
+    );
+  }, [copy.resetDone, locale, restore, setViewport, stopRun]);
 
   const copyDocument = useCallback(() => {
     void navigator.clipboard
@@ -1016,13 +1020,12 @@ function WorkflowPlaygroundSurface() {
               stroke: edgePalette.active,
               strokeWidth: 2,
             }}
+            defaultViewport={INITIAL_PLAYGROUND_VIEWPORT}
             defaultEdgeOptions={defaultEdgeOptions}
             deleteKeyCode={null}
             edges={displayEdges}
             edgeTypes={edgeTypes}
             elementsSelectable={!running}
-            fitView
-            fitViewOptions={{ padding: 0.16, minZoom: 0.4, maxZoom: 1 }}
             isValidConnection={isValidConnection}
             maxZoom={1.6}
             minZoom={0.25}

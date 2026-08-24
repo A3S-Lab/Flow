@@ -9,7 +9,7 @@ describe('Workflow Playground graph editing', () => {
   it('replaces a compatible edge when inserting a node', () => {
     const sample = createSampleWorkflow('en');
     const originalEdge = sample.edges.find(
-      ({ source, target }) => source === 'step_1' && target === 'condition_1',
+      ({ source, target }) => source === 'step_1' && target === 'batch_1',
     );
     expect(originalEdge).toBeDefined();
 
@@ -31,7 +31,7 @@ describe('Workflow Playground graph editing', () => {
         }),
         expect.objectContaining({
           source: result.selectedNodeId,
-          target: 'condition_1',
+          target: 'batch_1',
         }),
       ]),
     );
@@ -65,11 +65,17 @@ describe('Workflow Playground graph editing', () => {
     const position = (id: string) =>
       result.nodes.find((node) => node.id === id)?.position;
 
-    expect(position('start_1')?.x).toBeLessThan(position('step_1')?.x ?? 0);
-    expect(position('step_1')?.x).toBeLessThan(position('condition_1')?.x ?? 0);
-    expect(position('complete_1')?.x).toBe(position('fail_1')?.x);
-    expect(position('complete_1')?.y).not.toBe(position('fail_1')?.y);
+    expect(position('start_1')?.x).toBeLessThan(
+      position('route_primary')?.x ?? 0,
+    );
+    expect(position('route_primary')?.x).toBeLessThan(
+      position('step_1')?.x ?? 0,
+    );
+    expect(position('step_1')?.x).toBeLessThan(position('batch_1')?.x ?? 0);
+    expect(position('route_secondary')?.x).toBeLessThan(
+      position('wait_1')?.x ?? 0,
+    );
     expect(result.annotations[0].position).toEqual({ x: 33, y: 44 });
-    expect(sample.nodes[0].position).toEqual({ x: 60, y: 285 });
+    expect(sample.nodes[0].position).toEqual({ x: 60, y: 590 });
   });
 });
