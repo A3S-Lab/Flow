@@ -89,9 +89,10 @@ describe('Workflow Playground graph model', () => {
     expect(document.version).toBe('0.7.0');
     expect(document.workflow.graph.nodes[0]).toMatchObject({
       id: 'start_1',
-      position: { x: 50, y: 110 },
-      data: { type: 'flow.start' },
+      position: { x: 60, y: 285 },
+      data: { type: 'flow.start', title: 'Workflow Start' },
     });
+    expect(sample.edges.every(({ type }) => type === 'workflow')).toBe(true);
     expect(serialized).not.toContain('flowNode');
     expect(serialized).not.toContain('selected');
     expect(serialized).not.toContain('ariaLabel');

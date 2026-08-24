@@ -1,28 +1,12 @@
 ---
 title: Workflow Playground
 description: Edit and inspect a workflow in the browser with the real A3S Flow nodes, configuration forms, and graph compiler.
+pageType: blank
+navbar: false
 sidebar: false
 outline: false
+footer: false
+search: false
 ---
 
-# Workflow Playground
-
-This page uses the node catalog, port definitions, configuration forms, and graph compiler shipped with the current release. Canvas data becomes a Flow workflow document directly, without a separate set of demonstration fields. Start with the built-in workflow, inspect how its branches connect, and then pass the emitted DSL to the CLI or a host editor.
-
 <WorkflowPlayground />
-
-## Complete an edit
-
-Clicking an entry in the node library places a new node near the center of the current viewport. On desktop, you can also drag a library entry and release it at an exact canvas position. Move node cards freely, then drag an output handle to a compatible input handle. Selecting a node opens the form generated from its manifest. Changes to its name, description, retry policy, expressions, and runtime parameters are written back to the same node object immediately.
-
-The toolbar deletes selected nodes or edges and restores the built-in sample. Deleting a container also removes its child nodes and internal edges. Keyboard users can move through the library, canvas nodes, zoom controls, tabs, and form controls with Tab. A selected canvas element can be removed with Delete or Backspace.
-
-## Check the graph and configuration
-
-The validation tab combines graph compilation with node-level configuration checks. The graph compiler reports missing references, cross-scope edges, duplicate identifiers, cycles, and incomplete containers. A successful result includes stable top-level and child-canvas orders. Configuration checks consider connected output ports as well as expressions, wait values, retry settings, and task parameters. Each finding identifies the node, field path, and error code that needs attention.
-
-Iteration and loop nodes own child canvases. Adding either container creates its required internal start node and one example task, then writes the start node identifier into the container configuration. The new container therefore has a complete scope from the moment it appears. You can replace the example task or add more nodes and edges inside that same scope.
-
-## Continue with the CLI and a host
-
-The DSL tab shows the complete JSON document generated from the canvas, including node identities, positions, configuration, port connections, and parent scopes. Copy it and run `a3s-flow validate` to check the document version and structure. Run `a3s-flow compile` to inspect the deterministic plan. The browser Playground does not call external tools, read credentials, or start workers. A host still supplies node implementations, authorization, credentials, and idempotency policy, while the A3S Flow engine and workers perform production execution.

@@ -1,10 +1,8 @@
 import {
-  BracketsCurly,
   CheckCircle,
   Clipboard,
-  Selection,
-  SlidersHorizontal,
   WarningCircle,
+  X,
 } from '@phosphor-icons/react';
 import {
   a3sFlowDagNodeRegistry,
@@ -33,11 +31,13 @@ type WorkflowPlaygroundInspectorProps = {
   locale: FlowWebsiteLocale;
   nodes: readonly PlaygroundNode[];
   onApply: () => void;
+  onClose: () => void;
   onCopyDocument: () => void;
   onNodeChange: (node: A3SFlowWorkflowDagNode) => void;
   onRequestConnection: (valuePath: string) => void;
-  onTabChange: (tab: InspectorTab) => void;
+  onRunNode: (nodeId: string) => void;
   selectedNode?: PlaygroundNode;
+  lastRunNodeIds: ReadonlySet<string>;
 };
 
 function nodeLabel(
@@ -55,6 +55,30 @@ function nodeLabel(
   return `${typeof title === 'string' && title.trim() ? title : manifest.display_name} · ${nodeId}`;
 }
 
+function PanelHeader({
+  title,
+  copy,
+  onClose,
+}: {
+  title: string;
+  copy: WorkflowPlaygroundCopy;
+  onClose: () => void;
+}) {
+  return (
+    <header className="flow-playground-side-panel__header">
+      <h2>{title}</h2>
+      <button
+        aria-label={copy.close}
+        onClick={onClose}
+        title={copy.close}
+        type="button"
+      >
+        <X aria-hidden="true" />
+      </button>
+    </header>
+  );
+}
+
 function ValidationPanel({
   compilation,
   configurationIssues,
@@ -67,7 +91,7 @@ function ValidationPanel({
 >) {
   const valid = compilation.ok && configurationIssues.length === 0;
   return (
-    <div className="flow-playground-validation" role="tabpanel">
+    <div className="flow-playground-validation">
       <header className={valid ? 'is-valid' : 'is-invalid'}>
         {valid ? (
           <CheckCircle aria-hidden="true" size={23} weight="fill" />
@@ -158,94 +182,80 @@ export function WorkflowPlaygroundInspector({
   locale,
   nodes,
   onApply,
+  onClose,
   onCopyDocument,
   onNodeChange,
   onRequestConnection,
-  onTabChange,
+  onRunNode,
   selectedNode,
+  lastRunNodeIds,
 }: WorkflowPlaygroundInspectorProps) {
+  if (activeTab === 'settings' && !selectedNode) return null;
+
   const connectedOutputPortIds = selectedNode
     ? edges
         .filter(({ source }) => source === selectedNode.id)
         .flatMap(({ sourceHandle }) => (sourceHandle ? [sourceHandle] : []))
     : [];
-  const tabs: ReadonlyArray<{
-    id: InspectorTab;
-    label: string;
-    icon: typeof SlidersHorizontal;
-  }> = [
-    { id: 'settings', label: copy.settings, icon: SlidersHorizontal },
-    { id: 'validation', label: copy.validation, icon: CheckCircle },
-    { id: 'document', label: copy.document, icon: BracketsCurly },
-  ];
 
   return (
-    <aside className="flow-playground-inspector" aria-label={copy.settings}>
-      <div className="flow-playground-inspector__tabs" role="tablist">
-        {tabs.map(({ id, label, icon: Icon }) => (
-          <button
-            aria-selected={activeTab === id}
-            key={id}
-            onClick={() => onTabChange(id)}
-            role="tab"
-            type="button"
-          >
-            <Icon aria-hidden="true" size={15} />
-            {label}
-          </button>
-        ))}
-      </div>
-
-      <div className="flow-playground-inspector__body">
-        {activeTab === 'settings' &&
-          (selectedNode ? (
-            <div
-              className="flow-playground-inspector__configuration"
-              role="tabpanel"
-            >
-              <div className="flow-playground-inspector__selection-meta">
-                <span>{selectedNode.id}</span>
-                <small>
-                  {copy.connectedOutputs(connectedOutputPortIds.length)}
-                </small>
+    <aside
+      aria-label={
+        activeTab === 'settings'
+          ? copy.settings
+          : activeTab === 'validation'
+            ? copy.validation
+            : copy.document
+      }
+      className="a3s-node-inspector flow-playground-side-panel"
+      data-testid="node-inspector"
+    >
+      {activeTab === 'settings' && selectedNode && (
+        <A3SFlowDagNodeConfigurationPanel
+          connectedOutputPortIds={connectedOutputPortIds}
+          dagNode={selectedNode.data.dagNode}
+          lastRun={
+            lastRunNodeIds.has(selectedNode.id) ? (
+              <div className="flow-playground-last-run">
+                <CheckCircle aria-hidden="true" weight="fill" />
+                <strong>{copy.runComplete}</strong>
+                <p>{copy.localRun}</p>
               </div>
-              <A3SFlowDagNodeConfigurationPanel
-                connectedOutputPortIds={connectedOutputPortIds}
-                dagNode={selectedNode.data.dagNode}
-                locale={locale}
-                onApply={onApply}
-                onChange={onNodeChange}
-                onRequestConnection={({ valuePath }) =>
-                  onRequestConnection(valuePath ?? 'value')
-                }
-                onReset={onNodeChange}
-              />
-              <p className="flow-playground-inspector__runtime-note">
-                {copy.browserOnly}
-              </p>
-            </div>
-          ) : (
-            <div className="flow-playground-inspector__empty" role="tabpanel">
-              <Selection aria-hidden="true" size={28} weight="duotone" />
-              <strong>{copy.noSelection}</strong>
-              <p>{copy.noSelectionDetail}</p>
-            </div>
-          ))}
+            ) : undefined
+          }
+          locale={locale}
+          onApply={onApply}
+          onChange={onNodeChange}
+          onClose={onClose}
+          onRequestConnection={({ valuePath }) =>
+            onRequestConnection(valuePath ?? 'value')
+          }
+          onReset={onNodeChange}
+          onRun={() => onRunNode(selectedNode.id)}
+        />
+      )}
 
-        {activeTab === 'validation' && (
-          <ValidationPanel
-            compilation={compilation}
-            configurationIssues={configurationIssues}
-            copy={copy}
-            locale={locale}
-            nodes={nodes}
-          />
-        )}
+      {activeTab === 'validation' && (
+        <>
+          <PanelHeader copy={copy} onClose={onClose} title={copy.validation} />
+          <div className="flow-playground-side-panel__scroll">
+            <ValidationPanel
+              compilation={compilation}
+              configurationIssues={configurationIssues}
+              copy={copy}
+              locale={locale}
+              nodes={nodes}
+            />
+          </div>
+        </>
+      )}
 
-        {activeTab === 'document' && (
-          <div className="flow-playground-document" role="tabpanel">
+      {activeTab === 'document' && (
+        <>
+          <PanelHeader copy={copy} onClose={onClose} title={copy.document} />
+          <div className="flow-playground-document">
             <header>
-              <span>{copy.document}</span>
+              <span>{copy.documentPreview}</span>
               <button onClick={onCopyDocument} type="button">
                 <Clipboard aria-hidden="true" size={14} />
                 {copy.copyDocument}
@@ -255,8 +265,8 @@ export function WorkflowPlaygroundInspector({
               <code>{documentJson}</code>
             </pre>
           </div>
-        )}
-      </div>
+        </>
+      )}
     </aside>
   );
 }

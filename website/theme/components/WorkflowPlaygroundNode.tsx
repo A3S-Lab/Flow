@@ -6,7 +6,8 @@ import {
   type A3SFlowDagPortDefinition,
 } from '@a3s-lab/flow-ui';
 import { A3SFlowDagNodePreview } from '@a3s-lab/flow-ui/react';
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Copy, Play, Trash } from '@phosphor-icons/react';
+import { Handle, NodeToolbar, Position, type NodeProps } from '@xyflow/react';
 import { workflowPlaygroundCopy } from './WorkflowPlayground.copy';
 import type { PlaygroundNode } from './WorkflowPlayground.model';
 
@@ -40,13 +41,53 @@ export function WorkflowPlaygroundNode({
 
   return (
     <div
-      className={`flow-playground-node${data.container ? ' is-container' : ''}${data.internal ? ' is-internal' : ''}${selected ? ' is-selected' : ''}`}
+      className={`a3s-workflow-node-shell flow-playground-node${data.container ? ' is-container' : ''}${data.internal ? ' is-internal' : ''}${selected ? ' is-selected' : ''}`}
       data-flow-node-type={manifest.type}
     >
+      <NodeToolbar
+        className="a3s-node-toolbar"
+        isVisible={selected}
+        position={Position.Top}
+      >
+        <button
+          aria-label={text.runStep}
+          onClick={(event) => {
+            event.stopPropagation();
+            data.onRun?.(data.dagNode.id);
+          }}
+          title={text.runStep}
+          type="button"
+        >
+          <Play aria-hidden="true" weight="fill" />
+        </button>
+        <button
+          aria-label={text.duplicate}
+          onClick={(event) => {
+            event.stopPropagation();
+            data.onDuplicate?.(data.dagNode.id);
+          }}
+          title={text.duplicate}
+          type="button"
+        >
+          <Copy aria-hidden="true" />
+        </button>
+        <button
+          aria-label={text.delete}
+          onClick={(event) => {
+            event.stopPropagation();
+            data.onDelete?.(data.dagNode.id);
+          }}
+          title={text.delete}
+          type="button"
+        >
+          <Trash aria-hidden="true" />
+        </button>
+      </NodeToolbar>
+
       {localized.ports.inputs.map((port, index) => (
         <Handle
           aria-label={text.targetHandle(port.label)}
-          className={portClassName(port)}
+          className={`${portClassName(port)} a3s-node-handle`}
           id={port.id}
           isConnectable={isConnectable}
           key={port.id}
@@ -68,6 +109,7 @@ export function WorkflowPlaygroundNode({
         locale={data.locale}
         manifest={manifest}
         selected={selected}
+        status={data.runtimeStatus ?? 'idle'}
       />
 
       {data.container && (
@@ -85,7 +127,7 @@ export function WorkflowPlaygroundNode({
       {outputs.map((port, index) => (
         <Handle
           aria-label={text.sourceHandle(port.label)}
-          className={portClassName(port)}
+          className={`${portClassName(port)} a3s-node-handle`}
           id={port.id}
           isConnectable={isConnectable}
           key={port.id}
