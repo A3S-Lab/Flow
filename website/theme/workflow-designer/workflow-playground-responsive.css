@@ -225,8 +225,7 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .a3s-workflow-canvas .react-flow__minimap,
-  .a3s-workflow-hint {
+  .a3s-workflow-canvas .react-flow__minimap {
     display: none;
   }
 

@@ -483,17 +483,6 @@
   stroke: var(--workflow-topology-strong);
 }
 
-.a3s-workflow-hint {
-  position: absolute;
-  z-index: 5;
-  right: 216px;
-  bottom: 15px;
-  margin: 0;
-  color: var(--workflow-faint);
-  font-size: 10px;
-  pointer-events: none;
-}
-
 .a3s-workflow-rail {
   position: absolute;
   z-index: 30;

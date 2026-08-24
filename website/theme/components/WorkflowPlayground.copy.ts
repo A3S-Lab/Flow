@@ -57,7 +57,6 @@ export type WorkflowPlaygroundCopy = {
   searchNodes: string;
   noNodes: string;
   canvasLabel: string;
-  keyboardHint: string;
   dropHelp: string;
   fitView: string;
   minimap: string;
@@ -110,6 +109,9 @@ export type WorkflowPlaygroundCopy = {
   runHistory: string;
   cachedVariables: string;
   documentPreview: string;
+  readOnly: string;
+  lineCount: (count: number) => string;
+  characterCount: (count: number) => string;
 };
 
 export const workflowPlaygroundCopy: Readonly<
@@ -182,7 +184,6 @@ export const workflowPlaygroundCopy: Readonly<
     searchNodes: '搜索节点名称、说明或类型',
     noNodes: '没有匹配的节点。',
     canvasLabel: '交互式工作流画布',
-    keyboardHint: '拖动节点，滚动平移，Ctrl 或 Cmd + Z 撤销。',
     dropHelp: '松开后把节点放到这里',
     fitView: '适应画布',
     minimap: '工作流缩略图',
@@ -247,6 +248,9 @@ export const workflowPlaygroundCopy: Readonly<
     runHistory: '运行历史',
     cachedVariables: '变量检查',
     documentPreview: '当前 DSL',
+    readOnly: '只读预览',
+    lineCount: (count) => `${count} 行`,
+    characterCount: (count) => `${count} 个字符`,
   },
   en: {
     pageTitle: 'A3S Flow workflow designer',
@@ -316,8 +320,6 @@ export const workflowPlaygroundCopy: Readonly<
     searchNodes: 'Search by node name, description, or type',
     noNodes: 'No nodes match this search.',
     canvasLabel: 'Interactive workflow canvas',
-    keyboardHint:
-      'Drag nodes, scroll to pan, and press Ctrl or Cmd + Z to undo.',
     dropHelp: 'Release to place the node here',
     fitView: 'Fit canvas',
     minimap: 'Workflow minimap',
@@ -388,5 +390,9 @@ export const workflowPlaygroundCopy: Readonly<
     runHistory: 'Run history',
     cachedVariables: 'Variable inspect',
     documentPreview: 'Current DSL',
+    readOnly: 'Read-only preview',
+    lineCount: (count) => `${count} ${count === 1 ? 'line' : 'lines'}`,
+    characterCount: (count) =>
+      `${count} ${count === 1 ? 'character' : 'characters'}`,
   },
 };

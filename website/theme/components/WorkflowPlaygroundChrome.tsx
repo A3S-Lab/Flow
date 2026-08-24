@@ -24,6 +24,7 @@ import {
   TreeStructure,
   WarningCircle,
 } from '@phosphor-icons/react';
+import type { MouseEvent } from 'react';
 import type { WorkflowPlaygroundCopy } from './WorkflowPlayground.copy';
 import {
   PLAYGROUND_EDGE_COLORS,
@@ -33,6 +34,15 @@ import {
 
 export type PlaygroundCanvasMode = 'pan' | 'select' | 'comment';
 export type PlaygroundDebugTab = 'trace' | 'variables' | 'history';
+
+function runMenuAction(
+  event: MouseEvent<HTMLButtonElement>,
+  action: () => void,
+) {
+  const menu = event.currentTarget.closest('details');
+  if (menu instanceof HTMLDetailsElement) menu.open = false;
+  action();
+}
 
 type PlaygroundHeaderProps = {
   copy: WorkflowPlaygroundCopy;
@@ -140,15 +150,26 @@ export function WorkflowPlaygroundHeader({
             <DotsThree aria-hidden="true" weight="bold" />
           </summary>
           <div>
-            <button onClick={onOpenDocument} type="button">
+            <button
+              onClick={(event) => runMenuAction(event, onOpenDocument)}
+              type="button"
+            >
               <FileCode aria-hidden="true" />
               <span>{copy.openDocument}</span>
             </button>
-            <button disabled={running} onClick={onReset} type="button">
+            <button
+              disabled={running}
+              onClick={(event) => runMenuAction(event, onReset)}
+              type="button"
+            >
               <ArrowCounterClockwise aria-hidden="true" />
               <span>{copy.reset}</span>
             </button>
-            <button disabled={running} onClick={onExport} type="button">
+            <button
+              disabled={running}
+              onClick={(event) => runMenuAction(event, onExport)}
+              type="button"
+            >
               <DownloadSimple aria-hidden="true" />
               <span>{copy.exportGraph}</span>
             </button>
@@ -277,27 +298,17 @@ export function WorkflowPlaygroundRail({
           <DotsThree aria-hidden="true" weight="bold" />
         </summary>
         <div className="a3s-workflow-rail__popover">
-          <button onClick={onFitView} type="button">
+          <button
+            onClick={(event) => runMenuAction(event, onFitView)}
+            type="button"
+          >
             <ArrowsOutSimple aria-hidden="true" />
             <span>{copy.fitView}</span>
           </button>
-          <button disabled={running} onClick={onAddNote} type="button">
-            <NotePencil aria-hidden="true" />
-            <span>{copy.addNote}</span>
-          </button>
           <button
-            disabled={running}
-            onClick={() => onModeChange('comment')}
+            onClick={(event) => runMenuAction(event, onMinimapToggle)}
             type="button"
           >
-            <ChatCircleDots aria-hidden="true" />
-            <span>{copy.addComment}</span>
-          </button>
-          <button disabled={running} onClick={onArrange} type="button">
-            <TreeStructure aria-hidden="true" />
-            <span>{copy.arrangeNodes}</span>
-          </button>
-          <button onClick={onMinimapToggle} type="button">
             {minimapVisible ? (
               <EyeSlash aria-hidden="true" />
             ) : (
@@ -305,7 +316,10 @@ export function WorkflowPlaygroundRail({
             )}
             <span>{minimapVisible ? copy.hideMinimap : copy.showMinimap}</span>
           </button>
-          <button onClick={onOpenVariables} type="button">
+          <button
+            onClick={(event) => runMenuAction(event, onOpenVariables)}
+            type="button"
+          >
             <Database aria-hidden="true" />
             <span>{copy.variables}</span>
           </button>
@@ -320,7 +334,9 @@ export function WorkflowPlaygroundRail({
                   aria-pressed={edgeColor === color}
                   className={edgeColor === color ? 'is-active' : undefined}
                   key={color}
-                  onClick={() => onEdgeColorChange(color)}
+                  onClick={(event) =>
+                    runMenuAction(event, () => onEdgeColorChange(color))
+                  }
                   title={copy.edgeColorNames[color]}
                   type="button"
                 >
