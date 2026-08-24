@@ -54,6 +54,11 @@ export type WorkflowPlaygroundCopy = {
   close: string;
   nodeLibrary: string;
   nodeLibraryDescription: string;
+  builtInNodes: string;
+  customNodes: string;
+  capabilityReady: string;
+  capabilityHandler: string;
+  noCustomNodes: string;
   searchNodes: string;
   noNodes: string;
   canvasLabel: string;
@@ -180,7 +185,12 @@ export const workflowPlaygroundCopy: Readonly<
     trace: '运行轨迹',
     close: '关闭',
     nodeLibrary: '节点库',
-    nodeLibraryDescription: '18 个节点都来自当前版本的 Flow 节点清单。',
+    nodeLibraryDescription: '从内置清单或已授权的自定义节点中选择。',
+    builtInNodes: '内置节点',
+    customNodes: '自定义节点',
+    capabilityReady: '能力已绑定',
+    capabilityHandler: '处理器',
+    noCustomNodes: '当前没有已注册的自定义节点。',
     searchNodes: '搜索节点名称、说明或类型',
     noNodes: '没有匹配的节点。',
     canvasLabel: '交互式工作流画布',
@@ -316,7 +326,12 @@ export const workflowPlaygroundCopy: Readonly<
     close: 'Close',
     nodeLibrary: 'Node library',
     nodeLibraryDescription:
-      'All 18 nodes come from the current Flow manifest registry.',
+      'Choose from the built-in catalog or authorized custom nodes.',
+    builtInNodes: 'Built-in nodes',
+    customNodes: 'Custom nodes',
+    capabilityReady: 'Capability bound',
+    capabilityHandler: 'Handler',
+    noCustomNodes: 'No custom nodes are registered.',
     searchNodes: 'Search by node name, description, or type',
     noNodes: 'No nodes match this search.',
     canvasLabel: 'Interactive workflow canvas',

@@ -78,3 +78,5 @@ When a type picker changes, create a new editor instance or key the component by
 Store canvas state as complete `A3SFlowWorkflowDagNode` objects. Dragging changes only `position`. Configuration submits through `setNode` or `setConfiguration`. Before creating an edge, read IDs, control or data kind, and accepted value types from `manifest.value.ports`; do not maintain a second Vue-only port catalog.
 
 Iteration and loop nodes own child-canvas scopes. Creating one also requires its matching internal start node, and every nested node receives `parentId`. Edge endpoints must stay in the same scope. Run `a3s-flow validate workflow.json` before publication to verify parents, internal entries, cross-scope edges, and manifest fields.
+
+Custom nodes use the same `registry` input as built-in nodes. Build the catalog and require its executor bindings as described in the [custom node guide](./custom-nodes).

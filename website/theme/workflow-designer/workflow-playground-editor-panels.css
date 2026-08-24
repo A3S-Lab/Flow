@@ -115,6 +115,31 @@
   cursor: pointer;
 }
 
+.a3s-node-library__tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.a3s-node-library__tabs button > span {
+  display: inline-flex;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--workflow-surface-muted);
+  align-items: center;
+  justify-content: center;
+  color: var(--workflow-faint);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.a3s-node-library__tabs button.is-active > span {
+  background: var(--workflow-blue-soft);
+  color: var(--workflow-blue-dark);
+}
+
 .a3s-node-library__tabs button::after,
 .a3s-node-inspector__tabs button::after {
   position: absolute;
@@ -264,6 +289,42 @@
   line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.a3s-node-library__groups section > div > button.is-custom {
+  min-height: 112px;
+}
+
+.a3s-node-library__capability {
+  display: grid;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid var(--workflow-line);
+  gap: 2px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.a3s-node-library__capability > span {
+  color: var(--workflow-green);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.a3s-node-library__capability > code {
+  max-width: 160px;
+  margin: 0;
+  color: var(--workflow-muted);
+  font-size: 10px;
+  text-align: right;
+}
+
+.a3s-node-library__capability > small {
+  display: block;
+  margin: 0;
+  color: var(--workflow-faint);
+  font-size: 10px;
+  grid-column: 1 / -1;
+  -webkit-line-clamp: 1;
 }
 
 .a3s-node-library__empty {

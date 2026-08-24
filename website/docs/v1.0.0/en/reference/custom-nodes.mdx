@@ -1,0 +1,208 @@
+---
+title: Custom nodes
+description: Register host-owned nodes, render their settings with A3S UI, and require exact executor capabilities before publication.
+---
+
+# Custom nodes
+
+A custom node adds a host capability to the workflow editor without changing the built-in catalog. The host owns the manifest, executor, authorization, and release process. Flow UI owns the typed graph contract and the adapter from that manifest to an A3S UI form.
+
+Use a custom node when the operation has a stable business meaning that deserves its own ports and settings. Keep occasional work in `flow.step` with a registered task name. A separate node is useful when authors need a recognizable card, a constrained configuration form, or typed data ports.
+
+## Ownership boundary
+
+| Concern                                                             | Owner                 |
+| ------------------------------------------------------------------- | --------------------- |
+| Form document, compilation, validation, layout, and native controls | A3S UI Form           |
+| Workflow manifest adapter and workflow-specific composite controls  | Flow UI               |
+| Custom node name, fields, ports, and capability declaration         | Host application      |
+| Handler lookup, credentials, permissions, queues, and side effects  | Host runtime          |
+| Final publication decision                                          | Host release pipeline |
+
+The configuration panel uses `FormRenderer` from `@a3s-lab/ui/form/react`. Ordinary text, number, select, switch, slider, password, tags, and textarea fields reach A3S UI through `NativeWidget`. Flow UI supplies composite editors for workflow expressions, schemas, batches, child scopes, prompts, structured JSON, durations, and ordered lists.
+
+## Define one registration
+
+Register the manifest and its executor capability together. This prevents the editor from advertising a node that the release pipeline cannot authorize.
+
+```ts
+import {
+  createA3SFlowDagNodeCatalog,
+  defineA3SFlowCustomDagNode,
+} from '@a3s-lab/flow-ui';
+
+const scoreOrder = defineA3SFlowCustomDagNode({
+  manifest: {
+    type: 'commerce.risk.score',
+    display_name: 'Score order risk',
+    description: 'Score an order with the host risk service.',
+    category: 'custom',
+    categoryLabel: 'Custom nodes',
+    role: 'host',
+    icon: 'shield-check',
+    ports: {
+      inputs: [
+        { id: 'in', label: 'In', kind: 'control', types: ['FlowControl'] },
+        { id: 'order', label: 'Order', kind: 'data', types: ['Json'] },
+      ],
+      outputs: [
+        { id: 'next', label: 'Next', kind: 'control', types: ['FlowControl'] },
+        { id: 'score', label: 'Score', kind: 'data', types: ['Number'] },
+      ],
+    },
+    input_types: ['Json'],
+    output_types: ['Number'],
+    fields: [
+      {
+        name: 'policy',
+        display_name: 'Scoring policy',
+        info: 'Choose a policy already authorized by the host.',
+        type: 'str',
+        _input_type: 'DropdownInput',
+        value: 'balanced-v2',
+        options: [
+          { label: 'Balanced policy v2', value: 'balanced-v2' },
+          { label: 'Strict review', value: 'strict-v1' },
+        ],
+        required: true,
+      },
+      {
+        name: 'review_threshold',
+        display_name: 'Review threshold',
+        info: 'Send scores at or above this value to manual review.',
+        type: 'slider',
+        _input_type: 'SliderInput',
+        value: 0.72,
+        range_spec: { min: 0, max: 1, step: 0.01 },
+        required: true,
+      },
+      {
+        name: 'strict_validation',
+        display_name: 'Strict validation',
+        info: 'Stop when required order fields are missing.',
+        type: 'bool',
+        _input_type: 'BoolInput',
+        value: true,
+      },
+    ],
+    outputs: [
+      {
+        name: 'score',
+        display_name: 'Score',
+        types: ['Number'],
+        group_outputs: false,
+        allows_loop: false,
+        tool_mode: false,
+      },
+    ],
+  },
+  capability: {
+    id: 'commerce/risk-score',
+    version: '1.2.3',
+    handler: 'risk.score-order',
+  },
+});
+
+export const flowCatalog = createA3SFlowDagNodeCatalog([scoreOrder]);
+```
+
+The type needs at least three lowercase namespace segments. `flow.*`, `iteration`, `loop`, and their internal start types are reserved. A custom manifest must be public, use the `host` role, and cannot claim a Flow runtime command or container binding.
+
+The capability ID must be namespaced. Its version is one exact semantic version, not a range. The handler is the stable key that the host runtime maps to executable code. Registration validates all three values and rejects collisions with built-in or previously registered types.
+
+`createA3SFlowDagNodeCatalog` returns a new immutable registry. It never changes `a3sFlowDagNodeRegistry`, so tests and editors can create isolated catalogs without leaking state into another application.
+
+## Field controls
+
+Choose the simplest field type that describes the value. The manifest remains the source of truth for defaults, required values, enum choices, ranges, groups, and conditional visibility.
+
+| Manifest input           | Rendered control        | Notes                                         |
+| ------------------------ | ----------------------- | --------------------------------------------- |
+| `StrInput`               | A3S UI text input       | Add `multiline` only for longer prose         |
+| `DropdownInput`          | A3S UI select           | Put stable machine values in `options`        |
+| `IntInput`, `FloatInput` | A3S UI number input     | Use `range_spec` for bounds and step          |
+| `BoolInput`              | A3S UI switch           | Use a direct action label                     |
+| `SliderInput`            | A3S UI slider           | Give the user a meaningful min, max, and step |
+| `MultilineInput`         | A3S UI textarea         | Suitable for notes, not structured data       |
+| `JSONInput`              | Structured JSON editor  | The field schema remains an object            |
+| `DurationInput`          | Amount and unit control | Store `{ value, unit }` as the default        |
+| `PromptInput`            | Prompt editor           | Supports workflow variable insertion          |
+| `SortableListInput`      | Ordered list editor     | Use stable option values                      |
+| `A3SFlowExpressionInput` | Flow expression editor  | Use for replay-safe references and operators  |
+| `A3SFlowSchemaInput`     | Flow schema editor      | Use for workflow input and output contracts   |
+
+`validateA3SFlowDagNodeConfiguration` first compiles the generated A3S UI form and validates the value against its plan. Built-in nodes then receive their additional Flow semantic checks. Custom nodes receive the same form compiler and value validation without pretending that Flow knows the host service's business rules.
+
+## Use the catalog in an editor
+
+Pass the same registry to node creation, hooks, canvas cards, configuration panels, connection validation, and serialization. Mixing the built-in singleton with a custom catalog produces an editor where a node may appear in one surface and fail in another.
+
+```tsx
+import {
+  A3SFlowDagNodeConfigurationPanel,
+  A3SFlowDagNodePreview,
+  useA3SFlowNode,
+} from '@a3s-lab/flow-ui/react';
+import { flowCatalog } from './flow-catalog';
+
+export function RiskNodeEditor() {
+  const state = useA3SFlowNode({
+    id: 'score-order',
+    type: 'commerce.risk.score',
+    registry: flowCatalog.registry,
+  });
+
+  return (
+    <>
+      <A3SFlowDagNodePreview
+        dagNode={state.node}
+        registry={flowCatalog.registry}
+      />
+      <A3SFlowDagNodeConfigurationPanel
+        dagNode={state.node}
+        onChange={state.setNode}
+        registry={flowCatalog.registry}
+      />
+    </>
+  );
+}
+```
+
+The Vue `useA3SFlowNode` composable accepts the same `registry` option. A ref or getter can provide it when the host changes catalogs between projects.
+
+## Require capability binding at publication
+
+Structural compilation deliberately treats `data.type` as opaque. Publication adds host policy and must use the catalog.
+
+```ts
+import { compileA3SFlowWorkflowDagForPublication } from '@a3s-lab/flow-ui';
+import { flowCatalog } from './flow-catalog';
+
+const result = compileA3SFlowWorkflowDagForPublication(
+  document.workflow.graph,
+  flowCatalog.registry,
+  flowCatalog.capabilities,
+);
+
+if (!result.ok) {
+  throw new Error(JSON.stringify(result.issues));
+}
+```
+
+The publication gate rejects unregistered types, top-level internal nodes, missing capability bindings, mismatched node types, malformed capability IDs, version ranges, and empty handlers. It proves that the document points at an admitted handler identity. The host still decides whether that handler is installed, permitted for the project, and allowed to use its credentials.
+
+## CLI and Skill boundary
+
+The packaged `a3s-flow` CLI contains the official built-in catalog and does not load application code. It will report a custom type as unknown. A project that publishes custom nodes should add a small typed validation command that imports its catalog and calls `compileA3SFlowWorkflowDagForPublication`.
+
+The packaged A3S Flow Skill follows the same rule. It may query and edit built-in nodes through the CLI. Give an agent access to a custom node only through project documentation that names the catalog module, supported types, capability owner, and project validation command. This keeps the agent from inventing a handler or bypassing release authorization.
+
+## Common failures
+
+| Error                        | Repair                                                                                 |
+| ---------------------------- | -------------------------------------------------------------------------------------- |
+| `node_type_unregistered`     | Import the project catalog and pass its registry everywhere                            |
+| `capability_binding_missing` | Register the node and capability as one `defineA3SFlowCustomDagNode` value             |
+| `capability_binding_invalid` | Use the exact node type, namespaced capability ID, exact version, and nonempty handler |
+| `manifest_form_invalid`      | Correct the manifest field type, default, options, or widget contract                  |
+| Form value error             | Repair the named field and preserve the rest of the node data                          |

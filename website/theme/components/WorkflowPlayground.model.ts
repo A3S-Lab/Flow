@@ -2,12 +2,15 @@ import {
   A3S_FLOW_TESTED_WORKFLOW_DSL_VERSION,
   a3sFlowDagNodeRegistry,
   compileA3SFlowWorkflowDag,
+  compileA3SFlowWorkflowDagForPublication,
   createA3SFlowDagNode,
   getA3SFlowCoreNode,
   isA3SFlowCorePortAvailable,
   localizeA3SFlowDagManifest,
   selectA3SFlowDagNodeConfiguration,
-  validateA3SFlowNodeConfiguration,
+  validateA3SFlowDagNodeConfiguration,
+  type A3SFlowDagNodeCatalog,
+  type A3SFlowDagNodeRegistry,
   type A3SFlowWorkflowDag,
   type A3SFlowWorkflowDagEdge,
   type A3SFlowWorkflowDagNode,
@@ -139,10 +142,12 @@ export function createPlaygroundNode(
   options: {
     configuration?: Parameters<typeof createA3SFlowDagNode>[2];
     parentId?: string;
+    registry?: A3SFlowDagNodeRegistry;
     selected?: boolean;
   } = {},
 ): PlaygroundNode {
-  const manifest = a3sFlowDagNodeRegistry.require(type);
+  const registry = options.registry ?? a3sFlowDagNodeRegistry;
+  const manifest = registry.require(type);
   const localized = localizeA3SFlowDagManifest(manifest, locale);
   const configuration = {
     title: localized.display_name,
@@ -194,11 +199,13 @@ export function createPlaygroundEdge(
   connection: CompleteConnection,
   nodes: readonly PlaygroundNode[],
   locale: FlowWebsiteLocale,
+  registry: A3SFlowDagNodeRegistry = a3sFlowDagNodeRegistry,
 ): PlaygroundEdge {
   const sourcePortLabel = resolvePlaygroundEdgeSourceLabel(
     connection,
     nodes,
     locale,
+    registry,
   );
 
   return {
@@ -235,11 +242,12 @@ export function resolvePlaygroundEdgeSourceLabel(
   connection: Pick<PlaygroundEdge, 'source' | 'sourceHandle'>,
   nodes: readonly PlaygroundNode[],
   locale: FlowWebsiteLocale,
+  registry: A3SFlowDagNodeRegistry = a3sFlowDagNodeRegistry,
 ): string | undefined {
   const sourceNode = nodes.find(({ id }) => id === connection.source);
   const sourceManifest = sourceNode
     ? localizeA3SFlowDagManifest(
-        a3sFlowDagNodeRegistry.require(sourceNode.data.dagNode.data.type),
+        registry.require(sourceNode.data.dagNode.data.type),
         locale,
       )
     : undefined;
@@ -284,14 +292,16 @@ export function createNodeAddition(
   locale: FlowWebsiteLocale,
   existingNodes: readonly PlaygroundNode[],
   parentId?: string,
+  registry: A3SFlowDagNodeRegistry = a3sFlowDagNodeRegistry,
 ): PlaygroundGraphState {
-  const manifest = a3sFlowDagNodeRegistry.require(type);
+  const manifest = registry.require(type);
   const nodeId = nextNodeId(type, existingNodes);
   if (!manifest.container) {
     return {
       nodes: [
         createPlaygroundNode(nodeId, type, position, locale, {
           parentId,
+          registry,
           selected: true,
         }),
       ],
@@ -306,6 +316,7 @@ export function createNodeAddition(
   const container = createPlaygroundNode(nodeId, type, position, locale, {
     configuration: { start_node_id: startId },
     parentId,
+    registry,
     selected: true,
   });
   const start = createPlaygroundNode(
@@ -315,6 +326,7 @@ export function createNodeAddition(
     locale,
     {
       parentId: nodeId,
+      registry,
     },
   );
   const task = createPlaygroundNode(
@@ -322,7 +334,7 @@ export function createNodeAddition(
     'flow.step',
     { x: 324, y: 150 },
     locale,
-    { parentId: nodeId },
+    { parentId: nodeId, registry },
   );
   const nodes = [container, start, task];
   const edges = [
@@ -335,6 +347,7 @@ export function createNodeAddition(
       },
       nodes,
       locale,
+      registry,
     ),
   ];
   return { nodes, edges, annotations: [] };
@@ -377,6 +390,7 @@ export function validatePlaygroundConnection(
   connection: ConnectionCandidate,
   nodes: readonly PlaygroundNode[],
   edges: readonly PlaygroundEdge[],
+  registry: A3SFlowDagNodeRegistry = a3sFlowDagNodeRegistry,
 ): ConnectionValidation {
   if (!connection.source || !connection.target) {
     return { ok: false, reason: 'missing_endpoint' };
@@ -395,12 +409,8 @@ export function validatePlaygroundConnection(
     return { ok: false, reason: 'cross_scope' };
   }
 
-  const sourceManifest = a3sFlowDagNodeRegistry.require(
-    source.data.dagNode.data.type,
-  );
-  const targetManifest = a3sFlowDagNodeRegistry.require(
-    target.data.dagNode.data.type,
-  );
+  const sourceManifest = registry.require(source.data.dagNode.data.type);
+  const targetManifest = registry.require(target.data.dagNode.data.type);
   const sourcePort = sourceManifest.ports.outputs.find(
     ({ id }) => id === connection.sourceHandle,
   );
@@ -493,19 +503,26 @@ export function buildPlaygroundDocument(
 export function compilePlaygroundGraph(
   nodes: readonly PlaygroundNode[],
   edges: readonly PlaygroundEdge[],
+  catalog?: Pick<A3SFlowDagNodeCatalog, 'registry' | 'capabilities'>,
 ) {
-  return compileA3SFlowWorkflowDag(buildPlaygroundGraph(nodes, edges));
+  const graph = buildPlaygroundGraph(nodes, edges);
+  return catalog
+    ? compileA3SFlowWorkflowDagForPublication(
+        graph,
+        catalog.registry,
+        catalog.capabilities,
+      )
+    : compileA3SFlowWorkflowDag(graph);
 }
 
 export function validatePlaygroundConfigurations(
   nodes: readonly PlaygroundNode[],
   edges: readonly PlaygroundEdge[],
+  registry: A3SFlowDagNodeRegistry = a3sFlowDagNodeRegistry,
 ): PlaygroundConfigurationIssue[] {
   return nodes.flatMap((node) => {
     const nodeType = node.data.dagNode.data.type;
-    const definition = getA3SFlowCoreNode(nodeType);
-    if (!definition) return [];
-    const manifest = a3sFlowDagNodeRegistry.require(nodeType);
+    const manifest = registry.require(nodeType);
     const value = selectA3SFlowDagNodeConfiguration(
       node.data.dagNode,
       manifest,
@@ -513,7 +530,7 @@ export function validatePlaygroundConfigurations(
     const connectedOutputPortIds = edges
       .filter(({ source }) => source === node.id)
       .flatMap(({ sourceHandle }) => (sourceHandle ? [sourceHandle] : []));
-    const result = validateA3SFlowNodeConfiguration(definition, value, {
+    const result = validateA3SFlowDagNodeConfiguration(manifest, value, {
       connectedOutputPortIds,
     });
     return result.errors.map((error) => ({

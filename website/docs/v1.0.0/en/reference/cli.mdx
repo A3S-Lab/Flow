@@ -84,6 +84,10 @@ git show HEAD:workflows/order-review.json |
 
 In CI, validate first and retain the compiled plan and digest as build artifacts when review requires them. Rejected output contains `code`, `path`, and `message` for every issue. Repair the field or edge named by the path instead of deleting unknown extension fields. For imported workflows, separately review task names, runtime entry points, public callbacks, and host bindings because the CLI does not make authorization or credential decisions.
 
+## Custom node boundary
+
+The CLI ships with the official built-in registry and does not load host application modules. A workflow containing a custom type will fail CLI validation with `flow.node.unknown_type`. Keep that rejection in place. Projects with custom nodes should provide a typed release command that imports the project catalog and calls `compileA3SFlowWorkflowDagForPublication`. See [Custom nodes](./custom-nodes) for the registration and publication contract.
+
 ## Diagnosing failures
 
 `unknown_node` means the installed package does not expose the requested public type, so inspect `nodes` before changing the document. `flow.node.internal_scope_required` means an internal start marker has escaped its matching container. Graph errors usually point to an incorrect handle, a cross-scope edge, or a back edge. Field errors identify the exact node data path under `workflow.graph.nodes`.

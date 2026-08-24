@@ -42,3 +42,4 @@ All commands emit JSON. Exit code `0` means success, `1` means the workflow or n
 - Do not invent node fields, runtime bindings, port handles, DSL versions, or digests. Query the installed CLI because its manifest catalog is versioned with the package.
 - Treat presentation fields such as position, dimensions, title, description, and selection as editor state. Semantic digests intentionally ignore them.
 - Preserve unknown semantic extensions when editing an imported workflow unless the user explicitly asks to remove them.
+- Treat the CLI catalog as built-in only. For a project-owned custom node, require the project's catalog module and typed publication command; never invent a manifest, capability, or handler to bypass `unknown_node`.

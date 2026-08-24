@@ -38,13 +38,13 @@ silently accepting a different decision. The same repository also maintains
 the reusable authoring package, React and Vue hooks, CLI, and coding-agent Skill
 that operate on Flow's versioned workflow document contract.
 
-| When this happens | Flow keeps this durable |
-| --- | --- |
-| A process dies after a step completes | The committed output is replayed; completed work is not invoked again |
-| A retry, timer, signal, or callback is not ready | The run suspends without retaining an in-memory stack or worker |
-| A parent starts one or many child workflows | Child identities, policies, and terminal outcomes survive either cross-stream crash window |
-| New workflow code rolls out | Runtime build IDs and immutable patch markers keep histories on compatible replay paths |
-| Multiple workers append concurrently | Expected-sequence writes select one durable winner and reject stale decisions |
+| When this happens                                | Flow keeps this durable                                                                    |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| A process dies after a step completes            | The committed output is replayed; completed work is not invoked again                      |
+| A retry, timer, signal, or callback is not ready | The run suspends without retaining an in-memory stack or worker                            |
+| A parent starts one or many child workflows      | Child identities, policies, and terminal outcomes survive either cross-stream crash window |
+| New workflow code rolls out                      | Runtime build IDs and immutable patch markers keep histories on compatible replay paths    |
+| Multiple workers append concurrently             | Expected-sequence writes select one durable winner and reject stale decisions              |
 
 > [!IMPORTANT]
 > Flow owns workflow graph validation, append-only history, durable replay, and
@@ -59,18 +59,20 @@ that operate on Flow's versioned workflow document contract.
 keeps the node catalog, editor components, framework hooks, command-line tools,
 and agent instructions on the same manifest and graph contracts.
 
-| Surface | Current contract |
-| --- | --- |
-| Playground | Integrated visual authoring route with a 35-node cross-border order fulfillment sample covering all 20 registry manifests, drag and drop, typed connections, A3S UI configuration forms, DAG compilation, and DSL inspection |
-| Node catalog | 18 public manifests in six authoring groups, with fields, defaults, ports, runtime bindings, and durable node identity |
-| React | Node preview and configuration components plus `useA3SFlowNode` for controlled-ready node state |
-| Vue | A `useA3SFlowNode` composable over the same node object, defaults, and manifest registry |
-| CLI | `a3s-flow nodes`, `node`, `new`, `sample`, `validate`, `compile`, and `digest`, all with JSON output |
-| Skill | An installable `a3s-flow` Skill that queries the CLI before creating, connecting, validating, or reviewing a workflow |
+| Surface      | Current contract                                                                                                                                                                                                             |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Playground   | Integrated visual authoring route with a 35-node cross-border order fulfillment sample covering all 20 registry manifests, drag and drop, typed connections, A3S UI configuration forms, DAG compilation, and DSL inspection |
+| Node catalog | 18 public manifests in six authoring groups, with fields, defaults, ports, runtime bindings, and durable node identity                                                                                                       |
+| React        | Node preview and configuration components plus `useA3SFlowNode` for controlled-ready node state                                                                                                                              |
+| Vue          | A `useA3SFlowNode` composable over the same node object, defaults, and manifest registry                                                                                                                                     |
+| Custom nodes | Immutable host catalogs with A3S UI form rendering, exact executor capabilities, and a publication gate                                                                                                                      |
+| CLI          | `a3s-flow nodes`, `node`, `new`, `sample`, `validate`, `compile`, and `digest`, all with JSON output                                                                                                                         |
+| Skill        | An installable `a3s-flow` Skill that queries the CLI before creating, connecting, validating, or reviewing a workflow                                                                                                        |
 
 The [Workflow Playground](https://a3s-lab.github.io/Flow/playground/),
 [React guide](https://a3s-lab.github.io/Flow/reference/react),
 [Vue guide](https://a3s-lab.github.io/Flow/reference/vue),
+[custom node guide](https://a3s-lab.github.io/Flow/reference/custom-nodes),
 [CLI reference](https://a3s-lab.github.io/Flow/reference/cli), and
 [Skill guide](https://a3s-lab.github.io/Flow/reference/agent-skill) document each
 surface. The complete node catalog and configuration reference live under
@@ -191,19 +193,19 @@ idempotency key derived from workflow and step identity.
 The following contracts are implemented on the current `main` branch and backed
 by runnable examples or integration tests.
 
-| Area | Current contract | Evidence |
-| --- | --- | --- |
-| Durable steps | Sequential steps, concurrent step batches, typed input/output helpers, stable IDs, progress, and child-operation references | [`sequential_steps`](examples/sequential_steps.rs), [`batch_steps`](examples/batch_steps.rs) |
-| Retry policy | Immediate retry, fixed delay, and capped exponential backoff with deterministic full jitter; exhaustion can fail or return to workflow fallback logic | [`retry_backoff`](examples/retry_backoff.rs), [`recoverable_step_failure`](examples/recoverable_step_failure.rs) |
-| Suspension | Durable timers, declared named signals, and token-routed hooks/callbacks resume without holding a worker | [`scheduler_worker`](examples/scheduler_worker.rs), [`workflow_signals`](examples/workflow_signals.rs), [`hook_approval`](examples/hook_approval.rs) |
-| Cancellation | Cleanup-aware cancellation enters `Cancelling`, replays stable cleanup steps, and records one typed terminal outcome; force cancellation remains explicit | [`cancellation`](examples/cancellation.rs) |
-| Child workflows | First-class single children and bounded concurrent batches persist every child identity before execution and recover partial cross-stream progress | [`child_workflow`](examples/child_workflow.rs), [`child_workflow_batch`](examples/child_workflow_batch.rs) |
-| Long histories | `continue_as_new` closes one stream and resumes from a fresh linked stream with the exact inherited workflow authority | [`continue_as_new`](examples/continue_as_new.rs) |
-| Safe rollout | Exact runtime-build routing rejects incompatible workers before mutation; immutable patch markers preserve old and new replay branches | [`replay_safe_patch`](examples/replay_safe_patch.rs), [rollout recipe](docs/COOKBOOK.md#replay-safe-workflow-patches) |
-| Persistence | In-memory and JSONL stores are built in; SQLite and PostgreSQL share the `FlowEventStore` contract and canonical A3S ORM migrations | [`local_file_durability`](examples/local_file_durability.rs), [`sqlite_durability`](examples/sqlite_durability.rs), [`postgres_durability`](examples/postgres_durability.rs) |
-| Dispatch | A3S Boot task management is recommended; embedded compatibility queues and `FlowWorker` remain available | [`boot_task_policy`](examples/boot_task_policy.rs), [`task_queue_durability`](examples/task_queue_durability.rs) |
-| Observability | Post-commit observers, fan-out, an A3S Event bridge, and a repair-aware local JSONL audit sink mirror committed events without becoming state authority | [`observer_fanout`](examples/observer_fanout.rs), [`local_audit_log`](examples/local_audit_log.rs) |
-| Native TypeScript | Optional source compilation, artifact identity, dependency-manifest verification, and a versioned JSON invocation protocol; Rust remains the durable authority | [`native_ts_preflight`](examples/native_ts_preflight.rs), [protocol guide](docs/NATIVE_TYPESCRIPT.md) |
+| Area              | Current contract                                                                                                                                               | Evidence                                                                                                                                                                     |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Durable steps     | Sequential steps, concurrent step batches, typed input/output helpers, stable IDs, progress, and child-operation references                                    | [`sequential_steps`](examples/sequential_steps.rs), [`batch_steps`](examples/batch_steps.rs)                                                                                 |
+| Retry policy      | Immediate retry, fixed delay, and capped exponential backoff with deterministic full jitter; exhaustion can fail or return to workflow fallback logic          | [`retry_backoff`](examples/retry_backoff.rs), [`recoverable_step_failure`](examples/recoverable_step_failure.rs)                                                             |
+| Suspension        | Durable timers, declared named signals, and token-routed hooks/callbacks resume without holding a worker                                                       | [`scheduler_worker`](examples/scheduler_worker.rs), [`workflow_signals`](examples/workflow_signals.rs), [`hook_approval`](examples/hook_approval.rs)                         |
+| Cancellation      | Cleanup-aware cancellation enters `Cancelling`, replays stable cleanup steps, and records one typed terminal outcome; force cancellation remains explicit      | [`cancellation`](examples/cancellation.rs)                                                                                                                                   |
+| Child workflows   | First-class single children and bounded concurrent batches persist every child identity before execution and recover partial cross-stream progress             | [`child_workflow`](examples/child_workflow.rs), [`child_workflow_batch`](examples/child_workflow_batch.rs)                                                                   |
+| Long histories    | `continue_as_new` closes one stream and resumes from a fresh linked stream with the exact inherited workflow authority                                         | [`continue_as_new`](examples/continue_as_new.rs)                                                                                                                             |
+| Safe rollout      | Exact runtime-build routing rejects incompatible workers before mutation; immutable patch markers preserve old and new replay branches                         | [`replay_safe_patch`](examples/replay_safe_patch.rs), [rollout recipe](docs/COOKBOOK.md#replay-safe-workflow-patches)                                                        |
+| Persistence       | In-memory and JSONL stores are built in; SQLite and PostgreSQL share the `FlowEventStore` contract and canonical A3S ORM migrations                            | [`local_file_durability`](examples/local_file_durability.rs), [`sqlite_durability`](examples/sqlite_durability.rs), [`postgres_durability`](examples/postgres_durability.rs) |
+| Dispatch          | A3S Boot task management is recommended; embedded compatibility queues and `FlowWorker` remain available                                                       | [`boot_task_policy`](examples/boot_task_policy.rs), [`task_queue_durability`](examples/task_queue_durability.rs)                                                             |
+| Observability     | Post-commit observers, fan-out, an A3S Event bridge, and a repair-aware local JSONL audit sink mirror committed events without becoming state authority        | [`observer_fanout`](examples/observer_fanout.rs), [`local_audit_log`](examples/local_audit_log.rs)                                                                           |
+| Native TypeScript | Optional source compilation, artifact identity, dependency-manifest verification, and a versioned JSON invocation protocol; Rust remains the durable authority | [`native_ts_preflight`](examples/native_ts_preflight.rs), [protocol guide](docs/NATIVE_TYPESCRIPT.md)                                                                        |
 
 ### Bounded retries
 
@@ -296,12 +298,12 @@ produce an execution plan. See the runnable
 
 All stores preserve the same event envelope and replay contract.
 
-| Store | Best fit | Feature |
-| --- | --- | --- |
-| `InMemoryEventStore` | Tests and ephemeral embedded work | Built in |
-| `LocalFileEventStore` | Single-process JSONL durability | Built in |
-| `SqliteEventStore` | Single-node durable applications | `sqlite` |
-| `PostgresEventStore` | Multi-process workers sharing authoritative history | `postgres` |
+| Store                 | Best fit                                            | Feature    |
+| --------------------- | --------------------------------------------------- | ---------- |
+| `InMemoryEventStore`  | Tests and ephemeral embedded work                   | Built in   |
+| `LocalFileEventStore` | Single-process JSONL durability                     | Built in   |
+| `SqliteEventStore`    | Single-node durable applications                    | `sqlite`   |
+| `PostgresEventStore`  | Multi-process workers sharing authoritative history | `postgres` |
 
 SQLite and PostgreSQL use `a3s-orm` for typed access, checksummed migrations,
 transactional appends, active-hook routing, scheduled-wakeup indexes, and
@@ -316,13 +318,13 @@ source of truth.
 
 ### Dispatch and optional features
 
-| Feature | Adds |
-| --- | --- |
+| Feature               | Adds                                             |
+| --------------------- | ------------------------------------------------ |
 | `native-ts` (default) | Native TypeScript compile and invocation adapter |
-| `sqlite` | SQLite event history and retention |
-| `postgres` | PostgreSQL history and compatibility task queue |
-| `boot` | Recommended A3S Boot task-manager integration |
-| `a3s-event` | Post-commit A3S Event sink |
+| `sqlite`              | SQLite event history and retention               |
+| `postgres`            | PostgreSQL history and compatibility task queue  |
+| `boot`                | Recommended A3S Boot task-manager integration    |
+| `a3s-event`           | Post-commit A3S Event sink                       |
 
 `BootFlowTaskManager` owns processor registration, job state, retry/timeout
 policy, stalled-job handling, logical deduplication, startup, and shutdown.
@@ -351,14 +353,14 @@ lifecycle. Read the [compiler and protocol contract](docs/NATIVE_TYPESCRIPT.md).
 
 ## Ownership boundary
 
-| Flow owns | The host owns |
-| --- | --- |
-| Workflow document/graph parsing, structural invariants, deterministic plans, and semantic digests | Node semantics, capability bindings, credentials, and authoring policy |
+| Flow owns                                                                                                              | The host owns                                                                                        |
+| ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Workflow document/graph parsing, structural invariants, deterministic plans, and semantic digests                      | Node semantics, capability bindings, credentials, and authoring policy                               |
 | Reusable node manifests, configuration components, React and Vue hooks, CLI commands, and the workflow-authoring Skill | Product-specific node availability, identity, authorization, publication, and hosted editor behavior |
-| Append-only run history and expected-sequence writes | Product authorization, tenancy, and publication lifecycle |
-| Replay validation and terminal state | Logical idempotency for physical side effects |
-| Step, retry, wait, signal, hook, child-workflow, cancellation, and continuation lifecycles | Which tools and external systems a step may call |
-| Runtime-build admission, patch markers, scheduling, stores, workers, and observer contracts | Deployment policy, compatible-build declarations, and telemetry destinations |
+| Append-only run history and expected-sequence writes                                                                   | Product authorization, tenancy, and publication lifecycle                                            |
+| Replay validation and terminal state                                                                                   | Logical idempotency for physical side effects                                                        |
+| Step, retry, wait, signal, hook, child-workflow, cancellation, and continuation lifecycles                             | Which tools and external systems a step may call                                                     |
+| Runtime-build admission, patch markers, scheduling, stores, workers, and observer contracts                            | Deployment policy, compatible-build declarations, and telemetry destinations                         |
 
 This split keeps Flow reusable as the sole durable orchestration authority
 without turning the SDK into a hosted product control plane.
@@ -367,30 +369,30 @@ without turning the SDK into a hosted product control plane.
 
 Start with one executable path, then move to the concern you need.
 
-| Goal | Example or guide |
-| --- | --- |
-| First durable workflow | [`sequential_steps`](examples/sequential_steps.rs) |
-| Concurrent durable steps | [`batch_steps`](examples/batch_steps.rs) |
-| Fixed/exponential retry and fallback | [`retry_backoff`](examples/retry_backoff.rs), [`recoverable_step_failure`](examples/recoverable_step_failure.rs) |
-| Compensation | [`compensation`](examples/compensation.rs) |
-| Timers, signals, and approval callbacks | [`scheduler_worker`](examples/scheduler_worker.rs), [`workflow_signals`](examples/workflow_signals.rs), [`hook_approval`](examples/hook_approval.rs) |
-| Cleanup-aware cancellation | [`cancellation`](examples/cancellation.rs) |
-| Single and batched child workflows | [`child_workflow`](examples/child_workflow.rs), [`child_workflow_batch`](examples/child_workflow_batch.rs) |
-| Replay-safe code changes | [`replay_safe_patch`](examples/replay_safe_patch.rs) |
-| Local and shared durability | [`local_file_durability`](examples/local_file_durability.rs), [`sqlite_durability`](examples/sqlite_durability.rs), [`postgres_durability`](examples/postgres_durability.rs) |
-| Native TypeScript | [`native_ts_preflight`](examples/native_ts_preflight.rs), [`native_ts_greeting`](examples/native_ts_greeting.rs) |
-| Workflow definition import | [`workflow_dsl_import`](examples/workflow_dsl_import.rs) |
+| Goal                                    | Example or guide                                                                                                                                                             |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| First durable workflow                  | [`sequential_steps`](examples/sequential_steps.rs)                                                                                                                           |
+| Concurrent durable steps                | [`batch_steps`](examples/batch_steps.rs)                                                                                                                                     |
+| Fixed/exponential retry and fallback    | [`retry_backoff`](examples/retry_backoff.rs), [`recoverable_step_failure`](examples/recoverable_step_failure.rs)                                                             |
+| Compensation                            | [`compensation`](examples/compensation.rs)                                                                                                                                   |
+| Timers, signals, and approval callbacks | [`scheduler_worker`](examples/scheduler_worker.rs), [`workflow_signals`](examples/workflow_signals.rs), [`hook_approval`](examples/hook_approval.rs)                         |
+| Cleanup-aware cancellation              | [`cancellation`](examples/cancellation.rs)                                                                                                                                   |
+| Single and batched child workflows      | [`child_workflow`](examples/child_workflow.rs), [`child_workflow_batch`](examples/child_workflow_batch.rs)                                                                   |
+| Replay-safe code changes                | [`replay_safe_patch`](examples/replay_safe_patch.rs)                                                                                                                         |
+| Local and shared durability             | [`local_file_durability`](examples/local_file_durability.rs), [`sqlite_durability`](examples/sqlite_durability.rs), [`postgres_durability`](examples/postgres_durability.rs) |
+| Native TypeScript                       | [`native_ts_preflight`](examples/native_ts_preflight.rs), [`native_ts_greeting`](examples/native_ts_greeting.rs)                                                             |
+| Workflow definition import              | [`workflow_dsl_import`](examples/workflow_dsl_import.rs)                                                                                                                     |
 
-| Reference | What it owns |
-| --- | --- |
+| Reference                                                | What it owns                                                                             |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | [Documentation website](https://a3s-lab.github.io/Flow/) | Guided setup, execution concepts, production operations, runtimes, examples, and API map |
-| [Architecture](docs/ARCHITECTURE.md) | Event sourcing, replay, store, scheduler, and native-runtime boundaries |
-| [Cookbook](docs/COOKBOOK.md) | Stable IDs, retries, batches, timers, hooks, signals, cancellation, and compensation |
-| [Functional plan](docs/FUNCTIONAL_PLAN.md) | Capability-level evidence, completion gates, maintenance work, and non-goals |
-| [API stability](docs/API_STABILITY.md) | SemVer, durable compatibility, MSRV, and the `1.0.0` release contract |
-| [Upgrading to Flow 1.0](docs/UPGRADING_TO_V1.md) | Supported pre-v1 histories/schemas, rollout, verification, and rollback |
-| [API docs](https://docs.rs/a3s-flow) | Public Rust types and methods |
-| [Security policy](SECURITY.md) | Supported releases, trust boundaries, and private reporting |
+| [Architecture](docs/ARCHITECTURE.md)                     | Event sourcing, replay, store, scheduler, and native-runtime boundaries                  |
+| [Cookbook](docs/COOKBOOK.md)                             | Stable IDs, retries, batches, timers, hooks, signals, cancellation, and compensation     |
+| [Functional plan](docs/FUNCTIONAL_PLAN.md)               | Capability-level evidence, completion gates, maintenance work, and non-goals             |
+| [API stability](docs/API_STABILITY.md)                   | SemVer, durable compatibility, MSRV, and the `1.0.0` release contract                    |
+| [Upgrading to Flow 1.0](docs/UPGRADING_TO_V1.md)         | Supported pre-v1 histories/schemas, rollout, verification, and rollback                  |
+| [API docs](https://docs.rs/a3s-flow)                     | Public Rust types and methods                                                            |
+| [Security policy](SECURITY.md)                           | Supported releases, trust boundaries, and private reporting                              |
 
 ## Development
 

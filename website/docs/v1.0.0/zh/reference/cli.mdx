@@ -84,6 +84,10 @@ git show HEAD:workflows/order-review.json |
 
 CI 中建议先运行校验，再把编译计划和摘要作为构建产物保存。失败输出中的每个问题都包含 `code`、`path` 和 `message`。修复应落在对应字段或边上，不要删除未知扩展字段来绕过错误。工作流来自外部来源时，还应审查任务名称、运行入口、公开回调和宿主绑定，CLI 不替代权限与凭据审核。
 
+## 自定义节点边界
+
+CLI 只携带官方内置 registry，也不会加载宿主应用模块。包含自定义类型的文档会收到 `flow.node.unknown_type`，项目不应关闭这项检查。使用自定义节点的项目需要提供类型化发布命令，导入项目 catalog，再调用 `compileA3SFlowWorkflowDagForPublication`。[自定义节点](./custom-nodes)列出了注册与发布契约。
+
 ## 常见错误
 
 `unknown_node` 说明当前安装版本没有这个公开类型，先运行 `nodes` 核对清单。`flow.node.internal_scope_required` 说明内部入口离开了匹配容器。图校验问题通常来自错误端口、跨作用域连线或回边。字段问题会指向 `workflow.graph.nodes` 下的具体节点数据。

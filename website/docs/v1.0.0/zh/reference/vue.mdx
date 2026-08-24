@@ -78,3 +78,5 @@ function useWebhook() {
 画布状态应以完整 `A3SFlowWorkflowDagNode` 为单位保存。拖动节点时只更新 `position`。配置面板提交时调用 `setNode` 或 `setConfiguration`。连线前从 `manifest.value.ports` 读取端口 ID、控制或数据种类及允许类型，不要在 Vue 组件中另写端口清单。
 
 `iteration` 和 `loop` 是子画布容器。编辑器创建容器时还要创建匹配的内部开始节点，并给所有子节点设置 `parentId`。端点必须位于同一作用域。发布前运行 `a3s-flow validate workflow.json`，它会检查父子关系、内部入口、跨作用域连线和每个 manifest 字段。
+
+自定义节点沿用同一个 `registry` 输入。[自定义节点](./custom-nodes)说明了 catalog 构建和执行能力检查。

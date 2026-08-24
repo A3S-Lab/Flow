@@ -34,7 +34,8 @@ export const A3S_FLOW_RUNTIME_COMMAND_BINDINGS = Object.freeze([
   'wait_for_signal',
 ] as const);
 
-export type A3SFlowRuntimeCommandBinding = (typeof A3S_FLOW_RUNTIME_COMMAND_BINDINGS)[number];
+export type A3SFlowRuntimeCommandBinding =
+  (typeof A3S_FLOW_RUNTIME_COMMAND_BINDINGS)[number];
 
 export type A3SFlowDagNodeRole =
   | 'entry'
@@ -79,16 +80,27 @@ export interface A3SFlowDagNodeManifest extends WorkflowNodeDefinition {
 
 export type A3SFlowDagNodeManifestInput = Omit<
   A3SFlowDagNodeManifest,
-  'manifestVersion' | 'owner' | 'beta' | 'legacy' | 'official' | 'tool_mode' | 'base_classes'
+  | 'manifestVersion'
+  | 'owner'
+  | 'beta'
+  | 'legacy'
+  | 'official'
+  | 'tool_mode'
+  | 'base_classes'
 > &
   Partial<
-    Pick<A3SFlowDagNodeManifest, 'beta' | 'legacy' | 'official' | 'tool_mode' | 'base_classes'>
+    Pick<
+      A3SFlowDagNodeManifest,
+      'beta' | 'legacy' | 'official' | 'tool_mode' | 'base_classes'
+    >
   >;
 
 export interface A3SFlowDagNodeRegistry {
   get(type: string): A3SFlowDagNodeManifest | undefined;
   require(type: string): A3SFlowDagNodeManifest;
-  list(options?: { includeInternal?: boolean }): readonly A3SFlowDagNodeManifest[];
+  list(options?: {
+    includeInternal?: boolean;
+  }): readonly A3SFlowDagNodeManifest[];
 }
 
 const FLOW_DOCUMENTATION = 'https://github.com/A3S-Lab/Flow#runtime-model';
@@ -106,15 +118,21 @@ export function defineA3SFlowDagNodeManifest(
   for (const field of input.fields) {
     nonEmpty(field.name, `A3S Flow DAG node ${input.type} field name`);
     if (fieldNames.has(field.name)) {
-      throw new TypeError(`Duplicate field ${field.name} in A3S Flow DAG node ${input.type}.`);
+      throw new TypeError(
+        `Duplicate field ${field.name} in A3S Flow DAG node ${input.type}.`,
+      );
     }
     fieldNames.add(field.name);
   }
   if (input.role === 'runtime-command' && !input.runtimeBinding) {
-    throw new TypeError(`Runtime-command node ${input.type} requires a runtimeBinding.`);
+    throw new TypeError(
+      `Runtime-command node ${input.type} requires a runtimeBinding.`,
+    );
   }
   if (input.role === 'container' && !input.container) {
-    throw new TypeError(`Container node ${input.type} requires a container contract.`);
+    throw new TypeError(
+      `Container node ${input.type} requires a container contract.`,
+    );
   }
 
   return Object.freeze({
@@ -192,7 +210,12 @@ function expressionField(
   info: string,
   purpose: 'condition' | 'datetime' | 'error' | 'input' | 'output' | 'token',
   value: JsonValue,
-  options: { advanced?: boolean; required?: boolean; group?: string; groupLabel?: string } = {},
+  options: {
+    advanced?: boolean;
+    required?: boolean;
+    group?: string;
+    groupLabel?: string;
+  } = {},
 ): WorkflowNodeFieldDefinition {
   return {
     name,
@@ -242,7 +265,11 @@ function jsonField(
   displayName: string,
   info: string,
   value: JsonValue,
-  options: { advanced?: boolean; required?: boolean; collection?: boolean } = {},
+  options: {
+    advanced?: boolean;
+    required?: boolean;
+    collection?: boolean;
+  } = {},
 ): WorkflowNodeFieldDefinition {
   return {
     name,
@@ -281,10 +308,15 @@ function runtimeManifest(
     runtimeBinding: A3SFlowRuntimeCommandBinding;
   },
 ): A3SFlowDagNodeManifest {
-  return defineA3SFlowDagNodeManifest({ ...definition, role: 'runtime-command' });
+  return defineA3SFlowDagNodeManifest({
+    ...definition,
+    role: 'runtime-command',
+  });
 }
 
-function adaptCoreNode(definition: A3SFlowCoreNodeDefinition): A3SFlowDagNodeManifest {
+function adaptCoreNode(
+  definition: A3SFlowCoreNodeDefinition,
+): A3SFlowDagNodeManifest {
   const runtimeBinding = definition.runtimeBinding;
   const role: A3SFlowDagNodeRole =
     runtimeBinding === 'workflow_input'
@@ -293,7 +325,8 @@ function adaptCoreNode(definition: A3SFlowCoreNodeDefinition): A3SFlowDagNodeMan
         ? 'control'
         : 'runtime-command';
   const mappedBinding =
-    runtimeBinding === 'workflow_input' || runtimeBinding === 'runtime_condition'
+    runtimeBinding === 'workflow_input' ||
+    runtimeBinding === 'runtime_condition'
       ? undefined
       : runtimeBinding;
   const fieldOrder =
@@ -361,7 +394,8 @@ const additionalRuntimeManifests: readonly A3SFlowDagNodeManifest[] = [
   runtimeManifest({
     type: 'flow.timeout',
     display_name: 'Time Out Workflow',
-    description: 'Finish the run with the UTC deadline and optional timeout context.',
+    description:
+      'Finish the run with the UTC deadline and optional timeout context.',
     category: 'run-outcome',
     categoryLabel: 'Run outcome',
     runtimeBinding: 'timeout',
@@ -379,17 +413,24 @@ const additionalRuntimeManifests: readonly A3SFlowDagNodeManifest[] = [
         'datetime',
         createA3SFlowExpression({ op: 'field', path: 'input.deadline' }),
       ),
-      stringField('reason', 'Reason', 'Optional context for the timeout decision.', '', {
-        required: false,
-        advanced: true,
-      }),
+      stringField(
+        'reason',
+        'Reason',
+        'Optional context for the timeout decision.',
+        '',
+        {
+          required: false,
+          advanced: true,
+        },
+      ),
     ],
     outputs: [],
   }),
   runtimeManifest({
     type: 'flow.continue-as-new',
     display_name: 'Continue as New',
-    description: 'Close this history segment and start a successor with the same workflow spec.',
+    description:
+      'Close this history segment and start a successor with the same workflow spec.',
     category: 'run-control',
     categoryLabel: 'Run control',
     runtimeBinding: 'continue_as_new',
@@ -413,7 +454,8 @@ const additionalRuntimeManifests: readonly A3SFlowDagNodeManifest[] = [
   runtimeManifest({
     type: 'flow.progress',
     display_name: 'Record Progress',
-    description: 'Persist observable progress before workflow replay continues.',
+    description:
+      'Persist observable progress before workflow replay continues.',
     category: 'run-control',
     categoryLabel: 'Run control',
     runtimeBinding: 'record_progress',
@@ -485,7 +527,8 @@ const additionalRuntimeManifests: readonly A3SFlowDagNodeManifest[] = [
   runtimeManifest({
     type: 'flow.child-operation',
     display_name: 'Link Child Operation',
-    description: 'Persist a stable reference to an externally managed child operation.',
+    description:
+      'Persist a stable reference to an externally managed child operation.',
     category: 'child-work',
     categoryLabel: 'Child work',
     runtimeBinding: 'link_child_operation',
@@ -497,12 +540,24 @@ const additionalRuntimeManifests: readonly A3SFlowDagNodeManifest[] = [
     input_types: ['FlowValue'],
     output_types: ['ChildOperationReference'],
     fields: [
-      stringField('reference_id', 'Reference ID', 'Stable reference identity.', 'child', {
-        required: true,
-      }),
-      stringField('kind', 'Operation kind', 'Host-defined operation category.', 'operation', {
-        required: true,
-      }),
+      stringField(
+        'reference_id',
+        'Reference ID',
+        'Stable reference identity.',
+        'child',
+        {
+          required: true,
+        },
+      ),
+      stringField(
+        'kind',
+        'Operation kind',
+        'Host-defined operation category.',
+        'operation',
+        {
+          required: true,
+        },
+      ),
       stringField(
         'operation_id',
         'Operation ID',
@@ -510,10 +565,16 @@ const additionalRuntimeManifests: readonly A3SFlowDagNodeManifest[] = [
         'operation-1',
         { required: true },
       ),
-      stringField('flow_run_id', 'Flow run ID', 'Optional related Flow run.', '', {
-        advanced: true,
-        required: false,
-      }),
+      stringField(
+        'flow_run_id',
+        'Flow run ID',
+        'Optional related Flow run.',
+        '',
+        {
+          advanced: true,
+          required: false,
+        },
+      ),
       jsonField(
         'metadata',
         'Metadata',
@@ -529,7 +590,8 @@ const additionalRuntimeManifests: readonly A3SFlowDagNodeManifest[] = [
   runtimeManifest({
     type: 'flow.child-workflow',
     display_name: 'Start Child Workflow',
-    description: 'Start or await one first-class child workflow with a stable parent-local ID.',
+    description:
+      'Start or await one first-class child workflow with a stable parent-local ID.',
     category: 'child-work',
     categoryLabel: 'Child work',
     runtimeBinding: 'start_child_workflow',
@@ -558,7 +620,11 @@ const additionalRuntimeManifests: readonly A3SFlowDagNodeManifest[] = [
         {
           name: 'workflow.child',
           version: '0.1.0',
-          runtime: { kind: 'native_ts', entrypoint: 'workflows/child.ts', export_name: 'main' },
+          runtime: {
+            kind: 'native_ts',
+            entrypoint: 'workflows/child.ts',
+            export_name: 'main',
+          },
         },
       ),
       expressionField(
@@ -588,7 +654,8 @@ const additionalRuntimeManifests: readonly A3SFlowDagNodeManifest[] = [
   runtimeManifest({
     type: 'flow.child-workflows',
     display_name: 'Start Child Workflow Batch',
-    description: 'Request a bounded, deterministic batch of first-class child workflows.',
+    description:
+      'Request a bounded, deterministic batch of first-class child workflows.',
     category: 'child-work',
     categoryLabel: 'Child work',
     runtimeBinding: 'start_child_workflows',
@@ -636,7 +703,8 @@ const additionalRuntimeManifests: readonly A3SFlowDagNodeManifest[] = [
   runtimeManifest({
     type: 'flow.signal',
     display_name: 'Wait for Signal',
-    description: 'Suspend until the next matching declared signal is paired with this wait.',
+    description:
+      'Suspend until the next matching declared signal is paired with this wait.',
     category: 'suspension',
     categoryLabel: 'Wait & callbacks',
     runtimeBinding: 'wait_for_signal',
@@ -674,7 +742,8 @@ const structuralManifests: readonly A3SFlowDagNodeManifest[] = [
   defineA3SFlowDagNodeManifest({
     type: 'iteration',
     display_name: 'Iteration',
-    description: 'Run a container scope once for each item in a deterministic collection.',
+    description:
+      'Run a container scope once for each item in a deterministic collection.',
     category: 'containers',
     categoryLabel: 'Containers',
     role: 'container',
@@ -726,7 +795,8 @@ const structuralManifests: readonly A3SFlowDagNodeManifest[] = [
   defineA3SFlowDagNodeManifest({
     type: 'loop',
     display_name: 'Loop',
-    description: 'Repeat a container scope while a deterministic condition remains true.',
+    description:
+      'Repeat a container scope while a deterministic condition remains true.',
     category: 'containers',
     categoryLabel: 'Containers',
     role: 'container',
@@ -786,11 +856,12 @@ const structuralManifests: readonly A3SFlowDagNodeManifest[] = [
   }),
 ];
 
-export const a3sFlowDagNodeManifestCatalog: readonly A3SFlowDagNodeManifest[] = Object.freeze([
-  ...legacyBackedManifests,
-  ...additionalRuntimeManifests,
-  ...structuralManifests,
-]);
+export const a3sFlowDagNodeManifestCatalog: readonly A3SFlowDagNodeManifest[] =
+  Object.freeze([
+    ...legacyBackedManifests,
+    ...additionalRuntimeManifests,
+    ...structuralManifests,
+  ]);
 
 export const A3S_FLOW_DAG_NODE_MANIFEST_PROVENANCE = Object.freeze({
   repository: A3S_FLOW_CONTRACT_PROVENANCE.repository,
@@ -799,10 +870,17 @@ export const A3S_FLOW_DAG_NODE_MANIFEST_PROVENANCE = Object.freeze({
   ownership: 'host' as const,
   runtimeCommands: A3S_FLOW_RUNTIME_COMMAND_BINDINGS.length,
   nodeManifests: a3sFlowDagNodeManifestCatalog.length,
-  structuralNodeTypes: ['iteration', 'iteration-start', 'loop', 'loop-start'] as const,
+  structuralNodeTypes: [
+    'iteration',
+    'iteration-start',
+    'loop',
+    'loop-start',
+  ] as const,
 });
 
-export const a3sFlowDagNodeRegistry = createA3SFlowDagNodeRegistry(a3sFlowDagNodeManifestCatalog);
+export const a3sFlowDagNodeRegistry = createA3SFlowDagNodeRegistry(
+  a3sFlowDagNodeManifestCatalog,
+);
 
 export function getA3SFlowDagNodeManifest(
   type: string,
@@ -863,7 +941,9 @@ export function selectA3SFlowDagNodeConfiguration(
     manifest.fields.map((field) => [
       field.name,
       cloneJson(
-        Object.hasOwn(node.data, field.name) ? node.data[field.name] : defaults[field.name],
+        Object.hasOwn(node.data, field.name)
+          ? node.data[field.name]
+          : defaults[field.name],
       ),
     ]),
   );

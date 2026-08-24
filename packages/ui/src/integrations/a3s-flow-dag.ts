@@ -7,6 +7,11 @@ import {
   type A3SFlowWorkflowDagCompilation,
   type A3SFlowWorkflowDagNode,
 } from './a3s-flow-dsl-types';
+import type {
+  A3SFlowDagNodeCapabilityRegistry,
+} from './a3s-flow-custom-node';
+import { isA3SFlowDagNodeCapabilityBindingValid } from './a3s-flow-custom-node';
+import type { A3SFlowDagNodeRegistry } from './a3s-flow-node-manifest';
 
 const encoder = new TextEncoder();
 
@@ -21,7 +26,11 @@ function compareUtf8(left: string, right: string): number {
   return leftBytes.length - rightBytes.length;
 }
 
-function issue(code: string, path: string, message: string): A3SFlowWorkflowDagCompilation {
+function issue(
+  code: string,
+  path: string,
+  message: string,
+): A3SFlowWorkflowDagCompilation {
   return { ok: false, issues: [{ code, path, message }] };
 }
 
@@ -102,7 +111,8 @@ function validateContainerScopes(
       };
     }
     const hasExecutableChild = [...nodes.values()].some(
-      (candidate) => candidate.parentId === node.id && candidate.id !== startNodeId,
+      (candidate) =>
+        candidate.parentId === node.id && candidate.id !== startNodeId,
     );
     if (!hasExecutableChild) {
       return {
@@ -136,8 +146,16 @@ function validateContainerScopes(
 export function compileA3SFlowWorkflowDag(
   graph: A3SFlowWorkflowDag,
 ): A3SFlowWorkflowDagCompilation {
-  if (!isRecord(graph) || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) {
-    return issue('flow.dag.invalid_shape', '', 'Workflow DAG nodes and edges must be arrays.');
+  if (
+    !isRecord(graph) ||
+    !Array.isArray(graph.nodes) ||
+    !Array.isArray(graph.edges)
+  ) {
+    return issue(
+      'flow.dag.invalid_shape',
+      '',
+      'Workflow DAG nodes and edges must be arrays.',
+    );
   }
   if (graph.nodes.length === 0) {
     return issue(
@@ -164,10 +182,22 @@ export function compileA3SFlowWorkflowDag(
   const nodes = new Map<string, A3SFlowWorkflowDagNode>();
   const scopeNodes = new Map<string | null, Set<string>>();
   for (const [index, node] of graph.nodes.entries()) {
-    if (!isRecord(node) || typeof node.id !== 'string' || node.id.trim().length === 0) {
-      return issue('flow.dag.invalid_node_id', `nodes.${index}.id`, 'Node ID is empty.');
+    if (
+      !isRecord(node) ||
+      typeof node.id !== 'string' ||
+      node.id.trim().length === 0
+    ) {
+      return issue(
+        'flow.dag.invalid_node_id',
+        `nodes.${index}.id`,
+        'Node ID is empty.',
+      );
     }
-    if (!isRecord(node.data) || typeof node.data.type !== 'string' || !node.data.type.trim()) {
+    if (
+      !isRecord(node.data) ||
+      typeof node.data.type !== 'string' ||
+      !node.data.type.trim()
+    ) {
       return issue(
         'flow.dag.invalid_node_type',
         `nodes.${index}.data.type`,
@@ -193,11 +223,23 @@ export function compileA3SFlowWorkflowDag(
   if (containerIssue) return { ok: false, issues: [containerIssue] };
 
   const edgeIds = new Set<string>();
-  const outgoing = new Map<string, string[]>([...nodes.keys()].map((id) => [id, []]));
-  const indegree = new Map<string, number>([...nodes.keys()].map((id) => [id, 0]));
+  const outgoing = new Map<string, string[]>(
+    [...nodes.keys()].map((id) => [id, []]),
+  );
+  const indegree = new Map<string, number>(
+    [...nodes.keys()].map((id) => [id, 0]),
+  );
   for (const [index, edge] of graph.edges.entries()) {
-    if (!isRecord(edge) || typeof edge.id !== 'string' || edge.id.trim().length === 0) {
-      return issue('flow.dag.invalid_edge_id', `edges.${index}.id`, 'Edge ID is empty.');
+    if (
+      !isRecord(edge) ||
+      typeof edge.id !== 'string' ||
+      edge.id.trim().length === 0
+    ) {
+      return issue(
+        'flow.dag.invalid_edge_id',
+        `edges.${index}.id`,
+        'Edge ID is empty.',
+      );
     }
     if (edgeIds.has(edge.id)) {
       return issue(
@@ -207,7 +249,8 @@ export function compileA3SFlowWorkflowDag(
       );
     }
     edgeIds.add(edge.id);
-    const source = typeof edge.source === 'string' ? nodes.get(edge.source) : undefined;
+    const source =
+      typeof edge.source === 'string' ? nodes.get(edge.source) : undefined;
     if (!source) {
       return issue(
         'flow.dag.missing_source',
@@ -215,7 +258,8 @@ export function compileA3SFlowWorkflowDag(
         `Edge ${JSON.stringify(edge.id)} references a missing source.`,
       );
     }
-    const target = typeof edge.target === 'string' ? nodes.get(edge.target) : undefined;
+    const target =
+      typeof edge.target === 'string' ? nodes.get(edge.target) : undefined;
     if (!target) {
       return issue(
         'flow.dag.missing_target',
@@ -249,7 +293,9 @@ export function compileA3SFlowWorkflowDag(
     return compareUtf8(left, right);
   });
   for (const [scope, ids] of sortedScopes) {
-    const scopedIndegree = new Map([...ids].map((id) => [id, indegree.get(id) ?? 0] as const));
+    const scopedIndegree = new Map(
+      [...ids].map((id) => [id, indegree.get(id) ?? 0] as const),
+    );
     const ready = [...scopedIndegree]
       .filter(([, count]) => count === 0)
       .map(([id]) => id)
@@ -290,14 +336,65 @@ export function compileA3SFlowWorkflowDag(
   };
 }
 
+/**
+ * Publication gate layered over structural compilation. Flow still treats
+ * `data.type` as opaque; the host must register every type and bind custom
+ * host nodes to an exact, authorized executor capability.
+ */
+export function compileA3SFlowWorkflowDagForPublication(
+  graph: A3SFlowWorkflowDag,
+  registry: A3SFlowDagNodeRegistry,
+  capabilities?: A3SFlowDagNodeCapabilityRegistry,
+): A3SFlowWorkflowDagCompilation {
+  const compilation = compileA3SFlowWorkflowDag(graph);
+  if (!compilation.ok) return compilation;
+
+  for (const node of graph.nodes) {
+    const manifest = registry.get(node.data.type);
+    if (!manifest) {
+      return issue(
+        'flow.dag.node_type_unregistered',
+        `nodes.${node.id}.data.type`,
+        `Node ${JSON.stringify(node.id)} uses unregistered type ${JSON.stringify(node.data.type)}.`,
+      );
+    }
+    if (manifest.internal && node.parentId === undefined) {
+      return issue(
+        'flow.dag.internal_scope_required',
+        `nodes.${node.id}.parentId`,
+        `Internal node ${JSON.stringify(node.id)} must belong to a container scope.`,
+      );
+    }
+    if (manifest.role !== 'host') continue;
+    const binding = capabilities?.get(manifest.type);
+    if (!binding) {
+      return issue(
+        'flow.dag.capability_binding_missing',
+        `nodes.${node.id}.data.type`,
+        `Custom node ${JSON.stringify(manifest.type)} has no authorized capability binding.`,
+      );
+    }
+    if (!isA3SFlowDagNodeCapabilityBindingValid(binding, manifest.type)) {
+      return issue(
+        'flow.dag.capability_binding_invalid',
+        `nodes.${node.id}.data.type`,
+        `Custom node ${JSON.stringify(manifest.type)} has an invalid capability binding.`,
+      );
+    }
+  }
+  return compilation;
+}
+
 export function createA3SFlowWorkflowDagNode(
   id: string,
   type: string,
   configuration: JsonObject = {},
   presentation: JsonObject = {},
 ): A3SFlowWorkflowDagNode {
-  if (!id.trim()) throw new TypeError('A3S Flow DAG node ID must not be empty.');
-  if (!type.trim()) throw new TypeError('A3S Flow DAG node type must not be empty.');
+  if (!id.trim())
+    throw new TypeError('A3S Flow DAG node ID must not be empty.');
+  if (!type.trim())
+    throw new TypeError('A3S Flow DAG node type must not be empty.');
   return {
     ...structuredClone(presentation),
     id,

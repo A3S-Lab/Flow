@@ -1,13 +1,25 @@
-import { analyzeExpression, type ExpressionAnalysis } from '@a3s-lab/ui/form/core';
-import type { FieldError, JsonObject } from '@a3s-lab/ui/form/core';
+import {
+  analyzeExpression,
+  compileForm,
+  type ExpressionAnalysis,
+  type FieldError,
+  type JsonObject,
+  validateFormValue,
+} from '@a3s-lab/ui/form/core';
 import {
   A3S_FLOW_EXPRESSION_API_VERSION,
+  getA3SFlowCoreNode,
   type A3SFlowCoreNodeDefinition,
   type A3SFlowCorePortCondition,
   type A3SFlowCorePortDefinition,
   type A3SFlowExpressionContract,
   requireA3SFlowCoreNode,
 } from './a3s-flow-core';
+import type { A3SFlowDagNodeManifest } from './a3s-flow-node-manifest';
+import {
+  createWorkflowNodeForm,
+  WORKFLOW_CONFIGURATION_WIDGET_KEYS,
+} from './workflow-node-form';
 
 export interface A3SFlowNodeConfigurationValidationOptions {
   /** Output ports connected by the host graph, when graph topology is available. */
@@ -20,13 +32,19 @@ export interface A3SFlowNodeConfigurationValidation {
 }
 
 const RETRY_ACTIONS = new Set(['fail_run', 'continue_workflow']);
-const ABSOLUTE_UTC_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?Z$/;
+const ABSOLUTE_UTC_TIMESTAMP =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?Z$/;
 
 function isJsonObject(value: unknown): value is JsonObject {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function addError(errors: FieldError[], path: string, code: string, message: string): void {
+function addError(
+  errors: FieldError[],
+  path: string,
+  code: string,
+  message: string,
+): void {
   errors.push({ path, code, message });
 }
 
@@ -34,7 +52,9 @@ function inspectExpression(
   value: unknown,
   path: string,
   errors: FieldError[],
-): { contract: A3SFlowExpressionContract; analysis: ExpressionAnalysis } | undefined {
+):
+  | { contract: A3SFlowExpressionContract; analysis: ExpressionAnalysis }
+  | undefined {
   if (!isJsonObject(value)) {
     addError(
       errors,
@@ -53,7 +73,9 @@ function inspectExpression(
     );
     return undefined;
   }
-  const unexpected = Object.keys(value).find((key) => key !== 'apiVersion' && key !== 'expression');
+  const unexpected = Object.keys(value).find(
+    (key) => key !== 'apiVersion' && key !== 'expression',
+  );
   if (unexpected) {
     addError(
       errors,
@@ -79,7 +101,11 @@ function inspectExpression(
   }
 }
 
-function validateRetry(value: JsonObject, path: string, errors: FieldError[]): void {
+function validateRetry(
+  value: JsonObject,
+  path: string,
+  errors: FieldError[],
+): void {
   const maxAttempts = value.max_attempts;
   if (
     typeof maxAttempts !== 'number' ||
@@ -110,7 +136,10 @@ function validateRetry(value: JsonObject, path: string, errors: FieldError[]): v
     );
   }
 
-  if (typeof value.on_exhausted !== 'string' || !RETRY_ACTIONS.has(value.on_exhausted)) {
+  if (
+    typeof value.on_exhausted !== 'string' ||
+    !RETRY_ACTIONS.has(value.on_exhausted)
+  ) {
     addError(
       errors,
       `${path}on_exhausted`,
@@ -120,12 +149,18 @@ function validateRetry(value: JsonObject, path: string, errors: FieldError[]): v
   }
 }
 
-function portConditionMatches(condition: A3SFlowCorePortCondition, value: JsonObject): boolean {
-  if (condition.kind === 'field_equals') return value[condition.field] === condition.value;
+function portConditionMatches(
+  condition: A3SFlowCorePortCondition,
+  value: JsonObject,
+): boolean {
+  if (condition.kind === 'field_equals')
+    return value[condition.field] === condition.value;
   const collection = value[condition.collection];
   return (
     Array.isArray(collection) &&
-    collection.some((item) => isJsonObject(item) && item[condition.field] === condition.value)
+    collection.some(
+      (item) => isJsonObject(item) && item[condition.field] === condition.value,
+    )
   );
 }
 
@@ -133,7 +168,10 @@ export function isA3SFlowCorePortAvailable(
   portDefinition: A3SFlowCorePortDefinition,
   value: JsonObject,
 ): boolean {
-  return !portDefinition.condition || portConditionMatches(portDefinition.condition, value);
+  return (
+    !portDefinition.condition ||
+    portConditionMatches(portDefinition.condition, value)
+  );
 }
 
 function validateConnectedOutputs(
@@ -143,7 +181,9 @@ function validateConnectedOutputs(
   errors: FieldError[],
 ): void {
   for (const portId of new Set(connectedOutputPortIds ?? [])) {
-    const portDefinition = definition.ports.outputs.find((candidate) => candidate.id === portId);
+    const portDefinition = definition.ports.outputs.find(
+      (candidate) => candidate.id === portId,
+    );
     if (!portDefinition) {
       addError(
         errors,
@@ -165,10 +205,15 @@ function validateConnectedOutputs(
 }
 
 function validateStart(value: JsonObject, errors: FieldError[]): void {
-  const inspected = inspectExpression(value.run_id_expression, 'run_id_expression', errors);
+  const inspected = inspectExpression(
+    value.run_id_expression,
+    'run_id_expression',
+    errors,
+  );
   if (!inspected) return;
   const expressionValue = inspected.contract.expression;
-  if (expressionValue.op === 'literal' && expressionValue.value === null) return;
+  if (expressionValue.op === 'literal' && expressionValue.value === null)
+    return;
   if (inspected.analysis.fieldPaths.length === 0) {
     addError(
       errors,
@@ -187,7 +232,12 @@ function validateStep(value: JsonObject, errors: FieldError[]): void {
 function validateBatch(value: JsonObject, errors: FieldError[]): void {
   const steps = value.steps;
   if (!Array.isArray(steps) || steps.length === 0) {
-    addError(errors, 'steps', 'flow.batch.empty', 'Batch Steps requires at least one member.');
+    addError(
+      errors,
+      'steps',
+      'flow.batch.empty',
+      'Batch Steps requires at least one member.',
+    );
     return;
   }
 
@@ -221,7 +271,10 @@ function validateBatch(value: JsonObject, errors: FieldError[]): void {
     } else {
       keys.add(key);
     }
-    if (typeof candidate.step_name !== 'string' || candidate.step_name.trim().length === 0) {
+    if (
+      typeof candidate.step_name !== 'string' ||
+      candidate.step_name.trim().length === 0
+    ) {
       addError(
         errors,
         `${path}step_name`,
@@ -281,7 +334,11 @@ function validateWait(value: JsonObject, errors: FieldError[]): void {
 }
 
 function validateHook(value: JsonObject, errors: FieldError[]): void {
-  const inspected = inspectExpression(value.token_expression, 'token_expression', errors);
+  const inspected = inspectExpression(
+    value.token_expression,
+    'token_expression',
+    errors,
+  );
   if (!inspected) return;
   if (
     inspected.contract.expression.op === 'literal' ||
@@ -334,6 +391,42 @@ export function validateA3SFlowNodeConfiguration(
       break;
   }
 
-  validateConnectedOutputs(definition, value, options.connectedOutputPortIds, errors);
+  validateConnectedOutputs(
+    definition,
+    value,
+    options.connectedOutputPortIds,
+    errors,
+  );
+  return { ok: errors.length === 0, errors };
+}
+
+/** Validates both the A3S UI form contract and any built-in Flow semantics. */
+export function validateA3SFlowDagNodeConfiguration(
+  manifest: A3SFlowDagNodeManifest,
+  value: JsonObject,
+  options: A3SFlowNodeConfigurationValidationOptions = {},
+): A3SFlowNodeConfigurationValidation {
+  const compilation = compileForm(createWorkflowNodeForm(manifest), {
+    capabilities: { widgets: WORKFLOW_CONFIGURATION_WIDGET_KEYS },
+  });
+  if (!compilation.ok || !compilation.plan) {
+    return {
+      ok: false,
+      errors: compilation.diagnostics.map((diagnostic) => ({
+        path: diagnostic.path ?? '',
+        code: 'flow.node.manifest_form_invalid',
+        message: diagnostic.message,
+      })),
+    };
+  }
+
+  const errors = validateFormValue(compilation.plan, value);
+  const coreDefinition = getA3SFlowCoreNode(manifest.type);
+  if (coreDefinition) {
+    errors.push(
+      ...validateA3SFlowNodeConfiguration(coreDefinition, value, options)
+        .errors,
+    );
+  }
   return { ok: errors.length === 0, errors };
 }
