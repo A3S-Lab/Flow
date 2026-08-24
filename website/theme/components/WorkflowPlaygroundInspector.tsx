@@ -12,7 +12,7 @@ import {
   type A3SFlowWorkflowDagNode,
 } from '@a3s-lab/flow-ui';
 import { A3SFlowDagNodeConfigurationPanel } from '@a3s-lab/flow-ui/react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { WorkflowPlaygroundCopy } from './WorkflowPlayground.copy';
 import type {
   PlaygroundConfigurationIssue,
@@ -20,6 +20,7 @@ import type {
   PlaygroundNode,
 } from './WorkflowPlayground.model';
 import type { FlowWebsiteLocale } from './flow-node-catalog';
+import { buildPlaygroundExpressionVariables } from './WorkflowPlayground.variables';
 
 export type InspectorTab = 'settings' | 'validation' | 'document';
 
@@ -316,6 +317,19 @@ export function WorkflowPlaygroundInspector({
   selectedNode,
   lastRunNodeIds,
 }: WorkflowPlaygroundInspectorProps) {
+  const expressionVariables = useMemo(
+    () =>
+      selectedNode
+        ? buildPlaygroundExpressionVariables(
+            selectedNode,
+            nodes,
+            edges,
+            locale,
+            registry,
+          )
+        : [],
+    [edges, locale, nodes, registry, selectedNode],
+  );
   if (activeTab === 'settings' && !selectedNode) return null;
 
   const connectedOutputPortIds = selectedNode
@@ -340,6 +354,7 @@ export function WorkflowPlaygroundInspector({
         <A3SFlowDagNodeConfigurationPanel
           connectedOutputPortIds={connectedOutputPortIds}
           dagNode={selectedNode.data.dagNode}
+          expressionVariables={expressionVariables}
           lastRun={
             lastRunNodeIds.has(selectedNode.id) ? (
               <div className="flow-playground-last-run">

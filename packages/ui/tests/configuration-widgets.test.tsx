@@ -1,5 +1,12 @@
 import { createElement } from "react";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { resolveFormLocaleCatalog } from "@a3s-lab/ui/form/core";
 import type { FormWidgetProps } from "@a3s-lab/ui/form/react";
 import { WORKFLOW_CONFIGURATION_WIDGETS } from "../src/integrations/workflow-node-form";
@@ -7,6 +14,7 @@ import {
   createWorkflowConfigurationWidgetRegistry,
   WorkflowFieldAccessory,
 } from "../src/react/workflow-configuration-widgets";
+import { SelectControl } from "../src/react/select-control";
 
 const conditionField = {
   id: "condition-input",
@@ -34,6 +42,31 @@ function widgetProps(
 }
 
 describe("workflow configuration widgets", () => {
+  it("uses the A3S UI Select runtime for composite controls", async () => {
+    const onChange = vi.fn();
+    const view = render(
+      <SelectControl aria-label="Run mode" onChange={onChange} value="durable">
+        <option value="durable">Durable</option>
+        <option value="local">Local</option>
+      </SelectControl>,
+    );
+    const root = view.container.querySelector(".a3s-flow-select-control");
+    const trigger = screen.getByRole("combobox", { name: "Run mode" });
+
+    await waitFor(() =>
+      expect(root?.getAttribute("data-select-initialized")).toBe("true"),
+    );
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.click(screen.getByRole("option", { name: "Local" }));
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ target: { value: "local" } }),
+    );
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    view.unmount();
+  });
+
   it("localizes canvas connection actions for the Chinese panel", () => {
     render(
       <WorkflowFieldAccessory
@@ -46,9 +79,9 @@ describe("workflow configuration widgets", () => {
     );
 
     expect(screen.getByText("工作流输入")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "连接参与判断的值" }).textContent).toContain(
-      "连接",
-    );
+    expect(
+      screen.getByRole("button", { name: "连接参与判断的值" }).textContent,
+    ).toContain("连接");
   });
 
   it("localizes editor disclosure controls for the Chinese panel", () => {
@@ -69,7 +102,9 @@ describe("workflow configuration widgets", () => {
 
     render(createElement(Widget, props));
 
-    expect(screen.getByRole("button", { name: "展开参与判断的值编辑器" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "展开参与判断的值编辑器" }),
+    ).toBeTruthy();
   });
 
   it("localizes composite controls without changing their stored values", () => {
@@ -91,7 +126,11 @@ describe("workflow configuration widgets", () => {
         }),
       ),
     );
-    expect(within(sortable.container).getByText("添加一项…")).toBeTruthy();
+    expect(
+      within(sortable.container).getByRole("combobox", {
+        name: "添加收件人来源",
+      }).textContent,
+    ).toContain("添加一项…");
     expect(
       within(sortable.container).getByRole("button", {
         name: "移除input.customer.email",
@@ -120,15 +159,16 @@ describe("workflow configuration widgets", () => {
       ).valueAsNumber,
     ).toBe(30);
     expect(
-      (
-        within(duration.container).getByRole("combobox", {
-          name: "保留时长单位",
-        }) as HTMLSelectElement
-      ).value,
-    ).toBe("Minutes");
+      within(duration.container).getByRole("combobox", {
+        name: "保留时长单位",
+      }).textContent,
+    ).toContain("分钟");
     expect(
-      (within(duration.container).getByRole("option", { name: "分钟" }) as HTMLOptionElement)
-        .value,
+      (
+        duration.container.querySelector(
+          'input[type="hidden"]',
+        ) as HTMLInputElement
+      ).value,
     ).toBe("Minutes");
     duration.unmount();
 
@@ -181,9 +221,10 @@ describe("workflow configuration widgets", () => {
         widgetProps({ value: undefined }),
       ),
     );
-    expect((within(data.container).getByRole("textbox") as HTMLTextAreaElement).value).toBe(
-      "暂无数据。",
-    );
+    expect(
+      (within(data.container).getByRole("textbox") as HTMLTextAreaElement)
+        .value,
+    ).toBe("暂无数据。");
     data.unmount();
   });
 });

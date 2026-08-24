@@ -360,6 +360,60 @@ html .rp-doc-layout__doc {
   background: var(--flow-bg);
 }
 
+.flow-code-example {
+  color: var(--flow-text);
+}
+
+.flow-code-example code {
+  padding-inline-end: 3.75rem;
+}
+
+.flow-node-reference__code
+  .rp-codeblock__content--wrap-code
+  .flow-code-example
+  code {
+  word-break: normal !important;
+  overflow-wrap: anywhere;
+}
+
+.flow-code-token--property,
+.flow-code-token--keyword {
+  color: var(--shiki-token-keyword);
+}
+
+.flow-code-token--string {
+  color: var(--shiki-token-string-expression);
+}
+
+.flow-code-token--number,
+.flow-code-token--parameter {
+  color: var(--shiki-token-constant);
+}
+
+.flow-code-token--boolean {
+  color: var(--shiki-token-constant);
+  font-weight: 620;
+}
+
+.flow-code-token--punctuation {
+  color: var(--shiki-token-punctuation);
+}
+
+.flow-code-token--command {
+  color: var(--shiki-token-function);
+  font-weight: 620;
+}
+
+.flow-code-token--comment {
+  color: var(--shiki-token-comment);
+  font-style: italic;
+}
+
+.flow-code-token--variable,
+.flow-code-token--file {
+  color: var(--shiki-token-link);
+}
+
 .rp-doc .rp-code-button-group {
   top: 12px;
   right: 12px;
@@ -378,6 +432,16 @@ html .rp-doc-layout__doc {
 
 .rp-doc .rp-code-button-group__button:hover {
   background: var(--flow-paper);
+}
+
+@media (max-width: 640px) {
+  .flow-node-reference__code .rp-codeblock__content {
+    padding-top: 2.5rem;
+  }
+
+  .flow-node-reference__code .rp-code-button-group {
+    top: 8px;
+  }
 }
 
 .rp-doc :not(:where(.rp-not-doc, .rp-not-doc *)):not(pre) > code {

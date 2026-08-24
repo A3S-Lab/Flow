@@ -245,6 +245,99 @@
   gap: 10px;
 }
 
+.a3s-flow-select-control {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.a3s-flow-select-control > button {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 10px 0 12px;
+  border: 1px solid var(--a3s-form-line-strong);
+  border-radius: 8px;
+  background: var(--a3s-form-panel);
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--a3s-form-ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.a3s-flow-select-control > button > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-flow-select-control > button > svg {
+  flex: 0 0 auto;
+  color: var(--a3s-form-muted);
+  transition: transform 140ms ease;
+}
+
+.a3s-flow-select-control > button[aria-expanded="true"] {
+  border-color: var(--a3s-form-blue);
+  box-shadow: var(--a3s-form-field-ring);
+}
+
+.a3s-flow-select-control > button[aria-expanded="true"] > svg {
+  transform: rotate(180deg);
+}
+
+.a3s-flow-select-control > [data-popover] {
+  position: absolute;
+  z-index: 90;
+  top: calc(100% + 5px);
+  left: 0;
+  width: max(100%, 168px);
+  max-height: 230px;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--a3s-form-line-strong);
+  border-radius: 9px;
+  background: var(--a3s-form-panel);
+  box-shadow: var(--a3s-form-shadow-soft);
+}
+
+.a3s-flow-select-control > [data-popover][aria-hidden="true"] {
+  display: none;
+}
+
+.a3s-flow-select-control [role="option"] {
+  position: relative;
+  display: flex;
+  min-height: 34px;
+  padding: 7px 30px 7px 9px;
+  border-radius: 6px;
+  align-items: center;
+  color: var(--a3s-form-ink);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.a3s-flow-select-control [role="option"].active,
+.a3s-flow-select-control [role="option"]:hover {
+  background: var(--a3s-form-panel-soft);
+}
+
+.a3s-flow-select-control [role="option"][aria-selected="true"]::after {
+  position: absolute;
+  right: 10px;
+  width: 8px;
+  height: 4px;
+  border-bottom: 1.6px solid var(--a3s-form-blue);
+  border-left: 1.6px solid var(--a3s-form-blue);
+  content: "";
+  transform: rotate(-45deg) translateY(-1px);
+}
+
 .a3s-form-flow-expression-mode > label,
 .a3s-form-flow-batch-mapping > span,
 .a3s-form-flow-batch-primary-fields label > span,
@@ -269,11 +362,11 @@
   box-shadow: var(--a3s-form-field-ring);
 }
 
-.a3s-form-flow-expression-source:has(> input[aria-invalid="true"]) {
+.a3s-form-flow-expression-source:has(input[aria-invalid="true"]) {
   border-color: var(--a3s-form-red);
 }
 
-.a3s-form-flow-expression-source:has(> input[aria-invalid="true"]):focus-within {
+.a3s-form-flow-expression-source:has(input[aria-invalid="true"]):focus-within {
   border-color: var(--a3s-form-red);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--a3s-form-red) 9%, transparent);
 }
@@ -285,11 +378,15 @@
   color: var(--a3s-form-blue);
 }
 
-.a3s-form-field .a3s-form-flow-expression-source > input {
+.a3s-form-field .a3s-form-flow-expression-source .a3s-flow-variable-input > input {
   height: 40px;
   border: 0;
   border-radius: 0;
   box-shadow: none;
+}
+
+.a3s-form-flow-expression-source .a3s-flow-variable-input {
+  border: 0;
 }
 
 .a3s-form-flow-expression-comparison {
@@ -326,15 +423,133 @@
 }
 
 .a3s-form-flow-expression-advanced {
+  position: relative;
   display: grid;
   gap: 6px;
 }
 
-.a3s-form-field .a3s-form-flow-expression-advanced > textarea {
-  min-height: 150px;
+.a3s-form-flow-expression-code-editor.code-editor {
+  --code-editor-font-size: 11px;
+  --code-editor-gutter-width: 38px;
+  --code-editor-line-height: 1.55;
+  --code-editor-min-height: 156px;
+  position: relative;
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--a3s-form-line-strong);
+  border-radius: 9px;
+  background: var(--a3s-form-panel);
+  color: var(--a3s-form-ink);
+  flex-direction: column;
   font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
-  font-size: 11px;
-  line-height: 1.6;
+}
+
+.a3s-form-flow-expression-code-editor > header,
+.a3s-form-flow-expression-code-editor > footer {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-inline: 9px;
+  background: var(--a3s-form-panel-soft);
+}
+
+.a3s-form-flow-expression-code-editor > header {
+  min-height: 38px;
+  border-bottom: 1px solid var(--a3s-form-line);
+}
+
+.a3s-form-flow-expression-code-editor [data-code-editor-file],
+.a3s-form-flow-expression-code-editor [data-code-editor-actions],
+.a3s-form-flow-expression-code-editor [data-code-editor-info],
+.a3s-form-flow-expression-code-editor [data-code-editor-meta] {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.a3s-form-flow-expression-code-editor [data-code-editor-file] {
+  color: var(--a3s-form-muted);
+  font-size: 10px;
+}
+
+.a3s-form-flow-expression-code-editor [data-code-editor-actions] button {
+  display: inline-flex;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--a3s-form-line-strong);
+  border-radius: 6px;
+  background: var(--a3s-form-panel);
+  align-items: center;
+  gap: 5px;
+  color: var(--a3s-form-blue);
+  cursor: pointer;
+  font-family: var(--a3s-ui-font, ui-sans-serif, sans-serif);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.a3s-form-flow-expression-code-editor > section {
+  display: grid;
+  min-width: 0;
+  min-height: var(--code-editor-min-height);
+  grid-template-columns: var(--code-editor-gutter-width) minmax(0, 1fr);
+  background: var(--a3s-form-panel);
+}
+
+.a3s-form-flow-expression-code-editor [data-code-editor-gutter] {
+  grid-column: 1;
+  grid-row: 1;
+  padding-block: 10px;
+  overflow: hidden;
+  border-right: 1px solid var(--a3s-form-line);
+  background: color-mix(in srgb, var(--a3s-form-panel-soft) 58%, var(--a3s-form-panel));
+  color: var(--a3s-form-faint);
+  user-select: none;
+}
+
+.a3s-form-flow-expression-code-editor [data-code-editor-gutter] > span {
+  display: block;
+  min-height: var(--code-editor-line-height);
+  padding-inline: 8px;
+  font-size: var(--code-editor-font-size);
+  line-height: var(--code-editor-line-height);
+  text-align: right;
+}
+
+.a3s-form-field .a3s-form-flow-expression-code-editor > section > textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--code-editor-min-height);
+  padding: 10px 12px;
+  resize: vertical;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: var(--a3s-form-panel);
+  color: var(--a3s-form-ink);
+  box-shadow: none;
+  font-family: inherit;
+  font-size: var(--code-editor-font-size);
+  line-height: var(--code-editor-line-height);
+  tab-size: 2;
+  white-space: pre;
+}
+
+.a3s-form-flow-expression-code-editor > footer {
+  min-height: 28px;
+  border-top: 1px solid var(--a3s-form-line);
+  color: var(--a3s-form-muted);
+  font-family: var(--a3s-ui-font, ui-sans-serif, sans-serif);
+  font-size: 9px;
+}
+
+.a3s-form-flow-expression-advanced[data-invalid="true"]
+  .a3s-form-flow-expression-code-editor {
+  border-color: var(--a3s-form-red);
 }
 
 .a3s-form-flow-expression-advanced > small,
@@ -346,6 +561,215 @@
 .a3s-form-flow-expression-advanced[data-invalid="true"] > small,
 .a3s-form-flow-schema-json[data-invalid="true"] > small {
   color: var(--a3s-form-red);
+}
+
+.a3s-flow-variable-input,
+.a3s-flow-variable-textarea {
+  position: relative;
+  min-width: 0;
+}
+
+.a3s-flow-variable-input {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  border: 1px solid var(--a3s-form-line-strong);
+  border-radius: 8px;
+  background: var(--a3s-form-panel);
+}
+
+.a3s-flow-variable-input:focus-within {
+  border-color: var(--a3s-form-blue);
+  box-shadow: var(--a3s-form-field-ring);
+}
+
+.a3s-flow-variable-input__sigil {
+  padding-left: 10px;
+  color: var(--a3s-form-blue);
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.a3s-form-field .a3s-flow-variable-input > input {
+  min-width: 0;
+  padding-inline: 5px;
+  border: 0;
+  box-shadow: none;
+}
+
+.a3s-flow-variable-input__trigger,
+.a3s-flow-variable-textarea__trigger {
+  display: inline-flex;
+  min-width: 34px;
+  min-height: 34px;
+  margin-right: 3px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--a3s-form-blue);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 680;
+}
+
+.a3s-flow-variable-input__trigger:hover,
+.a3s-flow-variable-textarea__trigger:hover {
+  background: var(--a3s-form-panel-soft);
+}
+
+.a3s-flow-variable-textarea > textarea {
+  padding-bottom: 40px;
+}
+
+.a3s-flow-variable-textarea__trigger {
+  position: absolute;
+  z-index: 2;
+  right: 5px;
+  bottom: 5px;
+  border: 1px solid var(--a3s-form-line);
+  background: var(--a3s-form-panel);
+}
+
+.a3s-flow-variable-suggestions {
+  position: absolute;
+  z-index: 140;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  min-width: min(320px, 100%);
+  max-height: min(360px, 52vh);
+  overflow: hidden;
+  border: 1px solid var(--a3s-form-line-strong);
+  border-radius: 10px;
+  background: var(--a3s-form-panel);
+  box-shadow: var(--a3s-form-shadow);
+}
+
+.a3s-form-flow-expression-advanced > .a3s-flow-variable-suggestions {
+  top: 38px;
+  right: 8px;
+  left: auto;
+  width: min(320px, calc(100% - 16px));
+}
+
+.a3s-flow-variable-suggestions > header {
+  display: flex;
+  min-height: 38px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--a3s-form-line);
+  background: var(--a3s-form-panel-soft);
+  align-items: center;
+  gap: 7px;
+}
+
+.a3s-flow-variable-suggestions > header > span {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--a3s-form-blue) 10%, var(--a3s-form-panel));
+  color: var(--a3s-form-blue);
+  font-family: var(--font-mono, monospace);
+  font-weight: 760;
+  place-items: center;
+}
+
+.a3s-flow-variable-suggestions > header strong {
+  min-width: 0;
+  margin-right: auto;
+  font-size: 11px;
+}
+
+.a3s-flow-variable-suggestions > header kbd {
+  padding: 2px 4px;
+  border: 1px solid var(--a3s-form-line);
+  border-radius: 4px;
+  background: var(--a3s-form-panel);
+  color: var(--a3s-form-muted);
+  font-family: var(--font-mono, monospace);
+  font-size: 8px;
+}
+
+.a3s-flow-variable-suggestions > p {
+  margin: 0;
+  padding: 18px 12px;
+  color: var(--a3s-form-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.a3s-flow-variable-suggestions__groups {
+  max-height: min(320px, 46vh);
+  padding: 4px;
+  overflow-y: auto;
+}
+
+.a3s-flow-variable-suggestions__groups h4 {
+  margin: 0;
+  padding: 8px 7px 4px;
+  color: var(--a3s-form-faint);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.a3s-flow-variable-suggestions__groups button {
+  display: grid;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  color: var(--a3s-form-ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.a3s-flow-variable-suggestions__groups button:hover,
+.a3s-flow-variable-suggestions__groups button.is-active {
+  background: color-mix(in srgb, var(--a3s-form-blue) 7%, var(--a3s-form-panel));
+}
+
+.a3s-flow-variable-suggestions__groups button > span {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.a3s-flow-variable-suggestions__groups code {
+  overflow: hidden;
+  color: var(--a3s-form-blue);
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-flow-variable-suggestions__groups small {
+  overflow: hidden;
+  color: var(--a3s-form-muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-flow-variable-suggestions__groups em {
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: var(--a3s-form-panel-soft);
+  color: var(--a3s-form-muted);
+  font-family: var(--font-mono, monospace);
+  font-size: 8px;
+  font-style: normal;
 }
 
 .a3s-form-flow-schema {
@@ -369,8 +793,8 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: end;
-  gap: 10px;
-  padding: 11px 0;
+  gap: 7px;
+  padding: 9px 0;
   border-bottom: 1px solid var(--a3s-form-line);
 }
 
@@ -1089,17 +1513,8 @@
 @container a3s-form-workflow-panel (max-width: 560px) {
   .a3s-form-flow-batch-primary-fields,
   .a3s-form-flow-batch-retry-fields,
-  .a3s-form-flow-schema-row-fields,
   .a3s-form-flow-spec-fields {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .a3s-form-flow-schema-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .a3s-form-flow-schema-row-fields {
-    grid-column: 1 / -1;
   }
 
   .a3s-form-flow-schema-actions,
