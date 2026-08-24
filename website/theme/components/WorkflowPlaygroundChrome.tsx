@@ -25,6 +25,7 @@ import {
   TreeStructure,
   WarningCircle,
 } from '@phosphor-icons/react';
+import { useEffect, useRef } from 'react';
 import type { MouseEvent } from 'react';
 import type { WorkflowPlaygroundCopy } from './WorkflowPlayground.copy';
 import {
@@ -35,6 +36,50 @@ import {
 
 export type PlaygroundCanvasMode = 'pan' | 'select' | 'comment';
 export type PlaygroundDebugTab = 'trace' | 'variables' | 'history';
+
+function useDismissibleDetails() {
+  const menuRef = useRef<HTMLDetailsElement>(null);
+
+  useEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+
+    const ownerDocument = menu.ownerDocument;
+    const closeMenu = () => {
+      menu.open = false;
+    };
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (menu.open && target instanceof Node && !menu.contains(target)) {
+        closeMenu();
+      }
+    };
+    const handleFocusIn = (event: FocusEvent) => {
+      const target = event.target;
+      if (menu.open && target instanceof Node && !menu.contains(target)) {
+        closeMenu();
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!menu.open || event.key !== 'Escape') return;
+      event.preventDefault();
+      closeMenu();
+      menu.querySelector('summary')?.focus();
+    };
+
+    ownerDocument.addEventListener('pointerdown', handlePointerDown, true);
+    ownerDocument.addEventListener('focusin', handleFocusIn);
+    ownerDocument.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      ownerDocument.removeEventListener('pointerdown', handlePointerDown, true);
+      ownerDocument.removeEventListener('focusin', handleFocusIn);
+      ownerDocument.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
+  return menuRef;
+}
 
 function runMenuAction(
   event: MouseEvent<HTMLButtonElement>,
@@ -82,6 +127,8 @@ export function WorkflowPlaygroundHeader({
   onValidate,
   onRunToggle,
 }: PlaygroundHeaderProps) {
+  const menuRef = useDismissibleDetails();
+
   return (
     <header className="a3s-workflow-header">
       <div className="a3s-workflow-header__identity">
@@ -146,7 +193,7 @@ export function WorkflowPlaygroundHeader({
           )}
           <span>{running ? copy.stop : copy.run}</span>
         </button>
-        <details className="a3s-workflow-header__menu">
+        <details className="a3s-workflow-header__menu" ref={menuRef}>
           <summary aria-label={copy.moreActions} title={copy.moreActions}>
             <DotsThree aria-hidden="true" weight="bold" />
           </summary>
@@ -216,6 +263,7 @@ export function WorkflowPlaygroundRail({
   onModeChange,
   onOpenVariables,
 }: PlaygroundRailProps) {
+  const menuRef = useDismissibleDetails();
   const nextRouting: PlaygroundEdgeRouting =
     edgeRouting === 'curve' ? 'orthogonal' : 'curve';
   const RoutingIcon = nextRouting === 'curve' ? BezierCurve : LineSegments;
@@ -294,7 +342,7 @@ export function WorkflowPlaygroundRail({
       >
         <RoutingIcon aria-hidden="true" />
       </button>
-      <details className="a3s-workflow-rail__menu">
+      <details className="a3s-workflow-rail__menu" ref={menuRef}>
         <summary aria-label={copy.moreActions} title={copy.moreActions}>
           <DotsThree aria-hidden="true" weight="bold" />
         </summary>

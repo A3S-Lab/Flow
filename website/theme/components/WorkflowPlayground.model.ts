@@ -116,8 +116,8 @@ export type PlaygroundConfigurationIssue = {
 };
 
 const NORMAL_NODE_WIDTH = 240;
-const CONTAINER_NODE_WIDTH = 520;
-const CONTAINER_NODE_HEIGHT = 340;
+const CONTAINER_NODE_WIDTH = 600;
+const CONTAINER_NODE_HEIGHT = 360;
 
 function sanitizeId(value: string): string {
   return value.replace(/^flow\./u, '').replace(/[^a-z0-9]+/giu, '_');
@@ -233,55 +233,248 @@ export function createPlaygroundEdge(
 export function createSampleWorkflow(
   locale: FlowWebsiteLocale,
 ): PlaygroundGraphState {
+  const iteration = createNode(
+    'iteration_1',
+    'iteration',
+    { x: 1340, y: 30 },
+    locale,
+    { configuration: { start_node_id: 'iteration_1_start' } },
+  );
+  const iterationStart = createNode(
+    'iteration_1_start',
+    'iteration-start',
+    { x: 36, y: 150 },
+    locale,
+    { parentId: iteration.id },
+  );
+  const iterationTask = createNode(
+    'iteration_1_task',
+    'flow.step',
+    { x: 324, y: 150 },
+    locale,
+    {
+      configuration: { step_name: 'support.process_item' },
+      parentId: iteration.id,
+    },
+  );
+  const loop = createNode('loop_1', 'loop', { x: 1980, y: 30 }, locale, {
+    configuration: { start_node_id: 'loop_1_start' },
+  });
+  const loopStart = createNode(
+    'loop_1_start',
+    'loop-start',
+    { x: 36, y: 150 },
+    locale,
+    { parentId: loop.id },
+  );
+  const loopTask = createNode(
+    'loop_1_task',
+    'flow.step',
+    { x: 324, y: 150 },
+    locale,
+    {
+      configuration: { step_name: 'support.refine_result' },
+      parentId: loop.id,
+    },
+  );
   const nodes = [
-    createNode('start_1', 'flow.start', { x: 60, y: 285 }, locale),
-    createNode('step_1', 'flow.step', { x: 380, y: 285 }, locale),
-    createNode('condition_1', 'flow.condition', { x: 700, y: 285 }, locale),
-    createNode('complete_1', 'flow.complete', { x: 1020, y: 175 }, locale),
-    createNode('fail_1', 'flow.fail', { x: 1020, y: 425 }, locale),
+    createNode('start_1', 'flow.start', { x: 60, y: 590 }, locale, {
+      configuration: {
+        workflow_name: 'workflow.customer_support',
+        workflow_version: '1.0.0',
+      },
+    }),
+    createNode('route_primary', 'flow.condition', { x: 380, y: 590 }, locale),
+    createNode('step_1', 'flow.step', { x: 700, y: 80 }, locale, {
+      configuration: { step_name: 'support.classify_request' },
+    }),
+    createNode('batch_1', 'flow.batch', { x: 1020, y: 80 }, locale),
+    iteration,
+    iterationStart,
+    iterationTask,
+    loop,
+    loopStart,
+    loopTask,
+    createNode('progress_1', 'flow.progress', { x: 2620, y: 80 }, locale, {
+      configuration: { progress_id: 'support-progress' },
+    }),
+    createNode('complete_1', 'flow.complete', { x: 2940, y: 80 }, locale),
+    createNode('route_secondary', 'flow.condition', { x: 700, y: 590 }, locale),
+    createNode('wait_1', 'flow.wait', { x: 1020, y: 460 }, locale),
+    createNode('hook_1', 'flow.hook', { x: 1340, y: 460 }, locale),
+    createNode('signal_1', 'flow.signal', { x: 1660, y: 460 }, locale),
+    createNode('timeout_1', 'flow.timeout', { x: 1980, y: 460 }, locale),
+    createNode('route_children', 'flow.condition', { x: 1020, y: 850 }, locale),
+    createNode(
+      'child_operation_1',
+      'flow.child-operation',
+      { x: 1340, y: 720 },
+      locale,
+    ),
+    createNode(
+      'child_workflow_1',
+      'flow.child-workflow',
+      { x: 1660, y: 720 },
+      locale,
+    ),
+    createNode(
+      'child_workflows_1',
+      'flow.child-workflows',
+      { x: 1980, y: 720 },
+      locale,
+    ),
+    createNode(
+      'continue_as_new_1',
+      'flow.continue-as-new',
+      { x: 2300, y: 720 },
+      locale,
+    ),
+    createNode(
+      'route_terminal',
+      'flow.condition',
+      { x: 1340, y: 1050 },
+      locale,
+    ),
+    createNode('cancel_1', 'flow.cancel', { x: 1660, y: 980 }, locale),
+    createNode('fail_1', 'flow.fail', { x: 1660, y: 1160 }, locale),
   ];
-  const edges = [
-    createPlaygroundEdge(
-      {
-        source: 'start_1',
-        sourceHandle: 'next',
-        target: 'step_1',
-        targetHandle: 'in',
-      },
-      nodes,
-      locale,
-    ),
-    createPlaygroundEdge(
-      {
-        source: 'step_1',
-        sourceHandle: 'success',
-        target: 'condition_1',
-        targetHandle: 'in',
-      },
-      nodes,
-      locale,
-    ),
-    createPlaygroundEdge(
-      {
-        source: 'condition_1',
-        sourceHandle: 'matched',
-        target: 'complete_1',
-        targetHandle: 'in',
-      },
-      nodes,
-      locale,
-    ),
-    createPlaygroundEdge(
-      {
-        source: 'condition_1',
-        sourceHandle: 'otherwise',
-        target: 'fail_1',
-        targetHandle: 'in',
-      },
-      nodes,
-      locale,
-    ),
+  const connections: CompleteConnection[] = [
+    {
+      source: 'start_1',
+      sourceHandle: 'next',
+      target: 'route_primary',
+      targetHandle: 'in',
+    },
+    {
+      source: 'route_primary',
+      sourceHandle: 'matched',
+      target: 'step_1',
+      targetHandle: 'in',
+    },
+    {
+      source: 'step_1',
+      sourceHandle: 'success',
+      target: 'batch_1',
+      targetHandle: 'in',
+    },
+    {
+      source: 'batch_1',
+      sourceHandle: 'done',
+      target: 'iteration_1',
+      targetHandle: 'in',
+    },
+    {
+      source: 'iteration_1',
+      sourceHandle: 'done',
+      target: 'loop_1',
+      targetHandle: 'in',
+    },
+    {
+      source: 'loop_1',
+      sourceHandle: 'done',
+      target: 'progress_1',
+      targetHandle: 'in',
+    },
+    {
+      source: 'progress_1',
+      sourceHandle: 'recorded',
+      target: 'complete_1',
+      targetHandle: 'in',
+    },
+    {
+      source: 'route_primary',
+      sourceHandle: 'otherwise',
+      target: 'route_secondary',
+      targetHandle: 'in',
+    },
+    {
+      source: 'route_secondary',
+      sourceHandle: 'matched',
+      target: 'wait_1',
+      targetHandle: 'in',
+    },
+    {
+      source: 'wait_1',
+      sourceHandle: 'resumed',
+      target: 'hook_1',
+      targetHandle: 'in',
+    },
+    {
+      source: 'hook_1',
+      sourceHandle: 'received',
+      target: 'signal_1',
+      targetHandle: 'in',
+    },
+    {
+      source: 'signal_1',
+      sourceHandle: 'received',
+      target: 'timeout_1',
+      targetHandle: 'in',
+    },
+    {
+      source: 'route_secondary',
+      sourceHandle: 'otherwise',
+      target: 'route_children',
+      targetHandle: 'in',
+    },
+    {
+      source: 'route_children',
+      sourceHandle: 'matched',
+      target: 'child_operation_1',
+      targetHandle: 'in',
+    },
+    {
+      source: 'child_operation_1',
+      sourceHandle: 'linked',
+      target: 'child_workflow_1',
+      targetHandle: 'in',
+    },
+    {
+      source: 'child_workflow_1',
+      sourceHandle: 'completed',
+      target: 'child_workflows_1',
+      targetHandle: 'in',
+    },
+    {
+      source: 'child_workflows_1',
+      sourceHandle: 'completed',
+      target: 'continue_as_new_1',
+      targetHandle: 'in',
+    },
+    {
+      source: 'route_children',
+      sourceHandle: 'otherwise',
+      target: 'route_terminal',
+      targetHandle: 'in',
+    },
+    {
+      source: 'route_terminal',
+      sourceHandle: 'matched',
+      target: 'cancel_1',
+      targetHandle: 'in',
+    },
+    {
+      source: 'route_terminal',
+      sourceHandle: 'otherwise',
+      target: 'fail_1',
+      targetHandle: 'in',
+    },
+    {
+      source: 'iteration_1_start',
+      sourceHandle: 'next',
+      target: 'iteration_1_task',
+      targetHandle: 'in',
+    },
+    {
+      source: 'loop_1_start',
+      sourceHandle: 'next',
+      target: 'loop_1_task',
+      targetHandle: 'in',
+    },
   ];
+  const edges = connections.map((connection) =>
+    createPlaygroundEdge(connection, nodes, locale),
+  );
   return { nodes, edges, annotations: [] };
 }
 
@@ -308,10 +501,10 @@ export function createNodeAddition(
     configuration: { start_node_id: startId },
     selected: true,
   });
-  const start = createNode(startId, startType, { x: 48, y: 160 }, locale, {
+  const start = createNode(startId, startType, { x: 36, y: 150 }, locale, {
     parentId: nodeId,
   });
-  const task = createNode(taskId, 'flow.step', { x: 412, y: 160 }, locale, {
+  const task = createNode(taskId, 'flow.step', { x: 324, y: 150 }, locale, {
     parentId: nodeId,
   });
   const nodes = [container, start, task];

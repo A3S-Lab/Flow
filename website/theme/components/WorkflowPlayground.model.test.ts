@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { a3sFlowDagNodeRegistry } from '@a3s-lab/flow-ui';
 import {
   buildPlaygroundDocument,
   collectDeletionIds,
@@ -11,15 +12,27 @@ import {
 } from './WorkflowPlayground.model';
 
 describe('Workflow Playground graph model', () => {
-  it('starts with a compilable sample and valid node configuration', () => {
+  it('starts with a compilable sample that covers every node manifest', () => {
     const sample = createSampleWorkflow('en');
+    const compilation = compilePlaygroundGraph(sample.nodes, sample.edges);
+    const sampleTypes = [
+      ...new Set(sample.nodes.map((node) => node.data.dagNode.data.type)),
+    ].sort();
+    const catalogTypes = a3sFlowDagNodeRegistry
+      .list()
+      .map(({ type }) => type)
+      .sort();
 
-    expect(compilePlaygroundGraph(sample.nodes, sample.edges)).toMatchObject({
+    expect(compilation).toMatchObject({
       ok: true,
       plan: {
-        topLevel: ['start_1', 'step_1', 'condition_1', 'complete_1', 'fail_1'],
+        scopes: {
+          iteration_1: ['iteration_1_start', 'iteration_1_task'],
+          loop_1: ['loop_1_start', 'loop_1_task'],
+        },
       },
     });
+    expect(sampleTypes).toEqual(catalogTypes);
     expect(
       validatePlaygroundConfigurations(sample.nodes, sample.edges),
     ).toEqual([]);
@@ -89,7 +102,7 @@ describe('Workflow Playground graph model', () => {
     expect(document.version).toBe('0.7.0');
     expect(document.workflow.graph.nodes[0]).toMatchObject({
       id: 'start_1',
-      position: { x: 60, y: 285 },
+      position: { x: 60, y: 590 },
       data: { type: 'flow.start', title: 'Workflow Start' },
     });
     expect(sample.edges.every(({ type }) => type === 'workflow')).toBe(true);
