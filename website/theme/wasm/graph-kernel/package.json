@@ -1,0 +1,15 @@
+{
+  "name": "a3s-flow-playground-kernel",
+  "type": "module",
+  "version": "1.0.0",
+  "files": [
+    "a3s_flow_playground_kernel_bg.wasm",
+    "a3s_flow_playground_kernel.js",
+    "a3s_flow_playground_kernel.d.ts"
+  ],
+  "main": "a3s_flow_playground_kernel.js",
+  "types": "a3s_flow_playground_kernel.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

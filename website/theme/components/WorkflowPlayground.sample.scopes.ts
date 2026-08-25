@@ -36,7 +36,10 @@ export function createSampleScopes(
       'Normalize each order line, then reserve stock or create a backorder.',
     ],
     {
-      items: expression(field('input.items')),
+      items: expression({
+        op: 'coalesce',
+        values: [field('input.items'), literal([])],
+      }),
       start_node_id: 'item_iteration_start',
     },
   );

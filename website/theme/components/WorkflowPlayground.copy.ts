@@ -11,6 +11,7 @@ export type WorkflowPlaygroundCopy = {
   saved: string;
   saving: string;
   backHome: string;
+  backToExamples: string;
   language: string;
   version: string;
   validate: string;
@@ -129,6 +130,7 @@ export const workflowPlaygroundCopy: Readonly<
     saved: '已保存到本地',
     saving: '正在保存',
     backHome: '返回 A3S Flow 文档',
+    backToExamples: '返回工作流示例列表',
     language: '切换到英文',
     version: '版本',
     validate: '校验',
@@ -269,6 +271,7 @@ export const workflowPlaygroundCopy: Readonly<
     saved: 'Saved locally',
     saving: 'Saving',
     backHome: 'Back to A3S Flow documentation',
+    backToExamples: 'Back to workflow examples',
     language: 'Switch to Chinese',
     version: 'Version',
     validate: 'Validate',

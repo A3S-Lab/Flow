@@ -7,23 +7,79 @@ import {
   type A3SFlowWorkflowDagCompilation,
   type A3SFlowWorkflowDagNode,
 } from './a3s-flow-dsl-types';
-import type {
-  A3SFlowDagNodeCapabilityRegistry,
-} from './a3s-flow-custom-node';
+import type { A3SFlowDagNodeCapabilityRegistry } from './a3s-flow-custom-node';
 import { isA3SFlowDagNodeCapabilityBindingValid } from './a3s-flow-custom-node';
 import type { A3SFlowDagNodeRegistry } from './a3s-flow-node-manifest';
 
 const encoder = new TextEncoder();
 
-function compareUtf8(left: string, right: string): number {
-  const leftBytes = encoder.encode(left);
-  const rightBytes = encoder.encode(right);
-  const length = Math.min(leftBytes.length, rightBytes.length);
-  for (let index = 0; index < length; index += 1) {
-    const difference = leftBytes[index] - rightBytes[index];
-    if (difference !== 0) return difference;
+function createUtf8Comparator(): (left: string, right: string) => number {
+  const keys = new Map<string, Uint8Array>();
+  const keyFor = (value: string) => {
+    const cached = keys.get(value);
+    if (cached) return cached;
+    const encoded = encoder.encode(value);
+    keys.set(value, encoded);
+    return encoded;
+  };
+  return (left, right) => {
+    const leftBytes = keyFor(left);
+    const rightBytes = keyFor(right);
+    const length = Math.min(leftBytes.length, rightBytes.length);
+    for (let index = 0; index < length; index += 1) {
+      const difference = leftBytes[index] - rightBytes[index];
+      if (difference !== 0) return difference;
+    }
+    return leftBytes.length - rightBytes.length;
+  };
+}
+
+class StringMinHeap {
+  readonly #values: string[] = [];
+
+  constructor(
+    private readonly compare: (left: string, right: string) => number,
+  ) {}
+
+  get size(): number {
+    return this.#values.length;
   }
-  return leftBytes.length - rightBytes.length;
+
+  push(value: string): void {
+    const values = this.#values;
+    values.push(value);
+    let index = values.length - 1;
+    while (index > 0) {
+      const parent = Math.floor((index - 1) / 2);
+      if (this.compare(values[parent], value) <= 0) break;
+      values[index] = values[parent];
+      index = parent;
+    }
+    values[index] = value;
+  }
+
+  pop(): string | undefined {
+    const values = this.#values;
+    const first = values[0];
+    const tail = values.pop();
+    if (tail === undefined || values.length === 0) return first;
+
+    let index = 0;
+    while (true) {
+      const left = index * 2 + 1;
+      if (left >= values.length) break;
+      const right = left + 1;
+      const child =
+        right < values.length && this.compare(values[right], values[left]) < 0
+          ? right
+          : left;
+      if (this.compare(values[child], tail) >= 0) break;
+      values[index] = values[child];
+      index = child;
+    }
+    values[index] = tail;
+    return first;
+  }
 }
 
 function issue(
@@ -146,6 +202,7 @@ function validateContainerScopes(
 export function compileA3SFlowWorkflowDag(
   graph: A3SFlowWorkflowDag,
 ): A3SFlowWorkflowDagCompilation {
+  const compareUtf8 = createUtf8Comparator();
   if (
     !isRecord(graph) ||
     !Array.isArray(graph.nodes) ||
@@ -296,22 +353,19 @@ export function compileA3SFlowWorkflowDag(
     const scopedIndegree = new Map(
       [...ids].map((id) => [id, indegree.get(id) ?? 0] as const),
     );
-    const ready = [...scopedIndegree]
-      .filter(([, count]) => count === 0)
-      .map(([id]) => id)
-      .sort(compareUtf8);
+    const ready = new StringMinHeap(compareUtf8);
+    for (const [id, count] of scopedIndegree) {
+      if (count === 0) ready.push(id);
+    }
     const order: string[] = [];
-    while (ready.length > 0) {
-      const id = ready.shift();
+    while (ready.size > 0) {
+      const id = ready.pop();
       if (!id) break;
       order.push(id);
       for (const target of outgoing.get(id) ?? []) {
         const count = (scopedIndegree.get(target) ?? 0) - 1;
         scopedIndegree.set(target, count);
-        if (count === 0) {
-          ready.push(target);
-          ready.sort(compareUtf8);
-        }
+        if (count === 0) ready.push(target);
       }
     }
     if (order.length !== ids.size) {

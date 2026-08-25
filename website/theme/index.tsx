@@ -18,6 +18,7 @@ import './workflow-designer/workflow-playground-debug.css';
 import './workflow-designer/workflow-playground-overlays.css';
 import './workflow-designer/workflow-playground-responsive.css';
 import './workflow-designer/workflow-playground-flow.css';
+import './workflow-designer/workflow-playground-examples.css';
 
 export { HomeLayout } from './components/HomeLayout';
 export { Layout } from './components/Layout';

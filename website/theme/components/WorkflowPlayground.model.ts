@@ -118,6 +118,45 @@ export type PlaygroundConfigurationIssue = {
   message: string;
 };
 
+type CachedConfigurationIssue = Omit<
+  PlaygroundConfigurationIssue,
+  'nodeId' | 'nodeType'
+>;
+
+const configurationValidationCache = new WeakMap<
+  object,
+  WeakMap<object, Map<string, readonly CachedConfigurationIssue[]>>
+>();
+const semanticDataIdentities = new WeakMap<object, number>();
+let nextSemanticDataIdentity = 1;
+
+function semanticDataIdentity(value: object): number {
+  const cached = semanticDataIdentities.get(value);
+  if (cached) return cached;
+  const identity = nextSemanticDataIdentity++;
+  semanticDataIdentities.set(value, identity);
+  return identity;
+}
+
+export function playgroundGraphSemanticKey(
+  nodes: readonly PlaygroundNode[],
+  edges: readonly PlaygroundEdge[],
+): string {
+  const nodeKey = nodes
+    .map(
+      (node) =>
+        `${node.id}\u0001${node.parentId ?? ''}\u0001${semanticDataIdentity(node.data.dagNode.data)}`,
+    )
+    .join('\u0002');
+  const edgeKey = edges
+    .map(
+      (edge) =>
+        `${edge.id}\u0001${edge.source}\u0001${edge.sourceHandle ?? ''}\u0001${edge.target}\u0001${edge.targetHandle ?? ''}`,
+    )
+    .join('\u0002');
+  return `${nodes.length}:${nodeKey}\u0003${edges.length}:${edgeKey}`;
+}
+
 const NORMAL_NODE_WIDTH = 240;
 const CONTAINER_NODE_WIDTH = 600;
 const CONTAINER_NODE_HEIGHT = 360;
@@ -520,25 +559,52 @@ export function validatePlaygroundConfigurations(
   edges: readonly PlaygroundEdge[],
   registry: A3SFlowDagNodeRegistry = a3sFlowDagNodeRegistry,
 ): PlaygroundConfigurationIssue[] {
+  const connectedOutputsByNode = new Map<string, string[]>();
+  for (const edge of edges) {
+    if (!edge.sourceHandle) continue;
+    const outputs = connectedOutputsByNode.get(edge.source);
+    if (outputs) outputs.push(edge.sourceHandle);
+    else connectedOutputsByNode.set(edge.source, [edge.sourceHandle]);
+  }
+
   return nodes.flatMap((node) => {
     const nodeType = node.data.dagNode.data.type;
     const manifest = registry.require(nodeType);
-    const value = selectA3SFlowDagNodeConfiguration(
-      node.data.dagNode,
-      manifest,
-    );
-    const connectedOutputPortIds = edges
-      .filter(({ source }) => source === node.id)
-      .flatMap(({ sourceHandle }) => (sourceHandle ? [sourceHandle] : []));
-    const result = validateA3SFlowDagNodeConfiguration(manifest, value, {
-      connectedOutputPortIds,
-    });
-    return result.errors.map((error) => ({
+    const connectedOutputPortIds = connectedOutputsByNode.get(node.id) ?? [];
+    const connectionSignature = [...new Set(connectedOutputPortIds)]
+      .sort()
+      .join('\u0000');
+    const dataIdentity = node.data.dagNode.data;
+    let byManifest = configurationValidationCache.get(dataIdentity);
+    if (!byManifest) {
+      byManifest = new WeakMap();
+      configurationValidationCache.set(dataIdentity, byManifest);
+    }
+    let byConnection = byManifest.get(manifest);
+    if (!byConnection) {
+      byConnection = new Map();
+      byManifest.set(manifest, byConnection);
+    }
+    let cached = byConnection.get(connectionSignature);
+    if (!cached) {
+      const value = selectA3SFlowDagNodeConfiguration(
+        node.data.dagNode,
+        manifest,
+      );
+      const result = validateA3SFlowDagNodeConfiguration(manifest, value, {
+        connectedOutputPortIds,
+      });
+      cached = result.errors.map(({ path, code, message }) => ({
+        path,
+        code,
+        message,
+      }));
+      byConnection.set(connectionSignature, cached);
+    }
+    return cached.map((error) => ({
       nodeId: node.id,
       nodeType,
-      path: error.path,
-      code: error.code,
-      message: error.message,
+      ...error,
     }));
   });
 }

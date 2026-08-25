@@ -1,6 +1,5 @@
 import { CheckCircle } from '@phosphor-icons/react';
 import {
-  a3sFlowDagNodeRegistry,
   localizeA3SFlowDagManifest,
   type A3SFlowWorkflowDagNode,
 } from '@a3s-lab/flow-ui';
@@ -13,18 +12,13 @@ import {
   MarkerType,
   MiniMap,
   ReactFlow,
-  ReactFlowProvider,
-  applyEdgeChanges,
-  applyNodeChanges,
   useReactFlow,
-  type Connection,
   type DefaultEdgeOptions,
-  type EdgeChange,
-  type NodeChange,
   type XYPosition,
 } from '@xyflow/react';
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -33,10 +27,8 @@ import {
   type DragEvent,
 } from 'react';
 import { WorkflowPlaygroundAnnotation } from './WorkflowPlaygroundAnnotation';
-import {
-  workflowPlaygroundCopy,
-  type WorkflowPlaygroundCopy,
-} from './WorkflowPlayground.copy';
+import { useWorkflowPlaygroundChanges } from './WorkflowPlayground.changes';
+import { workflowPlaygroundCopy } from './WorkflowPlayground.copy';
 import {
   WorkflowPlaygroundCanvasDock,
   WorkflowPlaygroundHeader,
@@ -44,36 +36,32 @@ import {
   type PlaygroundCanvasMode,
   type PlaygroundDebugTab,
 } from './WorkflowPlaygroundChrome';
-import {
-  WorkflowPlaygroundDebug,
-  type PlaygroundRunRecord,
-  type PlaygroundRunStep,
-} from './WorkflowPlaygroundDebug';
+import { WorkflowPlaygroundDebug } from './WorkflowPlaygroundDebug';
 import { WorkflowPlaygroundEdge } from './WorkflowPlaygroundEdge';
+import { useWorkflowPlaygroundElements } from './WorkflowPlayground.elements';
 import { usePlaygroundDocument } from './WorkflowPlayground.history';
+import { useWorkflowPlaygroundKeyboard } from './WorkflowPlayground.keyboard';
 import { usePlaygroundDraft } from './WorkflowPlayground.persistence';
 import {
   WorkflowPlaygroundInspector,
   type InspectorTab,
 } from './WorkflowPlaygroundInspector';
 import { WorkflowPlaygroundLibrary } from './WorkflowPlaygroundLibrary';
+import { addIntoGraph } from './WorkflowPlayground.graph';
+import { layoutPlaygroundGraphOffThread } from './WorkflowPlayground.layout-client';
+import { pageHref, playgroundHref } from './WorkflowPlayground.routes';
 import {
-  addIntoGraph,
-  layoutPlaygroundGraph,
-  nodeDisplayName,
-  waitForPreview,
-} from './WorkflowPlayground.graph';
-import { pageHref } from './WorkflowPlayground.routes';
+  WorkflowPlaygroundRoute,
+  type WorkflowPlaygroundSurfaceProps,
+} from './WorkflowPlayground.route';
+import { useWorkflowPlaygroundRuntime } from './WorkflowPlayground.runtime';
 import {
   buildPlaygroundDocument,
   collectDeletionIds,
   compilePlaygroundGraph,
-  createPlaygroundEdge,
   PLAYGROUND_EDGE_COLORS,
-  playgroundEdgeAriaLabel,
-  resolvePlaygroundEdgeSourceLabel,
+  playgroundGraphSemanticKey,
   validatePlaygroundConfigurations,
-  validatePlaygroundConnection,
   type PlaygroundAnnotationKind,
   type PlaygroundAnnotationNode,
   type PlaygroundCanvasNode,
@@ -81,11 +69,9 @@ import {
   type PlaygroundEdgeColor,
   type PlaygroundNode,
 } from './WorkflowPlayground.model';
-import { createSampleWorkflow } from './WorkflowPlayground.sample';
-import { createPlaygroundNodeCatalog } from './WorkflowPlayground.custom-nodes';
 import { WorkflowPlaygroundNode } from './WorkflowPlaygroundNode';
 import { WorkflowPlaygroundRegistryContext } from './WorkflowPlayground.registry';
-import { flowNodeGroups, type FlowWebsiteLocale } from './flow-node-catalog';
+import type { FlowWebsiteLocale } from './flow-node-catalog';
 
 const DRAG_MIME = 'application/x-a3s-flow-node';
 const INITIAL_PLAYGROUND_VIEWPORT = { x: 12, y: 12, zoom: 0.62 } as const;
@@ -95,54 +81,25 @@ const nodeTypes = {
 };
 const edgeTypes = { workflow: WorkflowPlaygroundEdge };
 
-function nodeChangeId(change: NodeChange<PlaygroundCanvasNode>): string {
-  return change.type === 'add' || change.type === 'replace'
-    ? change.item.id
-    : change.id;
+function serializePlaygroundDocument(
+  nodes: readonly PlaygroundNode[],
+  edges: readonly PlaygroundEdge[],
+): string {
+  return JSON.stringify(buildPlaygroundDocument(nodes, edges), null, 2);
 }
 
-function MarkdownPlayground({
-  locale,
-  copy,
-}: {
-  locale: FlowWebsiteLocale;
-  copy: WorkflowPlaygroundCopy;
-}) {
-  return (
-    <main data-flow-playground="">
-      <h1>{copy.pageTitle}</h1>
-      <p>{copy.nodeLibraryDescription}</p>
-      {flowNodeGroups.map((group) => (
-        <section key={group.id}>
-          <h2>{group.label[locale]}</h2>
-          <ul>
-            {group.types.map((type) => {
-              const node = localizeA3SFlowDagManifest(
-                a3sFlowDagNodeRegistry.require(type),
-                locale,
-              );
-              return (
-                <li key={type}>
-                  <strong>{node.display_name}</strong>: {node.description}
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      ))}
-    </main>
-  );
-}
-
-function WorkflowPlaygroundSurface() {
+function WorkflowPlaygroundSurface({
+  backHref,
+  catalog,
+  example,
+}: WorkflowPlaygroundSurfaceProps) {
   const locale: FlowWebsiteLocale = useLang() === 'en' ? 'en' : 'zh';
   const copy = workflowPlaygroundCopy[locale];
-  const catalog = useMemo(() => createPlaygroundNodeCatalog(locale), [locale]);
   const version = useVersion();
   const { site } = useSite();
   const defaultVersion = site.multiVersion.default ?? version;
   const versions = site.multiVersion.versions ?? [version];
-  const storageKey = `a3s-flow-playground:v4:${version}:${locale}`;
+  const storageKey = `a3s-flow-playground:v5:${version}:${locale}:${example.id}`;
   const {
     graph,
     canUndo,
@@ -154,7 +111,7 @@ function WorkflowPlaygroundSurface() {
     restore,
     beginDrag,
     endDrag,
-  } = usePlaygroundDocument(() => createSampleWorkflow(locale, catalog));
+  } = usePlaygroundDocument(() => structuredClone(example.graph));
   const { edgeColor, edgeRouting, saveState, setEdgeColor, setEdgeRouting } =
     usePlaygroundDraft(storageKey, graph, restore);
   const { fitView, screenToFlowPosition, setViewport } = useReactFlow<
@@ -174,17 +131,11 @@ function WorkflowPlaygroundSurface() {
   const [minimapVisible, setMinimapVisible] = useState(true);
   const [debugTab, setDebugTab] = useState<PlaygroundDebugTab>('trace');
   const [announcement, setAnnouncement] = useState('');
-  const [statuses, setStatuses] = useState<
-    Record<string, PlaygroundNode['data']['runtimeStatus']>
-  >({});
-  const [running, setRunning] = useState(false);
-  const [runningNodeId, setRunningNodeId] = useState<string>();
-  const [trace, setTrace] = useState<PlaygroundRunStep[]>([]);
-  const [history, setHistory] = useState<PlaygroundRunRecord[]>([]);
   const canvasRef = useRef<HTMLDivElement>(null);
-  const runAbort = useRef<AbortController | undefined>(undefined);
-  const runCounter = useRef(1);
   const annotationCounter = useRef(1);
+  const arrangeRequest = useRef(0);
+  const graphRef = useRef(graph);
+  graphRef.current = graph;
 
   const edgePalette = PLAYGROUND_EDGE_COLORS[edgeColor];
   const defaultEdgeOptions = useMemo<DefaultEdgeOptions>(
@@ -203,9 +154,10 @@ function WorkflowPlaygroundSurface() {
     '--workflow-edge-active': edgePalette.active,
   } as CSSProperties;
 
+  const semanticGraphKey = playgroundGraphSemanticKey(graph.nodes, graph.edges);
   const compilation = useMemo(
     () => compilePlaygroundGraph(graph.nodes, graph.edges, catalog),
-    [catalog, graph.edges, graph.nodes],
+    [catalog, semanticGraphKey],
   );
   const configurationIssues = useMemo(
     () =>
@@ -214,27 +166,63 @@ function WorkflowPlaygroundSurface() {
         graph.edges,
         catalog.registry,
       ),
-    [catalog.registry, graph.edges, graph.nodes],
+    [catalog.registry, semanticGraphKey],
   );
   const issueCount =
     (compilation.ok ? 0 : compilation.issues.length) +
     configurationIssues.length;
+  const openTrace = useCallback(() => {
+    setDebugOpen(true);
+    setDebugTab('trace');
+  }, []);
+  const openValidation = useCallback(() => {
+    setActivePanel('validation');
+  }, []);
+  const {
+    history,
+    lastRunNodeIds,
+    resetRuntimeHistory,
+    runNode,
+    runWorkflow,
+    running,
+    runningNodeId,
+    statuses,
+    stopRun,
+    trace,
+  } = useWorkflowPlaygroundRuntime({
+    compilation,
+    configurationIssueCount: configurationIssues.length,
+    copy,
+    graph,
+    locale,
+    registry: catalog.registry,
+    onAnnouncement: setAnnouncement,
+    onOpenTrace: openTrace,
+    onOpenValidation: openValidation,
+  });
   const selectedNode = graph.nodes.find(({ id }) => id === selectedNodeId);
+  const deferredGraph = useDeferredValue(graph);
   const documentJson = useMemo(
     () =>
-      JSON.stringify(
-        buildPlaygroundDocument(graph.nodes, graph.edges),
-        null,
-        2,
-      ),
-    [graph.edges, graph.nodes],
+      activePanel === 'document'
+        ? serializePlaygroundDocument(deferredGraph.nodes, deferredGraph.edges)
+        : '',
+    [activePanel, deferredGraph.edges, deferredGraph.nodes],
   );
-  const lastRunNodeIds = useMemo(
-    () => new Set(trace.map(({ nodeId }) => nodeId)),
-    [trace],
+  useEffect(
+    () => () => {
+      arrangeRequest.current += 1;
+    },
+    [],
   );
 
-  useEffect(() => () => runAbort.current?.abort(), []);
+  useEffect(() => {
+    if (example.featured) return;
+    const frame = window.requestAnimationFrame(() => {
+      void fitView({ duration: 0, maxZoom: 0.82, padding: 0.16 });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [example.featured, example.id, fitView]);
 
   useEffect(() => {
     if (!announcement) return;
@@ -333,9 +321,51 @@ function WorkflowPlaygroundSurface() {
     [updateTransient],
   );
 
-  const arrangeNodes = useCallback(() => {
+  const arrangeNodes = useCallback(async () => {
     if (running) return;
-    commit((current) => layoutPlaygroundGraph(current));
+    const request = ++arrangeRequest.current;
+    const source = graphRef.current;
+    const sourceKey = playgroundGraphSemanticKey(source.nodes, source.edges);
+    const arranged = await layoutPlaygroundGraphOffThread(source);
+    if (request !== arrangeRequest.current) return;
+    if (
+      playgroundGraphSemanticKey(
+        graphRef.current.nodes,
+        graphRef.current.edges,
+      ) !== sourceKey
+    ) {
+      return;
+    }
+    const positions = new Map(
+      arranged.nodes
+        .filter((node) => !node.parentId)
+        .map((node) => [node.id, node.position] as const),
+    );
+    commit((current) => {
+      if (
+        playgroundGraphSemanticKey(current.nodes, current.edges) !== sourceKey
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        nodes: current.nodes.map((node) => {
+          const position = positions.get(node.id);
+          if (!position) return node;
+          return {
+            ...node,
+            position: structuredClone(position),
+            data: {
+              ...node.data,
+              dagNode: {
+                ...node.data.dagNode,
+                position: structuredClone(position),
+              },
+            },
+          };
+        }),
+      };
+    });
     setAnnouncement(copy.nodesArranged);
     window.setTimeout(() => void fitView({ duration: 320, padding: 0.18 }), 0);
   }, [commit, copy.nodesArranged, fitView, running]);
@@ -440,223 +470,16 @@ function WorkflowPlaygroundSurface() {
     [addNode, commit, graph.nodes, running],
   );
 
-  const stopRun = useCallback(() => {
-    runAbort.current?.abort();
-    setRunning(false);
-    setRunningNodeId(undefined);
-    setStatuses({});
-    setAnnouncement(copy.runStopped);
-  }, [copy.runStopped]);
-
-  const runNode = useCallback(
-    async (nodeId: string) => {
-      if (running) return;
-      const node = graph.nodes.find(({ id }) => id === nodeId);
-      if (!node) return;
-      const controller = new AbortController();
-      runAbort.current?.abort();
-      runAbort.current = controller;
-      setRunning(true);
-      setDebugOpen(true);
-      setDebugTab('trace');
-      setRunningNodeId(nodeId);
-      setStatuses({ [nodeId]: 'running' });
-      const completed = await waitForPreview(420, controller.signal);
-      if (!completed) return;
-      const step = {
-        nodeId,
-        label: nodeDisplayName(node, locale, catalog.registry),
-        type: node.data.dagNode.data.type,
-        durationMs: 420,
-      };
-      setTrace([step]);
-      setStatuses({ [nodeId]: 'success' });
-      setRunningNodeId(undefined);
-      setRunning(false);
-      setAnnouncement(copy.runComplete);
-    },
-    [catalog.registry, copy.runComplete, graph.nodes, locale, running],
-  );
-
-  const runWorkflow = useCallback(async () => {
-    if (running) return;
-    if (!compilation.ok || configurationIssues.length > 0) {
-      setActivePanel('validation');
-      return;
-    }
-    const controller = new AbortController();
-    runAbort.current?.abort();
-    runAbort.current = controller;
-    const order = [
-      ...compilation.plan.topLevel,
-      ...Object.values(compilation.plan.scopes).flat(),
-    ];
-    const steps: PlaygroundRunStep[] = [];
-    setRunning(true);
-    setDebugOpen(true);
-    setDebugTab('trace');
-    setTrace([]);
-    setStatuses({});
-
-    for (const nodeId of order) {
-      const node = graph.nodes.find(({ id }) => id === nodeId);
-      if (!node) continue;
-      setRunningNodeId(nodeId);
-      setStatuses((current) => ({ ...current, [nodeId]: 'running' }));
-      if (!(await waitForPreview(280, controller.signal))) return;
-      const step = {
-        nodeId,
-        label: nodeDisplayName(node, locale, catalog.registry),
-        type: node.data.dagNode.data.type,
-        durationMs: 280,
-      };
-      steps.push(step);
-      setTrace([...steps]);
-      setStatuses((current) => ({ ...current, [nodeId]: 'success' }));
-    }
-
-    const durationMs = steps.reduce(
-      (total, step) => total + step.durationMs,
-      0,
-    );
-    const record: PlaygroundRunRecord = {
-      id: `run-${String(runCounter.current++).padStart(3, '0')}`,
-      startedAt: new Date().toLocaleTimeString(
-        locale === 'zh' ? 'zh-CN' : 'en-US',
-        { hour: '2-digit', minute: '2-digit', second: '2-digit' },
-      ),
-      durationMs,
-      steps,
-    };
-    setHistory((current) => [record, ...current].slice(0, 12));
-    setRunningNodeId(undefined);
-    setRunning(false);
-    setAnnouncement(copy.runComplete);
-  }, [
-    compilation,
-    catalog.registry,
-    configurationIssues.length,
-    copy.runComplete,
-    graph.nodes,
-    locale,
-    running,
-  ]);
-
-  const onNodesChange = useCallback(
-    (changes: NodeChange<PlaygroundCanvasNode>[]) => {
-      const meaningful = changes.filter((change) => change.type !== 'select');
-      if (meaningful.length === 0) return;
-      const removals = meaningful.filter((change) => change.type === 'remove');
-      if (removals.length > 0) {
-        commit((current) => {
-          const removalIds = new Set(removals.map(({ id }) => id));
-          const deletion = collectDeletionIds(current.nodes, removalIds);
-          return {
-            ...current,
-            nodes: current.nodes.filter(({ id }) => !deletion.has(id)),
-            edges: current.edges.filter(
-              ({ source, target }) =>
-                !deletion.has(source) && !deletion.has(target),
-            ),
-            annotations: current.annotations.filter(
-              ({ id }) => !removalIds.has(id),
-            ),
-          };
-        });
-        return;
-      }
-      updateTransient((current) => {
-        const workflowIds = new Set(current.nodes.map(({ id }) => id));
-        const workflowChanges = meaningful.filter((change) =>
-          workflowIds.has(nodeChangeId(change)),
-        ) as NodeChange<PlaygroundNode>[];
-        const annotationChanges = meaningful.filter(
-          (change) => !workflowIds.has(nodeChangeId(change)),
-        ) as NodeChange<PlaygroundAnnotationNode>[];
-        return {
-          ...current,
-          nodes: applyNodeChanges(workflowChanges, current.nodes),
-          annotations: applyNodeChanges(annotationChanges, current.annotations),
-        };
-      });
-    },
-    [commit, updateTransient],
-  );
-
-  const onEdgesChange = useCallback(
-    (changes: EdgeChange<PlaygroundEdge>[]) => {
-      const meaningful = changes.filter((change) => change.type !== 'select');
-      if (meaningful.length === 0) return;
-      if (meaningful.some((change) => change.type === 'remove')) {
-        commit((current) => ({
-          ...current,
-          edges: applyEdgeChanges(meaningful, current.edges),
-        }));
-        return;
-      }
-      updateTransient((current) => ({
-        ...current,
-        edges: applyEdgeChanges(meaningful, current.edges),
-      }));
-    },
-    [commit, updateTransient],
-  );
-
-  const onConnect = useCallback(
-    (connection: Connection) => {
-      const validation = validatePlaygroundConnection(
-        connection,
-        graph.nodes,
-        graph.edges,
-        catalog.registry,
-      );
-      if (!validation.ok) {
-        setAnnouncement(copy.connectionRejected[validation.reason]);
-        return;
-      }
-      if (
-        !connection.source ||
-        !connection.sourceHandle ||
-        !connection.target ||
-        !connection.targetHandle
-      ) {
-        return;
-      }
-      const edge = createPlaygroundEdge(
-        {
-          source: connection.source,
-          sourceHandle: connection.sourceHandle,
-          target: connection.target,
-          targetHandle: connection.targetHandle,
-        },
-        graph.nodes,
-        locale,
-        catalog.registry,
-      );
-      commit((current) => ({
-        ...current,
-        edges: [...current.edges, edge],
-      }));
-      setAnnouncement(copy.connectionCreated);
-    },
-    [catalog.registry, commit, copy, graph.edges, graph.nodes, locale],
-  );
-
-  const isValidConnection = useCallback(
-    (connection: PlaygroundEdge | Connection) =>
-      validatePlaygroundConnection(
-        {
-          source: connection.source,
-          sourceHandle: connection.sourceHandle,
-          target: connection.target,
-          targetHandle: connection.targetHandle,
-        },
-        graph.nodes,
-        graph.edges,
-        catalog.registry,
-      ).ok,
-    [catalog.registry, graph.edges, graph.nodes],
-  );
+  const { isValidConnection, onConnect, onEdgesChange, onNodesChange } =
+    useWorkflowPlaygroundChanges({
+      commit,
+      copy,
+      graph,
+      locale,
+      onAnnouncement: setAnnouncement,
+      registry: catalog.registry,
+      updateTransient,
+    });
 
   const updateSelectedNode = useCallback(
     (dagNode: A3SFlowWorkflowDagNode) => {
@@ -704,190 +527,85 @@ function WorkflowPlaygroundSurface() {
     selectedNodeId,
   ]);
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target;
-      if (
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target instanceof HTMLSelectElement ||
-        (target instanceof HTMLElement && target.isContentEditable)
-      ) {
-        return;
-      }
-      const command = event.ctrlKey || event.metaKey;
-      if (command && event.key.toLocaleLowerCase() === 'z') {
-        event.preventDefault();
-        event.shiftKey ? redo() : undo();
-      } else if (
-        command &&
-        event.key.toLocaleLowerCase() === 'd' &&
-        selectedNodeId
-      ) {
-        event.preventDefault();
-        duplicateNode(selectedNodeId);
-      } else if (event.key === 'Delete' || event.key === 'Backspace') {
-        event.preventDefault();
-        deleteSelection();
-      } else if (event.key === 'Escape') {
-        closeNodeLibrary();
-        setActivePanel(undefined);
-        setDebugOpen(false);
-        setCanvasMode('pan');
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [
-    closeNodeLibrary,
+  const dismissPanels = useCallback(() => {
+    closeNodeLibrary();
+    setActivePanel(undefined);
+    setDebugOpen(false);
+    setCanvasMode('pan');
+  }, [closeNodeLibrary]);
+  useWorkflowPlaygroundKeyboard({
     deleteSelection,
+    dismissPanels,
     duplicateNode,
     redo,
     selectedNodeId,
     undo,
-  ]);
+  });
 
-  const displayNodes = useMemo<PlaygroundCanvasNode[]>(
-    () => [
-      ...graph.nodes.map((node) => ({
-        ...node,
-        selected: node.id === selectedNodeId,
-        data: {
-          ...node.data,
-          runtimeStatus: statuses[node.id] ?? 'idle',
-          onRun: runNode,
-          onDuplicate: duplicateNode,
-          onDelete: deleteNode,
-        },
-      })),
-      ...graph.annotations.map((annotation) => ({
-        ...annotation,
-        selected: annotation.id === selectedAnnotationId,
-        data: {
-          ...annotation.data,
-          label:
-            annotation.data.kind === 'note'
-              ? copy.noteLabel
-              : copy.commentLabel,
-          placeholder:
-            annotation.data.kind === 'note'
-              ? copy.notePlaceholder
-              : copy.commentPlaceholder,
-          deleteLabel: copy.deleteAnnotation,
-          onTextChange: updateAnnotationText,
-          onEditStart: beginDrag,
-          onEditEnd: endDrag,
-          onDelete: deleteAnnotation,
-        },
-      })),
-    ],
-    [
-      beginDrag,
-      copy.commentLabel,
-      copy.commentPlaceholder,
-      copy.deleteAnnotation,
-      copy.noteLabel,
-      copy.notePlaceholder,
-      deleteAnnotation,
-      deleteNode,
-      duplicateNode,
-      endDrag,
-      graph.annotations,
-      graph.nodes,
-      runNode,
-      selectedAnnotationId,
-      selectedNodeId,
-      statuses,
-      updateAnnotationText,
-    ],
-  );
-
-  const displayEdges = useMemo(
-    () =>
-      graph.edges.map((edge) => {
-        const selected = edge.id === selectedEdgeId;
-        const sourcePortLabel = resolvePlaygroundEdgeSourceLabel(
-          edge,
-          graph.nodes,
-          locale,
-          catalog.registry,
-        );
-        const animated =
-          running &&
-          (statuses[edge.source] === 'running' ||
-            statuses[edge.target] === 'running');
-        return {
-          ...edge,
-          ariaLabel: playgroundEdgeAriaLabel(
-            edge.source,
-            edge.target,
-            sourcePortLabel,
-          ),
-          label: sourcePortLabel,
-          selected,
-          animated,
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            color: selected || animated ? edgePalette.active : edgePalette.line,
-          },
-          data: {
-            ...edge.data,
-            sourcePortLabel,
-            routing: edgeRouting,
-            insertLabel: copy.addNode,
-            onInsert: openNodeLibrary,
-          },
-        };
-      }),
-    [
-      copy.addNode,
-      catalog.registry,
-      edgePalette.active,
-      edgePalette.line,
-      edgeRouting,
-      graph.edges,
-      graph.nodes,
-      locale,
-      openNodeLibrary,
-      running,
-      selectedEdgeId,
-      statuses,
-    ],
-  );
+  const { displayEdges, displayNodes } = useWorkflowPlaygroundElements({
+    beginEdit: beginDrag,
+    copy,
+    edgePalette,
+    edgeRouting,
+    endEdit: endDrag,
+    graph,
+    locale,
+    onDeleteAnnotation: deleteAnnotation,
+    onDeleteNode: deleteNode,
+    onDuplicateNode: duplicateNode,
+    onOpenNodeLibrary: openNodeLibrary,
+    onRunNode: runNode,
+    onUpdateAnnotation: updateAnnotationText,
+    registry: catalog.registry,
+    running,
+    selectedAnnotationId,
+    selectedEdgeId,
+    selectedNodeId,
+    statuses,
+  });
 
   const resetWorkflow = useCallback(() => {
     stopRun();
-    restore(createSampleWorkflow(locale, catalog));
+    restore(structuredClone(example.graph));
     setSelectedNodeId(undefined);
     setSelectedAnnotationId(undefined);
     setSelectedEdgeId(undefined);
     setActivePanel(undefined);
-    setTrace([]);
-    setHistory([]);
+    resetRuntimeHistory();
     setAnnouncement(copy.resetDone);
     window.setTimeout(
       () => void setViewport(INITIAL_PLAYGROUND_VIEWPORT, { duration: 280 }),
       0,
     );
-  }, [catalog, copy.resetDone, locale, restore, setViewport, stopRun]);
+  }, [
+    copy.resetDone,
+    example.graph,
+    resetRuntimeHistory,
+    restore,
+    setViewport,
+    stopRun,
+  ]);
 
   const copyDocument = useCallback(() => {
     void navigator.clipboard
-      .writeText(documentJson)
+      .writeText(serializePlaygroundDocument(graph.nodes, graph.edges))
       .then(() => setAnnouncement(copy.copied))
       .catch(() => setAnnouncement(copy.copyFailed));
-  }, [copy.copied, copy.copyFailed, documentJson]);
+  }, [copy.copied, copy.copyFailed, graph.edges, graph.nodes]);
 
   const exportGraph = useCallback(() => {
-    const blob = new Blob([documentJson], { type: 'application/json' });
+    const blob = new Blob(
+      [serializePlaygroundDocument(graph.nodes, graph.edges)],
+      { type: 'application/json' },
+    );
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = 'a3s-flow-workflow.json';
+    anchor.download = `a3s-flow-${example.id}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
     setAnnouncement(copy.graphExported);
-  }, [copy.graphExported, documentJson]);
+  }, [copy.graphExported, example.id, graph.edges, graph.nodes]);
 
   const onPaletteDragStart = useCallback(
     (event: DragEvent<HTMLButtonElement>, type: string) => {
@@ -922,12 +640,11 @@ function WorkflowPlaygroundSurface() {
   ]
     .filter(Boolean)
     .join(' ');
-  const homeHref = pageHref('/', locale, version, defaultVersion);
-  const languageHref = pageHref(
-    'playground',
+  const languageHref = playgroundHref(
     locale === 'zh' ? 'en' : 'zh',
     version,
     defaultVersion,
+    example.id,
   );
 
   return (
@@ -944,8 +661,9 @@ function WorkflowPlaygroundSurface() {
         {copy.canvasLabel}
       </a>
       <WorkflowPlaygroundHeader
+        backHref={backHref}
+        backLabel={copy.backToExamples}
         copy={copy}
-        homeHref={homeHref}
         issueCount={issueCount}
         languageHref={languageHref}
         locale={locale}
@@ -958,7 +676,12 @@ function WorkflowPlaygroundSurface() {
         onVersionChange={(targetVersion) => {
           const target =
             targetVersion === defaultVersion
-              ? pageHref('playground', locale, targetVersion, defaultVersion)
+              ? playgroundHref(
+                  locale,
+                  targetVersion,
+                  defaultVersion,
+                  example.id,
+                )
               : pageHref('/', locale, targetVersion, defaultVersion);
           window.location.assign(target);
         }}
@@ -966,13 +689,19 @@ function WorkflowPlaygroundSurface() {
         saveState={saveState}
         version={version}
         versions={versions}
+        workflowName={example.title}
       />
       <noscript>
         {versions.map((targetVersion) => (
           <a
             href={
               targetVersion === defaultVersion
-                ? pageHref('playground', locale, targetVersion, defaultVersion)
+                ? playgroundHref(
+                    locale,
+                    targetVersion,
+                    defaultVersion,
+                    example.id,
+                  )
                 : pageHref('/', locale, targetVersion, defaultVersion)
             }
             key={targetVersion}
@@ -1066,6 +795,7 @@ function WorkflowPlaygroundSurface() {
               nodes={displayNodes}
               nodesConnectable={!running}
               nodesDraggable={!running}
+              onlyRenderVisibleElements
               onConnect={onConnect}
               onEdgeClick={(_, edge) => {
                 setSelectedEdgeId(edge.id);
@@ -1213,7 +943,7 @@ function WorkflowPlaygroundSurface() {
           runningNodeId={runningNodeId}
           trace={trace}
           variables={{
-            'workflow.name': copy.workflowName,
+            'workflow.name': example.title,
             'workflow.version': version,
             'graph.nodes': String(graph.nodes.length),
             'graph.edges': String(graph.edges.length),
@@ -1235,14 +965,5 @@ function WorkflowPlaygroundSurface() {
 }
 
 export default function WorkflowPlayground() {
-  const locale: FlowWebsiteLocale = useLang() === 'en' ? 'en' : 'zh';
-  const copy = workflowPlaygroundCopy[locale];
-  if (import.meta.env.SSG_MD) {
-    return <MarkdownPlayground copy={copy} locale={locale} />;
-  }
-  return (
-    <ReactFlowProvider>
-      <WorkflowPlaygroundSurface />
-    </ReactFlowProvider>
-  );
+  return <WorkflowPlaygroundRoute surface={WorkflowPlaygroundSurface} />;
 }

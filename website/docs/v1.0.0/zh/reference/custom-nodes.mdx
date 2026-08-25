@@ -81,10 +81,10 @@ const scoreOrder = defineA3SFlowCustomDagNode({
       {
         name: 'strict_validation',
         display_name: '严格校验',
-        info: '订单缺少必要字段时停止评分。',
+        info: '开启后，订单缺少必要字段时停止评分。',
         type: 'bool',
         _input_type: 'BoolInput',
-        value: true,
+        value: false,
       },
     ],
     outputs: [

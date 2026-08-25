@@ -93,9 +93,11 @@ function runMenuAction(
 type PlaygroundHeaderProps = {
   copy: WorkflowPlaygroundCopy;
   locale: 'zh' | 'en';
-  homeHref: string;
+  backHref: string;
+  backLabel: string;
   languageHref: string;
   logoSrc: string;
+  workflowName: string;
   saveState: 'saved' | 'saving';
   running: boolean;
   issueCount: number;
@@ -112,9 +114,11 @@ type PlaygroundHeaderProps = {
 export function WorkflowPlaygroundHeader({
   copy,
   locale,
-  homeHref,
+  backHref,
+  backLabel,
   languageHref,
   logoSrc,
+  workflowName,
   saveState,
   running,
   issueCount,
@@ -132,12 +136,12 @@ export function WorkflowPlaygroundHeader({
   return (
     <header className="a3s-workflow-header">
       <div className="a3s-workflow-header__identity">
-        <a href={homeHref} aria-label={copy.backHome} title={copy.backHome}>
+        <a href={backHref} aria-label={backLabel} title={backLabel}>
           <ArrowLeft aria-hidden="true" />
         </a>
         <img alt="" className="a3s-workflow-logo" src={logoSrc} />
         <div>
-          <strong>{copy.workflowName}</strong>
+          <strong>{workflowName}</strong>
           <small>
             <span>{copy.localDraft}</span>
             <i />
