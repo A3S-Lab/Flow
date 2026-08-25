@@ -6,7 +6,7 @@
   <rect x="1" y="1" width="1198" height="418" rx="23" fill="none" stroke="#193246" stroke-width="2"/>
 
   <g id="title-block" transform="translate(56 44)">
-    <text x="0" y="18" fill="#4fd1c5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="700" letter-spacing="1.7">EVENT-SOURCED WORKFLOWS / RUST SDK / V1.0.0</text>
+    <text x="0" y="18" fill="#4fd1c5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="700" letter-spacing="1.7">EVENT-SOURCED WORKFLOWS / RUST SDK / V1.1.0</text>
     <text x="0" y="96" fill="#f3f8fc" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="76" font-weight="760" letter-spacing="-2.8">A3S Flow</text>
     <text x="0" y="150" fill="#f6c85f" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="32" font-weight="700">Commit decisions. Replay safely.</text>
     <text x="0" y="190" fill="#f6c85f" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="32" font-weight="700">Resume without holding compute.</text>

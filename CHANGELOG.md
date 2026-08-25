@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.1.0 - 2026-08-25
+
 - Hardened custom workflow-node authoring with deeply immutable manifests,
   shared composite-field validation, exact host capability publication checks,
   and a complete Playground sample containing every built-in, internal, and
