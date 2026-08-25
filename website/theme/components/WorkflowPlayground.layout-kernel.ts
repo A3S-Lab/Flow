@@ -8,8 +8,8 @@ export type PlaygroundLayoutKernelInput = {
   nodeIds: string[];
   sources: Uint32Array;
   targets: Uint32Array;
-  widths: Float64Array;
-  heights: Float64Array;
+  widths: Float32Array;
+  heights: Float32Array;
 };
 
 class NumericMinHeap {
@@ -89,8 +89,8 @@ export function createPlaygroundLayoutKernelInput(
     nodeIds: nodes.map(({ id }) => id),
     sources: Uint32Array.from(edgePairs.map(([source]) => source)),
     targets: Uint32Array.from(edgePairs.map(([, target]) => target)),
-    widths: Float64Array.from(nodes.map(playgroundNodeVisualWidth)),
-    heights: Float64Array.from(nodes.map(playgroundNodeVisualHeight)),
+    widths: Float32Array.from(nodes.map(playgroundNodeVisualWidth)),
+    heights: Float32Array.from(nodes.map(playgroundNodeVisualHeight)),
   };
 }
 
@@ -100,10 +100,10 @@ export function layoutPlaygroundKernelInJavaScript({
   targets,
   widths,
   heights,
-}: PlaygroundLayoutKernelInput): Float64Array {
+}: PlaygroundLayoutKernelInput): Float32Array {
   const nodeCount = nodeIds.length;
   if (widths.length !== nodeCount || heights.length !== nodeCount) {
-    return new Float64Array();
+    return new Float32Array();
   }
   const outgoing = Array.from({ length: nodeCount }, () => [] as number[]);
   const indegree = new Uint32Array(nodeCount);
@@ -141,15 +141,17 @@ export function layoutPlaygroundKernelInJavaScript({
   for (let index = 0; index < nodeCount; index += 1) {
     if (visited[index] === 0) depths[index] = fallbackDepth;
   }
+  let maximumDepth = 0;
+  for (const depth of depths) maximumDepth = Math.max(maximumDepth, depth);
   const columns = Array.from(
-    { length: Math.max(0, ...depths) + (nodeCount > 0 ? 1 : 0) },
+    { length: maximumDepth + (nodeCount > 0 ? 1 : 0) },
     () => [] as number[],
   );
   for (let index = 0; index < nodeCount; index += 1) {
     columns[depths[index]].push(index);
   }
 
-  const positions = new Float64Array(nodeCount * 2);
+  const positions = new Float32Array(nodeCount * 2);
   let columnX = 88;
   for (const column of columns) {
     let rowY = 124;
@@ -168,9 +170,9 @@ export function layoutPlaygroundKernelInJavaScript({
 export function applyPlaygroundLayoutKernelOutput(
   graph: PlaygroundGraphState,
   nodeIds: readonly string[],
-  positions: Float64Array,
+  positions: Float32Array,
 ): PlaygroundGraphState {
-  if (nodeIds.length === 0) return structuredClone(graph);
+  if (nodeIds.length === 0) return graph;
   if (positions.length !== nodeIds.length * 2) {
     throw new RangeError(
       'Playground layout kernel returned an invalid coordinate buffer.',
@@ -183,22 +185,32 @@ export function applyPlaygroundLayoutKernelOutput(
       y: positions[index * 2 + 1],
     });
   });
-  return {
-    ...graph,
-    nodes: graph.nodes.map((node) => {
-      const position = positionsById.get(node.id);
-      if (!position) return structuredClone(node);
-      return {
-        ...node,
-        position,
-        data: {
-          ...node.data,
-          dagNode: {
-            ...node.data.dagNode,
-            position: structuredClone(position),
-          },
+  let changed = false;
+  const nodes = graph.nodes.map((node) => {
+    const position = positionsById.get(node.id);
+    if (!position) return node;
+    const dagPosition = node.data.dagNode.position as
+      { x?: unknown; y?: unknown } | undefined;
+    if (
+      node.position.x === position.x &&
+      node.position.y === position.y &&
+      dagPosition?.x === position.x &&
+      dagPosition?.y === position.y
+    ) {
+      return node;
+    }
+    changed = true;
+    return {
+      ...node,
+      position,
+      data: {
+        ...node.data,
+        dagNode: {
+          ...node.data.dagNode,
+          position: structuredClone(position),
         },
-      };
-    }),
-  };
+      },
+    };
+  });
+  return changed ? { ...graph, nodes } : graph;
 }

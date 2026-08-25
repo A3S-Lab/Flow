@@ -1,25 +1,12 @@
 import { analyzeExpression, type FormExpression } from '@a3s-lab/ui/form/core';
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
-import { DesignerIcon } from './designer-icons';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import {
   A3S_FLOW_DEFAULT_EXPRESSION_VARIABLES,
   VariableSuggestionList,
   useVariableSuggestionState,
   type A3SFlowExpressionVariable,
 } from './a3s-flow-variable-picker';
-
-let codeEditorRuntimePromise: Promise<void> | undefined;
-
-function loadCodeEditorRuntime(): Promise<void> {
-  if (typeof window === 'undefined') return Promise.resolve();
-  codeEditorRuntimePromise ??= (async () => {
-    if (!window.basecoat) await import('@a3s-lab/ui/basecoat');
-    await import('@a3s-lab/ui/code-editor');
-    window.basecoat?.init('code-editor');
-    window.basecoat?.start();
-  })();
-  return codeEditorRuntimePromise;
-}
+import { WorkflowCodeEditor } from './workflow-code-editor';
 
 function isChinese(locale: string): boolean {
   return locale.toLocaleLowerCase().startsWith('zh');
@@ -85,19 +72,6 @@ export function AdvancedExpressionEditor({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const invocationRef = useRef<number | undefined>(undefined);
   const suggestions = useVariableSuggestionState(variables);
-  const lines = useMemo(() => draft.split('\n'), [draft]);
-
-  useEffect(() => {
-    let active = true;
-    void loadCodeEditorRuntime().then(() => {
-      if (active && editorRef.current) {
-        window.basecoat?.refresh(editorRef.current);
-      }
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
 
   useEffect(() => {
     setDraft(source);
@@ -174,89 +148,59 @@ export function AdvancedExpressionEditor({
 
   return (
     <div className="a3s-form-flow-expression-advanced" data-invalid={parseError || undefined} ref={editorRef}>
-      <div
-        aria-label={chinese ? '高级表达式 JSON' : 'Advanced expression JSON'}
-        className="code-editor a3s-form-flow-expression-code-editor"
-        data-dirty="false"
-        data-disabled={disabled ? 'true' : 'false'}
-        data-language="json"
-        data-line-numbers="true"
-        data-size="sm"
-        data-validation-state={parseError ? 'invalid' : 'valid'}
-        data-wrap="false"
-      >
-        <header>
-          <div data-code-editor-file>
-            <DesignerIcon name="components" size={13} />
-            <strong>{chinese ? '表达式 JSON' : 'Expression JSON'}</strong>
-          </div>
-          <div data-code-editor-actions>
-            <button
-              aria-expanded={suggestions.open}
-              aria-label={chinese ? '插入变量' : 'Insert variable'}
-              disabled={disabled}
-              onClick={() => {
-                invocationRef.current = undefined;
-                suggestions.setQuery('');
-                suggestions.setOpen((current) => !current);
-              }}
-              title={chinese ? '插入变量（也可直接输入 $）' : 'Insert variable (or type $)'}
-              type="button"
-            >
-              <span aria-hidden="true">$</span>
-              {chinese ? '变量' : 'Variable'}
-            </button>
-          </div>
-        </header>
-        <section>
-          <div aria-hidden="true" data-code-editor-gutter>
-            {lines.map((_, index) => (
-              <span data-line={index + 1} key={index}>
-                {index + 1}
-              </span>
-            ))}
-          </div>
-          <textarea
-            aria-controls={suggestions.open ? suggestionsId : undefined}
-            aria-describedby={[describedBy, parseError ? errorId : undefined].filter(Boolean).join(' ') || undefined}
+      <WorkflowCodeEditor
+        ariaControls={suggestions.open ? suggestionsId : undefined}
+        ariaExpanded={suggestions.open}
+        ariaHasPopup="listbox"
+        ariaLabel={chinese ? '高级表达式 JSON' : 'Advanced expression JSON'}
+        className="a3s-form-flow-expression-code-editor"
+        describedBy={
+          [describedBy, parseError ? errorId : undefined]
+            .filter(Boolean)
+            .join(' ') || undefined
+        }
+        disabled={disabled}
+        fileName={chinese ? '表达式 JSON' : 'Expression JSON'}
+        id={id}
+        invalid={Boolean(invalid || parseError)}
+        language="json"
+        locale={locale}
+        onChange={(next, event) => {
+          updateDraft(next);
+          detectSuggestions(next, event);
+        }}
+        onKeyDown={(event) => {
+          if (suggestions.handleKeyDown(event, chooseVariable)) return;
+        }}
+        status={
+          parseError
+            ? chinese
+              ? '表达式无效'
+              : 'Invalid expression'
+            : chinese
+              ? '表达式有效'
+              : 'Valid expression'
+        }
+        textareaRef={textareaRef}
+        toolbar={
+          <button
             aria-expanded={suggestions.open}
-            aria-haspopup="listbox"
-            aria-invalid={invalid || parseError || undefined}
-            aria-label={chinese ? '高级表达式 JSON' : 'Advanced expression JSON'}
+            aria-label={chinese ? '插入变量' : 'Insert variable'}
             disabled={disabled}
-            id={id}
-            onChange={(event) => {
-              const next = event.target.value;
-              updateDraft(next);
-              detectSuggestions(next, event);
+            onClick={() => {
+              invocationRef.current = undefined;
+              suggestions.setQuery('');
+              suggestions.setOpen((current) => !current);
             }}
-            onKeyDown={(event) => {
-              if (suggestions.handleKeyDown(event, chooseVariable)) return;
-            }}
-            ref={textareaRef}
-            spellCheck={false}
-            value={draft}
-            wrap="off"
-          />
-        </section>
-        <footer>
-          <div data-code-editor-info>
-            <span data-code-editor-state>
-              {parseError
-                ? chinese
-                  ? '表达式无效'
-                  : 'Invalid expression'
-                : chinese
-                  ? '表达式有效'
-                  : 'Valid expression'}
-            </span>
-            <span data-code-editor-lines>{chinese ? `${lines.length} 行` : `${lines.length} lines`}</span>
-          </div>
-          <div data-code-editor-meta>
-            <span>JSON</span>
-          </div>
-        </footer>
-      </div>
+            title={chinese ? '插入变量（也可直接输入 $）' : 'Insert variable (or type $)'}
+            type="button"
+          >
+            <span aria-hidden="true">$</span>
+            {chinese ? '变量' : 'Variable'}
+          </button>
+        }
+        value={draft}
+      />
       {suggestions.open && (
         <VariableSuggestionList
           activeIndex={suggestions.activeIndex}

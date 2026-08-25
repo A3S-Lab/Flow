@@ -3,6 +3,7 @@ import type { JsonObject, JsonValue } from '@a3s-lab/ui/form/core';
 import { DesignerIcon } from './designer-icons';
 import type { FormWidgetProps } from '@a3s-lab/ui/form/react';
 import { SelectControl } from './select-control';
+import { WorkflowCodeEditor } from './workflow-code-editor';
 
 function isChinese(locale: string): boolean {
   return locale.toLocaleLowerCase().startsWith('zh');
@@ -185,18 +186,30 @@ function JsonObjectEditor({
   return (
     <label className="a3s-form-flow-child-input" htmlFor={id} data-invalid={invalid || undefined}>
       <span>{chinese ? '子工作流输入' : 'Child input'}</span>
-      <textarea
-        id={id}
-        className="textarea"
-        value={draft}
+      <WorkflowCodeEditor
+        ariaLabel={chinese ? '子工作流输入 JSON' : 'Child workflow input JSON'}
+        describedBy={invalid ? `${id}-error` : undefined}
         disabled={disabled}
-        aria-invalid={invalid || undefined}
-        aria-describedby={invalid ? `${id}-error` : undefined}
-        onChange={(event) => {
-          setDraft(event.target.value);
+        fileName="child.input.json"
+        id={id}
+        invalid={invalid}
+        language="json"
+        locale={locale}
+        onBlur={commit}
+        onChange={(next) => {
+          setDraft(next);
           setInvalid(false);
         }}
-        onBlur={commit}
+        status={
+          invalid
+            ? chinese
+              ? '输入对象无效'
+              : 'Invalid input object'
+            : chinese
+              ? '输入对象有效'
+              : 'Valid input object'
+        }
+        value={draft}
       />
       {invalid && (
         <small id={`${id}-error`} role="alert">

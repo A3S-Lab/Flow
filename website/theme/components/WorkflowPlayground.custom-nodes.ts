@@ -7,6 +7,7 @@ import {
   type WorkflowNodeFieldDefinition,
 } from '@a3s-lab/flow-ui';
 import type { FlowWebsiteLocale } from './flow-node-catalog';
+import { createCustomsDocumentReviewNode } from './WorkflowPlayground.custom-node.documents';
 
 type LocalizedText = Record<FlowWebsiteLocale, string>;
 
@@ -149,6 +150,7 @@ export function createPlaygroundNodeCatalog(
   const reserve = COPY.reserve;
   const notify = COPY.notify;
   return createA3SFlowDagNodeCatalog([
+    createCustomsDocumentReviewNode(locale),
     defineA3SFlowCustomDagNode({
       manifest: {
         type: 'commerce.risk.score',

@@ -16,16 +16,15 @@ describe('Workflow Playground WebAssembly graph kernel', () => {
     );
     initSync({ module: readFileSync(modulePath) });
 
-    expect(
-      Array.from(
-        layout_dag(
-          3,
-          Uint32Array.from([0, 1]),
-          Uint32Array.from([1, 2]),
-          Float64Array.from([240, 260, 240]),
-          Float64Array.from([126, 140, 126]),
-        ),
-      ),
-    ).toEqual([88, 124, 440, 124, 812, 124]);
+    const positions = layout_dag(
+      3,
+      Uint32Array.from([0, 1]),
+      Uint32Array.from([1, 2]),
+      Float32Array.from([240, 260, 240]),
+      Float32Array.from([126, 140, 126]),
+    );
+
+    expect(positions).toBeInstanceOf(Float32Array);
+    expect(Array.from(positions)).toEqual([88, 124, 440, 124, 812, 124]);
   });
 });

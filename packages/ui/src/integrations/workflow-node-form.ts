@@ -705,6 +705,7 @@ function fieldCustomProps(
     ["triggerIcon", "trigger_icon"],
     ["tableIcon", "table_icon"],
     ["filePath", "file_path"],
+    ["language", "language"],
     ["tempFile", "temp_file"],
     ["limit", "limit"],
     ["sliderInput", "slider_input"],

@@ -173,14 +173,24 @@ export function WorkflowNodeConfigurationPanel(props: WorkflowNodeConfigurationP
       }),
     [document, props.widgetRegistry],
   );
+  const workflowCallbacksRef = useRef<WorkflowConfigurationWidgetCallbacks>({});
+  workflowCallbacksRef.current = {
+    onRequestConnection: props.onRequestConnection,
+    onRefreshField: props.onRefreshField,
+    onCopyField: props.onCopyField,
+    onDataDisplayAction: props.onDataDisplayAction,
+  };
   const workflowCallbacks = useMemo<WorkflowConfigurationWidgetCallbacks>(
     () => ({
-      onRequestConnection: props.onRequestConnection,
-      onRefreshField: props.onRefreshField,
-      onCopyField: props.onCopyField,
-      onDataDisplayAction: props.onDataDisplayAction,
+      onRequestConnection: (request) =>
+        workflowCallbacksRef.current.onRequestConnection?.(request),
+      onRefreshField: (request) =>
+        workflowCallbacksRef.current.onRefreshField?.(request),
+      onCopyField: (request) => workflowCallbacksRef.current.onCopyField?.(request),
+      onDataDisplayAction: (request) =>
+        workflowCallbacksRef.current.onDataDisplayAction?.(request),
     }),
-    [props.onCopyField, props.onDataDisplayAction, props.onRefreshField, props.onRequestConnection],
+    [],
   );
   const builtInWidgets = useMemo(
     () => createWorkflowConfigurationWidgetRegistry(workflowCallbacks),

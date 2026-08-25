@@ -1,6 +1,12 @@
 import { compileForm, validateFormValue } from "@a3s-lab/ui/form/core";
-import { cleanup, render } from "@testing-library/react";
-import { createElement } from "react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { createElement, useState } from "react";
 import {
   A3S_FLOW_RUNTIME_COMMAND_BINDINGS,
   a3sFlowDagNodeRegistry,
@@ -284,6 +290,83 @@ describe("A3S Flow authoring manifests", () => {
     expect(inputCount).toBeGreaterThan(0);
     expect(selectCount).toBeGreaterThan(0);
     expect(textareaCount).toBeGreaterThan(0);
+  });
+
+  it("keeps prompt suggestions open and uses graph-scoped variables after node updates", async () => {
+    const base = customRegistration().manifest;
+    const registration = defineA3SFlowCustomDagNode({
+      manifest: {
+        ...base,
+        type: "commerce.prompt.preview",
+        display_name: "Prompt preview",
+        fields: [
+          {
+            name: "prompt",
+            display_name: "Prompt",
+            info: "Prompt text with workflow references.",
+            type: "prompt",
+            _input_type: "PromptInput",
+            value: "Notify ",
+          },
+        ],
+      },
+      capability: {
+        id: "commerce/prompt-preview",
+        version: "1.0.0",
+        handler: "prompt.preview",
+      },
+    });
+    const registry = createA3SFlowDagNodeRegistry([registration.manifest]);
+    const initialNode = createA3SFlowDagNode(
+      "prompt-preview",
+      registration.manifest,
+    );
+    const variables = [
+      {
+        dataType: "string",
+        group: "upstream" as const,
+        label: "Order ID",
+        nodeId: "load-order",
+        path: "steps.load-order.order_id",
+      },
+    ];
+
+    function Harness() {
+      const [node, setNode] = useState(initialNode);
+      return createElement(A3SFlowDagNodeConfigurationPanel, {
+        dagNode: node,
+        expressionVariables: variables,
+        locale: "zh-CN",
+        onChange: setNode,
+        onRequestConnection: () => undefined,
+        registry,
+      });
+    }
+
+    render(createElement(Harness));
+    const textarea = screen.getByRole("textbox", { name: "Prompt" });
+    fireEvent.change(textarea, {
+      target: {
+        selectionEnd: 8,
+        selectionStart: 8,
+        value: "Notify $",
+      },
+    });
+
+    expect(
+      await screen.findByRole("listbox", { name: "变量智能感知" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("option", { name: /\$steps\.load-order\.order_id/ }),
+    ).toBeTruthy();
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await waitFor(() =>
+      expect((textarea as HTMLTextAreaElement).value).toBe(
+        "Notify {{steps.load-order.order_id}}",
+      ),
+    );
+    expect(screen.queryByRole("listbox")).toBeNull();
   });
 
   it("compiles, validates, renders, edits, and serializes the complete manifest matrix", () => {

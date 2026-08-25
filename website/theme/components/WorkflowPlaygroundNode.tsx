@@ -7,6 +7,7 @@ import {
 import { A3SFlowDagNodePreview } from '@a3s-lab/flow-ui/react';
 import { Copy, Play, Trash } from '@phosphor-icons/react';
 import { Handle, NodeToolbar, Position, type NodeProps } from '@xyflow/react';
+import { memo } from 'react';
 import { workflowPlaygroundCopy } from './WorkflowPlayground.copy';
 import type { PlaygroundNode } from './WorkflowPlayground.model';
 import { useWorkflowPlaygroundRegistry } from './WorkflowPlayground.registry';
@@ -23,7 +24,7 @@ function portClassName(port: A3SFlowDagPortDefinition): string {
   return `flow-playground-node__handle is-${port.kind}`;
 }
 
-export function WorkflowPlaygroundNode({
+function WorkflowPlaygroundNodeComponent({
   data,
   selected,
   isConnectable,
@@ -141,3 +142,5 @@ export function WorkflowPlaygroundNode({
     </div>
   );
 }
+
+export const WorkflowPlaygroundNode = memo(WorkflowPlaygroundNodeComponent);

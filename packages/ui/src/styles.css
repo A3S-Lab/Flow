@@ -1,3 +1,5 @@
 @import '@a3s-lab/ui/form/styles.css';
+@import '@a3s-lab/ui/components/code-editor.css';
 @import './styles/workflow-node.css';
 @import './styles/a3s-flow-node.css';
+@import './styles/workflow-code-editor.css';

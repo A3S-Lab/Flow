@@ -1,0 +1,163 @@
+.a3s-form-workflow-code-editor.code-editor {
+  --code-editor-font-size: 11px;
+  --code-editor-gutter-width: 38px;
+  --code-editor-line-height: 1.55;
+  --code-editor-min-height: 112px;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--a3s-form-line-strong, #d3d6dc);
+  border-radius: 9px;
+  background: var(--a3s-form-panel, #fff);
+  color: var(--a3s-form-ink, #17181a);
+  box-shadow: none;
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+}
+
+.a3s-form-workflow-code-editor.code-editor[data-size="lg"] {
+  --code-editor-min-height: min(56vh, 520px);
+}
+
+.a3s-form-workflow-code-editor.code-editor > header,
+.a3s-form-workflow-code-editor.code-editor > footer {
+  min-width: 0;
+  padding-inline: 9px;
+  border-color: var(--a3s-form-line, #e2e4e8);
+  background: var(--a3s-form-panel-soft, #f2f3f5);
+  color: var(--a3s-form-muted, #62666e);
+}
+
+.a3s-form-workflow-code-editor.code-editor > header {
+  min-height: 36px;
+}
+
+.a3s-form-workflow-code-editor.code-editor > footer {
+  min-height: 28px;
+  font-family: var(--a3s-ui-font, ui-sans-serif, sans-serif);
+  font-size: 9px;
+}
+
+.a3s-form-workflow-code-editor [data-code-editor-file],
+.a3s-form-workflow-code-editor [data-code-editor-actions],
+.a3s-form-workflow-code-editor [data-code-editor-info],
+.a3s-form-workflow-code-editor [data-code-editor-meta] {
+  min-width: 0;
+  gap: 7px;
+}
+
+.a3s-form-workflow-code-editor [data-code-editor-file] {
+  overflow: hidden;
+  font-family: var(--a3s-ui-font, ui-sans-serif, sans-serif);
+  font-size: 10px;
+}
+
+.a3s-form-workflow-code-editor [data-code-editor-file] strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-form-workflow-code-editor [data-code-editor-language] {
+  color: var(--a3s-form-faint, #8a8f98);
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+  font-size: 9px;
+  font-weight: 680;
+}
+
+.a3s-form-workflow-code-editor [data-code-editor-actions] button {
+  min-height: 28px;
+  padding-inline: 8px;
+  border: 1px solid var(--a3s-form-line-strong, #d3d6dc);
+  border-radius: 6px;
+  background: var(--a3s-form-panel, #fff);
+  color: var(--a3s-form-blue, #2864e8);
+  font-family: var(--a3s-ui-font, ui-sans-serif, sans-serif);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.a3s-form-workflow-code-editor.code-editor > section {
+  min-width: 0;
+  min-height: var(--code-editor-min-height);
+  background: var(--a3s-form-panel, #fff);
+}
+
+.a3s-form-workflow-code-editor [data-code-editor-gutter] {
+  padding-block: 10px;
+  border-right: 1px solid var(--a3s-form-line, #e2e4e8);
+  background: color-mix(
+    in srgb,
+    var(--a3s-form-panel-soft, #f2f3f5) 58%,
+    var(--a3s-form-panel, #fff)
+  );
+  color: var(--a3s-form-faint, #8a8f98);
+}
+
+.a3s-form-workflow-code-editor [data-code-editor-gutter] > span {
+  padding-inline: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.a3s-form-field
+  .a3s-form-workflow-code-editor.code-editor
+  > section
+  > textarea,
+.a3s-form-flow-child-input
+  .a3s-form-workflow-code-editor.code-editor
+  > section
+  > textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--code-editor-min-height);
+  padding: 10px 12px;
+  resize: vertical;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: var(--a3s-form-panel, #fff);
+  color: var(--a3s-form-ink, #17181a);
+  box-shadow: none;
+  font-family: inherit;
+  font-size: var(--code-editor-font-size);
+  line-height: var(--code-editor-line-height);
+  tab-size: 2;
+  white-space: pre;
+}
+
+.a3s-form-workflow-code-editor.code-editor[data-validation-state="invalid"] {
+  border-color: var(--a3s-form-red, #c83f45);
+}
+
+.a3s-form-workflow-code-editor.code-editor[data-disabled="true"] {
+  opacity: 0.72;
+}
+
+.a3s-form-workflow-data-display-control
+  .a3s-form-workflow-code-editor.code-editor {
+  --code-editor-min-height: 96px;
+}
+
+.a3s-form-workflow-prompt-editor .a3s-flow-variable-textarea > textarea {
+  width: 100%;
+  height: 150px;
+  min-height: 112px;
+  max-height: 260px;
+  resize: vertical;
+  field-sizing: fixed;
+}
+
+.a3s-form-workflow-prompt-editor[data-expanded="true"]
+  .a3s-flow-variable-textarea
+  > textarea {
+  height: min(56vh, 520px);
+  max-height: 520px;
+}
+
+.a3s-form-flow-child-input > .a3s-form-workflow-code-editor {
+  margin-top: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .a3s-form-workflow-code-editor * {
+    scroll-behavior: auto;
+  }
+}

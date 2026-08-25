@@ -3,6 +3,7 @@ import {
   addIntoGraph,
   layoutPlaygroundGraph,
 } from './WorkflowPlayground.graph';
+import { createPlaygroundLayoutKernelInput } from './WorkflowPlayground.layout-kernel';
 import { createPlaygroundNodeCatalog } from './WorkflowPlayground.custom-nodes';
 import { compilePlaygroundGraph } from './WorkflowPlayground.model';
 import { createSampleWorkflow } from './WorkflowPlayground.sample';
@@ -124,6 +125,8 @@ describe('Workflow Playground graph editing', () => {
       position: { x: 33, y: 44 },
       data: { kind: 'note', text: 'Keep this note here.' },
     });
+    const childNode = sample.nodes.find((node) => node.parentId);
+    const input = createPlaygroundLayoutKernelInput(sample);
 
     const result = layoutPlaygroundGraph(sample);
     const position = (id: string) =>
@@ -143,5 +146,10 @@ describe('Workflow Playground graph editing', () => {
     );
     expect(result.annotations[0].position).toEqual({ x: 33, y: 44 });
     expect(sample.nodes[0].position).toEqual({ x: 60, y: 650 });
+    expect(input.widths).toBeInstanceOf(Float32Array);
+    expect(input.heights).toBeInstanceOf(Float32Array);
+    expect(result.edges).toBe(sample.edges);
+    expect(result.annotations).toBe(sample.annotations);
+    expect(result.nodes.find(({ id }) => id === childNode?.id)).toBe(childNode);
   });
 });

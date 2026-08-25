@@ -2,19 +2,19 @@ use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use wasm_bindgen::prelude::*;
 
-const COLUMN_START_X: f64 = 88.0;
-const ROW_START_Y: f64 = 124.0;
-const COLUMN_GAP: f64 = 112.0;
-const ROW_GAP: f64 = 74.0;
-const MINIMUM_NODE_WIDTH: f64 = 240.0;
+const COLUMN_START_X: f32 = 88.0;
+const ROW_START_Y: f32 = 124.0;
+const COLUMN_GAP: f32 = 112.0;
+const ROW_GAP: f32 = 74.0;
+const MINIMUM_NODE_WIDTH: f32 = 240.0;
 
 fn layout(
     node_count: usize,
     sources: &[u32],
     targets: &[u32],
-    widths: &[f64],
-    heights: &[f64],
-) -> Vec<f64> {
+    widths: &[f32],
+    heights: &[f32],
+) -> Vec<f32> {
     if node_count == 0 || widths.len() != node_count || heights.len() != node_count {
         return Vec::new();
     }
@@ -85,9 +85,9 @@ pub fn layout_dag(
     node_count: u32,
     sources: &[u32],
     targets: &[u32],
-    widths: &[f64],
-    heights: &[f64],
-) -> Vec<f64> {
+    widths: &[f32],
+    heights: &[f32],
+) -> Vec<f32> {
     layout(node_count as usize, sources, targets, widths, heights)
 }
 

@@ -6,6 +6,7 @@ import {
   ChartLineUp,
   CheckCircle,
   Clock,
+  FileMagnifyingGlass,
   FlowArrow,
   GitBranch,
   Lightning,
@@ -57,6 +58,7 @@ const iconByType: Readonly<Record<string, typeof Play>> = {
   iteration: Repeat,
   loop: ArrowClockwise,
   'commerce.risk.score': ShieldCheck,
+  'commerce.customs.document-review': FileMagnifyingGlass,
   'commerce.inventory.reserve': Archive,
   'commerce.message.dispatch': PaperPlaneTilt,
 };

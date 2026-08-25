@@ -4,22 +4,22 @@
  * @param {number} node_count
  * @param {Uint32Array} sources
  * @param {Uint32Array} targets
- * @param {Float64Array} widths
- * @param {Float64Array} heights
- * @returns {Float64Array}
+ * @param {Float32Array} widths
+ * @param {Float32Array} heights
+ * @returns {Float32Array}
  */
 export function layout_dag(node_count, sources, targets, widths, heights) {
     const ptr0 = passArray32ToWasm0(sources, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
     const ptr1 = passArray32ToWasm0(targets, wasm.__wbindgen_malloc);
     const len1 = WASM_VECTOR_LEN;
-    const ptr2 = passArrayF64ToWasm0(widths, wasm.__wbindgen_malloc);
+    const ptr2 = passArrayF32ToWasm0(widths, wasm.__wbindgen_malloc);
     const len2 = WASM_VECTOR_LEN;
-    const ptr3 = passArrayF64ToWasm0(heights, wasm.__wbindgen_malloc);
+    const ptr3 = passArrayF32ToWasm0(heights, wasm.__wbindgen_malloc);
     const len3 = WASM_VECTOR_LEN;
     const ret = wasm.layout_dag(node_count, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
-    var v5 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
-    wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+    var v5 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
     return v5;
 }
 function __wbg_get_imports() {
@@ -41,17 +41,17 @@ function __wbg_get_imports() {
     };
 }
 
-function getArrayF64FromWasm0(ptr, len) {
+function getArrayF32FromWasm0(ptr, len) {
     ptr = ptr >>> 0;
-    return getFloat64ArrayMemory0().subarray(ptr / 8, ptr / 8 + len);
+    return getFloat32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
 }
 
-let cachedFloat64ArrayMemory0 = null;
-function getFloat64ArrayMemory0() {
-    if (cachedFloat64ArrayMemory0 === null || cachedFloat64ArrayMemory0.byteLength === 0) {
-        cachedFloat64ArrayMemory0 = new Float64Array(wasm.memory.buffer);
+let cachedFloat32ArrayMemory0 = null;
+function getFloat32ArrayMemory0() {
+    if (cachedFloat32ArrayMemory0 === null || cachedFloat32ArrayMemory0.byteLength === 0) {
+        cachedFloat32ArrayMemory0 = new Float32Array(wasm.memory.buffer);
     }
-    return cachedFloat64ArrayMemory0;
+    return cachedFloat32ArrayMemory0;
 }
 
 let cachedUint32ArrayMemory0 = null;
@@ -69,9 +69,9 @@ function passArray32ToWasm0(arg, malloc) {
     return ptr;
 }
 
-function passArrayF64ToWasm0(arg, malloc) {
-    const ptr = malloc(arg.length * 8, 8) >>> 0;
-    getFloat64ArrayMemory0().set(arg, ptr / 8);
+function passArrayF32ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 4, 4) >>> 0;
+    getFloat32ArrayMemory0().set(arg, ptr / 4);
     WASM_VECTOR_LEN = arg.length;
     return ptr;
 }
@@ -83,7 +83,7 @@ function __wbg_finalize_init(instance, module) {
     wasmInstance = instance;
     wasm = instance.exports;
     wasmModule = module;
-    cachedFloat64ArrayMemory0 = null;
+    cachedFloat32ArrayMemory0 = null;
     cachedUint32ArrayMemory0 = null;
     wasm.__wbindgen_start();
     return wasm;

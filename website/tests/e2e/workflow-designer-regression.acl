@@ -1,0 +1,84 @@
+suite "workflow-designer-regression" {
+    version = 1
+
+    scenario "complete-example-canvas-controls" {
+        name = "Verify the complete example canvas controls and DSL preview"
+        surface = "web"
+        timeout_ms = 60000
+
+        viewport "desktop" {
+            width = 1440
+            height = 900
+        }
+
+        navigate "open-complete-example" {
+            url = "http://127.0.0.1:4173/Flow/playground?example=cross-border-fulfillment"
+        }
+
+        wait "page-ready" {
+            text = "跨境高价值订单履约"
+        }
+
+        click "fit-complete-canvas" {
+            target = css(".react-flow__controls-button:nth-child(3)")
+        }
+
+        expect "custom-node-render" {
+            visible = css(".flow-playground-node[data-flow-node-type=\"commerce.customs.document-review\"]")
+        }
+
+        expect "nested-workflow-canvas-renders" {
+            visible = css("[aria-label=\"容器内部画布\"]")
+        }
+
+        click "open-header-menu" {
+            target = css(".a3s-workflow-header__menu > summary")
+        }
+
+        click "open-dsl-preview" {
+            target = css(".a3s-workflow-header__menu button")
+        }
+
+        expect "dsl-panel" {
+            text = "工作流 DSL"
+        }
+
+        expect "theme-aware-dsl-editor" {
+            visible = css(".flow-playground-document")
+        }
+
+        screenshot "dsl-preview" {
+            path = "screenshots/workflow-dsl-preview.png"
+        }
+
+        click "close-dsl-preview" {
+            target = css(".flow-playground-side-panel button[aria-label=\"关闭\"]")
+        }
+
+        click "switch-to-polyline" {
+            target = css("button[aria-label=\"切换为折线\"]")
+        }
+
+        expect "polyline-mode" {
+            visible = css("button[aria-label=\"切换为曲线\"]")
+        }
+
+        click "switch-back-to-curve" {
+            target = css("button[aria-label=\"切换为曲线\"]")
+        }
+
+        click "arrange-nodes" {
+            target = css("button[aria-label=\"整理节点\"]")
+        }
+
+        console "browser-console" {
+            path = "evidence/workflow-designer-console.json"
+            clear = false
+        }
+
+        page_errors "browser-page-errors" {
+            path = "evidence/workflow-designer-page-errors.json"
+            clear = false
+        }
+    }
+}

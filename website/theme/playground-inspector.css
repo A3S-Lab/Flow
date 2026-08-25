@@ -285,6 +285,15 @@
 }
 
 .flow-playground-document.code-editor {
+  --a3s-form-blue: var(--workflow-blue);
+  --a3s-form-faint: var(--workflow-faint);
+  --a3s-form-ink: var(--workflow-text);
+  --a3s-form-line: var(--workflow-line);
+  --a3s-form-line-strong: var(--workflow-line-strong);
+  --a3s-form-muted: var(--workflow-muted);
+  --a3s-form-panel: var(--workflow-surface);
+  --a3s-form-panel-soft: var(--workflow-surface-muted);
+  --a3s-ui-font: var(--workflow-sans);
   --code-editor-font-size: 11px;
   --code-editor-gutter-width: 46px;
   --code-editor-line-height: 1.65;
@@ -293,16 +302,16 @@
   min-height: 0;
   border: 0;
   border-radius: 0;
-  background: #0d1726;
-  color: #dce7f7;
+  background: var(--workflow-surface);
+  color: var(--workflow-text);
 }
 
 .flow-playground-document.code-editor > header {
   min-height: 44px;
   padding-inline: 13px 9px;
-  border-bottom: 1px solid rgb(255 255 255 / 10%);
-  background: #111d2f;
-  color: #cbd7e8;
+  border-bottom: 1px solid var(--workflow-line);
+  background: var(--workflow-surface-muted);
+  color: var(--workflow-muted);
   font-size: 10px;
 }
 
@@ -313,7 +322,7 @@
 .flow-playground-document [data-code-editor-file] svg {
   width: 15px;
   height: 15px;
-  color: #7ea9ff;
+  color: var(--workflow-blue);
 }
 
 .flow-playground-document [data-code-editor-file] strong {
@@ -326,7 +335,7 @@
 }
 
 .flow-playground-document [data-code-editor-language] {
-  color: #91a0b5;
+  color: var(--workflow-faint);
   font-family: var(--workflow-mono);
   font-size: 9px;
   font-weight: 650;
@@ -336,35 +345,35 @@
   display: inline-flex;
   min-height: 32px;
   padding: 0 9px;
-  border: 1px solid rgb(255 255 255 / 13%);
+  border: 1px solid var(--workflow-line-strong);
   border-radius: 7px;
-  background: #17253a;
+  background: var(--workflow-surface);
   align-items: center;
   gap: 6px;
-  color: #d9e4f5;
+  color: var(--workflow-blue-dark);
   font-size: 10px;
   font-weight: 630;
   cursor: pointer;
 }
 
 .flow-playground-document [data-code-editor-actions] button:hover {
-  border-color: rgb(126 169 255 / 55%);
-  background: #1b2d47;
-  color: #ffffff;
+  border-color: var(--workflow-blue);
+  background: var(--workflow-blue-soft);
+  color: var(--workflow-blue-dark);
 }
 
 .flow-playground-document.code-editor > section {
   min-height: 0;
   overflow: hidden;
-  background: #0d1726;
+  background: var(--workflow-surface);
   flex: 1 1 auto;
 }
 
 .flow-playground-document.code-editor > section > [data-code-editor-gutter] {
   padding-block: 14px;
-  border-right: 1px solid rgb(255 255 255 / 8%);
-  background: #101b2b;
-  color: #65758d;
+  border-right: 1px solid var(--workflow-line);
+  background: var(--workflow-surface-muted);
+  color: var(--workflow-faint);
 }
 
 .flow-playground-document.code-editor
@@ -382,9 +391,9 @@
   max-height: none;
   padding: 14px 16px;
   resize: none;
-  background: #0d1726;
-  color: #dce7f7;
-  caret-color: #7ea9ff;
+  background: var(--workflow-surface);
+  color: var(--workflow-text);
+  caret-color: var(--workflow-blue);
   font-family: var(--workflow-mono);
   font-variant-ligatures: none;
   font-variant-numeric: tabular-nums;
@@ -393,22 +402,22 @@
 }
 
 .flow-playground-document.code-editor > section > textarea:focus-visible {
-  outline: 2px solid rgb(126 169 255 / 72%);
+  outline: 2px solid color-mix(in srgb, var(--workflow-blue) 72%, transparent);
   outline-offset: -2px;
 }
 
 .flow-playground-document.code-editor > footer {
   min-height: 29px;
   padding-inline: 12px;
-  border-top: 1px solid rgb(255 255 255 / 9%);
-  background: #111d2f;
-  color: #8494aa;
+  border-top: 1px solid var(--workflow-line);
+  background: var(--workflow-surface-muted);
+  color: var(--workflow-faint);
   font-family: var(--workflow-mono);
   font-size: 9px;
 }
 
 .flow-playground-document [data-code-editor-state] {
-  color: #b8c7db;
+  color: var(--workflow-muted);
   font-family: var(--workflow-sans);
   font-weight: 620;
 }

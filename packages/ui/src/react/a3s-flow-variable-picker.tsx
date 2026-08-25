@@ -1,4 +1,6 @@
 import {
+  createContext,
+  useContext,
   useEffect,
   useId,
   useMemo,
@@ -6,6 +8,7 @@ import {
   useState,
   type InputHTMLAttributes,
   type KeyboardEvent,
+  type ReactNode,
   type RefObject,
   type TextareaHTMLAttributes,
 } from 'react';
@@ -42,6 +45,31 @@ export const A3S_FLOW_DEFAULT_EXPRESSION_VARIABLES: readonly A3SFlowExpressionVa
     dataType: 'string',
   },
 ];
+
+const A3SFlowExpressionVariablesContext = createContext<
+  readonly A3SFlowExpressionVariable[] | undefined
+>(undefined);
+
+export function A3SFlowExpressionVariablesProvider({
+  children,
+  variables,
+}: {
+  children?: ReactNode;
+  variables?: readonly A3SFlowExpressionVariable[];
+}) {
+  return (
+    <A3SFlowExpressionVariablesContext.Provider value={variables}>
+      {children}
+    </A3SFlowExpressionVariablesContext.Provider>
+  );
+}
+
+export function useA3SFlowExpressionVariables(
+  variables?: readonly A3SFlowExpressionVariable[],
+): readonly A3SFlowExpressionVariable[] {
+  const providedVariables = useContext(A3SFlowExpressionVariablesContext);
+  return variables ?? providedVariables ?? A3S_FLOW_DEFAULT_EXPRESSION_VARIABLES;
+}
 
 function isChinese(locale: string): boolean {
   return locale.toLocaleLowerCase().startsWith('zh');

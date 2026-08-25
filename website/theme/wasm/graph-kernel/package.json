@@ -1,7 +1,13 @@
 {
   "name": "a3s-flow-playground-kernel",
   "type": "module",
+  "description": "WebAssembly graph-layout kernel for the A3S Flow Playground",
   "version": "1.0.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/A3S-Lab/Flow"
+  },
   "files": [
     "a3s_flow_playground_kernel_bg.wasm",
     "a3s_flow_playground_kernel.js",

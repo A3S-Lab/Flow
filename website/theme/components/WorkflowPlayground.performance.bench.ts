@@ -1,11 +1,21 @@
-import { compileA3SFlowWorkflowDag } from '@a3s-lab/flow-ui';
+import {
+  a3sFlowDagNodeRegistry,
+  compileA3SFlowWorkflowDag,
+} from '@a3s-lab/flow-ui';
 import { bench, describe } from 'vitest';
+import { workflowPlaygroundCopy } from './WorkflowPlayground.copy';
+import {
+  createWorkflowPlaygroundElementCache,
+  reconcileWorkflowPlaygroundElements,
+  type WorkflowPlaygroundElementsOptions,
+} from './WorkflowPlayground.elements';
 import { layoutPlaygroundGraph } from './WorkflowPlayground.graph';
 import {
   buildPlaygroundDocument,
   buildPlaygroundGraph,
   compilePlaygroundGraph,
   createPlaygroundNode,
+  PLAYGROUND_EDGE_COLORS,
   validatePlaygroundConfigurations,
   type PlaygroundEdge,
   type PlaygroundGraphState,
@@ -35,6 +45,27 @@ function createLargeFanOutGraph(): PlaygroundGraphState {
 
 const largeGraph = createLargeFanOutGraph();
 const largeDag = buildPlaygroundGraph(largeGraph.nodes, largeGraph.edges);
+const noop = () => undefined;
+const elementOptions: WorkflowPlaygroundElementsOptions = {
+  beginEdit: noop,
+  copy: workflowPlaygroundCopy.en,
+  edgePalette: PLAYGROUND_EDGE_COLORS.blue,
+  edgeRouting: 'curve',
+  endEdit: noop,
+  graph: largeGraph,
+  locale: 'en',
+  onDeleteAnnotation: noop,
+  onDeleteNode: noop,
+  onDuplicateNode: noop,
+  onOpenNodeLibrary: noop,
+  onRunNode: noop,
+  onUpdateAnnotation: noop,
+  registry: a3sFlowDagNodeRegistry,
+  running: false,
+  statuses: {},
+};
+
+const elementCache = createWorkflowPlaygroundElementCache();
 
 describe('1,200-node Playground graph', () => {
   bench('automatic layout', () => {
@@ -58,6 +89,25 @@ describe('1,200-node Playground graph', () => {
       buildPlaygroundDocument(largeGraph.nodes, largeGraph.edges),
       null,
       2,
+    );
+  });
+
+  bench('canvas element reconciliation without changes', () => {
+    reconcileWorkflowPlaygroundElements(elementOptions, elementCache);
+  });
+
+  let runningTick = false;
+  bench('canvas element reconciliation for one runtime update', () => {
+    runningTick = !runningTick;
+    reconcileWorkflowPlaygroundElements(
+      {
+        ...elementOptions,
+        running: true,
+        statuses: {
+          benchmark_1: runningTick ? 'running' : 'success',
+        },
+      },
+      elementCache,
     );
   });
 });

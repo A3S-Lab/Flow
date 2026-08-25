@@ -282,8 +282,11 @@ export function resolvePlaygroundEdgeSourceLabel(
   nodes: readonly PlaygroundNode[],
   locale: FlowWebsiteLocale,
   registry: A3SFlowDagNodeRegistry = a3sFlowDagNodeRegistry,
+  nodeById?: ReadonlyMap<string, PlaygroundNode>,
 ): string | undefined {
-  const sourceNode = nodes.find(({ id }) => id === connection.source);
+  const sourceNode =
+    nodeById?.get(connection.source) ??
+    nodes.find(({ id }) => id === connection.source);
   const sourceManifest = sourceNode
     ? localizeA3SFlowDagManifest(
         registry.require(sourceNode.data.dagNode.data.type),

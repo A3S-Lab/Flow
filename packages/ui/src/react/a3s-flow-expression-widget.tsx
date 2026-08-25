@@ -15,10 +15,10 @@ import {
 } from './a3s-flow-expression-format';
 import { AdvancedExpressionEditor } from './a3s-flow-expression-advanced';
 import {
-  A3S_FLOW_DEFAULT_EXPRESSION_VARIABLES,
   VariableReferenceInput,
   VariableTemplateTextarea,
   type A3SFlowExpressionVariable,
+  useA3SFlowExpressionVariables,
 } from './a3s-flow-variable-picker';
 import { DesignerIcon } from './designer-icons';
 import type { FormWidgetProps } from '@a3s-lab/ui/form/react';
@@ -292,8 +292,9 @@ export function FlowExpressionEditor({
   describedBy,
   onBlur,
   onFocus,
-  variables = A3S_FLOW_DEFAULT_EXPRESSION_VARIABLES,
+  variables: suppliedVariables,
 }: FlowExpressionEditorProps) {
+  const variables = useA3SFlowExpressionVariables(suppliedVariables);
   const chinese = isChinese(locale);
   const purpose = purposeFrom(rawPurpose);
   const structuredExpression = expressionFrom(value) ?? editableExpressionFrom(value, purpose);

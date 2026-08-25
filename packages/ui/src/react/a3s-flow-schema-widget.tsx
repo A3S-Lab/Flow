@@ -3,6 +3,7 @@ import type { JsonObject, JsonValue } from '@a3s-lab/ui/form/core';
 import { DesignerIcon } from './designer-icons';
 import type { FormWidgetProps } from '@a3s-lab/ui/form/react';
 import { SelectControl } from './select-control';
+import { WorkflowCodeEditor } from './workflow-code-editor';
 
 const PROPERTY_TYPES = ['string', 'number', 'integer', 'boolean', 'object', 'array'] as const;
 const INVALID_SCHEMA_DRAFT = '__a3s_form_invalid_schema_draft__';
@@ -244,19 +245,20 @@ function AdvancedSchemaEditor({
   }, [draftInvalid, source]);
   return (
     <div className="a3s-form-flow-schema-json" data-invalid={invalid || undefined}>
-      <textarea
-        id={id}
-        className="textarea"
-        value={draft}
-        disabled={disabled}
-        spellCheck={false}
-        aria-invalid={invalid || undefined}
-        aria-describedby={
-          [describedBy, invalid ? errorId : undefined].filter(Boolean).join(' ') || undefined
+      <WorkflowCodeEditor
+        ariaLabel={chinese ? '输入规则 JSON' : 'Input schema JSON'}
+        describedBy={
+          [describedBy, invalid ? errorId : undefined]
+            .filter(Boolean)
+            .join(' ') || undefined
         }
-        aria-label={chinese ? '输入规则 JSON' : 'Input schema JSON'}
-        onChange={(event) => {
-          const next = event.target.value;
+        disabled={disabled}
+        fileName="input.schema.json"
+        id={id}
+        invalid={invalid}
+        language="json"
+        locale={locale}
+        onChange={(next) => {
           setDraft(next);
           try {
             const parsed = JSON.parse(next) as JsonValue;
@@ -272,6 +274,16 @@ function AdvancedSchemaEditor({
             onInvalidDraft(next);
           }
         }}
+        status={
+          invalid
+            ? chinese
+              ? '输入规则无效'
+              : 'Invalid input schema'
+            : chinese
+              ? '输入规则有效'
+              : 'Valid input schema'
+        }
+        value={draft}
       />
       <small id={errorId} role={invalid ? 'alert' : undefined}>
         {invalid

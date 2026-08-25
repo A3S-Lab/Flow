@@ -12,15 +12,16 @@ import {
   mergeA3SFlowDagNodeConfiguration,
   selectA3SFlowDagNodeConfiguration,
 } from '../integrations/a3s-flow-node-manifest';
-import { WORKFLOW_CONFIGURATION_WIDGETS } from '../integrations/workflow-node-form';
 import { isA3SFlowCorePortAvailable } from '../integrations/a3s-flow-validation';
-import { A3SFlowExpressionWidget } from './a3s-flow-expression-widget';
 import { a3sFlowDagNodePreviewSummary } from './a3s-flow-node-summary';
 import {
   createA3SFlowPanelHostAdapter,
   localizeA3SFlowDagNodeManifest,
 } from './a3s-flow-panel-support';
-import type { A3SFlowExpressionVariable } from './a3s-flow-variable-picker';
+import {
+  A3SFlowExpressionVariablesProvider,
+  type A3SFlowExpressionVariable,
+} from './a3s-flow-variable-picker';
 import { a3sFlowWidgetRegistry } from './a3s-flow-widgets';
 import {
   WorkflowNodeConfigurationPanel,
@@ -200,20 +201,9 @@ export function A3SFlowDagNodeConfigurationPanel({
   const resolvedWidgetRegistry = useMemo(
     () => ({
       ...a3sFlowWidgetRegistry,
-      ...(expressionVariables
-        ? {
-            [WORKFLOW_CONFIGURATION_WIDGETS.flowExpression]: (
-              widgetProps: Parameters<typeof A3SFlowExpressionWidget>[0],
-            ) =>
-              createElement(A3SFlowExpressionWidget, {
-                ...widgetProps,
-                variables: expressionVariables,
-              }),
-          }
-        : {}),
       ...widgetRegistry,
     }),
-    [expressionVariables, widgetRegistry],
+    [widgetRegistry],
   );
   const validatingHostAdapter = useMemo(
     () =>
@@ -242,25 +232,29 @@ export function A3SFlowDagNodeConfigurationPanel({
     data: { ...structuredClone(dagNode.data), ...structuredClone(patch), type: dagNode.data.type },
   });
 
-  return createElement(WorkflowNodeConfigurationPanel, {
-    ...props,
-    buildConfig: resolvedBuildConfig,
-    className: ['a3s-form-flow-node-panel', className].filter(Boolean).join(' '),
-    compatibility: A3S_FLOW_V1_COMPATIBILITY,
-    fieldVisibility: resolvedFieldVisibility,
-    hostAdapter: validatingHostAdapter,
-    locale,
-    node: localizedManifest,
-    value,
-    onChange: (configuration) => onChange(nextNode(configuration)),
-    onApply: async (configuration, document) => onApply?.(nextNode(configuration), document),
-    onReset: (configuration) => onReset?.(nextNode(configuration)),
-    title: localizedManifest.display_name,
-    description: localizedManifest.description,
-    onTitleChange: (title) => onChange(nextPresentation({ title })),
-    onDescriptionChange: (desc) => onChange(nextPresentation({ desc })),
-    onRequestConnection,
-    presentation: 'task',
-    widgetRegistry: resolvedWidgetRegistry,
-  });
+  return createElement(
+    A3SFlowExpressionVariablesProvider,
+    { variables: expressionVariables },
+    createElement(WorkflowNodeConfigurationPanel, {
+      ...props,
+      buildConfig: resolvedBuildConfig,
+      className: ['a3s-form-flow-node-panel', className].filter(Boolean).join(' '),
+      compatibility: A3S_FLOW_V1_COMPATIBILITY,
+      fieldVisibility: resolvedFieldVisibility,
+      hostAdapter: validatingHostAdapter,
+      locale,
+      node: localizedManifest,
+      value,
+      onChange: (configuration) => onChange(nextNode(configuration)),
+      onApply: async (configuration, document) => onApply?.(nextNode(configuration), document),
+      onReset: (configuration) => onReset?.(nextNode(configuration)),
+      title: localizedManifest.display_name,
+      description: localizedManifest.description,
+      onTitleChange: (title) => onChange(nextPresentation({ title })),
+      onDescriptionChange: (desc) => onChange(nextPresentation({ desc })),
+      onRequestConnection,
+      presentation: 'task',
+      widgetRegistry: resolvedWidgetRegistry,
+    }),
+  );
 }

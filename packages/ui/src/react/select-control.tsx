@@ -10,6 +10,7 @@ import {
   type ReactNode,
   type SelectHTMLAttributes,
 } from 'react';
+import { loadA3SUIRuntime } from './a3s-ui-runtime';
 import { DesignerIcon } from './designer-icons';
 
 type SelectElement = HTMLElement & {
@@ -18,17 +19,8 @@ type SelectElement = HTMLElement & {
   value?: string;
 };
 
-let selectRuntimePromise: Promise<void> | undefined;
-
 function loadSelectRuntime(): Promise<void> {
-  if (typeof window === 'undefined') return Promise.resolve();
-  selectRuntimePromise ??= (async () => {
-    if (!window.basecoat) await import('@a3s-lab/ui/basecoat');
-    await import('@a3s-lab/ui/select');
-    window.basecoat?.init('select');
-    window.basecoat?.start();
-  })();
-  return selectRuntimePromise;
+  return loadA3SUIRuntime('select', () => import('@a3s-lab/ui/select'));
 }
 
 export type SelectControlChangeEvent = {
@@ -38,7 +30,13 @@ export type SelectControlChangeEvent = {
 
 export interface SelectControlProps extends Omit<
   SelectHTMLAttributes<HTMLSelectElement>,
-  'children' | 'defaultValue' | 'multiple' | 'onBlur' | 'onChange' | 'onFocus' | 'value'
+  | 'children'
+  | 'defaultValue'
+  | 'multiple'
+  | 'onBlur'
+  | 'onChange'
+  | 'onFocus'
+  | 'value'
 > {
   children: ReactNode;
   onBlur?: () => void;
@@ -95,7 +93,8 @@ export function SelectControl({
   const generatedId = useId();
   const id = suppliedId ?? `a3s-flow-select-${generatedId.replaceAll(':', '')}`;
   const options = useMemo(() => selectOptions(children), [children]);
-  const selected = options.find((option) => option.value === value) ?? options[0];
+  const selected =
+    options.find((option) => option.value === value) ?? options[0];
   const elementRef = useRef<SelectElement | null>(null);
   const valueRef = useRef(value);
   const onChangeRef = useRef(onChange);
@@ -114,17 +113,27 @@ export function SelectControl({
     let active = true;
     const handleChange = (event: Event) => {
       const detail = (event as CustomEvent<{ value?: unknown }>).detail;
-      const nextValue = typeof detail?.value === 'string' ? detail.value : element.value;
-      if (typeof nextValue !== 'string' || nextValue === valueRef.current) return;
+      const nextValue =
+        typeof detail?.value === 'string' ? detail.value : element.value;
+      if (typeof nextValue !== 'string' || nextValue === valueRef.current)
+        return;
       onChangeRef.current?.({
         currentTarget: { value: nextValue },
         target: { value: nextValue },
       });
     };
     element.addEventListener('change', handleChange);
-    void loadSelectRuntime().then(() => {
-      if (active) synchronize(element);
-    });
+    void loadSelectRuntime()
+      .then(() => {
+        if (active) synchronize(element);
+      })
+      .catch((error: unknown) => {
+        if (!active || typeof window === 'undefined') return;
+        console.error(
+          '[A3S Flow] Failed to initialize the select control.',
+          error,
+        );
+      });
     return () => {
       active = false;
       element.removeEventListener('change', handleChange);
@@ -149,7 +158,9 @@ export function SelectControl({
 
   return (
     <div
-      className={['select', 'a3s-flow-select-control', className].filter(Boolean).join(' ')}
+      className={['select', 'a3s-flow-select-control', className]
+        .filter(Boolean)
+        .join(' ')}
       data-disabled={disabled || undefined}
       data-placeholder=""
       id={id}
@@ -173,7 +184,12 @@ export function SelectControl({
         <DesignerIcon name="chevron-down" size={14} />
       </button>
       <div aria-hidden="true" data-popover id={`${id}-popover`}>
-        <div aria-labelledby={`${id}-trigger`} aria-orientation="vertical" id={`${id}-listbox`} role="listbox">
+        <div
+          aria-labelledby={`${id}-trigger`}
+          aria-orientation="vertical"
+          id={`${id}-listbox`}
+          role="listbox"
+        >
           {options.map((option, index) => (
             <div
               aria-disabled={option.disabled || undefined}
@@ -189,7 +205,13 @@ export function SelectControl({
           ))}
         </div>
       </div>
-      <input className="a3s-form-visually-hidden" name={name ?? id} readOnly type="hidden" value={value} />
+      <input
+        className="a3s-form-visually-hidden"
+        name={name ?? id}
+        readOnly
+        type="hidden"
+        value={value}
+      />
     </div>
   );
 }

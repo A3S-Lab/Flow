@@ -330,41 +330,41 @@ export function WorkflowPlaygroundExamples({
             </div>
             <span>{remaining.length}</span>
           </header>
-          <div role="list">
+          <ul className="a3s-example-grid">
             {remaining.map((example) => {
               const Icon = categoryIcons[example.category];
               return (
-                <a
-                  aria-label={copy.openExample(example.title)}
-                  className="a3s-example-row"
-                  href={exampleHref(example.id)}
-                  key={example.id}
-                  onClick={(event) =>
-                    handleExampleClick(event, example.id, onSelect)
-                  }
-                  role="listitem"
-                >
-                  <span
-                    aria-hidden="true"
-                    className={`a3s-example-row__icon is-${example.category}`}
+                <li key={example.id}>
+                  <a
+                    aria-label={copy.openExample(example.title)}
+                    className="a3s-example-card"
+                    href={exampleHref(example.id)}
+                    onClick={(event) =>
+                      handleExampleClick(event, example.id, onSelect)
+                    }
                   >
-                    <Icon weight="duotone" />
-                  </span>
-                  <div className="a3s-example-row__copy">
-                    <span>{copy.categories[example.category]}</span>
-                    <h3>{example.title}</h3>
-                    <p>{example.description}</p>
-                  </div>
-                  <WorkflowSequence example={example} />
-                  <ExampleFacts copy={copy} example={example} />
-                  <span className="a3s-example-row__action">
-                    <span>{copy.openExample(example.title)}</span>
-                    <ArrowRight aria-hidden="true" />
-                  </span>
-                </a>
+                    <span
+                      aria-hidden="true"
+                      className={`a3s-example-card__icon is-${example.category}`}
+                    >
+                      <Icon weight="duotone" />
+                    </span>
+                    <div className="a3s-example-card__copy">
+                      <span>{copy.categories[example.category]}</span>
+                      <h3>{example.title}</h3>
+                      <p>{example.description}</p>
+                    </div>
+                    <span className="a3s-example-card__action">
+                      <span>{copy.openExample(example.title)}</span>
+                      <ArrowRight aria-hidden="true" />
+                    </span>
+                    <WorkflowSequence example={example} />
+                    <ExampleFacts copy={copy} example={example} />
+                  </a>
+                </li>
               );
             })}
-          </div>
+          </ul>
         </section>
       </div>
     </main>

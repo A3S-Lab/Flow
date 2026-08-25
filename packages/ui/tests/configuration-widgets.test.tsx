@@ -1,4 +1,4 @@
-import { createElement } from "react";
+import { createElement, useState } from "react";
 import {
   cleanup,
   fireEvent,
@@ -14,6 +14,8 @@ import {
   createWorkflowConfigurationWidgetRegistry,
   WorkflowFieldAccessory,
 } from "../src/react/workflow-configuration-widgets";
+import { WorkflowCodeEditor } from "../src/react/workflow-code-editor";
+import { WorkflowPromptWidget } from "../src/react/workflow-configuration-editors";
 import { SelectControl } from "../src/react/select-control";
 
 const conditionField = {
@@ -105,6 +107,86 @@ describe("workflow configuration widgets", () => {
     expect(
       screen.getByRole("button", { name: "展开参与判断的值编辑器" }),
     ).toBeTruthy();
+  });
+
+  it("initializes the shared code editor with Chinese runtime labels", async () => {
+    const view = render(
+      <WorkflowCodeEditor
+        ariaLabel="运行结果"
+        fileName="result.json"
+        id="localized-code-editor"
+        language="json"
+        locale="zh-CN"
+        onChange={vi.fn()}
+        status="JSON"
+        value={'{\n  "ok": true\n}'}
+      />,
+    );
+    const editor = view.container.querySelector<HTMLElement>(".code-editor");
+
+    await waitFor(() =>
+      expect(editor?.dataset.codeEditorInitialized).toBe("true"),
+    );
+    expect(editor?.dataset.labelSaved).toBe("已保存");
+    expect(editor?.dataset.labelReadonly).toBe("只读");
+    expect(
+      editor?.querySelector("[data-code-editor-state]")?.textContent,
+    ).toBe("已保存");
+    expect(
+      editor?.querySelector("[data-code-editor-lines]")?.textContent,
+    ).toBe("3 行");
+    expect(
+      editor?.querySelector("[data-code-editor-characters]")?.textContent,
+    ).toBe("14 个字符");
+  });
+
+  it("inserts an externally supplied upstream variable from the prompt keyboard menu", async () => {
+    function PromptHarness() {
+      const [value, setValue] = useState("Notify ");
+      return (
+        <WorkflowPromptWidget
+          {...widgetProps({
+            node: { ...conditionField, label: "通知内容" },
+            onChange: (nextValue) => {
+              if (typeof nextValue === "string") setValue(nextValue);
+            },
+            value,
+          })}
+          variables={[
+            {
+              dataType: "string",
+              group: "upstream",
+              label: "Order ID",
+              nodeId: "load-order",
+              path: "load-order.order_id",
+            },
+          ]}
+        />
+      );
+    }
+
+    render(<PromptHarness />);
+    const textarea = screen.getByRole("textbox", { name: "通知内容" });
+    fireEvent.change(textarea, {
+      target: {
+        selectionEnd: 13,
+        selectionStart: 13,
+        value: "Notify $order",
+      },
+    });
+
+    expect(
+      await screen.findByRole("listbox", { name: "变量智能感知" }),
+    ).toBeTruthy();
+    expect(screen.getByText("$load-order.order_id")).toBeTruthy();
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() =>
+      expect((textarea as HTMLTextAreaElement).value).toBe(
+        "Notify {{load-order.order_id}}",
+      ),
+    );
+    expect(screen.queryByRole("listbox")).toBeNull();
   });
 
   it("localizes composite controls without changing their stored values", () => {
@@ -226,5 +308,30 @@ describe("workflow configuration widgets", () => {
         .value,
     ).toBe("暂无数据。");
     data.unmount();
+  });
+
+  it("can unmount code editors before their asynchronous runtime settles", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const unhandled = vi.fn();
+    window.addEventListener("unhandledrejection", unhandled);
+
+    const view = render(
+      <WorkflowCodeEditor
+        ariaLabel="临时编辑器"
+        fileName="temporary.json"
+        id="temporary-code-editor"
+        language="json"
+        locale="zh-CN"
+        onChange={vi.fn()}
+        value="{}"
+      />,
+    );
+    view.unmount();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(unhandled).not.toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
+    window.removeEventListener("unhandledrejection", unhandled);
+    consoleError.mockRestore();
   });
 });

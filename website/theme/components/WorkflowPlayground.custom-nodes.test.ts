@@ -18,6 +18,29 @@ import {
 type JsonObject = Parameters<typeof validateA3SFlowDagNodeConfiguration>[1];
 
 const EDITS: Readonly<Record<string, JsonObject>> = {
+  'commerce.customs.document-review': {
+    order_context: { source: 'steps.allocate_inventory.result' },
+    required_document_types: [
+      'commercial_invoice',
+      'packing_list',
+      'certificate_of_origin',
+    ],
+    document_files: ['invoice.pdf', 'packing-list.pdf', 'origin.png'],
+    extraction_model: 'trade-extractor-v2',
+    extraction_prompt:
+      'Extract the declaration fields for order {{input.order_id}}.',
+    preprocess_code:
+      'export const preprocess = (file: File) => ({ name: file.name });',
+    allowed_decisions: ['clear', 'request_documents', 'manual_review'],
+    customs_connector: {
+      server: 'customs-catalog-test',
+      tool: 'declaration.validate',
+      timeout_ms: 3_000,
+    },
+    credential_reference: 'vault://customs/test',
+    jurisdictions: ['CN', 'EU'],
+    result_preview: { status: 'ready', extracted_fields: 10, warnings: [] },
+  },
   'commerce.risk.score': {
     order: createA3SFlowExpression({
       op: 'field',
@@ -47,6 +70,9 @@ const EDITS: Readonly<Record<string, JsonObject>> = {
 };
 
 const INVALID_EDITS: Readonly<Record<string, JsonObject>> = {
+  'commerce.customs.document-review': {
+    extraction_model: 'unregistered-model',
+  },
   'commerce.risk.score': {
     order: {
       apiVersion: '0',
@@ -67,7 +93,7 @@ describe('Workflow Playground custom nodes', () => {
     (locale) => {
       const catalog = createPlaygroundNodeCatalog(locale);
 
-      expect(catalog.custom).toHaveLength(3);
+      expect(catalog.custom).toHaveLength(4);
       for (const { manifest, capability } of catalog.custom) {
         const defaults = createWorkflowNodeDefaultValue(manifest);
         const edits = EDITS[manifest.type];

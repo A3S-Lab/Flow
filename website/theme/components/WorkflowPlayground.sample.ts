@@ -426,9 +426,62 @@ export function createSampleWorkflow(
       },
     ),
     sampleNode(
+      'review_customs_documents',
+      'commerce.customs.document-review',
+      { x: 3_690, y: -80 },
+      locale,
+      ['审阅报关材料', 'Review customs documents'],
+      [
+        '读取订单附件，抽取申报字段，并把缺失材料或低置信度结果送入人工复核。',
+        'Read order attachments, extract declaration fields, and route missing or low-confidence evidence to manual review.',
+      ],
+      {
+        registry: catalog.registry,
+        configuration: {
+          order_context: { source: 'regional_fulfillment.results' },
+          required_document_types: [
+            'commercial_invoice',
+            'packing_list',
+            'certificate_of_origin',
+            'transport_document',
+          ],
+          document_files: [
+            'invoice-HV-2026-0825.pdf',
+            'packing-list-HV-2026-0825.pdf',
+            'certificate-of-origin.png',
+          ],
+          extraction_model: 'trade-extractor-v2',
+          extraction_prompt: branch(
+            '为订单 {{input.order_id}} 抽取 HS 编码、申报金额、币种、原产地和材料置信度。',
+            'Extract HS codes, declared value, currency, origin, and evidence confidence for order {{input.order_id}}.',
+          ),
+          preprocess_code:
+            'export function preprocess(file: { name: string; currency?: string }) {\n  return { ...file, name: file.name.trim(), currency: file.currency?.toUpperCase() };\n}',
+          allowed_decisions: [
+            'clear',
+            'request_documents',
+            'manual_review',
+            'reject',
+          ],
+          customs_connector: {
+            server: 'customs-catalog-production',
+            tool: 'declaration.validate',
+            timeout_ms: 8_000,
+          },
+          credential_reference: 'vault://customs/production-readonly',
+          jurisdictions: ['CN', 'DE', 'EU'],
+          result_preview: {
+            status: 'review_required',
+            extracted_fields: 16,
+            warnings: ['origin_requires_review', 'hs_code_low_confidence'],
+          },
+        },
+      },
+    ),
+    sampleNode(
       'customs_clearance',
       'flow.child-workflow',
-      { x: 3_690, y: -80 },
+      { x: 3_990, y: -80 },
       locale,
       ['启动报关子流程', 'Start customs clearance workflow'],
       [
@@ -726,7 +779,8 @@ export function createSampleWorkflow(
     connection('route_risk', 'matched', 'warehouse_operation'),
     connection('route_risk', 'otherwise', 'wait_review_window'),
     connection('warehouse_operation', 'linked', 'regional_fulfillment'),
-    connection('regional_fulfillment', 'completed', 'customs_clearance'),
+    connection('regional_fulfillment', 'completed', 'review_customs_documents'),
+    connection('review_customs_documents', 'next', 'customs_clearance'),
     connection('customs_clearance', 'completed', 'shipment_loop'),
     connection('shipment_loop', 'done', 'logistics_callback'),
     connection('logistics_callback', 'received', 'delivery_signal'),

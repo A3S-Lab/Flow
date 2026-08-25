@@ -1,7 +1,7 @@
 /* tslint:disable */
 /* eslint-disable */
 
-export function layout_dag(node_count: number, sources: Uint32Array, targets: Uint32Array, widths: Float64Array, heights: Float64Array): Float64Array;
+export function layout_dag(node_count: number, sources: Uint32Array, targets: Uint32Array, widths: Float32Array, heights: Float32Array): Float32Array;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 

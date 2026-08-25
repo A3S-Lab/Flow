@@ -48,7 +48,11 @@ import {
 } from './WorkflowPlaygroundInspector';
 import { WorkflowPlaygroundLibrary } from './WorkflowPlaygroundLibrary';
 import { addIntoGraph } from './WorkflowPlayground.graph';
-import { layoutPlaygroundGraphOffThread } from './WorkflowPlayground.layout-client';
+import {
+  layoutPlaygroundGraphOffThread,
+  schedulePlaygroundLayoutWarmup,
+} from './WorkflowPlayground.layout-client';
+import { applyPlaygroundLayoutKernelOutput } from './WorkflowPlayground.layout-kernel';
 import { pageHref, playgroundHref } from './WorkflowPlayground.routes';
 import {
   WorkflowPlaygroundRoute,
@@ -136,6 +140,8 @@ function WorkflowPlaygroundSurface({
   const arrangeRequest = useRef(0);
   const graphRef = useRef(graph);
   graphRef.current = graph;
+
+  useEffect(() => schedulePlaygroundLayoutWarmup(), []);
 
   const edgePalette = PLAYGROUND_EDGE_COLORS[edgeColor];
   const defaultEdgeOptions = useMemo<DefaultEdgeOptions>(
@@ -326,7 +332,7 @@ function WorkflowPlaygroundSurface({
     const request = ++arrangeRequest.current;
     const source = graphRef.current;
     const sourceKey = playgroundGraphSemanticKey(source.nodes, source.edges);
-    const arranged = await layoutPlaygroundGraphOffThread(source);
+    const layout = await layoutPlaygroundGraphOffThread(source);
     if (request !== arrangeRequest.current) return;
     if (
       playgroundGraphSemanticKey(
@@ -336,35 +342,17 @@ function WorkflowPlaygroundSurface({
     ) {
       return;
     }
-    const positions = new Map(
-      arranged.nodes
-        .filter((node) => !node.parentId)
-        .map((node) => [node.id, node.position] as const),
-    );
     commit((current) => {
       if (
         playgroundGraphSemanticKey(current.nodes, current.edges) !== sourceKey
       ) {
         return current;
       }
-      return {
-        ...current,
-        nodes: current.nodes.map((node) => {
-          const position = positions.get(node.id);
-          if (!position) return node;
-          return {
-            ...node,
-            position: structuredClone(position),
-            data: {
-              ...node.data,
-              dagNode: {
-                ...node.data.dagNode,
-                position: structuredClone(position),
-              },
-            },
-          };
-        }),
-      };
+      return applyPlaygroundLayoutKernelOutput(
+        current,
+        layout.nodeIds,
+        layout.positions,
+      );
     });
     setAnnouncement(copy.nodesArranged);
     window.setTimeout(() => void fitView({ duration: 320, padding: 0.18 }), 0);

@@ -1,6 +1,9 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { createPlaygroundNodeCatalog } from './WorkflowPlayground.custom-nodes';
 import { createWorkflowExamples } from './WorkflowPlayground.examples';
+import { WorkflowPlaygroundExamples } from './WorkflowPlaygroundExamples';
 import {
   compilePlaygroundGraph,
   validatePlaygroundConfigurations,
@@ -55,5 +58,38 @@ describe('Workflow Playground example library', () => {
 
     expect(featured?.id).toBe('cross-border-fulfillment');
     expect(featuredTypes).toEqual(registeredTypes);
+  });
+
+  it('renders the non-featured workflows as semantic grid cards', () => {
+    const catalog = createPlaygroundNodeCatalog('zh');
+    const examples = createWorkflowExamples('zh', catalog);
+    const html = renderToStaticMarkup(
+      createElement(WorkflowPlaygroundExamples, {
+        exampleHref: (exampleId) => `/playground?example=${exampleId}`,
+        examples,
+        homeHref: '/',
+        languageHref: '/en/playground',
+        locale: 'zh',
+        logoSrc: '/a3s-logo.png',
+        onSelect: () => {},
+        onVersionChange: () => {},
+        version: 'v1.0.0',
+        versionHref: (version) => `/${version}`,
+        versions: ['v1.0.0'],
+      }),
+    );
+    const grid = html.match(
+      /<ul class="a3s-example-grid">([\s\S]*?)<\/ul>/u,
+    )?.[1];
+
+    expect(grid).toBeDefined();
+    expect(grid?.match(/<li>/gu)).toHaveLength(examples.length - 1);
+    expect(grid?.match(/class="a3s-example-card"/gu)).toHaveLength(
+      examples.length - 1,
+    );
+    expect(grid).not.toContain('role="listitem"');
+    for (const example of examples.filter(({ featured }) => !featured)) {
+      expect(grid).toContain(`/playground?example=${example.id}`);
+    }
   });
 });

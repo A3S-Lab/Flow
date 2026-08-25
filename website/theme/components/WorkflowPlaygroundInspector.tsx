@@ -1,7 +1,6 @@
 import {
   CheckCircle,
   Clipboard,
-  FileCode,
   WarningCircle,
   X,
 } from '@phosphor-icons/react';
@@ -11,8 +10,11 @@ import {
   type A3SFlowWorkflowDagCompilation,
   type A3SFlowWorkflowDagNode,
 } from '@a3s-lab/flow-ui';
-import { A3SFlowDagNodeConfigurationPanel } from '@a3s-lab/flow-ui/react';
-import { useEffect, useMemo, useRef } from 'react';
+import {
+  A3SFlowDagNodeConfigurationPanel,
+  WorkflowCodeEditor,
+} from '@a3s-lab/flow-ui/react';
+import { useMemo } from 'react';
 import type { WorkflowPlaygroundCopy } from './WorkflowPlayground.copy';
 import type {
   PlaygroundConfigurationIssue,
@@ -87,115 +89,42 @@ function PanelHeader({
 function DocumentPreview({
   copy,
   documentJson,
+  locale,
   onCopyDocument,
 }: Pick<
   WorkflowPlaygroundInspectorProps,
-  'copy' | 'documentJson' | 'onCopyDocument'
+  'copy' | 'documentJson' | 'locale' | 'onCopyDocument'
 >) {
-  const lines = documentJson.split('\n');
-  const characterCount = Array.from(documentJson).filter(
-    (character) => character !== '\n' && character !== '\r',
-  ).length;
-  const editorRef = useRef<A3SCodeEditorElement>(null);
-
-  useEffect(() => {
-    let active = true;
-
-    const initialize = async () => {
-      if (!window.basecoat) await import('@a3s-lab/ui/basecoat');
-      await import('@a3s-lab/ui/code-editor');
-      if (!active || !editorRef.current || !window.basecoat) return;
-      window.basecoat.init('code-editor');
-      window.basecoat.start();
-      editorRef.current.setValue?.(documentJson, { clean: true });
-    };
-
-    void initialize();
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (editorRef.current?.setValue) {
-      editorRef.current.setValue(documentJson, { clean: true });
-      return;
-    }
-    if (editorRef.current && window.basecoat) {
-      window.basecoat.refresh(editorRef.current);
-    }
-  }, [documentJson]);
-
   return (
-    <div
-      aria-label={copy.documentPreview}
-      className="code-editor flow-playground-document"
-      data-dirty="false"
-      data-disabled="false"
-      data-language="json"
-      data-label-character={copy.characterCount(1).replace(/^1\s*/, '')}
-      data-label-characters={copy.characterCount(2).replace(/^2\s*/, '')}
-      data-label-line={copy.lineCount(1).replace(/^1\s*/, '')}
-      data-label-lines={copy.lineCount(2).replace(/^2\s*/, '')}
-      data-label-readonly={copy.readOnly}
-      data-line-numbers="true"
-      data-size="lg"
-      data-validation-state="valid"
-      data-wrap="false"
-      ref={editorRef}
-    >
-      <header>
-        <div data-code-editor-file>
-          <FileCode aria-hidden="true" />
-          <strong>workflow.json</strong>
-        </div>
-        <div data-code-editor-actions>
-          <span data-code-editor-language>JSON</span>
-          <button
-            aria-label={copy.copyDocument}
-            onClick={onCopyDocument}
-            title={copy.copyDocument}
-            type="button"
-          >
-            <Clipboard aria-hidden="true" size={14} />
-            <span>{copy.copyDocument}</span>
-          </button>
-        </div>
-      </header>
-      <section>
-        <div
-          aria-hidden="true"
-          data-code-editor-gutter
-          data-line-count={lines.length}
-        >
-          {lines.map((_, index) => (
-            <span data-line={index + 1} key={index}>
-              {index + 1}
-            </span>
-          ))}
-        </div>
-        <textarea
-          aria-label={copy.documentPreview}
-          readOnly
-          spellCheck={false}
-          value={documentJson}
-          wrap="off"
-        />
-      </section>
-      <footer>
-        <div data-code-editor-info>
-          <span data-code-editor-state>{copy.readOnly}</span>
-          <span data-code-editor-lines>{copy.lineCount(lines.length)}</span>
-          <span data-code-editor-characters>
-            {copy.characterCount(characterCount)}
-          </span>
-        </div>
-        <div data-code-editor-meta>
+    <WorkflowCodeEditor
+      ariaLabel={copy.documentPreview}
+      className="flow-playground-document"
+      fileName="workflow.json"
+      id="flow-playground-document-json"
+      language="json"
+      locale={locale}
+      meta={
+        <>
           <span>UTF-8</span>
           <span>LF</span>
-        </div>
-      </footer>
-    </div>
+        </>
+      }
+      readOnly
+      size="lg"
+      status={copy.readOnly}
+      toolbar={
+        <button
+          aria-label={copy.copyDocument}
+          onClick={onCopyDocument}
+          title={copy.copyDocument}
+          type="button"
+        >
+          <Clipboard aria-hidden="true" size={14} />
+          <span>{copy.copyDocument}</span>
+        </button>
+      }
+      value={documentJson}
+    />
   );
 }
 
@@ -399,6 +328,7 @@ export function WorkflowPlaygroundInspector({
           <DocumentPreview
             copy={copy}
             documentJson={documentJson}
+            locale={locale}
             onCopyDocument={onCopyDocument}
           />
         </>

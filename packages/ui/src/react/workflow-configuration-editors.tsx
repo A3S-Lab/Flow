@@ -5,6 +5,12 @@ import { DesignerIcon } from './designer-icons';
 import { workflowWidgetCopy } from './workflow-configuration-copy';
 import type { WorkflowConfigurationWidgetCallbacks } from './workflow-configuration-widgets';
 import { WorkflowMetadataIcon } from './workflow-metadata-icon';
+import { WorkflowCodeEditor } from './workflow-code-editor';
+import {
+  VariableTemplateTextarea,
+  type A3SFlowExpressionVariable,
+  useA3SFlowExpressionVariables,
+} from './a3s-flow-variable-picker';
 
 function stringArray(value: JsonValue | undefined): string[] {
   return Array.isArray(value)
@@ -132,31 +138,33 @@ export function WorkflowJsonWidget(props: FormWidgetProps) {
       data-expanded={expanded || undefined}
       data-invalid={invalid || undefined}
     >
-      <textarea
-        id={props.id}
-        className="textarea"
-        spellCheck={false}
-        value={draft}
+      <WorkflowCodeEditor
+        ariaLabel={props.node.label ?? props.node.id}
+        describedBy={props.describedBy}
+        dirty={draft !== source}
         disabled={props.disabled}
-        aria-label={props.labelledBy ? undefined : (props.node.label ?? props.node.id)}
-        aria-labelledby={props.labelledBy}
-        aria-invalid={props.invalid || invalid || undefined}
-        aria-describedby={props.describedBy}
-        placeholder={props.node.placeholder}
-        onChange={(event) => update(event.target.value)}
+        fileName={props.node.label ?? 'configuration.json'}
+        id={props.id}
+        invalid={Boolean(props.invalid || invalid)}
+        language="json"
+        locale={props.locale}
         onBlur={props.onBlur}
+        onChange={update}
         onFocus={props.onFocus}
+        placeholder={props.node.placeholder}
+        size={expanded ? 'lg' : 'sm'}
+        status={invalid ? copy.invalidJson : 'JSON'}
+        toolbar={
+          <EditorExpandButton
+            expanded={expanded}
+            label={props.node.label ?? props.node.id}
+            locale={props.locale}
+            targetId={props.id}
+            onChange={() => setExpanded((current) => !current)}
+          />
+        }
+        value={draft}
       />
-      <div className="a3s-form-workflow-editor-footer">
-        <span role="status">{invalid ? copy.invalidJson : 'JSON'}</span>
-        <EditorExpandButton
-          expanded={expanded}
-          label={props.node.label ?? props.node.id}
-          locale={props.locale}
-          targetId={props.id}
-          onChange={() => setExpanded((current) => !current)}
-        />
-      </div>
     </div>
   );
 }
@@ -164,41 +172,47 @@ export function WorkflowJsonWidget(props: FormWidgetProps) {
 export function WorkflowCodeWidget(props: FormWidgetProps) {
   const text = typeof props.value === 'string' ? props.value : '';
   const [expanded, setExpanded] = useState(false);
-  const copy = workflowWidgetCopy(props.locale);
+  const language = customString(props, 'language', 'language') ?? 'typescript';
+  const fileName = customString(props, 'filePath', 'file_path') ?? `handler.${language === 'typescript' ? 'ts' : 'txt'}`;
   return (
     <div className="a3s-form-workflow-source-editor is-code" data-expanded={expanded || undefined}>
-      <textarea
-        id={props.id}
-        className="textarea"
-        spellCheck={false}
-        value={text}
+      <WorkflowCodeEditor
+        ariaLabel={props.node.label ?? props.node.id}
+        describedBy={props.describedBy}
         disabled={props.disabled}
-        aria-label={props.labelledBy ? undefined : (props.node.label ?? props.node.id)}
-        aria-labelledby={props.labelledBy}
-        aria-invalid={props.invalid || undefined}
-        aria-describedby={props.describedBy}
-        placeholder={props.node.placeholder}
-        onChange={(event) => props.onChange(event.target.value)}
+        fileName={fileName}
+        id={props.id}
+        invalid={props.invalid}
+        language={language}
+        locale={props.locale}
         onBlur={props.onBlur}
+        onChange={(value) => props.onChange(value)}
         onFocus={props.onFocus}
+        placeholder={props.node.placeholder}
+        size={expanded ? 'lg' : 'sm'}
+        toolbar={
+          <EditorExpandButton
+            expanded={expanded}
+            label={props.node.label ?? props.node.id}
+            locale={props.locale}
+            targetId={props.id}
+            onChange={() => setExpanded((current) => !current)}
+          />
+        }
+        value={text}
       />
-      <div className="a3s-form-workflow-editor-footer">
-        <span>{text.length === 0 ? copy.empty : copy.lineCount(text.split('\n').length)}</span>
-        <EditorExpandButton
-          expanded={expanded}
-          label={props.node.label ?? props.node.id}
-          locale={props.locale}
-          targetId={props.id}
-          onChange={() => setExpanded((current) => !current)}
-        />
-      </div>
     </div>
   );
 }
 
-export function WorkflowPromptWidget(props: FormWidgetProps) {
+export function WorkflowPromptWidget(
+  props: FormWidgetProps & {
+    variables?: readonly A3SFlowExpressionVariable[];
+  },
+) {
   const text = typeof props.value === 'string' ? props.value : '';
   const [expanded, setExpanded] = useState(false);
+  const availableVariables = useA3SFlowExpressionVariables(props.variables);
   const variables = useMemo(() => {
     const names = new Set<string>();
     for (const match of text.matchAll(/\{\{?\s*([\w.-]+)\s*\}?\}/g)) names.add(match[1]);
@@ -206,7 +220,7 @@ export function WorkflowPromptWidget(props: FormWidgetProps) {
   }, [text]);
   return (
     <div className="a3s-form-workflow-prompt-editor" data-expanded={expanded || undefined}>
-      <textarea
+      <VariableTemplateTextarea
         id={props.id}
         className="textarea"
         value={text}
@@ -216,9 +230,11 @@ export function WorkflowPromptWidget(props: FormWidgetProps) {
         aria-invalid={props.invalid || undefined}
         aria-describedby={props.describedBy}
         placeholder={props.node.placeholder}
-        onChange={(event) => props.onChange(event.target.value)}
+        locale={props.locale}
+        onValueChange={(value) => props.onChange(value)}
         onBlur={props.onBlur}
         onFocus={props.onFocus}
+        variables={availableVariables}
       />
       <div className="a3s-form-workflow-editor-footer">
         <div className="item-group">
@@ -314,16 +330,21 @@ export function WorkflowDataDisplayWidget({
         : String(props.value);
   const buttonText = customString(props, 'buttonText', 'button_text');
   const buttonIcon = customString(props, 'buttonIcon', 'button_icon');
+  const language = typeof props.value === 'object' && props.value !== null ? 'json' : 'text';
   return (
     <div className="a3s-form-workflow-data-display-control">
-      <textarea
+      <WorkflowCodeEditor
+        ariaLabel={props.node.label ?? props.node.id}
+        className="a3s-form-workflow-data-display"
+        describedBy={props.describedBy}
+        disabled={props.disabled}
+        fileName={language === 'json' ? 'result.preview.json' : 'result.preview.txt'}
         id={props.id}
-        className="textarea a3s-form-workflow-data-display"
-        rows={4}
+        language={language}
+        locale={props.locale}
         readOnly
+        status={copy.configurationReady}
         value={content}
-        aria-label={props.labelledBy ? undefined : (props.node.label ?? props.node.id)}
-        aria-labelledby={props.labelledBy}
       />
       {buttonText && (
         <button
