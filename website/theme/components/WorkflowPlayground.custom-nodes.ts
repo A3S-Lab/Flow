@@ -227,7 +227,7 @@ export function createPlaygroundNodeCatalog(
             help: risk.strictHelp,
             type: 'bool',
             _input_type: 'BoolInput',
-            value: true,
+            value: false,
             ui_group: 'decision',
             ui_group_label: locale === 'zh' ? '判定规则' : 'Decision rule',
           }),

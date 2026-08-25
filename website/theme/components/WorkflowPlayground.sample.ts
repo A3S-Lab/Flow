@@ -130,9 +130,9 @@ export function createSampleWorkflow(
         configuration: {
           workflow_name: 'commerce.cross_border_fulfillment',
           workflow_version: '2.4.0',
-          runtime_kind: 'native_ts',
-          entrypoint: 'workflows/cross-border-fulfillment.ts',
-          export_name: 'fulfillCrossBorderOrder',
+          runtime_kind: 'rust_embedded',
+          entrypoint: 'commerce::cross_border_fulfillment',
+          export_name: 'fulfill_cross_border_order',
           input_schema: orderInputSchema,
           run_id_expression: expression({
             op: 'concat',
@@ -447,8 +447,11 @@ export function createSampleWorkflow(
               export_name: 'clear_order',
             },
           },
-          input: expression(field('input')),
-          cancellation_policy: 'request_cancellation',
+          input: expression({
+            op: 'coalesce',
+            values: [field('input.customs_declaration'), field('input')],
+          }),
+          cancellation_policy: 'abandon',
         },
       },
     ),
@@ -461,15 +464,15 @@ export function createSampleWorkflow(
       locale,
       ['等待物流平台回调', 'Wait for logistics callback'],
       [
-        '签发一次性回调令牌，并公开受控的 POST 回调路径。',
-        'Issue a one-time callback token and expose a controlled POST callback path.',
+        '签发一次性回调令牌，并公开可安全重试的 PUT 回调路径。',
+        'Issue a one-time callback token and expose an idempotent PUT callback path.',
       ],
       {
         configuration: {
           kind: 'webhook',
           subject: 'Confirm international shipment handoff',
           token_expression: expression(field('input.callback_token')),
-          callback_method: 'POST',
+          callback_method: 'PUT',
           callback_path: '/callbacks/logistics/handoff',
           metadata: {
             labels: {

@@ -17,3 +17,13 @@ export function pageHref(
     `/${[prefix, route.replace(/^\//u, '')].filter(Boolean).join('/')}`,
   );
 }
+
+export function playgroundHref(
+  locale: FlowWebsiteLocale,
+  version: string,
+  defaultVersion: string,
+  exampleId?: string,
+): string {
+  const href = pageHref('playground', locale, version, defaultVersion);
+  return exampleId ? `${href}?example=${encodeURIComponent(exampleId)}` : href;
+}

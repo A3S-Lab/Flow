@@ -13,17 +13,6 @@ type GraphUpdater =
 
 const HISTORY_LIMIT = 60;
 
-function cloneGraph(graph: PlaygroundGraphState): PlaygroundGraphState {
-  return structuredClone(graph);
-}
-
-function sameGraph(
-  left: PlaygroundGraphState,
-  right: PlaygroundGraphState,
-): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
 export function usePlaygroundDocument(initial: () => PlaygroundGraphState) {
   const [document, setDocument] = useState<PlaygroundDocumentState>(() => ({
     past: [],
@@ -34,14 +23,12 @@ export function usePlaygroundDocument(initial: () => PlaygroundGraphState) {
 
   const commit = useCallback((updater: GraphUpdater) => {
     setDocument((current) => {
-      const base = cloneGraph(current.present);
-      const next = typeof updater === 'function' ? updater(base) : updater;
-      if (sameGraph(current.present, next)) return current;
+      const next =
+        typeof updater === 'function' ? updater(current.present) : updater;
+      if (current.present === next) return current;
       return {
-        past: [...current.past, cloneGraph(current.present)].slice(
-          -HISTORY_LIMIT,
-        ),
-        present: cloneGraph(next),
+        past: [...current.past, current.present].slice(-HISTORY_LIMIT),
+        present: next,
         future: [],
       };
     });
@@ -49,10 +36,10 @@ export function usePlaygroundDocument(initial: () => PlaygroundGraphState) {
 
   const updateTransient = useCallback(
     (updater: (graph: PlaygroundGraphState) => PlaygroundGraphState) => {
-      setDocument((current) => ({
-        ...current,
-        present: updater(current.present),
-      }));
+      setDocument((current) => {
+        const present = updater(current.present);
+        return present === current.present ? current : { ...current, present };
+      });
     },
     [],
   );
@@ -63,8 +50,8 @@ export function usePlaygroundDocument(initial: () => PlaygroundGraphState) {
       if (!previous) return current;
       return {
         past: current.past.slice(0, -1),
-        present: cloneGraph(previous),
-        future: [cloneGraph(current.present), ...current.future],
+        present: previous,
+        future: [current.present, ...current.future],
       };
     });
   }, []);
@@ -74,21 +61,19 @@ export function usePlaygroundDocument(initial: () => PlaygroundGraphState) {
       const next = current.future[0];
       if (!next) return current;
       return {
-        past: [...current.past, cloneGraph(current.present)].slice(
-          -HISTORY_LIMIT,
-        ),
-        present: cloneGraph(next),
+        past: [...current.past, current.present].slice(-HISTORY_LIMIT),
+        present: next,
         future: current.future.slice(1),
       };
     });
   }, []);
 
   const restore = useCallback((graph: PlaygroundGraphState) => {
-    setDocument({ past: [], present: cloneGraph(graph), future: [] });
+    setDocument({ past: [], present: structuredClone(graph), future: [] });
   }, []);
 
   const beginDrag = useCallback(() => {
-    dragOrigin.current = cloneGraph(document.present);
+    dragOrigin.current = document.present;
   }, [document.present]);
 
   const endDrag = useCallback(() => {
@@ -96,7 +81,7 @@ export function usePlaygroundDocument(initial: () => PlaygroundGraphState) {
     dragOrigin.current = undefined;
     if (!origin) return;
     setDocument((current) => {
-      if (sameGraph(origin, current.present)) return current;
+      if (origin === current.present) return current;
       return {
         past: [...current.past, origin].slice(-HISTORY_LIMIT),
         present: current.present,

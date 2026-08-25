@@ -135,13 +135,23 @@ assertIncludes(
 );
 assertIncludes(
   playground,
-  'aria-label="切换为折线" data-routing="curve"',
-  'Chinese Playground default connection routing',
+  '<h1>选择一个工作流开始</h1>',
+  'Chinese Playground example library',
 );
 assertIncludes(
   englishPlayground,
-  'aria-label="Switch to orthogonal connections" data-routing="curve"',
-  'English Playground default connection routing',
+  '<h1>Choose a workflow to begin</h1>',
+  'English Playground example library',
+);
+assertIncludes(
+  playground,
+  '/playground?example=cross-border-fulfillment',
+  'Chinese featured workflow deep link',
+);
+assertIncludes(
+  englishPlayground,
+  '/en/playground?example=cross-border-fulfillment',
+  'English featured workflow deep link',
 );
 assertRouteLink(
   playground,

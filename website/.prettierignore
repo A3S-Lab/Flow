@@ -1,3 +1,5 @@
 doc_build
 docs/public/assets
+graph-kernel/target
 node_modules
+theme/wasm/graph-kernel
