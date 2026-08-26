@@ -214,6 +214,7 @@ export function addIntoGraph(
       nodes,
       locale,
       registry,
+      { labelOverride: edgeToReplace.data?.labelOverride },
     );
 
     for (const output of manifest.ports.outputs) {

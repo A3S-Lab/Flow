@@ -6,6 +6,7 @@ import {
   createNodeAddition,
   createPlaygroundEdge,
   playgroundEdgeAriaLabel,
+  resolvePlaygroundEdgeDisplayLabel,
   resolvePlaygroundEdgeSourceLabel,
   validatePlaygroundConfigurations,
   validatePlaygroundConnection,
@@ -149,6 +150,43 @@ describe('Workflow Playground graph model', () => {
         resolvePlaygroundEdgeSourceLabel(matchedEdge!, sample.nodes, 'en'),
       ),
     ).toBe('route_serviceability Eligible order to compliance_batch');
+  });
+
+  it('supports a presentation-only edge label override without changing handles', () => {
+    const sample = createSampleWorkflow('en');
+    const source = sample.edges.find(
+      ({ source, sourceHandle }) =>
+        source === 'route_serviceability' && sourceHandle === 'matched',
+    );
+    expect(source).toBeDefined();
+
+    const labeled = createPlaygroundEdge(
+      {
+        source: source!.source,
+        sourceHandle: source!.sourceHandle!,
+        target: source!.target,
+        targetHandle: source!.targetHandle!,
+      },
+      sample.nodes,
+      'en',
+      undefined,
+      { labelOverride: 'Needs manual review' },
+    );
+
+    expect(labeled.sourceHandle).toBe('matched');
+    expect(labeled.targetHandle).toBe(source!.targetHandle);
+    expect(resolvePlaygroundEdgeDisplayLabel(labeled, 'Matched')).toBe(
+      'Needs manual review',
+    );
+    expect(
+      buildPlaygroundDocument(sample.nodes, [labeled]).workflow.graph.edges[0],
+    ).toMatchObject({
+      sourceHandle: 'matched',
+      label: 'Needs manual review',
+    });
+    expect(compilePlaygroundGraph(sample.nodes, [labeled])).toMatchObject({
+      ok: true,
+    });
   });
 
   it('rejects a connection that would create a cycle', () => {

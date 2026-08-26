@@ -5,6 +5,10 @@ import type {
   PlaygroundGraphState,
   PlaygroundNode,
 } from './WorkflowPlayground.model';
+import {
+  normalizePlaygroundEdgeLabel,
+  type PlaygroundEdge,
+} from './WorkflowPlayground.model';
 
 export const DEFAULT_PLAYGROUND_EDGE_ROUTING: PlaygroundEdgeRouting = 'curve';
 export const DEFAULT_PLAYGROUND_EDGE_COLOR: PlaygroundEdgeColor = 'blue';
@@ -62,6 +66,28 @@ function normalizePersistedNode(value: unknown): PlaygroundNode {
   return { ...value, initialWidth, initialHeight } as PlaygroundNode;
 }
 
+/** Migrates edge labels while dropping stale React Flow callback fields. */
+function normalizePersistedEdge(value: unknown): PlaygroundEdge {
+  if (!isRecord(value)) return value as PlaygroundEdge;
+  const data = isRecord(value.data) ? value.data : undefined;
+  const labelOverride = normalizePlaygroundEdgeLabel(
+    data?.labelOverride ?? (data ? undefined : value.label),
+  );
+  if (!labelOverride) {
+    const hasLabelOverride =
+      data !== undefined &&
+      Object.prototype.hasOwnProperty.call(data, 'labelOverride');
+    if (!hasLabelOverride) return value as PlaygroundEdge;
+    const nextData = { ...data };
+    delete nextData.labelOverride;
+    return { ...value, data: nextData } as PlaygroundEdge;
+  }
+  return {
+    ...value,
+    data: { ...(data ?? {}), labelOverride },
+  } as PlaygroundEdge;
+}
+
 function parseGraphState(value: unknown): PlaygroundGraphState | undefined {
   if (
     !isRecord(value) ||
@@ -72,7 +98,7 @@ function parseGraphState(value: unknown): PlaygroundGraphState | undefined {
   }
   return {
     nodes: value.nodes.map(normalizePersistedNode),
-    edges: value.edges as PlaygroundGraphState['edges'],
+    edges: value.edges.map(normalizePersistedEdge),
     annotations: Array.isArray(value.annotations)
       ? (value.annotations as PlaygroundGraphState['annotations'])
       : [],

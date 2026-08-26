@@ -30,6 +30,7 @@ const NODE_DATA_PRESENTATION_FIELDS = ['desc', 'height', 'selected', 'title', 'w
 const EDGE_PRESENTATION_FIELDS = [
   'animated',
   'hidden',
+  'label',
   'selected',
   'style',
   'type',

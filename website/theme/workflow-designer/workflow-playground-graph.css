@@ -226,7 +226,38 @@
   font-weight: 650;
 }
 
-.a3s-workflow-edge-label button {
+.a3s-workflow-edge-label__text {
+  max-width: 190px;
+  padding: 3px 7px;
+  border: 1px solid var(--workflow-line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--workflow-muted);
+  font-family: var(--workflow-mono);
+  font-size: 9px;
+  font-weight: 650;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+  transition:
+    border-color 140ms ease-out,
+    color 140ms ease-out,
+    box-shadow 140ms ease-out;
+}
+
+.a3s-workflow-edge-label__text:hover,
+.a3s-workflow-edge-label__text:focus-visible,
+.a3s-workflow-edge-label.is-selected .a3s-workflow-edge-label__text {
+  border-color: var(--workflow-blue);
+  color: var(--workflow-blue-dark);
+  box-shadow: 0 3px 10px rgb(31 77 148 / 12%);
+  outline: none;
+}
+
+.a3s-workflow-edge-label__edit,
+.a3s-workflow-edge-label__insert {
   display: inline-flex;
   width: 24px;
   height: 24px;
@@ -246,15 +277,50 @@
     transform 140ms ease-out;
 }
 
-.a3s-workflow-edge-label button:hover,
-.a3s-workflow-edge-label button:focus-visible {
+.a3s-workflow-edge-label__edit {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.a3s-workflow-edge-label:hover .a3s-workflow-edge-label__edit,
+.a3s-workflow-edge-label.is-selected .a3s-workflow-edge-label__edit,
+.a3s-workflow-edge-label__edit:focus-visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.a3s-workflow-edge-label__edit:hover,
+.a3s-workflow-edge-label__edit:focus-visible,
+.a3s-workflow-edge-label__insert:hover,
+.a3s-workflow-edge-label__insert:focus-visible {
   border-color: var(--workflow-blue);
   color: var(--workflow-blue);
   opacity: 1;
   transform: scale(1.04);
 }
 
-.a3s-workflow-edge-label svg {
+.a3s-workflow-edge-label input {
+  width: min(190px, 34vw);
+  min-width: 96px;
+  height: 25px;
+  padding: 3px 7px;
+  border: 1px solid var(--workflow-blue);
+  border-radius: 7px;
+  outline: 2px solid rgb(21 94 239 / 18%);
+  background: var(--workflow-surface);
+  color: var(--workflow-text);
+  font-family: var(--workflow-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.a3s-workflow-edge-label input::placeholder {
+  color: var(--workflow-faint);
+}
+
+.a3s-workflow-edge-label__edit svg,
+.a3s-workflow-edge-label__insert svg {
   width: 12px;
   height: 12px;
 }

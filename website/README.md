@@ -34,13 +34,17 @@ npm run bench:playground
 The benchmark is a local engineering baseline. Record browser Worker and
 WebAssembly layout timings separately when evaluating a release build.
 
-The custom-node catalog has a deterministic A3S Test suite. Start the local
-site on the suite's fixed origin, then validate and run it from `website/`:
+The custom-node catalog and workflow-designer each have deterministic A3S Test
+suites. The workflow-designer suite covers editing a connection label and
+preserving its port identity. Start the local site on the suite's fixed origin,
+then validate and run the relevant suite from `website/`:
 
 ```sh
 npm run dev -- --host 127.0.0.1 --port 4173
 a3s-test check tests/e2e/workflow-custom-nodes.acl --json
 a3s-test run tests/e2e/workflow-custom-nodes.acl --browser-driver standalone --browser-executable agent-browser --json
+a3s-test check tests/e2e/workflow-designer-regression.acl --json
+a3s-test run tests/e2e/workflow-designer-regression.acl --browser-driver standalone --browser-executable agent-browser --json
 ```
 
 ## Current homepage

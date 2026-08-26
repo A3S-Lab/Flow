@@ -63,6 +63,7 @@ import { useWorkflowPlaygroundRuntime } from './WorkflowPlayground.runtime';
 import {
   buildPlaygroundDocument,
   collectDeletionIds,
+  normalizePlaygroundEdgeLabel,
   compilePlaygroundGraph,
   PLAYGROUND_EDGE_COLORS,
   playgroundGraphSemanticKey,
@@ -129,6 +130,7 @@ function WorkflowPlaygroundSurface({
   const [selectedNodeId, setSelectedNodeId] = useState<string>();
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string>();
   const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
+  const [editingEdgeId, setEditingEdgeId] = useState<string>();
   const [activePanel, setActivePanel] = useState<InspectorTab>();
   const [canvasMode, setCanvasMode] = useState<PlaygroundCanvasMode>('pan');
   const [nodeLibraryOpen, setNodeLibraryOpen] = useState(false);
@@ -256,6 +258,78 @@ function WorkflowPlaygroundSurface({
     return () => window.clearTimeout(timeout);
   }, [announcement]);
 
+  const selectEdge = useCallback((edgeId: string) => {
+    setSelectedEdgeId(edgeId);
+    setSelectedNodeId(undefined);
+    setSelectedAnnotationId(undefined);
+    setActivePanel((current) => (current === 'settings' ? undefined : current));
+  }, []);
+
+  const beginEdgeLabelEdit = useCallback(
+    (edgeId: string) => {
+      if (running || !graphRef.current.edges.some(({ id }) => id === edgeId)) {
+        return;
+      }
+      selectEdge(edgeId);
+      setEditingEdgeId(edgeId);
+    },
+    [running, selectEdge],
+  );
+
+  const cancelEdgeLabelEdit = useCallback((edgeId: string) => {
+    setEditingEdgeId((current) => (current === edgeId ? undefined : current));
+  }, []);
+
+  const commitEdgeLabelEdit = useCallback(
+    (edgeId: string, value: string) => {
+      setEditingEdgeId(undefined);
+      if (running) return;
+      const edge = graphRef.current.edges.find(({ id }) => id === edgeId);
+      if (!edge) return;
+      const nextOverride = normalizePlaygroundEdgeLabel(value);
+      const currentOverride = normalizePlaygroundEdgeLabel(
+        edge.data?.labelOverride,
+      );
+      if (nextOverride === currentOverride) return;
+      commit((current) => {
+        const target = current.edges.find(({ id }) => id === edgeId);
+        if (!target) return current;
+        const targetOverride = normalizePlaygroundEdgeLabel(
+          target.data?.labelOverride,
+        );
+        if (targetOverride === nextOverride) return current;
+        return {
+          ...current,
+          edges: current.edges.map((candidate) =>
+            candidate.id === edgeId
+              ? {
+                  ...candidate,
+                  data: {
+                    ...candidate.data,
+                    ...(nextOverride
+                      ? { labelOverride: nextOverride }
+                      : (() => {
+                          const data = { ...candidate.data };
+                          delete data.labelOverride;
+                          return data;
+                        })()),
+                  },
+                }
+              : candidate,
+          ),
+        };
+      });
+      setAnnouncement(copy.edgeLabelSaved);
+    },
+    [commit, copy.edgeLabelSaved, running],
+  );
+
+  useEffect(() => {
+    if (editingEdgeId && !graph.edges.some(({ id }) => id === editingEdgeId)) {
+      setEditingEdgeId(undefined);
+    }
+  }, [editingEdgeId, graph.edges]);
+
   const closeNodeLibrary = useCallback(() => {
     setNodeLibraryOpen(false);
     setInsertEdgeId(undefined);
@@ -305,6 +379,7 @@ function WorkflowPlaygroundSurface({
       setSelectedAnnotationId(id);
       setSelectedNodeId(undefined);
       setSelectedEdgeId(undefined);
+      setEditingEdgeId(undefined);
       setActivePanel(undefined);
       setAnnouncement(copy.annotationAdded[kind]);
     },
@@ -401,6 +476,7 @@ function WorkflowPlaygroundSurface({
       setSelectedNodeId(result.selectedNodeId);
       setSelectedAnnotationId(undefined);
       setSelectedEdgeId(undefined);
+      setEditingEdgeId(undefined);
       setActivePanel('settings');
       closeNodeLibrary();
       setAnnouncement(
@@ -440,6 +516,7 @@ function WorkflowPlaygroundSurface({
         setSelectedNodeId(undefined);
         setActivePanel(undefined);
       }
+      setEditingEdgeId(undefined);
       setAnnouncement(copy.selectionDeleted);
     },
     [commit, copy.selectionDeleted, running, selectedNodeId],
@@ -478,6 +555,7 @@ function WorkflowPlaygroundSurface({
       setSelectedNodeId(id);
       setSelectedAnnotationId(undefined);
       setSelectedEdgeId(undefined);
+      setEditingEdgeId(undefined);
       setActivePanel('settings');
     },
     [addNode, commit, graph.nodes, running],
@@ -526,6 +604,7 @@ function WorkflowPlaygroundSurface({
         edges: current.edges.filter(({ id }) => id !== selectedEdgeId),
       }));
       setSelectedEdgeId(undefined);
+      setEditingEdgeId(undefined);
       setAnnouncement(copy.selectionDeleted);
       return;
     }
@@ -545,18 +624,23 @@ function WorkflowPlaygroundSurface({
     setActivePanel(undefined);
     setDebugOpen(false);
     setCanvasMode('pan');
+    setEditingEdgeId(undefined);
   }, [closeNodeLibrary]);
   useWorkflowPlaygroundKeyboard({
+    beginEdgeLabelEdit,
     deleteSelection,
     dismissPanels,
     duplicateNode,
     redo,
+    selectedEdgeId,
     selectedNodeId,
     undo,
   });
 
   const { displayEdges, displayNodes } = useWorkflowPlaygroundElements({
     beginEdit: beginDrag,
+    beginEdgeLabelEdit,
+    cancelEdgeLabelEdit,
     copy,
     edgePalette,
     edgeRouting,
@@ -566,13 +650,16 @@ function WorkflowPlaygroundSurface({
     onDeleteAnnotation: deleteAnnotation,
     onDeleteNode: deleteNode,
     onDuplicateNode: duplicateNode,
+    onCommitEdgeLabelEdit: commitEdgeLabelEdit,
     onOpenNodeLibrary: openNodeLibrary,
     onRunNode: runNode,
+    onSelectEdge: selectEdge,
     onUpdateAnnotation: updateAnnotationText,
     registry: catalog.registry,
     running,
     selectedAnnotationId,
     selectedEdgeId,
+    editingEdgeId,
     selectedNodeId,
     statuses,
   });
@@ -583,6 +670,7 @@ function WorkflowPlaygroundSurface({
     setSelectedNodeId(undefined);
     setSelectedAnnotationId(undefined);
     setSelectedEdgeId(undefined);
+    setEditingEdgeId(undefined);
     setActivePanel(undefined);
     resetRuntimeHistory();
     setAnnouncement(copy.resetDone);
@@ -821,14 +909,15 @@ function WorkflowPlaygroundSurface({
               onlyRenderVisibleElements
               onConnect={onConnect}
               onEdgeClick={(_, edge) => {
-                setSelectedEdgeId(edge.id);
-                setSelectedNodeId(undefined);
-                setSelectedAnnotationId(undefined);
-                if (activePanel === 'settings') setActivePanel(undefined);
+                selectEdge(edge.id);
+              }}
+              onEdgeDoubleClick={(_, edge) => {
+                beginEdgeLabelEdit(edge.id);
               }}
               onEdgesChange={onEdgesChange}
               onNodeClick={(_, node) => {
                 setSelectedEdgeId(undefined);
+                setEditingEdgeId(undefined);
                 if (node.type === 'annotation') {
                   setSelectedAnnotationId(node.id);
                   setSelectedNodeId(undefined);
@@ -857,6 +946,7 @@ function WorkflowPlaygroundSurface({
                 setSelectedNodeId(undefined);
                 setSelectedAnnotationId(undefined);
                 setSelectedEdgeId(undefined);
+                setEditingEdgeId(undefined);
                 if (activePanel === 'settings') setActivePanel(undefined);
               }}
               onPaneContextMenu={(event) => {
@@ -973,6 +1063,7 @@ function WorkflowPlaygroundSurface({
             setSelectedNodeId(nodeId);
             setSelectedAnnotationId(undefined);
             setSelectedEdgeId(undefined);
+            setEditingEdgeId(undefined);
             setActivePanel('settings');
           }}
           onTabChange={setDebugTab}

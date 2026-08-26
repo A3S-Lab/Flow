@@ -22,6 +22,9 @@ export type WorkflowPlaygroundCopy = {
   exportGraph: string;
   openDocument: string;
   addNode: string;
+  editEdgeLabel: string;
+  edgeLabelPlaceholder: string;
+  edgeLabelSaved: string;
   addNote: string;
   addComment: string;
   addNamedNode: (name: string) => string;
@@ -142,6 +145,9 @@ export const workflowPlaygroundCopy: Readonly<
     exportGraph: '导出工作流',
     openDocument: '查看 DSL',
     addNode: '添加节点',
+    editEdgeLabel: '编辑连线名称',
+    edgeLabelPlaceholder: '输入连线名称',
+    edgeLabelSaved: '连线名称已保存。',
     addNote: '添加便笺',
     addComment: '添加批注',
     addNamedNode: (name) => `添加${name}`,
@@ -284,6 +290,9 @@ export const workflowPlaygroundCopy: Readonly<
     exportGraph: 'Export workflow',
     openDocument: 'View DSL',
     addNode: 'Add node',
+    editEdgeLabel: 'Edit connection name',
+    edgeLabelPlaceholder: 'Enter a connection name',
+    edgeLabelSaved: 'Connection name saved.',
     addNote: 'Add note',
     addComment: 'Add comment',
     addNamedNode: (name) => `Add ${name}`,

@@ -4,6 +4,7 @@ import { useMemo, useRef } from 'react';
 import type { WorkflowPlaygroundCopy } from './WorkflowPlayground.copy';
 import {
   playgroundEdgeAriaLabel,
+  resolvePlaygroundEdgeDisplayLabel,
   resolvePlaygroundEdgeSourceLabel,
   type PlaygroundAnnotationNode,
   type PlaygroundCanvasNode,
@@ -16,6 +17,8 @@ import type { FlowWebsiteLocale } from './flow-node-catalog';
 
 export type WorkflowPlaygroundElementsOptions = {
   beginEdit: () => void;
+  beginEdgeLabelEdit: (edgeId: string) => void;
+  cancelEdgeLabelEdit: (edgeId: string) => void;
   copy: WorkflowPlaygroundCopy;
   edgePalette: Readonly<{ active: string; line: string }>;
   edgeRouting: PlaygroundEdgeRouting;
@@ -25,13 +28,16 @@ export type WorkflowPlaygroundElementsOptions = {
   onDeleteAnnotation: (annotationId: string) => void;
   onDeleteNode: (nodeId: string) => void;
   onDuplicateNode: (nodeId: string) => void;
+  onCommitEdgeLabelEdit: (edgeId: string, value: string) => void;
   onOpenNodeLibrary: (edgeId?: string, position?: XYPosition) => void;
   onRunNode: (nodeId: string) => void;
+  onSelectEdge: (edgeId: string) => void;
   onUpdateAnnotation: (annotationId: string, text: string) => void;
   registry: A3SFlowDagNodeRegistry;
   running: boolean;
   selectedAnnotationId?: string;
   selectedEdgeId?: string;
+  editingEdgeId?: string;
   selectedNodeId?: string;
   statuses: Readonly<Record<string, PlaygroundNode['data']['runtimeStatus']>>;
 };
@@ -68,10 +74,17 @@ type AnnotationCacheEntry = {
 type EdgeCacheEntry = {
   activeColor: string;
   animated: boolean;
+  beginEdgeLabelEdit: WorkflowPlaygroundElementsOptions['beginEdgeLabelEdit'];
+  cancelEdgeLabelEdit: WorkflowPlaygroundElementsOptions['cancelEdgeLabelEdit'];
+  commitEdgeLabelEdit: WorkflowPlaygroundElementsOptions['onCommitEdgeLabelEdit'];
+  editLabel: string;
+  editing: boolean;
   insertLabel: string;
+  labelPlaceholder: string;
   lineColor: string;
   locale: FlowWebsiteLocale;
   onInsert: WorkflowPlaygroundElementsOptions['onOpenNodeLibrary'];
+  onSelect: WorkflowPlaygroundElementsOptions['onSelectEdge'];
   registry: A3SFlowDagNodeRegistry;
   routing: PlaygroundEdgeRouting;
   selected: boolean;
@@ -115,6 +128,8 @@ function pruneCache<T>(cache: Map<string, T>, activeIds: Set<string>): void {
 export function reconcileWorkflowPlaygroundElements(
   {
     beginEdit,
+    beginEdgeLabelEdit,
+    cancelEdgeLabelEdit,
     copy,
     edgePalette,
     edgeRouting,
@@ -124,13 +139,16 @@ export function reconcileWorkflowPlaygroundElements(
     onDeleteAnnotation,
     onDeleteNode,
     onDuplicateNode,
+    onCommitEdgeLabelEdit,
     onOpenNodeLibrary,
     onRunNode,
+    onSelectEdge,
     onUpdateAnnotation,
     registry,
     running,
     selectedAnnotationId,
     selectedEdgeId,
+    editingEdgeId,
     selectedNodeId,
     statuses,
   }: WorkflowPlaygroundElementsOptions,
@@ -243,6 +261,7 @@ export function reconcileWorkflowPlaygroundElements(
   const nextEdges = graph.edges.map((edge) => {
     edgeIds.add(edge.id);
     const selected = edge.id === selectedEdgeId;
+    const editing = edge.id === editingEdgeId;
     const animated =
       running &&
       (statuses[edge.source] === 'running' ||
@@ -252,13 +271,20 @@ export function reconcileWorkflowPlaygroundElements(
     if (
       previous?.source === edge &&
       previous.selected === selected &&
+      previous.editing === editing &&
       previous.animated === animated &&
       previous.sourceNodeData === sourceNodeData &&
       previous.locale === locale &&
       previous.registry === registry &&
       previous.routing === edgeRouting &&
       previous.insertLabel === copy.addNode &&
+      previous.editLabel === copy.editEdgeLabel &&
+      previous.labelPlaceholder === copy.edgeLabelPlaceholder &&
+      previous.beginEdgeLabelEdit === beginEdgeLabelEdit &&
+      previous.cancelEdgeLabelEdit === cancelEdgeLabelEdit &&
+      previous.commitEdgeLabelEdit === onCommitEdgeLabelEdit &&
       previous.onInsert === onOpenNodeLibrary &&
+      previous.onSelect === onSelectEdge &&
       previous.activeColor === edgePalette.active &&
       previous.lineColor === edgePalette.line
     ) {
@@ -272,14 +298,18 @@ export function reconcileWorkflowPlaygroundElements(
       registry,
       nodeById,
     );
+    const displayLabel = resolvePlaygroundEdgeDisplayLabel(
+      edge,
+      sourcePortLabel,
+    );
     const value: PlaygroundEdge = {
       ...edge,
       ariaLabel: playgroundEdgeAriaLabel(
         edge.source,
         edge.target,
-        sourcePortLabel,
+        displayLabel,
       ),
-      label: sourcePortLabel,
+      label: displayLabel,
       selected,
       animated,
       markerEnd: {
@@ -288,19 +318,33 @@ export function reconcileWorkflowPlaygroundElements(
       },
       data: {
         ...edge.data,
+        editLabel: copy.editEdgeLabel,
+        editingLabel: editing,
+        labelPlaceholder: copy.edgeLabelPlaceholder,
         sourcePortLabel,
         routing: edgeRouting,
         insertLabel: copy.addNode,
+        onCancelLabel: cancelEdgeLabelEdit,
+        onCommitLabel: onCommitEdgeLabelEdit,
+        onEditLabel: beginEdgeLabelEdit,
         onInsert: onOpenNodeLibrary,
+        onSelect: onSelectEdge,
       },
     };
     cache.edges.set(edge.id, {
       activeColor: edgePalette.active,
       animated,
+      beginEdgeLabelEdit,
+      cancelEdgeLabelEdit,
+      commitEdgeLabelEdit: onCommitEdgeLabelEdit,
+      editLabel: copy.editEdgeLabel,
+      editing,
       insertLabel: copy.addNode,
+      labelPlaceholder: copy.edgeLabelPlaceholder,
       lineColor: edgePalette.line,
       locale,
       onInsert: onOpenNodeLibrary,
+      onSelect: onSelectEdge,
       registry,
       routing: edgeRouting,
       selected,
@@ -321,6 +365,8 @@ export function reconcileWorkflowPlaygroundElements(
 
 export function useWorkflowPlaygroundElements({
   beginEdit,
+  beginEdgeLabelEdit,
+  cancelEdgeLabelEdit,
   copy,
   edgePalette,
   edgeRouting,
@@ -330,13 +376,16 @@ export function useWorkflowPlaygroundElements({
   onDeleteAnnotation,
   onDeleteNode,
   onDuplicateNode,
+  onCommitEdgeLabelEdit,
   onOpenNodeLibrary,
   onRunNode,
+  onSelectEdge,
   onUpdateAnnotation,
   registry,
   running,
   selectedAnnotationId,
   selectedEdgeId,
+  editingEdgeId,
   selectedNodeId,
   statuses,
 }: WorkflowPlaygroundElementsOptions) {
@@ -349,6 +398,8 @@ export function useWorkflowPlaygroundElements({
       reconcileWorkflowPlaygroundElements(
         {
           beginEdit,
+          beginEdgeLabelEdit,
+          cancelEdgeLabelEdit,
           copy,
           edgePalette,
           edgeRouting,
@@ -358,13 +409,16 @@ export function useWorkflowPlaygroundElements({
           onDeleteAnnotation,
           onDeleteNode,
           onDuplicateNode,
+          onCommitEdgeLabelEdit,
           onOpenNodeLibrary,
           onRunNode,
+          onSelectEdge,
           onUpdateAnnotation,
           registry,
           running,
           selectedAnnotationId,
           selectedEdgeId,
+          editingEdgeId,
           selectedNodeId,
           statuses,
         },
@@ -372,10 +426,14 @@ export function useWorkflowPlaygroundElements({
       ),
     [
       beginEdit,
+      beginEdgeLabelEdit,
+      cancelEdgeLabelEdit,
       copy.addNode,
       copy.commentLabel,
       copy.commentPlaceholder,
       copy.deleteAnnotation,
+      copy.edgeLabelPlaceholder,
+      copy.editEdgeLabel,
       copy.noteLabel,
       copy.notePlaceholder,
       edgePalette.active,
@@ -390,13 +448,16 @@ export function useWorkflowPlaygroundElements({
       onDeleteAnnotation,
       onDeleteNode,
       onDuplicateNode,
+      onCommitEdgeLabelEdit,
       onOpenNodeLibrary,
       onRunNode,
+      onSelectEdge,
       onUpdateAnnotation,
       registry,
       running,
       selectedAnnotationId,
       selectedEdgeId,
+      editingEdgeId,
       selectedNodeId,
       statuses,
     ],

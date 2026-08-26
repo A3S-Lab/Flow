@@ -66,13 +66,48 @@ export type PlaygroundAnnotationNode = Node<
 export type PlaygroundCanvasNode = PlaygroundNode | PlaygroundAnnotationNode;
 
 export type PlaygroundEdgeData = {
+  /**
+   * Optional author-facing label. This is deliberately separate from the
+   * source port contract so renaming a connection can never change runtime
+   * routing.
+   */
+  labelOverride?: string;
   routing?: PlaygroundEdgeRouting;
   sourcePortLabel?: string;
   insertLabel?: string;
   onInsert?: (edgeId: string, position: XYPosition) => void;
+  editLabel?: string;
+  labelPlaceholder?: string;
+  editingLabel?: boolean;
+  onSelect?: (edgeId: string) => void;
+  onEditLabel?: (edgeId: string) => void;
+  onCommitLabel?: (edgeId: string, value: string) => void;
+  onCancelLabel?: (edgeId: string) => void;
 } & Record<string, unknown>;
 
 export type PlaygroundEdge = Edge<PlaygroundEdgeData, 'workflow'>;
+
+export const PLAYGROUND_EDGE_LABEL_MAX_LENGTH = 80;
+
+/** Keeps persisted labels single-line, bounded, and empty-safe. */
+export function normalizePlaygroundEdgeLabel(
+  value: unknown,
+): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().replace(/\s+/gu, ' ');
+  if (!normalized) return undefined;
+  return normalized.slice(0, PLAYGROUND_EDGE_LABEL_MAX_LENGTH);
+}
+
+/** Resolves the visible label without allowing presentation text to replace a port ID. */
+export function resolvePlaygroundEdgeDisplayLabel(
+  edge: Pick<PlaygroundEdge, 'data'>,
+  sourcePortLabel?: string,
+): string | undefined {
+  return (
+    normalizePlaygroundEdgeLabel(edge.data?.labelOverride) ?? sourcePortLabel
+  );
+}
 
 export type PlaygroundGraphState = {
   nodes: PlaygroundNode[];
@@ -244,12 +279,18 @@ export function createPlaygroundEdge(
   nodes: readonly PlaygroundNode[],
   locale: FlowWebsiteLocale,
   registry: A3SFlowDagNodeRegistry = a3sFlowDagNodeRegistry,
+  options: { labelOverride?: string } = {},
 ): PlaygroundEdge {
   const sourcePortLabel = resolvePlaygroundEdgeSourceLabel(
     connection,
     nodes,
     locale,
     registry,
+  );
+  const labelOverride = normalizePlaygroundEdgeLabel(options.labelOverride);
+  const displayLabel = resolvePlaygroundEdgeDisplayLabel(
+    { data: { labelOverride } },
+    sourcePortLabel,
   );
 
   return {
@@ -264,12 +305,12 @@ export function createPlaygroundEdge(
     target: connection.target,
     targetHandle: connection.targetHandle,
     type: 'workflow',
-    label: sourcePortLabel,
-    data: { sourcePortLabel },
+    label: displayLabel,
+    data: { sourcePortLabel, ...(labelOverride ? { labelOverride } : {}) },
     ariaLabel: playgroundEdgeAriaLabel(
       connection.source,
       connection.target,
-      sourcePortLabel,
+      displayLabel,
     ),
   };
 }
@@ -524,13 +565,19 @@ export function buildPlaygroundGraph(
     dagNode.position = structuredClone(node.position);
     return dagNode;
   });
-  const graphEdges: A3SFlowWorkflowDagEdge[] = edges.map((edge) => ({
-    id: edge.id,
-    source: edge.source,
-    target: edge.target,
-    ...(edge.sourceHandle ? { sourceHandle: edge.sourceHandle } : {}),
-    ...(edge.targetHandle ? { targetHandle: edge.targetHandle } : {}),
-  }));
+  const graphEdges: A3SFlowWorkflowDagEdge[] = edges.map((edge) => {
+    const labelOverride = normalizePlaygroundEdgeLabel(
+      edge.data?.labelOverride,
+    );
+    return {
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      ...(edge.sourceHandle ? { sourceHandle: edge.sourceHandle } : {}),
+      ...(edge.targetHandle ? { targetHandle: edge.targetHandle } : {}),
+      ...(labelOverride ? { label: labelOverride } : {}),
+    };
+  });
   return { nodes: graphNodes, edges: graphEdges };
 }
 

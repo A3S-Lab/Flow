@@ -34,6 +34,29 @@ describe('Workflow Playground local draft', () => {
     );
   });
 
+  it('persists and normalizes custom edge labels', () => {
+    const graph = structuredClone(createSampleWorkflow('en'));
+    graph.edges[0].data = { labelOverride: '  Ready\nfor review  ' };
+    const draft = createPlaygroundDraft(graph, 'curve', 'blue');
+    const restored = parsePlaygroundDraft(
+      JSON.parse(JSON.stringify(draft)) as unknown,
+    );
+
+    expect(restored?.graph.edges[0].data?.labelOverride).toBe(
+      'Ready for review',
+    );
+  });
+
+  it('migrates an exported top-level edge label into the draft override', () => {
+    const graph = structuredClone(createSampleWorkflow('en'));
+    delete graph.edges[0].data;
+    graph.edges[0].label = 'Manual handoff';
+
+    expect(parsePlaygroundDraft(graph)?.graph.edges[0].data).toMatchObject({
+      labelOverride: 'Manual handoff',
+    });
+  });
+
   it('falls back to curves for an unknown routing value', () => {
     const graph = createSampleWorkflow('en');
 

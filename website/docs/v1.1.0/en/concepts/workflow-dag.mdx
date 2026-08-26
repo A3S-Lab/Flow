@@ -58,6 +58,14 @@ One UTF-8 document is limited to 10 MiB. The currently tested DSL version is `0.
 
 Every node needs a non-empty `id` and string `data.type`. Every edge needs a unique ID and existing source and target nodes.
 
+## Connection labels in the Playground
+
+The Playground initially shows the source output-port name in the middle of a connection. For example, a batch node's `done` port is localized as “All complete”. This text helps people read the graph; it is not the port ID used for routing.
+
+Select a connection and click the pencil beside its label, or double-click the label itself. You can also select the connection and press Enter or F2. Press Enter to save, Escape to discard, or leave the field to save it. Clearing the field restores the port's default name. Custom names are kept in the local draft and in an exported workflow file.
+
+Renaming a label does not change `sourceHandle`, `targetHandle`, the execution plan, or runtime semantics. Condition branch names should still be edited through the node's `matched_label` and `otherwise_label` fields because those fields are part of the condition node's business copy. A regular connection name is presentation metadata, so validate the graph by its port IDs before publishing.
+
 ## Derive an execution plan
 
 ```rust

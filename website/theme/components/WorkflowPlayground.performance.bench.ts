@@ -83,6 +83,8 @@ for (const nodeCount of PLAYGROUND_BENCHMARK_NODE_COUNTS) {
   const noop = () => undefined;
   const elementOptions: WorkflowPlaygroundElementsOptions = {
     beginEdit: noop,
+    beginEdgeLabelEdit: noop,
+    cancelEdgeLabelEdit: noop,
     copy: workflowPlaygroundCopy.en,
     edgePalette: PLAYGROUND_EDGE_COLORS.blue,
     edgeRouting: 'curve',
@@ -92,8 +94,10 @@ for (const nodeCount of PLAYGROUND_BENCHMARK_NODE_COUNTS) {
     onDeleteAnnotation: noop,
     onDeleteNode: noop,
     onDuplicateNode: noop,
+    onCommitEdgeLabelEdit: noop,
     onOpenNodeLibrary: noop,
     onRunNode: noop,
+    onSelectEdge: noop,
     onUpdateAnnotation: noop,
     registry: a3sFlowDagNodeRegistry,
     running: false,
