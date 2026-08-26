@@ -87,7 +87,10 @@
   }
 }
 
-@media (max-width: 980px) {
+/* Keep the editor wide enough to show its graph and inspector as two real
+ * surfaces. Cloud uses the same tablet hand-off, so Flow stacks the hero
+ * before the side-by-side canvas becomes cramped. */
+@media (max-width: 1040px) {
   .flow-hero {
     padding: 68px 36px 52px;
     grid-template-columns: 1fr;

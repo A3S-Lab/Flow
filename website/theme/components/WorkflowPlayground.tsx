@@ -12,9 +12,12 @@ import {
   MarkerType,
   MiniMap,
   ReactFlow,
+  useStoreApi,
   useReactFlow,
   type DefaultEdgeOptions,
   type FitBoundsOptions,
+  type FinalConnectionState,
+  type OnConnectStart,
   type XYPosition,
 } from '@xyflow/react';
 import {
@@ -48,7 +51,10 @@ import {
   type InspectorTab,
 } from './WorkflowPlaygroundInspector';
 import { WorkflowPlaygroundLibrary } from './WorkflowPlaygroundLibrary';
-import { addIntoGraph } from './WorkflowPlayground.graph';
+import {
+  addConnectedNodeIntoGraph,
+  addIntoGraph,
+} from './WorkflowPlayground.graph';
 import {
   layoutPlaygroundGraphOffThread,
   schedulePlaygroundLayoutWarmup,
@@ -74,9 +80,15 @@ import {
   type PlaygroundEdge,
   type PlaygroundEdgeColor,
   type PlaygroundNode,
+  type PlaygroundPendingConnection,
 } from './WorkflowPlayground.model';
 import { WorkflowPlaygroundNode } from './WorkflowPlaygroundNode';
 import { WorkflowPlaygroundRegistryContext } from './WorkflowPlayground.registry';
+import { WorkflowPlaygroundTriggerDialog } from './WorkflowPlaygroundTriggerDialog';
+import {
+  isTriggerSchema,
+  type PlaygroundTriggerSchema,
+} from './WorkflowPlayground.trigger';
 import type { FlowWebsiteLocale } from './flow-node-catalog';
 
 const DRAG_MIME = 'application/x-a3s-flow-node';
@@ -127,6 +139,7 @@ function WorkflowPlaygroundSurface({
     usePlaygroundDraft(storageKey, graph, restore);
   const { fitBounds, getNodesBounds, screenToFlowPosition, setViewport } =
     useReactFlow<PlaygroundCanvasNode, PlaygroundEdge>();
+  const reactFlowStore = useStoreApi<PlaygroundCanvasNode, PlaygroundEdge>();
   const [selectedNodeId, setSelectedNodeId] = useState<string>();
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string>();
   const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
@@ -136,6 +149,10 @@ function WorkflowPlaygroundSurface({
   const [nodeLibraryOpen, setNodeLibraryOpen] = useState(false);
   const [insertEdgeId, setInsertEdgeId] = useState<string>();
   const [pendingNodePosition, setPendingNodePosition] = useState<XYPosition>();
+  const [pendingConnection, setPendingConnection] = useState<
+    PlaygroundPendingConnection | undefined
+  >(undefined);
+  const [triggerDialogOpen, setTriggerDialogOpen] = useState(false);
   const [draggedType, setDraggedType] = useState<string>();
   const [debugOpen, setDebugOpen] = useState(false);
   const [minimapVisible, setMinimapVisible] = useState(true);
@@ -144,8 +161,18 @@ function WorkflowPlaygroundSurface({
   const canvasRef = useRef<HTMLDivElement>(null);
   const annotationCounter = useRef(1);
   const arrangeRequest = useRef(0);
+  const clickConnectionRef = useRef<PlaygroundPendingConnection | undefined>(
+    undefined,
+  );
   const graphRef = useRef(graph);
   graphRef.current = graph;
+
+  const clearConnectionGesture = useCallback(() => {
+    clickConnectionRef.current = undefined;
+    if (reactFlowStore.getState().connectionClickStartHandle) {
+      reactFlowStore.setState({ connectionClickStartHandle: null });
+    }
+  }, [reactFlowStore]);
 
   const fitPlaygroundView = useCallback(
     (options: FitBoundsOptions = {}) => {
@@ -227,6 +254,13 @@ function WorkflowPlaygroundSurface({
     onOpenValidation: openValidation,
   });
   const selectedNode = graph.nodes.find(({ id }) => id === selectedNodeId);
+  const triggerNode = graph.nodes.find(
+    (node) => !node.parentId && node.data.dagNode.data.type === 'flow.start',
+  );
+  const triggerSchema = useMemo<PlaygroundTriggerSchema | undefined>(() => {
+    const candidate = triggerNode?.data.dagNode.data.input_schema;
+    return isTriggerSchema(candidate) ? candidate : undefined;
+  }, [triggerNode]);
   const deferredGraph = useDeferredValue(graph);
   const documentJson = useMemo(
     () =>
@@ -331,20 +365,24 @@ function WorkflowPlaygroundSurface({
   }, [editingEdgeId, graph.edges]);
 
   const closeNodeLibrary = useCallback(() => {
+    clearConnectionGesture();
     setNodeLibraryOpen(false);
     setInsertEdgeId(undefined);
     setPendingNodePosition(undefined);
+    setPendingConnection(undefined);
     setDraggedType(undefined);
-  }, []);
+  }, [clearConnectionGesture]);
 
   const openNodeLibrary = useCallback(
     (edgeId?: string, position?: XYPosition) => {
       if (running) return;
+      clearConnectionGesture();
+      setPendingConnection(undefined);
       setInsertEdgeId(edgeId);
       setPendingNodePosition(position);
       setNodeLibraryOpen(true);
     },
-    [running],
+    [clearConnectionGesture, running],
   );
 
   const centerPosition = useCallback((): XYPosition => {
@@ -441,10 +479,16 @@ function WorkflowPlaygroundSurface({
       ) {
         return current;
       }
-      return applyPlaygroundLayoutKernelOutput(
-        current,
-        layout.nodeIds,
-        layout.positions,
+      // The scoped layout result also carries resized parent containers. Use
+      // it as one atomic document update so children never render outside a
+      // stale React Flow parent for an intermediate frame.
+      return (
+        layout.graph ??
+        applyPlaygroundLayoutKernelOutput(
+          current,
+          layout.nodeIds,
+          layout.positions,
+        )
       );
     });
     setAnnouncement(copy.nodesArranged);
@@ -464,14 +508,23 @@ function WorkflowPlaygroundSurface({
         catalog.registry.require(type),
         locale,
       );
-      const result = addIntoGraph(
-        graph,
-        type,
-        requestedPosition ?? pendingNodePosition ?? centerPosition(),
-        locale,
-        insertEdgeId,
-        catalog.registry,
-      );
+      const result = pendingConnection
+        ? addConnectedNodeIntoGraph(
+            graph,
+            type,
+            requestedPosition ?? pendingConnection.position,
+            locale,
+            pendingConnection,
+            catalog.registry,
+          )
+        : addIntoGraph(
+            graph,
+            type,
+            requestedPosition ?? pendingNodePosition ?? centerPosition(),
+            locale,
+            insertEdgeId,
+            catalog.registry,
+          );
       commit(result.graph);
       setSelectedNodeId(result.selectedNodeId);
       setSelectedAnnotationId(undefined);
@@ -480,9 +533,11 @@ function WorkflowPlaygroundSurface({
       setActivePanel('settings');
       closeNodeLibrary();
       setAnnouncement(
-        manifest.container
-          ? copy.containerAdded(manifest.display_name)
-          : copy.nodeAdded(manifest.display_name),
+        result.connected
+          ? copy.connectionCreated
+          : manifest.container
+            ? copy.containerAdded(manifest.display_name)
+            : copy.nodeAdded(manifest.display_name),
       );
     },
     [
@@ -495,6 +550,7 @@ function WorkflowPlaygroundSurface({
       insertEdgeId,
       locale,
       pendingNodePosition,
+      pendingConnection,
     ],
   );
 
@@ -572,6 +628,94 @@ function WorkflowPlaygroundSurface({
       updateTransient,
     });
 
+  // React Flow supports a click-to-connect mode in addition to pointer
+  // dragging. Keep the origin in a ref so a subsequent blank-canvas click can
+  // open the same node picker without causing a render for every pointer move.
+  const onClickConnectStart = useCallback<OnConnectStart>(
+    (_event, params) => {
+      if (
+        running ||
+        params.handleType !== 'source' ||
+        !params.nodeId ||
+        !params.handleId
+      ) {
+        clearConnectionGesture();
+        return;
+      }
+      clickConnectionRef.current = {
+        source: params.nodeId,
+        sourceHandle: params.handleId,
+        position: { x: 0, y: 0 },
+      };
+    },
+    [clearConnectionGesture, running],
+  );
+
+  const onClickConnectEnd = useCallback(() => {
+    clearConnectionGesture();
+  }, [clearConnectionGesture]);
+
+  const onConnectStart = useCallback(() => {
+    // A real drag supersedes any click-to-connect origin left by a prior
+    // gesture. The drag's final state contains its own source endpoint.
+    clearConnectionGesture();
+  }, [clearConnectionGesture]);
+
+  const onConnectEnd = useCallback(
+    (event: MouseEvent | TouchEvent, connectionState: FinalConnectionState) => {
+      if (running) {
+        clearConnectionGesture();
+        return;
+      }
+      // React Flow calls onConnect for a valid target. Only an empty-canvas
+      // release should open the insert flow; otherwise a successful connection
+      // would unexpectedly open a second panel.
+      if (connectionState.toNode || connectionState.toHandle) {
+        clearConnectionGesture();
+        return;
+      }
+      const clickOrigin = clickConnectionRef.current;
+      const source = connectionState.fromNode?.id ?? clickOrigin?.source;
+      const sourceHandle =
+        connectionState.fromHandle?.id ?? clickOrigin?.sourceHandle;
+      if (
+        (connectionState.fromHandle &&
+          connectionState.fromHandle.type !== 'source') ||
+        !source ||
+        !sourceHandle
+      ) {
+        clearConnectionGesture();
+        return;
+      }
+      const clientPoint =
+        'clientX' in event
+          ? { x: event.clientX, y: event.clientY }
+          : event.changedTouches[0]
+            ? {
+                x: event.changedTouches[0].clientX,
+                y: event.changedTouches[0].clientY,
+              }
+            : undefined;
+      const position = clientPoint
+        ? screenToFlowPosition(clientPoint)
+        : clickOrigin?.position;
+      if (!position) {
+        clearConnectionGesture();
+        return;
+      }
+      clearConnectionGesture();
+      setPendingConnection({
+        source,
+        sourceHandle,
+        position,
+      });
+      setInsertEdgeId(undefined);
+      setPendingNodePosition(position);
+      setNodeLibraryOpen(true);
+    },
+    [clearConnectionGesture, running, screenToFlowPosition],
+  );
+
   const updateSelectedNode = useCallback(
     (dagNode: A3SFlowWorkflowDagNode) => {
       commit((current) => ({
@@ -623,6 +767,7 @@ function WorkflowPlaygroundSurface({
     closeNodeLibrary();
     setActivePanel(undefined);
     setDebugOpen(false);
+    setTriggerDialogOpen(false);
     setCanvasMode('pan');
     setEditingEdgeId(undefined);
   }, [closeNodeLibrary]);
@@ -666,12 +811,14 @@ function WorkflowPlaygroundSurface({
 
   const resetWorkflow = useCallback(() => {
     stopRun();
+    clearConnectionGesture();
     restore(structuredClone(example.graph));
     setSelectedNodeId(undefined);
     setSelectedAnnotationId(undefined);
     setSelectedEdgeId(undefined);
     setEditingEdgeId(undefined);
     setActivePanel(undefined);
+    setTriggerDialogOpen(false);
     resetRuntimeHistory();
     setAnnouncement(copy.resetDone);
     window.setTimeout(
@@ -680,6 +827,7 @@ function WorkflowPlaygroundSurface({
     );
   }, [
     copy.resetDone,
+    clearConnectionGesture,
     example.graph,
     resetRuntimeHistory,
     restore,
@@ -707,6 +855,39 @@ function WorkflowPlaygroundSurface({
     URL.revokeObjectURL(url);
     setAnnouncement(copy.graphExported);
   }, [copy.graphExported, example.id, graph.edges, graph.nodes]);
+
+  const requestWorkflowRun = useCallback(() => {
+    if (running) {
+      stopRun();
+      return;
+    }
+    // Keep the existing validation path authoritative. A trigger form should
+    // never hide graph/configuration errors behind a modal.
+    if (!compilation.ok || configurationIssues.length > 0) {
+      void runWorkflow();
+      return;
+    }
+    if (triggerSchema) {
+      setTriggerDialogOpen(true);
+      return;
+    }
+    void runWorkflow();
+  }, [
+    compilation.ok,
+    configurationIssues.length,
+    runWorkflow,
+    running,
+    stopRun,
+    triggerSchema,
+  ]);
+
+  const submitTriggerInput = useCallback(
+    (value: unknown) => {
+      setTriggerDialogOpen(false);
+      void runWorkflow(value);
+    },
+    [runWorkflow],
+  );
 
   const onPaletteDragStart = useCallback(
     (event: DragEvent<HTMLButtonElement>, type: string) => {
@@ -772,7 +953,7 @@ function WorkflowPlaygroundSurface({
         onExport={exportGraph}
         onOpenDocument={() => setActivePanel('document')}
         onReset={resetWorkflow}
-        onRunToggle={() => (running ? stopRun() : void runWorkflow())}
+        onRunToggle={requestWorkflowRun}
         onValidate={() => setActivePanel('validation')}
         onVersionChange={(targetVersion) => {
           const target =
@@ -908,14 +1089,40 @@ function WorkflowPlaygroundSurface({
               nodesDraggable={!running}
               onlyRenderVisibleElements
               onConnect={onConnect}
+              onConnectStart={onConnectStart}
+              onConnectEnd={onConnectEnd}
+              onClickConnectStart={onClickConnectStart}
+              onClickConnectEnd={onClickConnectEnd}
               onEdgeClick={(_, edge) => {
+                clearConnectionGesture();
                 selectEdge(edge.id);
               }}
               onEdgeDoubleClick={(_, edge) => {
+                clearConnectionGesture();
                 beginEdgeLabelEdit(edge.id);
               }}
               onEdgesChange={onEdgesChange}
-              onNodeClick={(_, node) => {
+              onNodeClick={(event, node) => {
+                // Handle clicks bubble through the node wrapper after
+                // React Flow records the click-to-connect origin. Preserve
+                // that origin so the next blank-canvas click can open the
+                // node picker; ordinary node clicks should still clear any
+                // stale connection gesture.
+                const clickedHandle =
+                  event.target instanceof Element
+                    ? event.target.closest('.react-flow__handle')
+                    : null;
+                // React Flow writes a click-to-connect origin after invoking
+                // onClickConnectStart. A target handle therefore needs to be
+                // cleared here during bubbling as well; otherwise a later
+                // source click can be interpreted as the end of the stale
+                // target-origin gesture.
+                if (
+                  !clickedHandle ||
+                  clickedHandle.classList.contains('target')
+                ) {
+                  clearConnectionGesture();
+                }
                 setSelectedEdgeId(undefined);
                 setEditingEdgeId(undefined);
                 if (node.type === 'annotation') {
@@ -932,6 +1139,19 @@ function WorkflowPlaygroundSurface({
               onNodeDragStop={endDrag}
               onNodesChange={onNodesChange}
               onPaneClick={(event) => {
+                const clickOrigin = clickConnectionRef.current;
+                if (clickOrigin) {
+                  clearConnectionGesture();
+                  const position = screenToFlowPosition({
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
+                  setPendingConnection({ ...clickOrigin, position });
+                  setInsertEdgeId(undefined);
+                  setPendingNodePosition(position);
+                  setNodeLibraryOpen(true);
+                  return;
+                }
                 if (canvasMode === 'comment') {
                   addAnnotation(
                     'comment',
@@ -1078,6 +1298,17 @@ function WorkflowPlaygroundSurface({
           }}
         />
       </section>
+
+      {triggerDialogOpen && triggerSchema && (
+        <WorkflowPlaygroundTriggerDialog
+          copy={copy}
+          locale={locale}
+          onClose={() => setTriggerDialogOpen(false)}
+          onSubmit={submitTriggerInput}
+          schema={triggerSchema}
+          workflowName={example.title}
+        />
+      )}
 
       {announcement && (
         <output className="a3s-workflow-toast" role="status">

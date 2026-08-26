@@ -115,6 +115,12 @@ export type PlaygroundGraphState = {
   annotations: PlaygroundAnnotationNode[];
 };
 
+export type PlaygroundPendingConnection = {
+  source: string;
+  sourceHandle: string;
+  position: XYPosition;
+};
+
 export type ConnectionRejection =
   | 'missing_endpoint'
   | 'missing_handle'

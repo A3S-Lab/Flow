@@ -1,0 +1,147 @@
+suite "homepage-workflow-canvas" {
+    version = 1
+
+    scenario "desktop-designer-demo" {
+        name = "Interact with the homepage workflow designer demo"
+        surface = "web"
+        timeout_ms = 60000
+
+        viewport "desktop" {
+            width = 1440
+            height = 900
+        }
+
+        navigate "open-home" {
+            url = "http://127.0.0.1:4173/Flow/"
+        }
+
+        wait "designer-ready" {
+            text = "客户支持工作流"
+        }
+
+        expect "real-flow-node-preview" {
+            visible = css(".flow-hero-canvas__node[data-node-id=\"risk-review\"] .a3s-form-flow-node-preview")
+        }
+
+        click "select-start-node" {
+            target = css(".flow-hero-canvas__node[data-node-id=\"start\"]")
+        }
+
+        focus "focus-designer-board" {
+            target = css(".flow-hero-canvas__board")
+        }
+
+        press "nudge-start-node" {
+            key = "ArrowRight"
+        }
+
+        expect "drag-selects-node" {
+            visible = css(
+                ".flow-hero-canvas__node[data-node-id=\"start\"].is-selected[style*=\"8px\"]"
+            )
+        }
+
+        click "validate-graph" {
+            target = role("button", "校验")
+        }
+
+        wait "graph-validated" {
+            text = "已校验"
+        }
+
+        click "test-run" {
+            target = role("button", "试运行")
+        }
+
+        wait "run-finished" {
+            text = "试运行完成 · 3 个节点"
+        }
+
+        focus "focus-board-after-run" {
+            target = css(".flow-hero-canvas__board")
+        }
+
+        expect "run-success-state" {
+            visible = css(
+                ".flow-hero-canvas__run-summary > span.is-success"
+            )
+        }
+
+        screenshot "desktop-designer" {
+            path = "screenshots/home-workflow-desktop.png"
+        }
+
+        console "desktop-console" {
+            path = "evidence/home-workflow-desktop-console.json"
+            clear = false
+        }
+
+        page_errors "desktop-page-errors" {
+            path = "evidence/home-workflow-desktop-errors.json"
+            clear = false
+        }
+    }
+
+    scenario "mobile-inspector-and-catalog" {
+        name = "Use the compact mobile inspector and node catalog"
+        surface = "web"
+        timeout_ms = 60000
+
+        viewport "mobile" {
+            width = 390
+            height = 844
+        }
+
+        navigate "open-mobile-home" {
+            url = "http://127.0.0.1:4173/Flow/"
+        }
+
+        wait "mobile-designer-ready" {
+            text = "客户支持工作流"
+        }
+
+        click "open-node-catalog" {
+            target = css(".flow-hero-canvas__rail button[aria-label=\"添加节点\"]")
+        }
+
+        expect "catalog-open" {
+            visible = css(".flow-hero-canvas__quick-add[role=\"dialog\"]")
+        }
+
+        expect "catalog-option-is-visible" {
+            visible = css(
+                ".flow-hero-canvas__quick-add button[data-node-id=\"route-result\"]"
+            )
+        }
+
+        click "select-condition-node" {
+            target = css(".flow-hero-canvas__quick-add button[data-node-id=\"route-result\"]")
+        }
+
+        expect "condition-selected" {
+            visible = css(".flow-hero-canvas__node[data-node-id=\"route-result\"].is-selected")
+        }
+
+        click "close-inspector" {
+            target = css(".flow-hero-canvas__inspector > header button[aria-label=\"关闭检查器\"]")
+        }
+
+        expect "compact-inspector-toggle" {
+            visible = css(".flow-hero-canvas__inspector-toggle[aria-label=\"打开检查器\"]")
+        }
+
+        screenshot "mobile-designer" {
+            path = "screenshots/home-workflow-mobile.png"
+        }
+
+        console "mobile-console" {
+            path = "evidence/home-workflow-mobile-console.json"
+            clear = false
+        }
+
+        page_errors "mobile-page-errors" {
+            path = "evidence/home-workflow-mobile-errors.json"
+            clear = false
+        }
+    }
+}

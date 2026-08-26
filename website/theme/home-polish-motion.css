@@ -1,0 +1,216 @@
+/* Hero entrance motion, keyframes, and responsive editor layout. */
+
+/* Keep the first frame legible while the edges and cursor carry the story. */
+@keyframes flow-hero-node-1 {
+  0%,
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(var(--flow-hero-node-scale));
+  }
+}
+
+@keyframes flow-hero-node-2 {
+  0% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(7px) scale(var(--flow-hero-node-scale));
+  }
+  16%,
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(var(--flow-hero-node-scale));
+  }
+}
+
+@keyframes flow-hero-node-3 {
+  0% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(10px) scale(var(--flow-hero-node-scale));
+  }
+  22%,
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(var(--flow-hero-node-scale));
+  }
+}
+
+@keyframes flow-hero-inspector {
+  0% {
+    opacity: 1;
+    transform: translateX(6px);
+  }
+  16%,
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes flow-hero-cursor {
+  0%,
+  4% {
+    opacity: 0;
+    transform: translate(-60px, -10px) rotate(-8deg);
+  }
+  8% {
+    opacity: 1;
+    transform: translate(-60px, -10px) rotate(-8deg);
+  }
+  22% {
+    opacity: 1;
+    transform: translate(70px, 130px) rotate(-8deg);
+  }
+  48% {
+    opacity: 1;
+    transform: translate(-60px, 260px) rotate(-8deg);
+  }
+  66% {
+    opacity: 1;
+    transform: translate(-175px, 5px) rotate(-8deg);
+  }
+  84%,
+  100% {
+    opacity: 0;
+    transform: translate(-175px, 5px) rotate(-8deg);
+  }
+}
+
+@media (min-width: 981px) and (max-height: 720px) {
+  .flow-hero-canvas__board {
+    height: 378px;
+  }
+
+  .flow-hero-canvas__node {
+    --flow-hero-node-scale: 0.58;
+  }
+}
+
+@media (max-width: 720px) {
+  .flow-hero-canvas {
+    border-radius: 16px;
+  }
+
+  .flow-hero-canvas__board {
+    height: 520px;
+  }
+
+  .flow-hero-canvas__rail {
+    top: 14px;
+    left: 12px;
+  }
+
+  .flow-hero-canvas__node {
+    --flow-hero-node-scale: 0.52;
+  }
+
+  .flow-hero-canvas__node.is-1 {
+    top: 4%;
+    left: 8%;
+  }
+
+  .flow-hero-canvas__node.is-2 {
+    top: 23%;
+    left: 43%;
+  }
+
+  .flow-hero-canvas__node.is-3 {
+    top: 42%;
+    left: 8%;
+  }
+
+  .flow-hero-canvas__inspector {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 218px;
+    border-top: 1px solid var(--flow-line);
+    border-left: 0;
+    box-shadow: 0 -18px 34px -26px rgb(36 76 137 / 52%);
+  }
+
+  .flow-hero-canvas__inspector > header {
+    min-height: 57px;
+    padding-block: 8px;
+  }
+
+  .flow-hero-canvas__inspector > section {
+    padding-block: 10px;
+  }
+
+  .flow-hero-canvas__zoom {
+    top: 14px;
+    right: 12px;
+    bottom: auto;
+  }
+
+  .flow-hero-canvas__live-status {
+    right: 12px;
+    bottom: 230px;
+    left: auto;
+  }
+
+  .flow-hero-canvas__toast {
+    right: 12px;
+    bottom: 230px;
+    left: auto;
+  }
+
+  .flow-hero-canvas__quick-add {
+    top: 14px;
+    left: 58px;
+    width: min(216px, calc(100% - 70px));
+  }
+}
+
+@media (max-width: 480px) {
+  .flow-hero-canvas__board {
+    height: 500px;
+  }
+
+  .flow-hero-canvas__node {
+    --flow-hero-node-scale: 0.47;
+  }
+
+  .flow-hero-canvas__node.is-1 {
+    top: 3%;
+    left: 7%;
+  }
+
+  .flow-hero-canvas__node.is-2 {
+    top: 22%;
+    left: 43%;
+  }
+
+  .flow-hero-canvas__node.is-3 {
+    top: 42%;
+    left: 7%;
+  }
+
+  .flow-hero-canvas__inspector {
+    height: 208px;
+  }
+
+  .flow-hero-canvas__live-status,
+  .flow-hero-canvas__toast {
+    bottom: 220px;
+  }
+
+  .flow-hero-canvas__actions > button.is-valid {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-hero-canvas__status-dot.is-pending,
+  .flow-hero-canvas__actions > button.is-valid .is-spinning,
+  .flow-hero-canvas__run-summary > span > i,
+  .flow-hero-canvas .a3s-form-flow-node-preview[data-status='running'] {
+    animation: none;
+  }
+}
