@@ -46,6 +46,7 @@ export type WorkflowPlaygroundCopy = {
   edgeColorChanged: (name: string) => string;
   showMinimap: string;
   hideMinimap: string;
+  minimapPaused: string;
   canvasTools: string;
   undo: string;
   redo: string;
@@ -179,6 +180,7 @@ export const workflowPlaygroundCopy: Readonly<
     edgeColorChanged: (name) => `连线颜色已切换为${name}。`,
     showMinimap: '显示缩略图',
     hideMinimap: '隐藏缩略图',
+    minimapPaused: '大图已暂停缩略图以保持滚动流畅',
     canvasTools: '画布工具',
     undo: '撤销',
     redo: '重做',
@@ -320,6 +322,7 @@ export const workflowPlaygroundCopy: Readonly<
     edgeColorChanged: (name) => `Connection color changed to ${name}.`,
     showMinimap: 'Show minimap',
     hideMinimap: 'Hide minimap',
+    minimapPaused: 'Minimap paused for large graphs',
     canvasTools: 'Canvas tools',
     undo: 'Undo',
     redo: 'Redo',

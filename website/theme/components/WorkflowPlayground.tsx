@@ -14,6 +14,7 @@ import {
   ReactFlow,
   useReactFlow,
   type DefaultEdgeOptions,
+  type FitBoundsOptions,
   type XYPosition,
 } from '@xyflow/react';
 import {
@@ -79,6 +80,11 @@ import type { FlowWebsiteLocale } from './flow-node-catalog';
 
 const DRAG_MIME = 'application/x-a3s-flow-node';
 const INITIAL_PLAYGROUND_VIEWPORT = { x: 12, y: 12, zoom: 0.62 } as const;
+const PLAYGROUND_FIT_BOUNDS_OPTIONS = {
+  padding: 0.18,
+} satisfies FitBoundsOptions;
+const MINIMAP_NODE_LIMIT = 800;
+const MINIMAP_EDGE_LIMIT = 4_000;
 const nodeTypes = {
   flowNode: WorkflowPlaygroundNode,
   annotation: WorkflowPlaygroundAnnotation,
@@ -118,10 +124,8 @@ function WorkflowPlaygroundSurface({
   } = usePlaygroundDocument(() => structuredClone(example.graph));
   const { edgeColor, edgeRouting, saveState, setEdgeColor, setEdgeRouting } =
     usePlaygroundDraft(storageKey, graph, restore);
-  const { fitView, screenToFlowPosition, setViewport } = useReactFlow<
-    PlaygroundCanvasNode,
-    PlaygroundEdge
-  >();
+  const { fitBounds, getNodesBounds, screenToFlowPosition, setViewport } =
+    useReactFlow<PlaygroundCanvasNode, PlaygroundEdge>();
   const [selectedNodeId, setSelectedNodeId] = useState<string>();
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string>();
   const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
@@ -140,6 +144,17 @@ function WorkflowPlaygroundSurface({
   const arrangeRequest = useRef(0);
   const graphRef = useRef(graph);
   graphRef.current = graph;
+
+  const fitPlaygroundView = useCallback(
+    (options: FitBoundsOptions = {}) => {
+      const bounds = getNodesBounds(graphRef.current.nodes);
+      if (bounds.width <= 0 || bounds.height <= 0) {
+        return Promise.resolve(false);
+      }
+      return fitBounds(bounds, options);
+    },
+    [fitBounds, getNodesBounds],
+  );
 
   useEffect(() => schedulePlaygroundLayoutWarmup(), []);
 
@@ -177,6 +192,9 @@ function WorkflowPlaygroundSurface({
   const issueCount =
     (compilation.ok ? 0 : compilation.issues.length) +
     configurationIssues.length;
+  const minimapSuppressed =
+    graph.nodes.length > MINIMAP_NODE_LIMIT ||
+    graph.edges.length > MINIMAP_EDGE_LIMIT;
   const openTrace = useCallback(() => {
     setDebugOpen(true);
     setDebugTab('trace');
@@ -225,10 +243,10 @@ function WorkflowPlaygroundSurface({
   useEffect(() => {
     if (example.featured) return;
     const frame = window.requestAnimationFrame(() => {
-      void fitView({ duration: 0, maxZoom: 0.82, padding: 0.16 });
+      void fitPlaygroundView({ duration: 0, padding: 0.16 });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [example.featured, example.id, fitView]);
+  }, [example.featured, example.id, fitPlaygroundView]);
 
   useEffect(() => {
     if (!announcement) return;
@@ -355,8 +373,15 @@ function WorkflowPlaygroundSurface({
       );
     });
     setAnnouncement(copy.nodesArranged);
-    window.setTimeout(() => void fitView({ duration: 320, padding: 0.18 }), 0);
-  }, [commit, copy.nodesArranged, fitView, running]);
+    window.setTimeout(
+      () =>
+        void fitPlaygroundView({
+          ...PLAYGROUND_FIT_BOUNDS_OPTIONS,
+          duration: 0,
+        }),
+      0,
+    );
+  }, [commit, copy.nodesArranged, fitPlaygroundView, running]);
 
   const addNode = useCallback(
     (type: string, requestedPosition?: XYPosition) => {
@@ -705,6 +730,7 @@ function WorkflowPlaygroundSurface({
           edgeColor={edgeColor}
           edgeRouting={edgeRouting}
           minimapVisible={minimapVisible}
+          minimapSuppressed={minimapSuppressed}
           mode={canvasMode}
           onAdd={() => openNodeLibrary()}
           onAddNote={() => addAnnotation('note')}
@@ -718,7 +744,12 @@ function WorkflowPlaygroundSurface({
             setEdgeRouting(routing);
             setAnnouncement(copy.edgeRoutingChanged[routing]);
           }}
-          onFitView={() => void fitView({ duration: 280, padding: 0.18 })}
+          onFitView={() =>
+            void fitPlaygroundView({
+              ...PLAYGROUND_FIT_BOUNDS_OPTIONS,
+              duration: 0,
+            })
+          }
           onMinimapToggle={() => setMinimapVisible((current) => !current)}
           onModeChange={setCanvasMode}
           onOpenVariables={() => {
@@ -743,6 +774,10 @@ function WorkflowPlaygroundSurface({
         <div
           aria-label={copy.canvasLabel}
           className={`a3s-workflow-canvas${draggedType ? ' is-dragging-node' : ''}`}
+          data-large-graph={minimapSuppressed || undefined}
+          data-minimap-rendered={
+            minimapVisible && !minimapSuppressed ? 'true' : 'false'
+          }
           id="workflow-canvas"
           onDragOver={(event) => {
             event.preventDefault();
@@ -845,7 +880,7 @@ function WorkflowPlaygroundSurface({
                 size={1}
                 variant={BackgroundVariant.Dots}
               />
-              {minimapVisible && (
+              {minimapVisible && !minimapSuppressed && (
                 <MiniMap<PlaygroundCanvasNode>
                   ariaLabel={copy.minimap}
                   bgColor="#ffffff"
@@ -862,12 +897,26 @@ function WorkflowPlaygroundSurface({
               )}
               <Controls
                 aria-label={copy.zoomControls}
-                fitViewOptions={{ padding: 0.16 }}
+                onFitView={() =>
+                  void fitPlaygroundView({
+                    ...PLAYGROUND_FIT_BOUNDS_OPTIONS,
+                    duration: 0,
+                    padding: 0.16,
+                  })
+                }
                 position="bottom-right"
                 showInteractive={false}
               />
             </ReactFlow>
           </WorkflowPlaygroundRegistryContext.Provider>
+          {minimapSuppressed && (
+            <span
+              className="flow-playground-canvas__minimap-paused"
+              role="status"
+            >
+              {copy.minimapPaused}
+            </span>
+          )}
           {draggedType && (
             <div className="flow-playground-canvas__drop-hint">
               {copy.dropHelp}

@@ -5,6 +5,7 @@ import {
   WORKFLOW_NODE_FIELD_GROUPS,
   type WorkflowNodeFieldDefinition,
 } from '@a3s-lab/flow-ui';
+import { projectWorkflowNodeContract } from '@a3s-lab/flow-ui/react';
 import { describe, expect, it } from 'vitest';
 import { createPlaygroundNodeCatalog } from './WorkflowPlayground.custom-nodes';
 import { createSampleWorkflow } from './WorkflowPlayground.sample';
@@ -161,6 +162,37 @@ describe('Workflow Playground manifest coverage', () => {
       );
       expect(visibility, field.name).toContain(true);
       expect(visibility, field.name).toContain(false);
+    }
+  });
+
+  it('projects every manifest field and port into the Playground contract view', () => {
+    const catalog = createPlaygroundNodeCatalog('en');
+    const sample = createSampleWorkflow('en', catalog);
+
+    for (const manifest of catalog.registry.list()) {
+      const example = sample.nodes.find(
+        (node) => node.data.dagNode.data.type === manifest.type,
+      );
+      const value = example
+        ? example.data.dagNode.data
+        : createWorkflowNodeDefaultValue(manifest);
+      const contract = projectWorkflowNodeContract(manifest, value);
+
+      expect(
+        contract.fields.map(({ name }) => name),
+        manifest.type,
+      ).toEqual(manifest.fields.map(({ name }) => name));
+      expect(contract.inputs.length, manifest.type).toBe(
+        manifest.ports.inputs.length,
+      );
+      expect(contract.outputs.length, manifest.type).toBe(
+        manifest.ports.outputs.length,
+      );
+      for (const [index, field] of manifest.fields.entries()) {
+        expect(
+          contract.fields[index]?.properties.map(({ name }) => name),
+        ).toEqual(Object.keys(field).sort());
+      }
     }
   });
 });

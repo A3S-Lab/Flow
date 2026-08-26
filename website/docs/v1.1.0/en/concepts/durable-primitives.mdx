@@ -1,0 +1,171 @@
+---
+title: Durable primitives
+description: See what steps, batches, retries, waits, signals, hooks, progress, child references, and continuation persist in history.
+---
+
+# Durable primitives
+
+Every Flow primitive follows one rule. Workflow code returns a command with stable identity, the engine commits an event, then code replays and reads the result from history. Runtime code does not maintain a hidden cursor.
+
+## Identity comes before execution
+
+| Primitive            | Stable identity | Parameter drift                                                |
+| -------------------- | --------------- | -------------------------------------------------------------- |
+| Step                 | `step_id`       | Reject replay when name, input, or retry policy changes        |
+| Timer wait           | `wait_id`       | Reject replay when the UTC deadline changes                    |
+| Signal wait          | `wait_id`       | Reject replay when the signal name changes                     |
+| Hook                 | `hook_id`       | Reject replay when token or metadata changes                   |
+| Signal delivery      | `signal_id`     | Return conflict when name or payload changes                   |
+| Child workflow       | `child_id`      | Reject replay when spec, input, or cancellation policy changes |
+| Progress             | `progress_id`   | Return conflict when counts, message, or details change        |
+| Child-operation link | `reference_id`  | Return conflict when operation identity or metadata changes    |
+
+IDs should describe a business stage. Avoid transient positions, random values, or current time. For collection batches, sort the input first and generate fixed-width ordinal IDs.
+
+## Steps
+
+A step is the external side-effect boundary. `run_workflow()` decides whether to schedule it, while `run_step()` performs network, database, file, or tool access.
+
+```rust
+if let Some(output) = ctx.step_output("charge") {
+    return Ok(ctx.complete(output.clone()));
+}
+
+Ok(ctx.schedule_step(
+    "charge",
+    "chargeCard",
+    serde_json::json!({
+        "paymentId": "pay-8842",
+        "idempotencyKey": format!("{}:charge", ctx.run_id()),
+    }),
+))
+```
+
+Step status and output live in the snapshot. After success commits, replay only reads the result. If the process fails after the external call but before the commit, the step may execute again.
+
+## Atomic batches
+
+`schedule_steps()` declares independent steps together. The engine validates unique IDs and stable parameters for the whole batch before advancing members. Results retain request order rather than completion order.
+
+```rust
+let steps = items
+    .into_iter()
+    .enumerate()
+    .map(|(index, item)| {
+        ctx.step(
+            format!("item-{index:04}"),
+            "processItem",
+            serde_json::json!({ "item": item }),
+        )
+    })
+    .collect();
+
+Ok(ctx.schedule_steps(steps))
+```
+
+A batch cannot express dependencies among members. If a later stage needs earlier outputs, wait for the first batch to become durable and schedule the second batch on the next replay.
+
+## Retries
+
+Retry policy belongs to the step command. Flow supports no retry, fixed delay, and capped exponential backoff.
+
+```rust
+use a3s_flow::RetryPolicy;
+use std::time::Duration;
+
+let retry = RetryPolicy::exponential(
+    8,
+    Duration::from_secs(1),
+    Duration::from_secs(30),
+);
+
+Ok(ctx.schedule_step_with_retry(
+    "reserve",
+    "reserveInventory",
+    input,
+    retry,
+))
+```
+
+Exponential policy derives deterministic jitter from immutable run, step, and attempt identity. A restart cannot change the chosen UTC retry deadline. Exhaustion fails the run by default. `continue_workflow_on_failure()` lets workflow code read `step_failed()` and choose compensation or fallback.
+
+## Timer waits
+
+`wait_until()` stores an absolute UTC instant, not an in-process timer.
+
+```rust
+if ctx.wait_completed("payment-window") {
+    return Ok(ctx.complete(serde_json::json!({ "ready": true })));
+}
+
+Ok(ctx.wait_until("payment-window", resume_at))
+```
+
+Becoming due only means that the run is eligible to resume. The scheduler may deliver more than one task. Resume checks current wait status and converges safely.
+
+## Signals and hooks
+
+A signal is a named message addressed by run ID. A hook is an external callback addressed by token. Both suspend the run and replay only after payload commit. See [Signals and hooks](/guide/signals-and-hooks) for declaration, deduplication, and disposal rules.
+
+## Progress
+
+Progress supports control-plane inspection and should not drive workflow branches. Workflow code may return `ctx.record_progress()`, while the host may call `engine.record_progress()`.
+
+```rust
+use a3s_flow::WorkflowProgress;
+
+let progress = WorkflowProgress::new("import-page-0042", 42)
+    .with_total(100)
+    .with_message("page committed");
+
+engine.record_progress(&run_id, progress).await?;
+```
+
+The same `progress_id` and content may be redelivered. Use a new identity, such as a page number or monotonic business sequence, for each updated value.
+
+## Child-operation links
+
+An externally managed job does not need to become a first-class child workflow. Store a stable association through `ChildOperationReference`, then manage its lifecycle with steps, signals, or hooks.
+
+```rust
+use a3s_flow::ChildOperationReference;
+
+let child = ChildOperationReference::new(
+    "video-render",
+    "render-job",
+    "render-8821",
+)
+.with_metadata(serde_json::json!({ "region": "cn-east" }));
+
+Ok(ctx.link_child_operation(child))
+```
+
+This reference provides durable linkage only. It does not propagate cancellation. Use a first-class [child workflow](/concepts/child-workflows) when Flow owns the child run.
+
+## Continuation
+
+`continue_as_new()` creates a successor with new input and closes the current history segment. It fits polling, batch import, and long-running recurring work.
+
+```rust
+if cursor < total {
+    return Ok(ctx.continue_as_new(serde_json::json!({
+        "cursor": cursor + 1,
+        "total": total,
+    })));
+}
+```
+
+Each segment has its own event stream, and the successor inherits the complete workflow definition. `continuation_chain()` reads every segment from the root. Continuation bounds replay length without rewriting old history.
+
+## Composition guidance
+
+A common production path combines primitives in this order.
+
+1. Create an external request in a step.
+2. Wait for its result through a hook or signal.
+3. Add a timer wait for the business deadline.
+4. Handle cancellation through cleanup steps.
+5. Expose operations through progress and observers.
+6. Continue as new after a planned history threshold.
+
+Recovery remains clear when every stage has its own stable identity. Combining several responsibilities in one step obscures retry, audit, and compensation boundaries together.

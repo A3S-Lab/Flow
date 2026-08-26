@@ -1,0 +1,1143 @@
+/* Cloud-aligned homepage tokens and the interactive product surface. */
+html:root {
+  --rp-c-brand: #1264ff;
+  --rp-c-brand-dark: #0954df;
+  --rp-c-brand-darker: #0647c2;
+  --rp-c-brand-light: #3f7fff;
+  --rp-c-brand-lighter: #dce9ff;
+  --rp-c-brand-tint: rgb(18 100 255 / 10%);
+  --rp-c-link: #084ed0;
+  --rp-c-bg: #fff;
+  --rp-c-bg-soft: #f6f8fc;
+  --rp-c-bg-mute: #eef3fb;
+  --rp-c-divider: #dce4f0;
+  --rp-c-divider-light: #e8edf5;
+  --rp-c-text-1: #101827;
+  --rp-c-text-2: #56657b;
+  --rp-c-text-3: #8490a3;
+  --flow-bg: #fff;
+  --flow-paper: #f3f5f8;
+  --flow-surface-soft: #f1f6ff;
+  --flow-surface-strong: #e5edf9;
+  --flow-text: #101827;
+  --flow-muted: #56657b;
+  --flow-faint: #8490a3;
+  --flow-line: #dce4f0;
+  --flow-line-strong: #bfd0e8;
+  --flow-border-strong: #a9bddb;
+  --flow-accent: #1264ff;
+  --flow-accent-strong: #084ed0;
+  --flow-accent-soft: #eaf2ff;
+  --flow-success: #0c9b70;
+  --flow-success-soft: #eaf8f3;
+  --flow-wait: #7157c9;
+  --flow-wait-soft: #f2eeff;
+}
+
+html .rp-nav {
+  border-bottom-color: rgb(203 215 233 / 82%);
+  background: rgb(255 255 255 / 88%);
+  box-shadow: 0 10px 34px rgb(31 65 116 / 7%);
+  backdrop-filter: blur(20px) saturate(150%);
+}
+
+.flow-home {
+  --flow-shadow-cloud: 0 24px 64px rgb(36 76 137 / 14%);
+  --flow-shadow-cloud-raised: 0 34px 84px rgb(36 76 137 / 18%);
+}
+
+.flow-hero {
+  background:
+    radial-gradient(circle at 92% 8%, rgb(234 242 255 / 64%), transparent 32%),
+    #f8fbff;
+}
+
+.flow-button.is-primary {
+  background: var(--flow-accent);
+  box-shadow: 0 12px 26px -13px rgb(18 100 255 / 72%);
+}
+
+.flow-button.is-primary:hover {
+  background: var(--flow-accent-strong);
+}
+
+.flow-home :where(a, button, [tabindex='0']):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--flow-accent) 72%, #fff);
+  outline-offset: 3px;
+}
+
+/* Hero editor chrome */
+.flow-hero-canvas {
+  border-color: var(--flow-line-strong);
+  border-radius: 18px;
+  box-shadow: var(--flow-shadow-cloud-raised);
+}
+
+.flow-hero-canvas > header {
+  min-height: 60px;
+  padding-inline: 14px;
+  background: rgb(255 255 255 / 94%);
+}
+
+.flow-hero-canvas__identity > span:first-child {
+  background: var(--flow-accent-soft);
+  color: var(--flow-accent);
+}
+
+.flow-hero-canvas__identity small {
+  color: var(--flow-faint);
+}
+
+.flow-hero-canvas__identity small > i:not(.flow-hero-canvas__status-dot) {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--flow-line-strong);
+}
+
+.flow-hero-canvas__status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 1px;
+  border-radius: 50%;
+  background: var(--flow-success);
+}
+
+.flow-hero-canvas__status-dot.is-pending {
+  background: #b97708;
+  animation: flow-status-pulse 900ms ease-in-out infinite;
+}
+
+.flow-hero-canvas__actions {
+  gap: 6px;
+}
+
+.flow-hero-canvas__actions > button {
+  display: inline-flex;
+  min-height: 31px;
+  padding: 0 10px;
+  border: 1px solid var(--flow-line);
+  border-radius: 8px;
+  align-items: center;
+  gap: 5px;
+  color: var(--flow-muted);
+  background: #fff;
+  font-size: 10px;
+  font-weight: 680;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.flow-hero-canvas__actions > button:hover:not(:disabled) {
+  border-color: var(--flow-line-strong);
+  background: var(--flow-paper);
+  color: var(--flow-text);
+  transform: translateY(-1px);
+}
+
+.flow-hero-canvas__actions > button:disabled {
+  cursor: wait;
+  opacity: 0.74;
+}
+
+.flow-hero-canvas__actions > button.is-valid {
+  border-color: color-mix(in srgb, var(--flow-success) 30%, var(--flow-line));
+  background: var(--flow-success-soft);
+  color: var(--flow-success);
+}
+
+.flow-hero-canvas__actions > button.is-valid.is-pending {
+  border-color: color-mix(in srgb, #b97708 30%, var(--flow-line));
+  background: #fff6df;
+  color: #9b650c;
+}
+
+.flow-hero-canvas__actions > button.is-valid .is-spinning {
+  animation: flow-spin 900ms linear infinite;
+}
+
+.flow-hero-canvas__actions > button.is-run {
+  border-color: var(--flow-accent);
+  background: var(--flow-accent);
+  color: #fff;
+}
+
+.flow-hero-canvas__actions > button.is-run:hover:not(:disabled) {
+  border-color: var(--flow-accent-strong);
+  background: var(--flow-accent-strong);
+  color: #fff;
+}
+
+.flow-hero-canvas__board {
+  height: 466px;
+  isolation: isolate;
+  background-color: #f8fbff;
+  background-image: radial-gradient(circle, #c9d8ed 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+.flow-hero-canvas__board:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--flow-accent) 60%, #fff);
+  outline-offset: -3px;
+}
+
+.flow-hero-canvas__graph {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  transform-origin: 50% 50%;
+  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.flow-hero-canvas__edges {
+  z-index: 1;
+  color: #9bb2d3;
+}
+
+.flow-hero-canvas__edges path {
+  stroke: currentColor;
+  stroke-width: 1.45;
+}
+
+.flow-hero-canvas__rail {
+  z-index: 8;
+  top: 20px;
+  left: 14px;
+  width: 38px;
+  padding: 4px;
+  border-color: var(--flow-line);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 96%);
+  box-shadow: 0 10px 22px -14px rgb(36 76 137 / 42%);
+}
+
+.flow-hero-canvas__rail button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  align-items: center;
+  justify-content: center;
+  color: var(--flow-muted);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.flow-hero-canvas__rail button:hover {
+  background: var(--flow-paper);
+  color: var(--flow-text);
+}
+
+.flow-hero-canvas__rail button.is-primary {
+  background: var(--flow-accent);
+  color: #fff;
+}
+
+.flow-hero-canvas__rail button.is-primary:hover {
+  background: var(--flow-accent-strong);
+}
+
+.flow-hero-canvas__rail button.is-active {
+  background: var(--flow-accent-soft);
+  color: var(--flow-accent-strong);
+}
+
+.flow-hero-canvas__rail i {
+  background: var(--flow-line);
+}
+
+.flow-hero-canvas__node {
+  z-index: 4;
+  --flow-node-offset-x: 0px;
+  --flow-node-offset-y: 0px;
+  --flow-hero-node-scale: 0.68;
+  width: 240px;
+  touch-action: none;
+}
+
+.flow-hero-canvas__node.is-1 {
+  top: 11%;
+  left: 9%;
+}
+
+.flow-hero-canvas__node.is-2 {
+  top: 38%;
+  left: 30%;
+}
+
+.flow-hero-canvas__node.is-3 {
+  top: 66%;
+  left: 9%;
+}
+
+.flow-hero-canvas__node.is-selected {
+  z-index: 6;
+}
+
+/* The compact preview exposes one visual handle per side. The shared
+ * component keeps the list's inline position open for branch labels, so the
+ * landing-page preview supplies the side anchors explicitly. */
+.flow-hero-canvas__node
+  .a3s-form-workflow-node-preview-compact-ports[data-direction='input']
+  li {
+  right: auto;
+  left: 0;
+}
+
+.flow-hero-canvas__node
+  .a3s-form-workflow-node-preview-compact-ports[data-direction='output']
+  li {
+  right: 0;
+  left: auto;
+}
+
+.flow-hero-canvas__cursor {
+  top: 82px;
+  left: 200px;
+}
+
+.flow-hero-canvas__edge-label {
+  position: absolute;
+  z-index: 5;
+  display: inline-flex;
+  min-height: 19px;
+  padding: 0 6px;
+  border: 1px solid var(--flow-line);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 94%);
+  align-items: center;
+  color: var(--flow-faint);
+  font-family: var(--flow-mono);
+  font-size: 8px;
+  font-weight: 650;
+  box-shadow: 0 4px 10px -8px rgb(36 76 137 / 44%);
+}
+
+.flow-hero-canvas__edge-label.is-matched {
+  top: 57%;
+  left: 45%;
+  color: var(--flow-success);
+}
+
+.flow-hero-canvas__edge-label.is-otherwise {
+  top: 78%;
+  left: 28%;
+  color: var(--flow-wait);
+}
+
+/* Inspector follows the same compact panel contract as the full Playground. */
+.flow-hero-canvas__inspector {
+  z-index: 10;
+  width: 242px;
+  border-left-color: var(--flow-line);
+  background: #fff;
+  box-shadow: -18px 0 34px -26px rgb(36 76 137 / 52%);
+}
+
+.flow-hero-canvas__inspector > header {
+  min-height: 72px;
+  padding: 12px;
+  background: #fff;
+}
+
+.flow-hero-canvas__inspector > header > span {
+  background: var(--flow-accent-soft);
+  color: var(--flow-accent);
+}
+
+.flow-hero-canvas__inspector > header > button {
+  display: grid;
+  width: 22px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--flow-faint);
+  background: transparent;
+  place-items: center;
+  cursor: pointer;
+}
+
+.flow-hero-canvas__inspector > header > button:hover {
+  color: var(--flow-text);
+  background: var(--flow-paper);
+}
+
+.flow-hero-canvas__tabs {
+  min-height: 42px;
+  padding-inline: 13px;
+  align-items: stretch;
+  gap: 16px;
+}
+
+.flow-hero-canvas__tabs > button {
+  position: relative;
+  min-height: 41px;
+  padding: 0;
+  border: 0;
+  color: var(--flow-faint);
+  background: transparent;
+  font-size: 10px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.flow-hero-canvas__tabs > button[aria-selected='true'] {
+  color: var(--flow-text);
+}
+
+.flow-hero-canvas__tabs > button[aria-selected='true']::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--flow-accent);
+  content: '';
+}
+
+.flow-hero-canvas__inspector > section {
+  min-height: 0;
+  padding: 15px 13px;
+  overflow: auto;
+  gap: 13px;
+}
+
+.flow-hero-canvas__field-value {
+  min-height: 36px;
+  border-color: var(--flow-line-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--flow-text);
+}
+
+.flow-hero-canvas__field-value > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-hero-canvas__retry {
+  border-top-color: var(--flow-line);
+}
+
+.flow-hero-canvas__retry > i {
+  background: var(--flow-accent);
+}
+
+.flow-hero-canvas__retry-fields span,
+.flow-hero-canvas__next {
+  border-color: var(--flow-line);
+  background: var(--flow-surface-soft);
+}
+
+.flow-hero-canvas__next {
+  color: var(--flow-accent-strong);
+}
+
+.flow-hero-canvas__port-summary {
+  display: grid;
+  gap: 7px;
+  padding-top: 12px;
+  border-top: 1px solid var(--flow-line);
+}
+
+.flow-hero-canvas__port-summary > span {
+  color: var(--flow-muted);
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.flow-hero-canvas__port-summary > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.flow-hero-canvas__port-summary code {
+  display: inline-flex;
+  min-height: 25px;
+  padding: 0 7px;
+  border: 1px solid var(--flow-line);
+  border-radius: 6px;
+  background: var(--flow-paper);
+  align-items: center;
+  color: var(--flow-accent-strong);
+  font-family: var(--flow-mono);
+  font-size: 8px;
+}
+
+.flow-hero-canvas__run-panel {
+  display: grid;
+  align-content: start;
+}
+
+.flow-hero-canvas__run-summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-bottom: 13px;
+  border-bottom: 1px solid var(--flow-line);
+}
+
+.flow-hero-canvas__run-summary > span {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--flow-paper);
+  color: var(--flow-faint);
+  place-items: center;
+}
+
+.flow-hero-canvas__run-summary > span.is-running {
+  background: var(--flow-accent-soft);
+  color: var(--flow-accent);
+}
+
+.flow-hero-canvas__run-summary > span.is-success {
+  background: var(--flow-success-soft);
+  color: var(--flow-success);
+}
+
+.flow-hero-canvas__run-summary > span > i {
+  width: 8px;
+  height: 8px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  animation: flow-status-pulse 900ms ease-in-out infinite;
+}
+
+.flow-hero-canvas__run-summary > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.flow-hero-canvas__run-summary strong {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.flow-hero-canvas__run-summary small {
+  color: var(--flow-faint);
+  font-family: var(--flow-mono);
+  font-size: 8px;
+}
+
+.flow-hero-canvas__run-panel > ol {
+  display: grid;
+  margin: 0;
+  padding: 10px 0 0;
+  gap: 4px;
+  list-style: none;
+}
+
+.flow-hero-canvas__run-panel > ol > li {
+  display: grid;
+  min-height: 38px;
+  grid-template-columns: 27px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 4px 5px;
+  border-radius: 7px;
+}
+
+.flow-hero-canvas__run-panel > ol > li.is-running {
+  background: var(--flow-accent-soft);
+}
+
+.flow-hero-canvas__run-panel > ol > li.is-success {
+  background: var(--flow-success-soft);
+}
+
+.flow-hero-canvas__run-panel > ol > li > span {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--flow-paper);
+  align-items: center;
+  justify-content: center;
+  color: var(--flow-faint);
+  font-family: var(--flow-mono);
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.flow-hero-canvas__run-panel > ol > li.is-running > span {
+  background: var(--flow-accent);
+  color: #fff;
+}
+
+.flow-hero-canvas__run-panel > ol > li.is-success > span {
+  background: var(--flow-success);
+  color: #fff;
+}
+
+.flow-hero-canvas__run-panel > ol > li > div {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.flow-hero-canvas__run-panel > ol strong,
+.flow-hero-canvas__run-panel > ol small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-hero-canvas__run-panel > ol strong {
+  font-size: 10px;
+  font-weight: 680;
+}
+
+.flow-hero-canvas__run-panel > ol small {
+  color: var(--flow-faint);
+  font-size: 8px;
+}
+
+.flow-hero-canvas__inspector > footer {
+  min-height: 43px;
+  border-top-color: var(--flow-line);
+  color: var(--flow-success);
+}
+
+.flow-hero-canvas__inspector-toggle {
+  position: absolute;
+  z-index: 11;
+  top: 14px;
+  right: 14px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--flow-line);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 94%);
+  color: var(--flow-accent);
+  place-items: center;
+  box-shadow: 0 8px 18px -13px rgb(36 76 137 / 54%);
+  cursor: pointer;
+}
+
+.flow-hero-canvas__inspector-toggle:hover {
+  border-color: var(--flow-line-strong);
+  background: var(--flow-accent-soft);
+}
+
+/* The quick-add popover is populated from the same manifest registry as the editor. */
+.flow-hero-canvas__quick-add {
+  position: absolute;
+  z-index: 20;
+  top: 20px;
+  left: 61px;
+  width: 216px;
+  overflow: hidden;
+  border: 1px solid var(--flow-line-strong);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: var(--flow-shadow-cloud);
+}
+
+.flow-hero-canvas__quick-add > header {
+  display: flex;
+  min-height: 42px;
+  padding: 0 10px 0 13px;
+  border-bottom: 1px solid var(--flow-line);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.flow-hero-canvas__quick-add > header strong {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.flow-hero-canvas__quick-add > header button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--flow-faint);
+  place-items: center;
+  cursor: pointer;
+}
+
+.flow-hero-canvas__quick-add > header button:hover {
+  background: var(--flow-paper);
+  color: var(--flow-text);
+}
+
+.flow-hero-canvas__quick-add > div {
+  display: grid;
+  padding: 7px;
+  gap: 4px;
+}
+
+.flow-hero-canvas__quick-add > div > button {
+  display: grid;
+  min-height: 43px;
+  padding: 5px 7px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  grid-template-columns: 27px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.flow-hero-canvas__quick-add > div > button:hover,
+.flow-hero-canvas__quick-add > div > button.is-selected {
+  border-color: color-mix(in srgb, var(--flow-accent) 26%, var(--flow-line));
+  background: var(--flow-accent-soft);
+}
+
+.flow-hero-canvas__quick-add > div > button > span:first-child {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  border-radius: 7px;
+  background: var(--flow-accent-soft);
+  color: var(--flow-accent);
+  place-items: center;
+}
+
+.flow-hero-canvas__quick-add > div > button > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.flow-hero-canvas__quick-add strong,
+.flow-hero-canvas__quick-add small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-hero-canvas__quick-add strong {
+  font-size: 10px;
+  font-weight: 680;
+}
+
+.flow-hero-canvas__quick-add small {
+  color: var(--flow-faint);
+  font-family: var(--flow-mono);
+  font-size: 8px;
+}
+
+.flow-hero-canvas__zoom {
+  position: absolute;
+  z-index: 8;
+  right: 256px;
+  bottom: 14px;
+  display: inline-flex;
+  min-height: 31px;
+  padding: 3px;
+  border: 1px solid var(--flow-line);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 95%);
+  align-items: center;
+  gap: 2px;
+  box-shadow: 0 8px 18px -13px rgb(36 76 137 / 52%);
+}
+
+.flow-hero-canvas__zoom button {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--flow-muted);
+  place-items: center;
+  cursor: pointer;
+}
+
+.flow-hero-canvas__zoom button:hover {
+  background: var(--flow-accent-soft);
+  color: var(--flow-accent-strong);
+}
+
+.flow-hero-canvas__zoom output {
+  min-width: 37px;
+  color: var(--flow-text);
+  font-family: var(--flow-mono);
+  font-size: 8px;
+  font-weight: 680;
+  text-align: center;
+}
+
+.flow-hero-canvas__zoom button.is-fit {
+  margin-left: 2px;
+  border-left: 1px solid var(--flow-line);
+  border-radius: 0 5px 5px 0;
+}
+
+.flow-hero-canvas__live-status {
+  position: absolute;
+  z-index: 7;
+  bottom: 19px;
+  left: 64px;
+  display: inline-flex;
+  min-height: 25px;
+  padding: 0 8px;
+  border: 1px solid var(--flow-line);
+  border-radius: 6px;
+  background: rgb(255 255 255 / 88%);
+  align-items: center;
+  color: var(--flow-faint);
+  font-family: var(--flow-mono);
+  font-size: 8px;
+  font-weight: 650;
+}
+
+.flow-hero-canvas[data-run-state='running'] .flow-hero-canvas__live-status {
+  border-color: color-mix(in srgb, var(--flow-accent) 24%, var(--flow-line));
+  background: var(--flow-accent-soft);
+  color: var(--flow-accent-strong);
+}
+
+.flow-hero-canvas[data-run-state='success'] .flow-hero-canvas__live-status {
+  border-color: color-mix(in srgb, var(--flow-success) 24%, var(--flow-line));
+  background: var(--flow-success-soft);
+  color: var(--flow-success);
+}
+
+/* User input takes control of the demo timeline so clicks never fight CSS motion. */
+.flow-hero-canvas.is-user-controlled .flow-hero-canvas__node {
+  opacity: 1 !important;
+  filter: none !important;
+  transform: translate(var(--flow-node-offset-x), var(--flow-node-offset-y))
+    scale(var(--flow-hero-node-scale)) !important;
+  animation: none !important;
+}
+
+.flow-hero-canvas__node.is-dragging {
+  cursor: grabbing;
+}
+
+.flow-hero-canvas[data-tool='select'] .flow-hero-canvas__node {
+  cursor: grab;
+}
+
+.flow-hero-canvas[data-tool='select'] .flow-hero-canvas__node.is-dragging {
+  cursor: grabbing;
+}
+
+.flow-hero-canvas[data-tool='pan'] .flow-hero-canvas__board {
+  cursor: grab;
+}
+
+.flow-hero-canvas__board[data-panning='true'] {
+  cursor: grabbing;
+}
+
+.flow-hero-canvas__board[data-panning='true'] .flow-hero-canvas__graph {
+  transition: none;
+}
+
+.flow-hero-canvas.is-user-controlled .flow-hero-canvas__edges path {
+  opacity: 1 !important;
+  stroke-dasharray: none !important;
+  stroke-dashoffset: 0 !important;
+  animation: none !important;
+}
+
+.flow-hero-canvas.is-user-controlled .flow-hero-canvas__inspector {
+  opacity: 1 !important;
+  transform: none !important;
+  animation: none !important;
+}
+
+.flow-hero-canvas.is-user-controlled .flow-hero-canvas__cursor {
+  display: none;
+}
+
+.flow-hero-canvas.is-user-controlled .flow-hero-canvas__toast {
+  opacity: 0;
+  filter: none;
+  transform: translateY(8px) scale(0.97);
+  animation: none !important;
+}
+
+.flow-hero-canvas.is-user-controlled .flow-hero-canvas__toast.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.flow-hero-canvas .a3s-form-flow-node-preview[data-status='running'] {
+  animation: flow-node-running 1200ms ease-in-out infinite;
+}
+
+.flow-hero-canvas .a3s-form-flow-node-preview[data-status='success'] {
+  border-color: color-mix(in srgb, var(--flow-success) 64%, var(--flow-line));
+}
+
+@keyframes flow-status-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.82);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes flow-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes flow-node-running {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 0 0 1px #fff,
+      0 0 0 1px var(--flow-accent),
+      0 3px 8px rgb(18 100 255 / 12%);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 1px #fff,
+      0 0 0 3px rgb(18 100 255 / 14%),
+      0 8px 18px rgb(18 100 255 / 18%);
+  }
+}
+
+/* Keep the first frame legible while the edges and cursor carry the story. */
+@keyframes flow-hero-node-1 {
+  0%,
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(var(--flow-hero-node-scale));
+  }
+}
+
+@keyframes flow-hero-node-2 {
+  0% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(7px) scale(var(--flow-hero-node-scale));
+  }
+  16%,
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(var(--flow-hero-node-scale));
+  }
+}
+
+@keyframes flow-hero-node-3 {
+  0% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(10px) scale(var(--flow-hero-node-scale));
+  }
+  22%,
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(var(--flow-hero-node-scale));
+  }
+}
+
+@keyframes flow-hero-inspector {
+  0% {
+    opacity: 1;
+    transform: translateX(6px);
+  }
+  16%,
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes flow-hero-cursor {
+  0%,
+  4% {
+    opacity: 0;
+    transform: translate(-60px, -10px) rotate(-8deg);
+  }
+  8% {
+    opacity: 1;
+    transform: translate(-60px, -10px) rotate(-8deg);
+  }
+  22% {
+    opacity: 1;
+    transform: translate(70px, 130px) rotate(-8deg);
+  }
+  48% {
+    opacity: 1;
+    transform: translate(-60px, 260px) rotate(-8deg);
+  }
+  66% {
+    opacity: 1;
+    transform: translate(-175px, 5px) rotate(-8deg);
+  }
+  84%,
+  100% {
+    opacity: 0;
+    transform: translate(-175px, 5px) rotate(-8deg);
+  }
+}
+
+@media (min-width: 981px) and (max-height: 720px) {
+  .flow-hero-canvas__board {
+    height: 378px;
+  }
+
+  .flow-hero-canvas__node {
+    --flow-hero-node-scale: 0.58;
+  }
+}
+
+@media (max-width: 720px) {
+  .flow-hero-canvas {
+    border-radius: 16px;
+  }
+
+  .flow-hero-canvas__board {
+    height: 520px;
+  }
+
+  .flow-hero-canvas__rail {
+    top: 14px;
+    left: 12px;
+  }
+
+  .flow-hero-canvas__node {
+    --flow-hero-node-scale: 0.52;
+  }
+
+  .flow-hero-canvas__node.is-1 {
+    top: 4%;
+    left: 8%;
+  }
+
+  .flow-hero-canvas__node.is-2 {
+    top: 23%;
+    left: 43%;
+  }
+
+  .flow-hero-canvas__node.is-3 {
+    top: 42%;
+    left: 8%;
+  }
+
+  .flow-hero-canvas__inspector {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 218px;
+    border-top: 1px solid var(--flow-line);
+    border-left: 0;
+    box-shadow: 0 -18px 34px -26px rgb(36 76 137 / 52%);
+  }
+
+  .flow-hero-canvas__inspector > header {
+    min-height: 57px;
+    padding-block: 8px;
+  }
+
+  .flow-hero-canvas__inspector > section {
+    padding-block: 10px;
+  }
+
+  .flow-hero-canvas__zoom {
+    top: 14px;
+    right: 12px;
+    bottom: auto;
+  }
+
+  .flow-hero-canvas__live-status {
+    right: 12px;
+    bottom: 230px;
+    left: auto;
+  }
+
+  .flow-hero-canvas__toast {
+    right: 12px;
+    bottom: 230px;
+    left: auto;
+  }
+
+  .flow-hero-canvas__quick-add {
+    top: 14px;
+    left: 58px;
+    width: min(216px, calc(100% - 70px));
+  }
+}
+
+@media (max-width: 480px) {
+  .flow-hero-canvas__board {
+    height: 500px;
+  }
+
+  .flow-hero-canvas__node {
+    --flow-hero-node-scale: 0.47;
+  }
+
+  .flow-hero-canvas__node.is-1 {
+    top: 3%;
+    left: 7%;
+  }
+
+  .flow-hero-canvas__node.is-2 {
+    top: 22%;
+    left: 43%;
+  }
+
+  .flow-hero-canvas__node.is-3 {
+    top: 42%;
+    left: 7%;
+  }
+
+  .flow-hero-canvas__inspector {
+    height: 208px;
+  }
+
+  .flow-hero-canvas__live-status,
+  .flow-hero-canvas__toast {
+    bottom: 220px;
+  }
+
+  .flow-hero-canvas__actions > button.is-valid {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-hero-canvas__status-dot.is-pending,
+  .flow-hero-canvas__actions > button.is-valid .is-spinning,
+  .flow-hero-canvas__run-summary > span > i,
+  .flow-hero-canvas .a3s-form-flow-node-preview[data-status='running'] {
+    animation: none;
+  }
+}

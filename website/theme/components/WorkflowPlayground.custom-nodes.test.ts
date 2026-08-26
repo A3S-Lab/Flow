@@ -132,6 +132,8 @@ describe('Workflow Playground custom nodes', () => {
         'zh',
         { registry: catalog.registry },
       );
+      expect(custom.initialWidth).toBe(240);
+      expect(custom.initialHeight).toBe(126);
       const complete = createPlaygroundNode(
         `complete-${manifest.type}`,
         'flow.complete',

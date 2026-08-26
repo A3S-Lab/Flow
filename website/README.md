@@ -1,6 +1,6 @@
 # A3S Flow documentation website
 
-This directory contains the bilingual, versioned A3S Flow documentation built with Rspress. Chinese is the default locale. The current release is mounted at `/Flow/`, English at `/Flow/en/`, and archived releases under `/Flow/<version>/`.
+This directory contains the bilingual, versioned A3S Flow documentation built with Rspress. Chinese is the default locale. The current `v1.1.0` release is mounted at `/Flow/`, English at `/Flow/en/`, and archived releases under `/Flow/<version>/`.
 
 ## Local development
 
@@ -24,6 +24,16 @@ Run all source checks before committing documentation changes:
 npm run check --prefix website
 ```
 
+The Playground performance harness covers 100, 500, and 1,000 node graphs and
+prints p50, p95, and p99 operation latency. Run it from this directory with:
+
+```sh
+npm run bench:playground
+```
+
+The benchmark is a local engineering baseline. Record browser Worker and
+WebAssembly layout timings separately when evaluating a release build.
+
 The custom-node catalog has a deterministic A3S Test suite. Start the local
 site on the suite's fixed origin, then validate and run it from `website/`:
 
@@ -45,6 +55,9 @@ Every published version has two route-identical trees:
 
 ```text
 docs/
+├── v1.1.0/
+│   ├── zh/
+│   └── en/
 ├── v1.0.0/
 │   ├── zh/
 │   └── en/
@@ -81,6 +94,6 @@ After deployment, verify these routes in a browser:
 - `/Flow/` opens the Chinese current homepage.
 - `/Flow/en/` opens the English current homepage.
 - Both language controls preserve the selected version.
-- All version controls reach real snapshots, including `v0.13.1` and `v0.12.0`.
+- All version controls reach real snapshots, including `v1.0.0`, `v0.13.1`, and `v0.12.0`.
 - Desktop and mobile navigation expose search, language, version, and repository links.
 - No asset request escapes the `/Flow/` base path.

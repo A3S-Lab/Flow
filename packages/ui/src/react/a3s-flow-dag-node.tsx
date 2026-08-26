@@ -12,6 +12,10 @@ import {
   mergeA3SFlowDagNodeConfiguration,
   selectA3SFlowDagNodeConfiguration,
 } from '../integrations/a3s-flow-node-manifest';
+import {
+  isWorkflowNodeFieldVisible,
+  resolveWorkflowNodeFields,
+} from '../integrations/workflow-node-form';
 import { isA3SFlowCorePortAvailable } from '../integrations/a3s-flow-validation';
 import { a3sFlowDagNodePreviewSummary } from './a3s-flow-node-summary';
 import {
@@ -183,14 +187,19 @@ export function A3SFlowDagNodeConfigurationPanel({
   );
   const resolvedFieldVisibility = useMemo(() => {
     if (!manifest || !value) return fieldVisibility;
+    const configuredFields = resolveWorkflowNodeFields(localizedManifest ?? manifest, {
+      buildConfig,
+      fieldVisibility,
+    }, value);
     return Object.fromEntries(
-      manifest.fields.map((field) => {
-        const condition = field.visible_when;
-        const visible = condition ? value[condition.field] === condition.equals : true;
-        return [field.name, fieldVisibility?.[field.name] ?? visible];
+      configuredFields.map((field) => {
+        return [
+          field.name,
+          isWorkflowNodeFieldVisible(field, value, fieldVisibility),
+        ];
       }),
     );
-  }, [fieldVisibility, manifest, value]);
+  }, [buildConfig, fieldVisibility, localizedManifest, manifest, value]);
   const resolvedBuildConfig = useMemo(
     () =>
       localizedManifest && buildConfig

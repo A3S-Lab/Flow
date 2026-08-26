@@ -1,0 +1,213 @@
+---
+title: Workers and rollout
+description: Assemble task management, scheduling, exact-build routing, observers, and graceful shutdown, then verify recovery with failure drills.
+---
+
+# Workers and rollout
+
+Production separates four responsibilities.
+
+| Responsibility      | Component                          | Authority                              |
+| ------------------- | ---------------------------------- | -------------------------------------- |
+| History             | `FlowEventStore`                   | Sole authority for run state           |
+| Decisions and steps | `FlowEngine` and `FlowRuntime`     | Replay, validation, and step execution |
+| Timed recovery      | `FlowScheduler`                    | Scan due work and dispatch tasks       |
+| Task lifecycle      | Boot task management or host queue | Leases, retry, timeout, and shutdown   |
+
+Queue tasks may be duplicated and queue records may expire. Every handler returns to the event store to confirm current state.
+
+## Recommended task-manager wiring
+
+Enable `boot` and the target store feature. The host also depends on Boot directly to construct its queue.
+
+```toml
+[dependencies]
+a3s-flow = { version = "=1.1.0", features = ["boot", "sqlite"] }
+a3s-boot = { version = "0.2.0", default-features = false, features = ["queue"] }
+```
+
+```rust
+use a3s_boot::{ModuleRef, Queue, QueueRetryPolicy};
+use a3s_flow::{
+    BootFlowTaskDeduplication, BootFlowTaskManager,
+    BootFlowTaskPolicy, FlowEngine, FlowScheduler,
+};
+use std::sync::Arc;
+use std::time::Duration;
+
+let queue = Arc::new(Queue::in_process("flow"));
+let policy = BootFlowTaskPolicy::new()
+    .with_retry_policy(QueueRetryPolicy::fixed(
+        3,
+        Duration::from_secs(1),
+    ))
+    .with_timeout(Duration::from_secs(30))
+    .with_max_stalled_count(2)
+    .remove_on_complete(true)
+    .with_deduplication(
+        BootFlowTaskDeduplication::UntilTerminalOrTtl(
+            Duration::from_secs(300),
+        ),
+    );
+
+let tasks = Arc::new(
+    BootFlowTaskManager::new(engine.clone(), queue.clone())
+        .with_task_policy(policy)?,
+);
+
+tasks.register()?;
+queue.start(ModuleRef::new()).await?;
+
+let scheduler = FlowScheduler::new(engine.clone(), tasks.clone());
+let tick = scheduler.enqueue_due_work(chrono::Utc::now()).await?;
+println!("enqueued={}", tick.enqueued_tasks);
+```
+
+Boot owns processor registration, job state, leases, task retry, and shutdown. Flow owns task payload and engine handling semantics. Queue retry handles worker failure, while step retry handles business-step failure. Configure the two budgets separately.
+
+An in-process queue fits one process or development. Use a host-configured durable Boot backend when tasks themselves must survive process loss.
+
+## Scheduler loop
+
+The scheduler handles timer waits and delayed retries only. External entry points push hooks and signals.
+
+```rust
+loop {
+    let now = chrono::Utc::now();
+    scheduler.enqueue_due_work(now).await?;
+
+    let delay = scheduler
+        .next_wakeup_delay(now)
+        .await?
+        .unwrap_or(std::time::Duration::from_secs(30));
+
+    tokio::time::sleep(delay.min(
+        std::time::Duration::from_secs(30),
+    ))
+    .await;
+}
+```
+
+Several schedulers may scan concurrently. They can dispatch duplicate tasks, while event sequences and wait state make handling converge. Add loop jitter, backoff, and database timeouts so an outage cannot create a tight retry cycle.
+
+## Pin runtime builds
+
+Generate a concrete `RuntimeBuildId` for actual executable code and configure both the engine and new run definitions.
+
+```rust
+use a3s_flow::{
+    FlowEngine, RuntimeBuildCompatibility, RuntimeBuildId,
+    WorkflowSpec,
+};
+
+let build = RuntimeBuildId::new("orders-2026.08.23-sha51e73a2")?;
+let compatibility = RuntimeBuildCompatibility::new(build.clone());
+
+let engine = FlowEngine::builder(runtime)
+    .with_store(store)
+    .with_runtime_build_compatibility(compatibility)
+    .build();
+
+let spec = WorkflowSpec::rust_embedded(
+    "orders.fulfill",
+    "2",
+    "orders",
+    "main",
+)
+.with_runtime_build(build);
+```
+
+An engine configured for build compatibility rejects unpinned history by default. During legacy migration, enable `accept_unpinned()` for a bounded period and remove it after those runs drain.
+
+## Route tasks by exact build
+
+Keep old and new processors during rolling deployment and route by persisted build identity.
+
+```rust
+use a3s_flow::{FlowScheduler, RuntimeBuildTaskRouter};
+use std::sync::Arc;
+
+let routes = RuntimeBuildTaskRouter::new()
+    .with_route(build_v1, tasks_v1)?
+    .with_route(build_v2, tasks_v2)?;
+
+let scheduler = FlowScheduler::new(
+    control_engine,
+    Arc::new(routes),
+);
+```
+
+Before dispatching any task, the scheduler preflights all target routes in the scan. One missing build fails the whole tick before partial dispatch. Retain each old route until no active history needs it.
+
+Use `with_compatible_build()` only when the current worker includes the complete code and dependencies required by old histories. Similar version numbers, a small passing sample, or successful deserialization do not prove replay compatibility.
+
+## Replay-safe code changes
+
+When new code changes a workflow decision, add an immutable patch marker to new runs and retain both runtime branches.
+
+```rust
+if ctx.has_patch_marker("orders.reserve-inventory-v2") {
+    ctx.schedule_step(
+        "reserve-v2",
+        "reserveInventoryV2",
+        input,
+    )
+} else {
+    ctx.schedule_step(
+        "reserve-v1",
+        "reserveInventoryV1",
+        input,
+    )
+}
+```
+
+Deploy code containing both paths first, add the marker to new definitions second, and remove the old branch only after old history drains. Never reuse one patch ID for another change.
+
+## Observation and metrics
+
+Observers run after event commit. They cannot roll back a successful event and must not become workflow state authority.
+
+```rust
+let observer = Arc::new(
+    FanoutFlowEventObserver::new()
+        .with_observer(audit_sink)
+        .with_observer(metrics_sink),
+);
+
+let engine = FlowEngine::builder(runtime)
+    .with_store(store)
+    .with_observer(observer)
+    .build();
+```
+
+Metric labels should contain bounded values such as workflow name, definition version, event key, and status. Run IDs, step IDs, hook tokens, and complete error text belong in logs or traces, not metric dimensions. Always redact hook tokens.
+
+Monitor at least these signals.
+
+- Run count by status and oldest suspension age
+- Due wakeups, scan lag, and task queue delay
+- Step attempts, retry exhaustion, and execution duration
+- Active hook count, oldest hook, and callback conflicts
+- Event-store errors, sequence conflicts, and schema admission failure
+- Active runs and route coverage by `runtime_build_id`
+
+## Graceful shutdown
+
+1. Stop accepting new runs and external callbacks.
+2. Stop scheduler dispatch.
+3. Finish or requeue current leases.
+4. Shut down task queues and database connections.
+5. Leave workflows non-terminal for replacement processes.
+
+Do not call `terminate_for_host_shutdown()` during ordinary deployment. That API states that host policy will never resume the run.
+
+## Pre-production failure drills
+
+Verify at least four crash windows before launch.
+
+1. Exit after a step side effect succeeds and before completion commit, then confirm idempotent redelivery.
+2. Dispatch a timer task more than once and confirm one completion event.
+3. Exit after child request commit and before child creation, then confirm one child identity.
+4. Remove an old-build route and confirm no wrong worker accepts the task and no history changes.
+
+Use the same store and queue types as production. Passing only with in-memory storage does not prove database locking, leases, and recovery order.

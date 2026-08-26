@@ -284,6 +284,19 @@ export function WorkflowNodePreview({
       : undefined;
   const visual = workflowNodeVisual(node);
   const shape = previewShape(visual.family, inputs, outputs);
+  const visibleFields = node.fields.filter((field) => field.show !== false);
+  const manifestMetadata = node as WorkflowNodeDefinition & {
+    manifestVersion?: number;
+    owner?: string;
+    role?: string;
+    stableIdBinding?: string;
+    internal?: boolean;
+    ports?: {
+      inputs?: readonly unknown[];
+      outputs?: readonly unknown[];
+    };
+  };
+  const portCount = inputs.length + outputs.length;
   const interactive = typeof onSelect === "function";
   const accessibleName = `${node.display_name}${chinese ? "节点预览" : " workflow node preview"}`;
   return (
@@ -300,6 +313,17 @@ export function WorkflowNodePreview({
       data-status={status}
       data-technical={technical || undefined}
       data-has-summary={summary.length > 0 || undefined}
+      data-manifest-version={manifestMetadata.manifestVersion}
+      data-node-owner={manifestMetadata.owner}
+      data-node-role={manifestMetadata.role}
+      data-node-internal={String(manifestMetadata.internal === true)}
+      data-node-official={node.official ? "true" : "false"}
+      data-node-tool-mode={node.tool_mode ? "true" : "false"}
+      data-stable-id-binding={manifestMetadata.stableIdBinding}
+      data-property-count={node.fields.length}
+      data-visible-property-count={visibleFields.length}
+      data-advanced-property-count={node.fields.filter((field) => field.advanced === true).length}
+      data-port-count={portCount}
       aria-label={interactive ? undefined : accessibleName}
     >
       {interactive && (
@@ -437,8 +461,8 @@ export function WorkflowNodePreview({
         ) : (
           <span>
             {chinese
-              ? `${inputs.length} 个输入 · ${outputs.length} 个输出`
-              : `${inputs.length} inputs · ${outputs.length} outputs`}
+              ? `${inputs.length} 个输入 · ${outputs.length} 个输出 · ${visibleFields.length} 项配置`
+              : `${inputs.length} inputs · ${outputs.length} outputs · ${visibleFields.length} settings`}
           </span>
         )}
       </footer>

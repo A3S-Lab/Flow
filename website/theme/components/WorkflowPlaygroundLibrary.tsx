@@ -257,6 +257,11 @@ export function WorkflowPlaygroundLibrary({
                   return (
                     <button
                       aria-label={copy.addNamedNode(manifest.display_name)}
+                      data-field-count={manifest.fields.length}
+                      data-port-count={
+                        manifest.ports.inputs.length +
+                        manifest.ports.outputs.length
+                      }
                       data-node-tone={toneForType(manifest.type)}
                       draggable
                       key={manifest.type}
@@ -272,6 +277,17 @@ export function WorkflowPlaygroundLibrary({
                         <strong>{manifest.display_name}</strong>
                         <small>{manifest.description}</small>
                         <code>{manifest.type}</code>
+                        <small className="a3s-node-library__contract-meta">
+                          {
+                            manifest.fields.filter(
+                              (field) => field.show !== false,
+                            ).length
+                          }{' '}
+                          {locale === 'zh' ? '项配置' : 'settings'} ·{' '}
+                          {manifest.ports.inputs.length +
+                            manifest.ports.outputs.length}{' '}
+                          {locale === 'zh' ? '个端口' : 'ports'}
+                        </small>
                       </span>
                     </button>
                   );
@@ -292,6 +308,11 @@ export function WorkflowPlaygroundLibrary({
                   <button
                     aria-label={copy.addNamedNode(manifest.display_name)}
                     className="is-custom"
+                    data-field-count={manifest.fields.length}
+                    data-port-count={
+                      manifest.ports.inputs.length +
+                      manifest.ports.outputs.length
+                    }
                     data-node-tone="violet"
                     draggable
                     key={manifest.type}
@@ -307,6 +328,17 @@ export function WorkflowPlaygroundLibrary({
                       <strong>{manifest.display_name}</strong>
                       <small>{manifest.description}</small>
                       <code>{manifest.type}</code>
+                      <small className="a3s-node-library__contract-meta">
+                        {
+                          manifest.fields.filter(
+                            (field) => field.show !== false,
+                          ).length
+                        }{' '}
+                        {locale === 'zh' ? '项配置' : 'settings'} ·{' '}
+                        {manifest.ports.inputs.length +
+                          manifest.ports.outputs.length}{' '}
+                        {locale === 'zh' ? '个端口' : 'ports'}
+                      </small>
                       <span className="a3s-node-library__capability">
                         <span>{copy.capabilityReady}</span>
                         <code>{`${capability.id}@${capability.version}`}</code>

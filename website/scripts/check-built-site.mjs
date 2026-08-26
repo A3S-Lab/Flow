@@ -115,11 +115,13 @@ assertIncludes(
 );
 assertRouteLink(home, '/guide', 'base-aware homepage guide link');
 assertRouteLink(home, '/playground', 'Chinese homepage Playground link');
+assertRouteLink(home, '/v1.0.0', 'current homepage archive switch');
 assertRouteLink(
   englishHome,
   '/en/playground',
   'English homepage Playground link',
 );
+assertRouteLink(englishHome, '/v1.0.0/en', 'English homepage archive switch');
 
 assertIncludes(playground, 'lang="zh"', 'Chinese Playground language');
 assertIncludes(englishPlayground, 'lang="en"', 'English Playground language');
@@ -163,11 +165,70 @@ assertRouteLink(
   '/playground',
   'English Playground language switch',
 );
-assertRouteLink(playground, '/v0.13.1', 'Chinese Playground archive fallback');
+assertRouteLink(playground, '/v1.0.0', 'Chinese Playground archive fallback');
+assertRouteLink(
+  englishPlayground,
+  '/v1.0.0/en',
+  'English Playground archive fallback',
+);
+assertRouteLink(
+  playground,
+  '/v0.13.1',
+  'Chinese Playground legacy archive fallback',
+);
 assertRouteLink(
   englishPlayground,
   '/v0.13.1/en',
-  'English Playground archive fallback',
+  'English Playground legacy archive fallback',
+);
+
+const archiveV1Chinese = await readFile(
+  path.join(outputRoot, 'v1.0.0', 'index.html'),
+  'utf8',
+);
+const archiveV1English = await readFile(
+  path.join(outputRoot, 'v1.0.0', 'en', 'index.html'),
+  'utf8',
+);
+assertIncludes(
+  archiveV1Chinese,
+  'lang="zh"',
+  'v1.0.0 archived Chinese language',
+);
+assertIncludes(
+  archiveV1English,
+  'lang="en"',
+  'v1.0.0 archived English language',
+);
+assertExcludes(
+  archiveV1Chinese,
+  'data-flow-home',
+  'current-only custom homepage in v1.0.0 archive',
+);
+assertExcludes(
+  archiveV1English,
+  'data-flow-home',
+  'current-only custom homepage in English v1.0.0 archive',
+);
+assertRouteLink(
+  archiveV1Chinese,
+  '/v1.0.0/en',
+  'v1.0.0 archived Chinese to English switch',
+);
+assertRouteLink(
+  archiveV1English,
+  '/v1.0.0',
+  'v1.0.0 archived English to Chinese switch',
+);
+assertRouteLink(
+  archiveV1Chinese,
+  '/',
+  'v1.0.0 archived Chinese to current switch',
+);
+assertRouteLink(
+  archiveV1English,
+  '/en',
+  'v1.0.0 archived English to current switch',
 );
 
 const archiveChinese = await readFile(

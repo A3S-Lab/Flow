@@ -10,6 +10,7 @@
   "scripts": {
     "build": "npm run prepare:assets && rspress build",
     "build:graph-kernel": "wasm-pack build graph-kernel --target web --release --out-dir ../theme/wasm/graph-kernel",
+    "bench:playground": "node scripts/bench-playground.mjs",
     "check": "npm run typecheck && npm test && npm run check:content && npm run format:check",
     "check:content": "node scripts/check-content.mjs",
     "check:site": "node scripts/check-built-site.mjs",

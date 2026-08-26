@@ -12,7 +12,7 @@ suite "workflow-custom-node-catalog" {
         }
 
         navigate "open-playground" {
-            url = "http://127.0.0.1:4173/Flow/playground/"
+            url = "http://127.0.0.1:4173/Flow/playground?example=cross-border-fulfillment"
         }
 
         wait "page-ready" {
@@ -20,11 +20,11 @@ suite "workflow-custom-node-catalog" {
         }
 
         click "open-node-library" {
-            target = role("button", "添加节点")
+            target = css(".a3s-workflow-rail > button[aria-label=\"添加节点\"]")
         }
 
         click "open-custom-catalog" {
-            target = role("tab", "自定义节点 3")
+            target = role("tab", "自定义节点 4")
         }
 
         fill "search-capability" {
@@ -82,7 +82,7 @@ suite "workflow-custom-node-catalog" {
         }
 
         navigate "open-playground" {
-            url = "http://127.0.0.1:4173/Flow/playground/"
+            url = "http://127.0.0.1:4173/Flow/playground?example=cross-border-fulfillment"
         }
 
         wait "page-ready" {
@@ -90,11 +90,11 @@ suite "workflow-custom-node-catalog" {
         }
 
         click "open-node-library" {
-            target = role("button", "添加节点")
+            target = css(".a3s-workflow-rail > button[aria-label=\"添加节点\"]")
         }
 
         click "open-custom-catalog" {
-            target = role("tab", "自定义节点 3")
+            target = role("tab", "自定义节点 4")
         }
 
         fill "search-handler" {
@@ -123,7 +123,7 @@ suite "workflow-custom-node-catalog" {
         }
 
         expect "duration-select-uses-a3s-ui" {
-            visible = css(".a3s-form-workflow-duration .a3s-form-select-control > select.select")
+            visible = css(".a3s-form-workflow-duration .a3s-flow-select-control > button[role=\"combobox\"]")
         }
 
         expect "duration-unit-localized" {
@@ -156,7 +156,7 @@ suite "workflow-custom-node-catalog" {
         }
 
         navigate "open-playground" {
-            url = "http://127.0.0.1:4173/Flow/playground/"
+            url = "http://127.0.0.1:4173/Flow/playground?example=cross-border-fulfillment"
         }
 
         wait "page-ready" {
@@ -164,11 +164,11 @@ suite "workflow-custom-node-catalog" {
         }
 
         click "open-node-library" {
-            target = role("button", "添加节点")
+            target = css(".a3s-workflow-rail > button[aria-label=\"添加节点\"]")
         }
 
         click "open-custom-catalog" {
-            target = role("tab", "自定义节点 3")
+            target = role("tab", "自定义节点 4")
         }
 
         fill "search-type" {
@@ -193,7 +193,7 @@ suite "workflow-custom-node-catalog" {
         }
 
         expect "sortable-select-uses-a3s-ui" {
-            visible = css(".a3s-form-workflow-sortable .a3s-form-select-control > select.select")
+            visible = css(".a3s-form-workflow-sortable .a3s-flow-select-control > button[role=\"combobox\"]")
         }
 
         expect "sortable-copy-localized" {

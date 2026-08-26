@@ -185,6 +185,352 @@
   font-size: 10px;
 }
 
+.a3s-form-workflow-node-contract-details > summary {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.a3s-form-workflow-node-contract-details > summary > span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.a3s-form-workflow-node-contract-details > summary > span > svg {
+  flex: 0 0 auto;
+  color: var(--a3s-node-accent);
+}
+
+.a3s-form-workflow-node-contract-details > summary > small {
+  flex: 0 0 auto;
+  color: var(--a3s-form-faint);
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+  font-size: 9px;
+  font-weight: 520;
+}
+
+.a3s-form-workflow-node-contract-details-body {
+  display: grid;
+  gap: 18px;
+  padding: 0 16px 18px;
+  content-visibility: auto;
+  contain: layout style paint;
+  contain-intrinsic-size: 0 520px;
+}
+
+.a3s-form-workflow-node-contract-details-body > section {
+  min-width: 0;
+}
+
+.a3s-form-workflow-node-contract-details-body > section + section {
+  padding-top: 15px;
+  border-top: 1px solid var(--a3s-form-line);
+}
+
+.a3s-form-workflow-node-contract-details-body h3,
+.a3s-form-workflow-node-contract-ports h4 {
+  margin: 0 0 9px;
+  color: var(--a3s-form-subtle);
+  font-size: 10px;
+  font-weight: 720;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.a3s-form-workflow-node-contract-details-body h3 small {
+  color: var(--a3s-form-faint);
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+  font-size: 9px;
+  font-weight: 520;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.a3s-form-workflow-node-contract-meta {
+  display: grid;
+  margin: 0;
+  gap: 8px 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.a3s-form-workflow-node-contract-meta > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.a3s-form-workflow-node-contract-meta :is(dt, dd) {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.a3s-form-workflow-node-contract-meta dt {
+  color: var(--a3s-form-faint);
+  font-size: 9px;
+}
+
+.a3s-form-workflow-node-contract-meta dd {
+  color: var(--a3s-form-muted);
+  font-size: 10px;
+}
+
+.a3s-form-workflow-node-contract-port-columns {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.a3s-form-workflow-node-contract-ports {
+  min-width: 0;
+}
+
+.a3s-form-workflow-node-contract-ports > p {
+  margin: 0;
+  color: var(--a3s-form-faint);
+  font-size: 10px;
+}
+
+.a3s-form-workflow-node-contract-ports > ul,
+.a3s-form-workflow-node-contract-fields,
+.a3s-form-workflow-node-contract-field-properties > ul {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  gap: 5px;
+}
+
+.a3s-form-workflow-node-contract-ports > ul > li {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 7px 8px;
+  border: 1px solid var(--a3s-form-line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--a3s-form-panel-soft) 42%, var(--a3s-form-panel));
+}
+
+.a3s-form-workflow-node-contract-ports > ul > li > span {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 5px;
+}
+
+.a3s-form-workflow-node-contract-outputs {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--a3s-form-line);
+}
+
+.a3s-form-workflow-node-contract-outputs > ul {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  gap: 5px;
+}
+
+.a3s-form-workflow-node-contract-outputs > ul > li {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 7px 8px;
+  border: 1px solid var(--a3s-form-line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--a3s-form-panel-soft) 42%, var(--a3s-form-panel));
+}
+
+.a3s-form-workflow-node-contract-outputs > ul > li > span {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 5px;
+}
+
+.a3s-form-workflow-node-contract-outputs small {
+  overflow: hidden;
+  color: var(--a3s-form-faint);
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-form-workflow-node-contract-ports strong,
+.a3s-form-workflow-node-contract-fields strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--a3s-form-ink);
+  font-size: 10px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-form-workflow-node-contract-ports code,
+.a3s-form-workflow-node-contract-fields code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-form-workflow-node-contract-ports small {
+  overflow: hidden;
+  color: var(--a3s-form-faint);
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-form-workflow-node-contract-field {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid var(--a3s-form-line);
+  border-radius: 8px;
+  background: var(--a3s-form-panel);
+  content-visibility: auto;
+  contain: layout style paint;
+  contain-intrinsic-size: 0 112px;
+}
+
+.a3s-form-workflow-node-contract-field[data-contract-field-visible="false"] {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--a3s-form-panel-soft) 48%, var(--a3s-form-panel));
+  opacity: 0.78;
+}
+
+.a3s-form-workflow-node-contract-field > header {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.a3s-form-workflow-node-contract-field > header > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.a3s-form-workflow-node-contract-field > header > div > code {
+  color: var(--a3s-form-faint);
+  font-size: 9px;
+}
+
+.a3s-form-workflow-node-contract-field > header > span {
+  flex: 0 0 auto;
+  color: var(--a3s-form-faint);
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.a3s-form-workflow-node-contract-field-tags {
+  display: flex;
+  min-width: 0;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.a3s-form-workflow-node-contract-field-tags :is(code, em) {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--a3s-form-panel-soft);
+  color: var(--a3s-form-faint);
+  font-size: 8px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-form-workflow-node-contract-field-tags em {
+  background: color-mix(in srgb, var(--a3s-node-accent) 9%, var(--a3s-form-panel));
+  color: var(--a3s-node-accent);
+}
+
+.a3s-form-workflow-node-contract-field > p {
+  display: grid;
+  min-width: 0;
+  margin: 0;
+  gap: 3px;
+}
+
+.a3s-form-workflow-node-contract-field > p > span,
+.a3s-form-workflow-node-contract-field > small {
+  color: var(--a3s-form-faint);
+  font-size: 9px;
+}
+
+.a3s-form-workflow-node-contract-field > p > code {
+  display: block;
+  padding: 5px 6px;
+  border-radius: 5px;
+  background: var(--a3s-form-panel-soft);
+  color: var(--a3s-form-muted);
+  font-size: 9px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.a3s-form-workflow-node-contract-field-properties {
+  border-top: 1px solid var(--a3s-form-line);
+}
+
+.a3s-form-workflow-node-contract-field-properties > summary {
+  padding-top: 7px;
+  color: var(--a3s-form-faint);
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.a3s-form-workflow-node-contract-field-properties > ul {
+  margin-top: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.a3s-form-workflow-node-contract-field-properties li {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  padding: 3px 5px;
+  border-radius: 4px;
+  background: var(--a3s-form-panel-soft);
+}
+
+.a3s-form-workflow-node-contract-field-properties code {
+  display: block;
+  overflow: hidden;
+  color: var(--a3s-form-faint);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-form-workflow-node-contract-field-properties li > span {
+  overflow: hidden;
+  color: var(--a3s-form-muted);
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .a3s-form-flow-node-panel .a3s-form-workflow-node-form {
   padding: 17px 16px 22px;
 }
@@ -1511,6 +1857,11 @@
 }
 
 @container a3s-form-workflow-panel (max-width: 560px) {
+  .a3s-form-workflow-node-contract-port-columns,
+  .a3s-form-workflow-node-contract-meta {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .a3s-form-flow-batch-primary-fields,
   .a3s-form-flow-batch-retry-fields,
   .a3s-form-flow-spec-fields {
@@ -1541,6 +1892,10 @@
 }
 
 @container a3s-form-workflow-panel (max-width: 340px) {
+  .a3s-form-workflow-node-contract-details-body {
+    padding-inline: 12px;
+  }
+
   .a3s-form-flow-expression-comparison {
     grid-template-columns: minmax(0, 1fr);
   }

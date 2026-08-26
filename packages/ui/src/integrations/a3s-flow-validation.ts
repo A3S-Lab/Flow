@@ -18,6 +18,7 @@ import {
 import type { A3SFlowDagNodeManifest } from './a3s-flow-node-manifest';
 import {
   createWorkflowNodeForm,
+  isWorkflowNodeFieldVisible,
   WORKFLOW_CONFIGURATION_WIDGET_KEYS,
 } from './workflow-node-form';
 
@@ -628,8 +629,10 @@ function validateManifestCompositeFields(
   manifest: A3SFlowDagNodeManifest,
   value: JsonObject,
   errors: FieldError[],
+  fieldVisibility: Readonly<Record<string, boolean>>,
 ): void {
   for (const field of manifest.fields) {
+    if (!isWorkflowNodeFieldVisible(field, value, fieldVisibility)) continue;
     const fieldValue = value[field.name];
     if (field._input_type === 'A3SFlowExpressionInput') {
       const inspected = inspectExpression(fieldValue, field.name, errors);
@@ -768,9 +771,18 @@ export function validateA3SFlowDagNodeConfiguration(
   value: JsonObject,
   options: A3SFlowNodeConfigurationValidationOptions = {},
 ): A3SFlowNodeConfigurationValidation {
-  const compilation = compileForm(createWorkflowNodeForm(manifest), {
+  const fieldVisibility = Object.fromEntries(
+    manifest.fields.map((field) => [
+      field.name,
+      isWorkflowNodeFieldVisible(field, value),
+    ]),
+  );
+  const compilation = compileForm(
+    createWorkflowNodeForm(manifest, { fieldVisibility }),
+    {
     capabilities: { widgets: WORKFLOW_CONFIGURATION_WIDGET_KEYS },
-  });
+    },
+  );
   if (!compilation.ok || !compilation.plan) {
     return {
       ok: false,
@@ -783,7 +795,7 @@ export function validateA3SFlowDagNodeConfiguration(
   }
 
   const errors = validateFormValue(compilation.plan, value);
-  validateManifestCompositeFields(manifest, value, errors);
+  validateManifestCompositeFields(manifest, value, errors, fieldVisibility);
   const coreDefinition = getA3SFlowCoreNode(manifest.type);
   if (coreDefinition) {
     errors.push(

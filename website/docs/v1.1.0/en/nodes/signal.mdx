@@ -1,0 +1,20 @@
+---
+title: Signal wait node
+description: Wait for a named external message and consume matching signals in arrival order.
+---
+
+# Wait for signal `flow.signal`
+
+A signal node waits for one named external message. Use it when messages may arrive more than once, need queueing, and are delivered by an authenticated control plane or business service. The wait declaration is persisted before the worker is released. If a matching unconsumed signal arrived earlier, the oldest matching message can satisfy the wait immediately, which preserves arrival order across restarts.
+
+## Wait identity and message name
+
+`wait_id` identifies this specific wait and must remain unchanged during replay. The graph node ID is usually a suitable source. `signal_name` is part of the published workflow contract, such as an approval result or a request to continue after missing information is supplied. Senders should include a stable message identity so the host can reject duplicate delivery. Payloads must be serializable and comply with size, authorization, and retention limits.
+
+After a message is consumed, control leaves through `received` and `payload` contains the stored JSON value. A later wait needs a new stable identity. Two active nodes must not compete for the same wait ID. Choose a hook when an unaffiliated caller needs a one-time public URL and token. Signals have no public-token semantics by default and should enter through an authenticated application boundary.
+
+## Queue and race checks
+
+Test both arrival orders, several messages with the same name, duplicate message identities, unrelated names, cancellation racing with receipt, runtime recovery, and an oversized payload. Operators need the signal name, arrival time, wait identity, and consumption state, while sensitive payload fields stay out of logs. A continuation boundary is rejected while earlier signals remain unconsumed, so a long-running loop must decide exactly which history segment owns each message. Define retention and dead-letter handling for signals that arrive after the relevant workflow has already ended.
+
+<NodeReference type="flow.signal" />

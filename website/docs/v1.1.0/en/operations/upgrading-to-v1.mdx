@@ -1,0 +1,144 @@
+---
+title: Upgrade to 1.0
+description: Upgrade supported pre-1.0 history and SQL schema with runtime-build admission, verification, and backup-based rollback.
+---
+
+# Upgrade to 1.0
+
+A Flow 1.0 upgrade includes binaries, event history, SQL schema, runtime-build routing, and task queues. Replacing a dependency version alone does not complete a durable upgrade. Before migrating a production database, confirm that its starting point is covered and prepare a tested recovery point.
+
+## Supported starting points
+
+The automated history and SQL upgrade floor is `v0.5.0`. The 1.0 release gate resumes interrupted-step histories produced by `v0.5.0` and by final pre-release `v0.13.1`. Qualification requires one deterministic redelivery and a new terminal event, not deserialization alone.
+
+History or databases older than `v0.5.0` are outside the automated contract. Do not open them directly with 1.0. Use an application export or a separately qualified staged migration.
+
+### SQLite baselines
+
+| Starting version           | Applied migration prefix                  | 1.0 addition                    |
+| -------------------------- | ----------------------------------------- | ------------------------------- |
+| `v0.5.0`                   | `a3s-flow-0001-events`                    | `a3s-flow-0005-continue-as-new` |
+| `v0.6.0` through `v0.7.1`  | through `a3s-flow-0002-retention`         | `a3s-flow-0005-continue-as-new` |
+| `v0.8.0`                   | through `a3s-flow-0003-active-hooks`      | `a3s-flow-0005-continue-as-new` |
+| `v0.9.0` through `v0.13.1` | through `a3s-flow-0004-scheduled-wakeups` | `a3s-flow-0005-continue-as-new` |
+
+### PostgreSQL baselines
+
+| Starting version           | Applied migration prefix                  | 1.0 addition                    |
+| -------------------------- | ----------------------------------------- | ------------------------------- |
+| `v0.5.0` through `v0.7.1`  | through `a3s-flow-0003-retention`         | `a3s-flow-0006-continue-as-new` |
+| `v0.8.0`                   | through `a3s-flow-0004-active-hooks`      | `a3s-flow-0006-continue-as-new` |
+| `v0.9.0` through `v0.13.1` | through `a3s-flow-0005-scheduled-wakeups` | `a3s-flow-0006-continue-as-new` |
+
+Patch releases in one row share the same migration prefix. Every published migration has a pinned SHA-256, so editing old migration content fails before production.
+
+## Code-level changes
+
+Flow 1.0 requires Rust 1.88. Pin toolchain and dependency first.
+
+```toml
+[package]
+rust-version = "1.88"
+
+[dependencies]
+a3s-flow = "=1.1.0"
+```
+
+Public enums and projection types generally use `#[non_exhaustive]`. Downstream matches need a fallback arm, and read-only snapshots should not be constructed through struct literals.
+
+```rust
+match snapshot.status {
+    WorkflowRunStatus::Completed => handle_completed(),
+    WorkflowRunStatus::Failed => handle_failed(),
+    _ => handle_other_state(),
+}
+```
+
+Keep explicit feature flags for SQL, Boot, and event bridging. Avoid changing storage backend, task backend, and workflow semantics during the same upgrade. Combining them expands the rollback boundary.
+
+## Pre-upgrade inventory
+
+1. List every non-terminal run and its `runtime_build_id`.
+2. Count legacy runs without a pinned build.
+3. Count waits, delayed retries, active hooks, and running steps.
+4. Record queue depth, active leases, and oldest task age.
+5. Preserve the current binary, lockfile, migration ledger, and local durable-directory version.
+6. Create a database recovery point and restore it in isolation.
+
+If active history remains, retain the old workflow code and step handlers needed to replay it. Successful deserialization does not prove safe replay.
+
+## Configure runtime-build admission
+
+The 1.0 engine should declare its current build and each old build proven replayable.
+
+```rust
+let compatibility = RuntimeBuildCompatibility::new(build_v1.clone())
+    .with_compatible_build(pre_v1_build.clone())
+    .accept_unpinned();
+```
+
+Use `accept_unpinned()` only while draining history created before build pinning. Define an end condition and remove it after those runs terminate.
+
+If the 1.0 binary does not include the complete decision logic required by an old build, do not advertise it as compatible. Keep an old worker and dispatch through exact `RuntimeBuildTaskRouter` routes.
+
+## Quiesce writes
+
+Stop new runs and scheduler submission before migration.
+
+- Stop the old SQLite owner and confirm no process holds the file.
+- Let PostgreSQL transactions finish, then let a dedicated migration job acquire the advisory lock.
+- Make callback endpoints return a retriable response or place authenticated requests in a durable ingress queue.
+- Back up local JSONL history and audit logs at the same recovery point as the database.
+
+Do not restart an old binary against the database after the 1.0 migration commits.
+
+## Apply migrations
+
+SQLite uses transactional migration in `SqliteEventStore::connect()`. Production PostgreSQL uses a dedicated migration executor.
+
+```rust
+let report = migrate_postgres_flow(&migration_executor).await?;
+println!("migrations={:?}", report.applied);
+```
+
+If migration fails, the attempted schema changes and migration record roll back in one transaction while event history remains. Inspect ledger and history, fix the cause, then retry with the same candidate.
+
+Serving workers use `PostgresEventStore::connect_verified()` or `from_executor_verified()`. Verification failure must keep the instance out of readiness.
+
+## Verify after startup
+
+Complete these checks in order before restoring full traffic.
+
+1. Match every expected ID and checksum in `a3s_orm_migrations`.
+2. Read representative terminal, waiting, hook, retry, child, and continuation histories.
+3. Compare run IDs, last event sequences, and status distribution with the pre-migration inventory.
+4. Resume one interrupted-step canary and verify one redelivery with external idempotency.
+5. Resume one due wait and verify one completion event.
+6. Restore starts and scheduling gradually while watching store errors and backlog.
+
+Keep old-build routes until their active history reaches terminal state. After unpinned runs drain, remove `accept_unpinned()` and test the rejected-admission path again.
+
+## Rollback boundary
+
+Before the 1.0 migration commits, an operator may stop the candidate and reconnect the old binary to unchanged schema.
+
+After commit, binary-only rollback is unsupported. The migration ledger is append-only. An old release does not recognize the 1.0 migration ID and correctly refuses the database. Do not delete migration records, projection tables, or triggers to disguise the schema.
+
+Rollback after commit requires full restoration.
+
+1. Stop every 1.0 and old writer.
+2. Restore the verified pre-upgrade database point and matching local durable files.
+3. Deploy the original binary and workflow code.
+4. Verify history sequences, run states, and queue ownership.
+5. Restore external traffic.
+
+## Local qualification commands
+
+```console
+cargo test --test pre_v1_history --no-default-features
+cargo test --lib --no-default-features --features sqlite store::migrations::tests
+A3S_FLOW_POSTGRES_URL=postgres://... \
+  cargo test --lib --no-default-features --features postgres store::migrations::tests
+```
+
+Run the PostgreSQL command against an isolated temporary database, never a production instance.

@@ -1,0 +1,167 @@
+---
+title: 跑通第一个持久工作流
+description: 在内存存储中运行一个两阶段工作流，检查快照与历史，再决定怎样接入持久存储。
+---
+
+# 跑通第一个持久工作流
+
+完成这一页以后，你会得到一条能直接运行的最小工作流。它先安排一个任务，把任务结果写入历史，随后重放并结束运行。终端会打印 `Completed`，输出中会出现 `hello Ada`。示例使用内存存储，先把运行时边界和事件顺序看清楚，再决定怎样接数据库和 Worker。
+
+## 开始前
+
+Flow 1.1 的最低 Rust 工具链是 1.88。先检查当前环境。
+
+```console
+rustc --version
+cargo --version
+```
+
+在应用的 `Cargo.toml` 中固定 Flow 版本。示例还需要 Tokio、`async-trait` 和 `serde_json`。
+
+```toml title="Cargo.toml"
+[dependencies]
+a3s-flow = "=1.1.0"
+async-trait = "0.1"
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt"] }
+```
+
+默认功能会启用原生 TypeScript 适配器。只写 Rust 且希望缩小依赖面时，可以改成下面这样。
+
+```toml
+a3s-flow = { version = "=1.1.0", default-features = false }
+```
+
+## 把决定和副作用分开
+
+`run_workflow` 读取已经提交的历史，并返回下一个 `RuntimeCommand`。它不能把网络请求、文件写入或随机数藏在决定过程中。`run_step` 才是执行外部动作的位置。
+
+```rust title="src/main.rs"
+use a3s_flow::{
+    FlowEngine, FlowError, FlowRuntime, RuntimeCommand, StepInvocation,
+    WorkflowInvocation, WorkflowSpec,
+};
+use async_trait::async_trait;
+use serde_json::json;
+use std::sync::Arc;
+
+struct GreetingRuntime;
+
+#[async_trait]
+impl FlowRuntime for GreetingRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let ctx = invocation.context();
+
+        if let Some(output) = ctx.step_output("greet") {
+            return Ok(ctx.complete(output.clone()));
+        }
+
+        Ok(ctx.schedule_step(
+            "greet",
+            "greet_user",
+            json!({ "name": ctx.input()["name"] }),
+        ))
+    }
+
+    async fn run_step(
+        &self,
+        invocation: StepInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        match invocation.step_name.as_str() {
+            "greet_user" => {
+                let name = invocation.input["name"]
+                    .as_str()
+                    .unwrap_or("unknown");
+                Ok(json!({ "message": format!("hello {name}") }))
+            }
+            step => Err(FlowError::Runtime(format!("unknown step: {step}"))),
+        }
+    }
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> a3s_flow::Result<()> {
+    let engine = FlowEngine::in_memory(Arc::new(GreetingRuntime));
+    let spec = WorkflowSpec::rust_embedded(
+        "demo.greeting",
+        "0.1.0",
+        "demo",
+        "main",
+    );
+
+    let run_id = engine
+        .start_with_id("greeting-ada", spec, json!({ "name": "Ada" }))
+        .await?;
+    let snapshot = engine.snapshot(&run_id).await?;
+
+    println!("status={:?} output={:?}", snapshot.status, snapshot.output);
+    Ok(())
+}
+```
+
+运行应用。
+
+```console
+cargo run
+```
+
+结束时，快照状态应为 `Completed`，输出来自已经提交的 `greet` 步骤。工作流函数实际执行了两次。
+
+1. 第一次没有 `greet` 输出，工作流返回 `ScheduleStep`。
+2. 步骤执行并提交 `StepCompleted`。
+3. 第二次重放能够读到输出，工作流返回 `Complete`。
+
+工作流函数没有依靠进程内变量记住自己走到哪里。位置来自历史。
+
+## 结果不符合预期时
+
+终端出现 `unknown step`，说明 `schedule_step` 使用的任务名称和 `run_step` 中的分支没有对上。先核对示例里的 `greet_user`，修正以后重新运行。
+
+启动阶段返回 `RunConflict`，说明相同运行 ID 已经对应了另一份定义或输入。开发时可以换一个运行 ID。生产代码应先判断调用方是在重试原请求，还是准备创建一条新运行。
+
+状态一直停在 `Running` 或 `Suspended`，先打印原始历史，确认最后一条已提交事件。任务结果没有进入历史时，检查 `run_step` 是否返回错误。运行正在等待时间、Hook 或信号时，继续阅读对应指南，不要用进程内循环反复轮询。
+
+## 为什么使用稳定运行 ID
+
+`start_with_id()` 允许调用方安全重试创建请求。相同运行 ID、工作流定义和输入会指向原来的运行。以下任一内容发生变化时，Flow 返回 `RunConflict`。
+
+- 工作流名称、定义版本、运行时种类或入口点
+- `runtime_build_id` 与补丁标记
+- 初始 JSON 输入
+
+这项检查能挡住常见的重复提交错误。它也意味着不能把同一个业务 ID 悄悄改造成另一条运行。
+
+## 查看原始历史
+
+快照适合业务判断，历史适合审计和诊断。
+
+```rust
+let history = engine.history(&run_id).await?;
+for envelope in history {
+    println!(
+        "sequence={} key={}",
+        envelope.sequence,
+        envelope.event.event_key(),
+    );
+}
+```
+
+序号从存储中按顺序读出。并发写入使用 `append_if_sequence()`，过期写入会返回 `EventConflict`，不会覆盖已经获胜的事件。
+
+## 下一步怎样选
+
+接真实业务时，可以按依赖顺序继续。
+
+- 先读[运行时边界](/guide/runtime-contract)，把确定性决定与外部副作用拆开。
+- 有失败重试或定时任务时，读[重试与等待](/guide/retries-and-waits)。
+- 要接审批、webhook 或业务消息时，读[信号与 Hook](/guide/signals-and-hooks)。
+- 运行必须跨进程恢复时，再选择[持久存储](/operations/persistence)。
+
+仓库中的 `sequential_steps` 例子包含两个有类型输入输出的步骤，可以直接运行。
+
+```console
+cargo run --example sequential_steps
+```

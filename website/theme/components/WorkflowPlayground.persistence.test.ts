@@ -52,6 +52,32 @@ describe('Workflow Playground local draft', () => {
     expect(parsePlaygroundDraft(legacyGraph)?.graph.annotations).toEqual([]);
   });
 
+  it('adds initial dimensions to drafts created before virtual node rendering', () => {
+    const graph = structuredClone(createSampleWorkflow('en'));
+    graph.nodes = graph.nodes.map(
+      ({
+        initialHeight: _initialHeight,
+        initialWidth: _initialWidth,
+        ...node
+      }) => node,
+    );
+
+    const restored = parsePlaygroundDraft(graph)?.graph;
+    const regularNode = restored?.nodes.find(({ id }) => id === 'order_start');
+    const containerNode = restored?.nodes.find(
+      ({ id }) => id === 'item_iteration',
+    );
+
+    expect(regularNode).toMatchObject({
+      initialWidth: 240,
+      initialHeight: 126,
+    });
+    expect(containerNode).toMatchObject({
+      initialWidth: 1176,
+      initialHeight: 480,
+    });
+  });
+
   it('falls back to the default for an unknown connection color', () => {
     const graph = createSampleWorkflow('en');
 

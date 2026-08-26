@@ -9,6 +9,7 @@ import './home.css';
 import './home-system.css';
 import './home-product.css';
 import './home-responsive.css';
+import './home-polish.css';
 import './nodes.css';
 import './playground-inspector.css';
 import './workflow-designer/workflow-playground-base.css';

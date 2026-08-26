@@ -1,0 +1,169 @@
+---
+title: Stores and migrations
+description: Choose in-memory, JSONL, SQLite, or PostgreSQL storage, then operate forward migrations, retention, backup, and recovery.
+---
+
+# Stores and migrations
+
+The event store is Flow's state authority. Step output, wait deadlines, callback payloads, cancellation requests, and terminal outcomes must enter history before execution advances. Queues, metrics, and observation logs may be rebuilt. They cannot reconstruct missing event history.
+
+## Choose a store
+
+| Store                 | Scope                                    | Multi-process writes  | Production note                           |
+| --------------------- | ---------------------------------------- | --------------------- | ----------------------------------------- |
+| `InMemoryEventStore`  | Unit tests and temporary demos           | No                    | Process exit loses all state              |
+| `LocalFileEventStore` | Single-process embedding and development | No                    | Back up the complete JSONL root           |
+| `SqliteEventStore`    | Durable single-node service              | Avoid multiple owners | One writer service owns the database file |
+| `PostgresEventStore`  | Shared control plane and worker fleet    | Yes                   | Separate migration and serving roles      |
+
+Default features enable only the native TypeScript adapter. Select SQL stores explicitly.
+
+```toml
+[dependencies]
+a3s-flow = { version = "=1.1.0", features = ["sqlite"] }
+```
+
+Use `features = ["postgres"]` for PostgreSQL. A Rust-only host may also set `default-features = false`.
+
+## In-memory and local JSONL
+
+```rust
+use a3s_flow::{FlowEngine, LocalFileEventStore};
+use std::sync::Arc;
+
+let store = Arc::new(LocalFileEventStore::new(".a3s/flow/history"));
+let engine = FlowEngine::new(store, runtime);
+```
+
+The local store keeps append-only JSONL per run. It validates the tail before appending. A complete final record without a newline is recoverable, while interior corruption fails closed. The store does not coordinate processes. Never point two service instances at the same directory.
+
+Back up the history directory with the recovery point for the host database that enforces external idempotency. Restoring only one side breaks correspondence between workflow history and business effects.
+
+## SQLite
+
+```rust
+use a3s_flow::{FlowEngine, SqliteEventStore};
+use std::sync::Arc;
+
+let store = Arc::new(
+    SqliteEventStore::connect("sqlite://.a3s/flow/flow.db").await?,
+);
+let engine = FlowEngine::new(store, runtime);
+```
+
+`connect()` opens the database and applies canonical checksummed migrations. Migrations and event appends are transactional. Keep one SQLite owner in production, stop the old process before starting a new version, and verify file-level backup restoration.
+
+SQLite maintains projections for active hooks and scheduled wakeups. They accelerate queries while raw events remain authoritative. Do not edit projection tables or triggers by hand.
+
+## PostgreSQL
+
+Development can use `PostgresEventStore::connect()`, which migrates and opens the store. In production, separate DDL authority from serving authority.
+
+```rust
+use a3s_flow::{migrate_postgres_flow, PostgresEventStore};
+
+// Run once with a dedicated migration executor.
+let report = migrate_postgres_flow(&migration_executor).await?;
+println!("applied={}", report.applied.len());
+
+// Serving workers verify checksums without holding DDL authority.
+let store = PostgresEventStore::from_executor_verified(
+    serving_executor,
+)
+.await?;
+```
+
+Database advisory locking serializes migrations. `connect_verified()` and `from_executor_verified()` check required migration IDs and checksums, then refuse serving when the schema is incomplete. Fix deployment order as migration success, serving admission, then new starts and scheduling.
+
+Use at least two database roles.
+
+- The migration role may create tables, indexes, and triggers and write the migration ledger.
+- The serving role may read and write Flow tables but cannot alter schema or migration records.
+
+## Custom `FlowEventStore`
+
+A custom backend implements four core methods.
+
+```rust
+#[async_trait::async_trait]
+trait FlowEventStore {
+    async fn append(&self, run_id: &str, event: FlowEvent)
+        -> Result<FlowEventEnvelope>;
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> Result<FlowEventEnvelope>;
+    async fn list(&self, run_id: &str)
+        -> Result<Vec<FlowEventEnvelope>>;
+    async fn list_run_ids(&self) -> Result<Vec<String>>;
+}
+```
+
+`append_if_sequence()` must atomically compare the latest sequence and append, returning `FlowError::EventConflict` on a race. `list()` must return the complete stream from sequence 1 without gaps and in order.
+
+Active-hook and scheduled-wakeup methods have full-replay defaults. At scale, implement indexed projections and update them in the same event transaction. A projection fault must never alter the source event.
+
+## Forward-only migrations
+
+Flow migrations move forward and carry fixed checksums. Never edit a migration already applied in any environment. Add a new migration to correct schema.
+
+Retain this evidence for a production migration.
+
+1. Pre-upgrade database recovery point and restoration drill result.
+2. Candidate binary version and locked Cargo dependencies.
+3. `a3s_orm_migrations` contents before and after migration.
+4. History length, last sequence, and snapshot state for representative runs.
+5. Recovery result for a real wait or interrupted step.
+
+After a migration commits, rolling back only the binary is unsupported. An old binary does not recognize the new migration ID and refuses the database. To roll back, stop all writers and restore the pre-upgrade database with matching durable files.
+
+## History retention
+
+SQLite and PostgreSQL can delete complete histories. Flow never compacts part of a stream or rewrites old events.
+
+```rust
+use a3s_flow::FlowHistoryRetentionPolicy;
+use chrono::{Duration, Utc};
+
+let policy = FlowHistoryRetentionPolicy::new(
+    Utc::now() - Duration::days(90),
+);
+let report = store.prune_terminal_history(policy).await?;
+
+println!("deleted={:?}", report.deleted_run_ids);
+```
+
+A run is deleted only when all conditions hold.
+
+- It is terminal and its terminal event predates the cutoff.
+- It has no durable audit hold.
+- Every history in its continuation and parent-child component is eligible in the same scan.
+- No linked target is missing.
+
+Before deletion, Flow writes a tombstone with terminal sequence, event ID, event key, and SHA-256 for the complete history. The tombstone prevents reuse of the run ID.
+
+## Audit holds
+
+```rust
+store
+    .hold_history(
+        "invoice-2026-0001",
+        "legal-case-8821",
+        "payment dispute",
+    )
+    .await?;
+
+let holds = store.history_holds("invoice-2026-0001").await?;
+```
+
+Matching run ID, hold ID, and reason are idempotent. Reusing a hold ID with another reason returns conflict. `release_history_hold()` removes the hold, and a later retention scan decides deletion.
+
+## Routine verification
+
+- Restore backups regularly and drive an interrupted run to terminal state.
+- Monitor append conflict rate, query latency, scheduler-index lag, and active hook count.
+- Detect drift in migration ledger, Flow tables, and projection structure.
+- Retain deletion reports and tombstones, and audit hold approval.
+- Use `continue_as_new()` to bound replay before pruning complete linked components.

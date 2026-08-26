@@ -1,0 +1,83 @@
+---
+title: Node catalog
+description: Explore the 18 A3S Flow 1.1 authoring nodes, two internal container entries, canvas cards, and configuration panels.
+---
+
+# Node catalog
+
+A3S Flow 1.1 provides 18 nodes that authors can place on a canvas. After choosing a node, you can configure it, connect ports, and validate the full graph in the Playground, or generate the same structure through the CLI. Fields, defaults, ports, runtime bindings, and durable identity rules all come from one manifest catalog.
+
+`iteration-start` and `loop-start` are internal container entries. The editor creates them with their container. They do not appear in the node picker and cannot be placed on the top-level canvas.
+
+## Node workbench
+
+This workbench uses the public `@a3s-lab/flow-ui` components. Selecting a node gives the canvas card and configuration panel the same node object. Title, description, and field edits update the preview immediately. Waits, callbacks, batches, child workflows, and containers use dedicated controls.
+
+<NodeConfigLab />
+
+### Inspect the full manifest contract
+
+Open **Manifest contract** at the bottom of a selected task panel to inspect the
+same metadata that drives the editor. It lists the manifest version, owner,
+role, runtime and stable-ID bindings, flags, every input and output port, and
+every field in declaration order. Each field reports its A3S UI control, semantic
+group, required, advanced, read-only, conditional, visibility, current-value
+state, and the complete set of manifest property names and values. Secret field
+values are masked.
+
+The contract is a projection of the live node rather than a second schema. The
+same field visibility helper feeds the form, validation, and contract view. The
+document action exports the resulting node configuration, including values that
+are currently hidden by a condition, so a saved graph remains lossless.
+
+## Six groups
+
+| Group                   | Nodes                                                                                                                                                     | Responsibility                                                             |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Orchestration           | [Start](./start), [Condition](./condition)                                                                                                                | Accept input and choose deterministic control branches                     |
+| Tasks and tools         | [Run step](./step), [Step batch](./batch)                                                                                                                 | Call host tasks and store results, errors, and retry state                 |
+| Wait and approval       | [Wait until](./wait), [Callback and approval](./hook), [Signal wait](./signal)                                                                            | Release workers while waiting for time or external input                   |
+| Child work              | [Child operation](./child-operation), [Child workflow](./child-workflow), [Child workflow batch](./child-workflows), [Continue as new](./continue-as-new) | Track long jobs, own child runs, and continue history                      |
+| Run state               | [Progress](./progress), [Complete](./complete), [Fail](./fail), [Cancel](./cancel), [Timeout](./timeout)                                                  | Record inspectable state and close run segments                            |
+| Child-canvas containers | [Iteration](./iteration), [Loop](./loop)                                                                                                                  | Establish graph scopes and constrain parent, child, and edge relationships |
+
+## Choose from the task in front of you
+
+Use [Run step](./step) for one host task after input arrives. Use [Step batch](./batch) when a set of tasks needs per-member results and retry state. Both require a real task handler registered by the host.
+
+Use [Wait until](./wait) for a time boundary, [Callback and approval](./hook) for an approval or one callback, and [Signal wait](./signal) when an existing business channel resumes the run by name. All three release the worker while waiting.
+
+Use [Child workflow](./child-workflow) when a unit of work needs its own history, state, and cancellation policy. Use [Iteration](./iteration) to apply one child graph to a collection, and [Loop](./loop) when a condition controls repetition. Ordinary graph edges remain acyclic.
+
+## Runtime binding
+
+Nodes with a `runtimeBinding` compile to durable A3S Flow runtime commands. `flow.start` and `flow.condition` execute at the graph layer. `iteration` and `loop` define child-canvas structure, while the host decides how each pass compiles into steps or child workflows.
+
+Task and wait nodes normally use the graph node ID as durable identity. Batch nodes also include each member key. Changing those IDs after a run starts prevents replay from matching the original history.
+
+Every individual node page includes the following material.
+
+- Intended use and runtime behavior
+- Every field, default, control, range, option, and visibility condition
+- Control and data ports
+- Runtime binding and durable identity rules
+- Complete node JSON, CLI commands, and a Skill prompt
+- Recovery, retry, cancellation, and container-scope notes
+
+## When configuration validation fails
+
+Start with the reported path and locate the exact node and field. Field errors usually mean a required value is empty, a number is out of range, or a dependent setting no longer matches. Edge errors usually mean incompatible port types, an occupied input, a cross-scope connection, or a cycle.
+
+Do not delete unknown fields merely to silence validation. Check the node page for its current fields and ports, then validate again in the Playground or CLI. Preserve node IDs after runs exist because steps, hooks, progress records, and child runs use those IDs to match committed history.
+
+## Verify the catalog with the CLI
+
+The installed catalog ships with the front-end components. Inspect the current version before creating a node.
+
+```bash
+a3s-flow nodes --pretty
+a3s-flow node flow.step --pretty
+a3s-flow new flow.step --id charge-order --pretty
+```
+
+After adding nodes to the graph, run `validate`, `compile`, and `digest`. The CLI checks fields, ports, scopes, cycles, and deterministic execution order.

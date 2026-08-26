@@ -1,0 +1,82 @@
+---
+title: Vue Hook
+description: 在 Vue 中使用 useA3SFlowNode 管理 manifest、节点配置和展示状态。
+---
+
+# Vue Hook
+
+`@a3s-lab/flow-ui/vue` 提供 `useA3SFlowNode`。它与 React Hook 使用同一套节点类型、manifest、默认值和配置归一化逻辑。Vue 编辑器可以把返回的 `node` 交给自己的画布组件，也可以在同一个项目中通过 Web Component 或 React 宿主使用公开节点卡片。
+
+```bash
+npm install @a3s-lab/flow-ui @a3s-lab/ui vue
+```
+
+```vue
+<script setup lang="ts">
+import '@a3s-lab/flow-ui/styles.css';
+import { useA3SFlowNode } from '@a3s-lab/flow-ui/vue';
+
+const approval = useA3SFlowNode({
+  id: 'human-approval',
+  type: 'flow.hook',
+  configuration: {
+    kind: 'human_approval',
+    subject: '确认退款方案',
+    metadata: { labels: { team: 'risk' }, data: {} },
+  },
+  presentation: {
+    title: '风险审批',
+    desc: '等待风险团队确认处理方案',
+  },
+  onChange(node) {
+    workflowStore.replaceNode(node.id, node);
+  },
+});
+
+function useWebhook() {
+  approval.patchConfiguration({
+    kind: 'webhook',
+    callback_method: 'POST',
+    callback_path: '/callbacks/refund',
+  });
+}
+</script>
+
+<template>
+  <section>
+    <h2>{{ approval.node.value.data.title }}</h2>
+    <code>{{ approval.manifest.value.type }}</code>
+    <button type="button" @click="useWebhook">改为 webhook</button>
+    <button type="button" @click="approval.reset">恢复默认值</button>
+  </section>
+</template>
+```
+
+## 传入值
+
+`id` 和 `type` 接受普通值、`ref` 或 getter。`configuration`、`presentation` 与自定义 `registry` 也接受 Vue 的 `MaybeRefOrGetter`。Hook 创建时读取这些值。调用 `reset()` 时会再次读取，因此外部默认值已经变化时，重置结果也会跟随新的默认值。
+
+| 选项            | 说明                                                    |
+| --------------- | ------------------------------------------------------- |
+| `id`            | 图内稳定节点 ID，任务、等待和子运行会使用它构造持久身份 |
+| `type`          | manifest 类型，例如 `flow.step` 或 `iteration`          |
+| `configuration` | manifest 语义字段的初始值                               |
+| `presentation`  | 标题、说明、位置和尺寸等画布字段                        |
+| `registry`      | 可选节点注册表，默认使用 18 个公开节点和内部容器入口    |
+| `onChange`      | 每次提交完整节点后调用，参数已经做深复制                |
+
+## 返回值
+
+`node` 是只读 `ShallowRef`。Hook 用完整对象替换来提交修改，不依赖深层响应式代理。`manifest` 与 `configuration` 是 `ComputedRef`。模板会自动解包，脚本中需要读取 `.value`。
+
+`setNode` 接收完整 DAG 节点，并拒绝与当前 manifest 类型不同的对象。`setConfiguration` 替换全部配置，`patchConfiguration` 合并局部字段。`setTitle` 和 `setDescription` 只改展示数据。`reset` 回到当前选项所描述的初始节点。
+
+类型选择器发生变化时，创建新的编辑器实例或使用组件 `key` 重新挂载。Hook 不会把旧节点的数据强行转换成另一个类型。这样可以避免已有步骤身份与字段在没有发布迁移的情况下被覆盖。
+
+## 与 Vue 画布集成
+
+画布状态应以完整 `A3SFlowWorkflowDagNode` 为单位保存。拖动节点时只更新 `position`。配置面板提交时调用 `setNode` 或 `setConfiguration`。连线前从 `manifest.value.ports` 读取端口 ID、控制或数据种类及允许类型，不要在 Vue 组件中另写端口清单。
+
+`iteration` 和 `loop` 是子画布容器。编辑器创建容器时还要创建匹配的内部开始节点，并给所有子节点设置 `parentId`。端点必须位于同一作用域。发布前运行 `a3s-flow validate workflow.json`，它会检查父子关系、内部入口、跨作用域连线和每个 manifest 字段。
+
+自定义节点沿用同一个 `registry` 输入。[自定义节点](./custom-nodes)说明了 catalog 构建和执行能力检查。

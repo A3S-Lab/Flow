@@ -1,0 +1,163 @@
+---
+title: Signals and hooks
+description: Receive business messages through named signals and token-addressed callbacks through hooks, with explicit redelivery and disposal rules.
+---
+
+# Signals and hooks
+
+Workflows often need to stop until a result exists. A payment status may arrive in a few minutes, while a human approval may take a day. Flow records the wait in history, releases the current process, and lets any compatible worker continue later.
+
+Signals and hooks both resume a run, but expose different addressing contracts.
+
+| Entry point  | Good fit                                       | External address                   | Workflow access    |
+| ------------ | ---------------------------------------------- | ---------------------------------- | ------------------ |
+| Named signal | Order status, device events, business messages | Run ID and signal name             | `signal_payload()` |
+| Hook         | Approval, webhook, one-time callback           | Public token or run ID and hook ID | `hook_payload()`   |
+
+Both entry points assume at-least-once delivery. Callers must retain a stable message identity and treat redelivery as a normal recovery path.
+
+## Declare and wait for a signal
+
+Declare signal names on `WorkflowSpec`. The declaration becomes part of run authority, so a misspelled or unapproved name fails before the message is appended.
+
+```rust
+use a3s_flow::WorkflowSpec;
+
+const APPROVAL_SIGNAL: &str = "invoice.approved";
+
+let spec = WorkflowSpec::rust_embedded(
+    "billing.invoice-approval",
+    "1",
+    "billing",
+    "main",
+)
+.with_signal(APPROVAL_SIGNAL);
+```
+
+Workflow code creates a wait with a replay-stable ID. A signal may arrive before the wait. Flow pairs the oldest matching unconsumed delivery once the wait is created.
+
+```rust
+use serde::Deserialize;
+use serde_json::json;
+
+#[derive(Deserialize)]
+struct Approval {
+    reviewer: String,
+}
+
+let ctx = invocation.context();
+let Some(approval) = ctx.signal_payload_as::<Approval>("approval")? else {
+    return Ok(ctx.wait_for_signal("approval", APPROVAL_SIGNAL));
+};
+
+Ok(ctx.complete(json!({
+    "status": "approved",
+    "reviewer": approval.reviewer,
+})))
+```
+
+`approval` is the internal wait ID. `invoice.approved` is the external message contract. Keep the former stable within one run. Multiple sequential waits may reuse the latter.
+
+## Deliver a signal
+
+The caller owns `signal_id`. Prefer a message-bus event ID, an approval-decision ID, or another business operation ID. Do not generate a fresh value for every HTTP retry.
+
+```rust
+use a3s_flow::WorkflowSignal;
+use serde_json::json;
+
+let snapshot = engine
+    .send_signal(
+        "invoice-2026-0001",
+        WorkflowSignal::new(
+            "approval-decision-2026-0001",
+            "invoice.approved",
+            json!({ "reviewer": "finance@example.com" }),
+        ),
+    )
+    .await?;
+```
+
+Redelivery with the same run ID and `signal_id` returns the durable result when name and payload match. A changed name or payload returns `SignalConflict`. If the run continued as new, deduplication scans the complete continuation chain, so callers may keep using the root run ID.
+
+A signal received before its wait remains in history. Once a matching wait appears, Flow consumes the oldest delivery first. One delivery completes one wait.
+
+## Create an external hook
+
+Hooks fit integrations where an external system only holds a callback token. The host owns token generation. Tokens need sufficient entropy and must stay out of logs, error details, and ordinary query strings.
+
+```rust
+use a3s_flow::{HookCallbackRoute, HookMetadata};
+
+let metadata = HookMetadata::human_approval("invoice:inv-0001")
+    .with_callback_route(HookCallbackRoute::post(
+        "/callbacks/flow/hooks/{token}",
+    ))
+    .with_label("tenant", "north")
+    .with_data("invoiceId", "inv-0001");
+
+return Ok(ctx.create_hook_with_metadata(
+    "approval",
+    "public-random-token",
+    metadata,
+)?);
+```
+
+`HookMetadata` stores routing and audit context only. The host still implements HTTP serving, authentication, rate limits, signature verification, and token exchange. A callback route template does not create an endpoint.
+
+When the external entry point knows only the token, resume the active hook by token.
+
+```rust
+let (run_id, hook_id) = engine
+    .resume_hook_by_token(
+        "public-random-token",
+        serde_json::json!({
+            "approved": true,
+            "reviewer": "finance@example.com",
+        }),
+    )
+    .await?;
+```
+
+After replay, workflow code reads the committed payload through `ctx.hook_payload("approval")`. The runtime cannot observe a callback before its payload is durable.
+
+## Handle callback redelivery
+
+Token lookup covers active hooks only. After the first callback succeeds, the token leaves the active index. A reliable callback consumer should retain the stable run ID and hook ID after resolving the token, then use `resume_hook()` for later redelivery.
+
+```rust
+engine
+    .resume_hook(
+        &run_id,
+        &hook_id,
+        serde_json::json!({ "approved": true }),
+    )
+    .await?;
+```
+
+This call is idempotent when the recorded payload matches. A changed payload, a disposed hook, or a cancelled hook returns an explicit conflict. Do not turn those conflicts into successful responses. They usually identify an upstream idempotency error.
+
+## Dispose an unfinished hook
+
+When an approval expires or an external task closes, call `dispose_hook_by_token()` or `dispose_hook()` to withdraw the entry point. Workflow code enters a stable disposal branch through `ctx.hook_disposed("approval")`.
+
+```rust
+if ctx.hook_disposed("approval") {
+    return Ok(ctx.complete(serde_json::json!({
+        "status": "withdrawn",
+    })));
+}
+```
+
+Repeated disposal is idempotent. A hook that already received a payload cannot be disposed, and a disposed token cannot accept a late callback.
+
+## Production checklist
+
+- Declare every accepted signal name on `WorkflowSpec`.
+- Derive signal IDs from business messages, not transport retries.
+- Keep wait IDs, hook IDs, and tokens unchanged across replay.
+- Authenticate and authorize callbacks before invoking Flow.
+- Retain run and hook IDs for reliable redelivery after token resolution.
+- Monitor active hook count, oldest hook age, conflicts, and unresolved tokens.
+
+Run `cargo run --example workflow_signals`, `cargo run --example hook_approval`, and `cargo run --example hook_disposal` for complete programs.

@@ -13,12 +13,15 @@ import {
   createA3SFlowDagNodeCatalog,
   createA3SFlowDagNode,
   createA3SFlowDagNodeRegistry,
+  createA3SFlowNodeBuildConfig,
   createWorkflowNodeDefaultValue,
   createWorkflowNodeForm,
   defineA3SFlowCustomDagNode,
   defineA3SFlowDagNodeManifest,
   mergeA3SFlowDagNodeConfiguration,
   requireA3SFlowDagNodeManifest,
+  isWorkflowNodeFieldVisible,
+  resolveWorkflowNodeFields,
   selectA3SFlowDagNodeConfiguration,
   validateA3SFlowDagNodeConfiguration,
   WORKFLOW_CONFIGURATION_WIDGET_KEYS,
@@ -26,6 +29,7 @@ import {
 } from "../src";
 import { A3SFlowDagNodeConfigurationPanel } from "../src/react/a3s-flow-dag-node";
 import { a3sFlowDagNodePreviewSummary } from "../src/react/a3s-flow-node-summary";
+import { A3SFlowDagNodePreview } from "../src/react/a3s-flow-dag-node";
 
 describe("A3S Flow authoring manifests", () => {
   const customRegistration = () =>
@@ -161,6 +165,95 @@ describe("A3S Flow authoring manifests", () => {
     });
   });
 
+  it("merges partial build-config overrides in manifest order", () => {
+    const manifest = requireA3SFlowDagNodeManifest("flow.step");
+    const firstField = manifest.fields[0];
+    expect(firstField).toBeDefined();
+    if (!firstField) return;
+
+    const extension = {
+      name: "host_trace_id",
+      display_name: "Host trace ID",
+      type: "str",
+      value: "trace",
+    };
+    const resolved = resolveWorkflowNodeFields(manifest, {
+      buildConfig: {
+        [firstField.name]: {
+          name: firstField.name,
+          placeholder: "Override only the placeholder",
+        },
+        [extension.name]: extension,
+      },
+    });
+
+    expect(resolved.map((field) => field.name)).toEqual([
+      ...manifest.fields.map((field) => field.name),
+      extension.name,
+    ]);
+    expect(resolved[0]).toMatchObject({
+      name: firstField.name,
+      type: firstField.type,
+      _input_type: firstField._input_type,
+      placeholder: "Override only the placeholder",
+    });
+    expect(resolved.at(-1)).toEqual(extension);
+
+    const built = createA3SFlowNodeBuildConfig(manifest, {
+      [firstField.name]: {
+        name: firstField.name,
+        placeholder: "Core helper override",
+      },
+    });
+    expect(built[firstField.name]).toMatchObject({
+      type: firstField.type,
+      placeholder: "Core helper override",
+    });
+  });
+
+  it("rejects build-config keys that do not match their field name", () => {
+    const manifest = requireA3SFlowDagNodeManifest("flow.step");
+    expect(() =>
+      resolveWorkflowNodeFields(manifest, {
+        buildConfig: {
+          typo: { name: "step_name", type: "str" },
+        },
+      }),
+    ).toThrow("must match field name");
+  });
+
+  it("evaluates conditional visibility with cloned JSON values and overrides", () => {
+    const field = {
+      name: "callback_path",
+      visible_when: {
+        field: "settings",
+        equals: { mode: "webhook", methods: ["POST"] },
+      },
+    };
+    expect(
+      isWorkflowNodeFieldVisible(field, {
+        settings: { methods: ["POST"], mode: "webhook" },
+      }),
+    ).toBe(true);
+    expect(
+      isWorkflowNodeFieldVisible(field, { settings: { mode: "host" } }),
+    ).toBe(false);
+    expect(
+      isWorkflowNodeFieldVisible(
+        { ...field, show: false },
+        { settings: { mode: "webhook", methods: ["POST"] } },
+        { callback_path: true },
+      ),
+    ).toBe(true);
+    expect(
+      isWorkflowNodeFieldVisible(
+        field,
+        { settings: { mode: "webhook", methods: ["POST"] } },
+        { callback_path: false },
+      ),
+    ).toBe(false);
+  });
+
   it("autosaves task-panel changes without rendering a duplicate apply action", () => {
     const manifest = requireA3SFlowDagNodeManifest("flow.step");
 
@@ -181,6 +274,63 @@ describe("A3S Flow authoring manifests", () => {
         a3sFlowDagNodePreviewSummary(node, "en").length,
       ).toBeLessThanOrEqual(1);
     }
+  });
+
+  it("exposes the complete manifest contract in task panels and previews", () => {
+    const manifest = requireA3SFlowDagNodeManifest("flow.hook");
+    const dagNode = createA3SFlowDagNode(
+      "contract-hook",
+      manifest,
+      { kind: "webhook" },
+    );
+    const panel = render(
+      createElement(A3SFlowDagNodeConfigurationPanel, {
+        dagNode,
+        locale: "en",
+        onChange: () => undefined,
+      }),
+    );
+    const contract = panel.getByTestId("workflow-node-contract");
+    expect(contract.getAttribute("data-contract-field-count")).toBe(
+      String(manifest.fields.length),
+    );
+    expect(contract.getAttribute("data-contract-port-count")).toBe(
+      String(manifest.ports.inputs.length + manifest.ports.outputs.length),
+    );
+    expect(
+      contract.querySelectorAll("[data-contract-field-name]").length,
+    ).toBe(manifest.fields.length);
+    expect(
+      contract.querySelectorAll("[data-contract-port-id]").length,
+    ).toBe(manifest.ports.inputs.length + manifest.ports.outputs.length);
+    expect(
+      contract.querySelector('[data-contract-field-name="callback_path"]')
+        ?.getAttribute("data-contract-field-conditional"),
+    ).toBe("true");
+    expect(
+      panel.container
+        .querySelector(".a3s-form-workflow-node-panel")
+        ?.getAttribute("data-node-role"),
+    ).toBe("runtime-command");
+    panel.unmount();
+
+    const preview = render(
+      createElement(A3SFlowDagNodePreview, {
+        dagNode,
+        locale: "en",
+        manifest,
+      }),
+    );
+    const previewRoot = preview.container.querySelector(
+      ".a3s-form-workflow-node-preview",
+    );
+    expect(previewRoot?.getAttribute("data-property-count")).toBe(
+      String(manifest.fields.length),
+    );
+    expect(previewRoot?.getAttribute("data-port-count")).toBe(
+      String(manifest.ports.inputs.length + manifest.ports.outputs.length),
+    );
+    preview.unmount();
   });
 
   it("keeps the condition payload behind advanced disclosure", () => {
