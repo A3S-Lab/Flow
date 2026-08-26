@@ -112,6 +112,13 @@ export type WorkflowPlaygroundCopy = {
   childCanvas: string;
   internalNode: string;
   localRun: string;
+  triggerDialogEyebrow: string;
+  triggerDialogTitle: string;
+  triggerDialogDescription: (workflowName: string) => string;
+  triggerInputLabel: string;
+  triggerSchemaHint: string;
+  triggerRun: string;
+  triggerValidationError: (count: number) => string;
   runComplete: string;
   runStopped: string;
   noTrace: string;
@@ -261,6 +268,14 @@ export const workflowPlaygroundCopy: Readonly<
     childCanvas: '子画布',
     internalNode: '内部节点',
     localRun: '试运行只展示本地执行顺序，不会调用外部任务。',
+    triggerDialogEyebrow: '运行触发器',
+    triggerDialogTitle: '填写触发器输入',
+    triggerDialogDescription: (workflowName) =>
+      `为「${workflowName}」提供本次试运行的入口数据。提交后只会在本地预览执行顺序。`,
+    triggerInputLabel: '工作流输入',
+    triggerSchemaHint: '字段来自 flow.start 的输入契约',
+    triggerRun: '开始试运行',
+    triggerValidationError: (count) => `请先修正 ${count} 个输入问题。`,
     runComplete: '试运行完成。',
     runStopped: '试运行已停止。',
     noTrace: '还没有运行记录。',
@@ -413,6 +428,15 @@ export const workflowPlaygroundCopy: Readonly<
     internalNode: 'Internal node',
     localRun:
       'The test run only previews local execution order and never calls external tasks.',
+    triggerDialogEyebrow: 'Run trigger',
+    triggerDialogTitle: 'Provide trigger input',
+    triggerDialogDescription: (workflowName) =>
+      `Provide the entry data for “${workflowName}”. Submitting previews the execution order locally.`,
+    triggerInputLabel: 'Workflow input',
+    triggerSchemaHint: 'Fields are defined by the flow.start input contract',
+    triggerRun: 'Start test run',
+    triggerValidationError: (count) =>
+      `Fix ${count} input issue${count === 1 ? '' : 's'} first.`,
     runComplete: 'Test run complete.',
     runStopped: 'Test run stopped.',
     noTrace: 'No run trace yet.',

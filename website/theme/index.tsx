@@ -10,6 +10,8 @@ import './home-system.css';
 import './home-product.css';
 import './home-responsive.css';
 import './home-polish.css';
+import './home-polish-editor.css';
+import './home-polish-motion.css';
 import './nodes.css';
 import './playground-inspector.css';
 import './workflow-designer/workflow-playground-base.css';

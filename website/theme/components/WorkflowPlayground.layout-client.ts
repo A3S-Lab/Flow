@@ -1,7 +1,8 @@
 import type { PlaygroundGraphState } from './WorkflowPlayground.model';
 import {
-  createPlaygroundLayoutKernelInput,
   layoutPlaygroundKernelInJavaScript,
+  layoutPlaygroundGraphWithKernel,
+  type PlaygroundLayoutKernelInput,
 } from './WorkflowPlayground.layout-kernel';
 
 type LayoutWorkerResponse =
@@ -18,6 +19,8 @@ type PendingRequest = {
 export type PlaygroundLayoutCoordinates = {
   nodeIds: string[];
   positions: Float32Array;
+  /** Full scoped result, including resized parent containers. */
+  graph: PlaygroundGraphState;
 };
 
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -132,21 +135,23 @@ export function schedulePlaygroundLayoutWarmup(): () => void {
   };
 }
 
-export async function layoutPlaygroundGraphOffThread(
-  graph: PlaygroundGraphState,
-): Promise<PlaygroundLayoutCoordinates> {
-  const input = createPlaygroundLayoutKernelInput(graph);
-  if (input.nodeIds.length === 0) {
-    return { nodeIds: input.nodeIds, positions: new Float32Array() };
-  }
+async function layoutInputOffThread(
+  input: PlaygroundLayoutKernelInput,
+): Promise<Float32Array> {
   const worker = layoutWorker();
   if (!worker || typeof WebAssembly === 'undefined') {
-    return {
-      nodeIds: input.nodeIds,
-      positions: layoutPlaygroundKernelInJavaScript(input),
-    };
+    return layoutPlaygroundKernelInJavaScript(input);
   }
 
+  // Transferable buffers are detached by postMessage. Keep a local copy so a
+  // timeout or a worker error can fall back without reconstructing graph state.
+  const fallbackInput: PlaygroundLayoutKernelInput = {
+    nodeIds: input.nodeIds,
+    sources: input.sources.slice(),
+    targets: input.targets.slice(),
+    widths: input.widths.slice(),
+    heights: input.heights.slice(),
+  };
   const id = nextRequestId++;
   kernelWarmupRequested = true;
   try {
@@ -172,12 +177,24 @@ export async function layoutPlaygroundGraphOffThread(
         ],
       );
     });
-    return { nodeIds: input.nodeIds, positions };
+    return positions;
   } catch {
-    const fallback = createPlaygroundLayoutKernelInput(graph);
-    return {
-      nodeIds: fallback.nodeIds,
-      positions: layoutPlaygroundKernelInJavaScript(fallback),
-    };
+    return layoutPlaygroundKernelInJavaScript(fallbackInput);
   }
+}
+
+export async function layoutPlaygroundGraphOffThread(
+  graph: PlaygroundGraphState,
+): Promise<PlaygroundLayoutCoordinates> {
+  const laidOutGraph = await layoutPlaygroundGraphWithKernel(
+    graph,
+    layoutInputOffThread,
+  );
+  const nodeIds = laidOutGraph.nodes.map(({ id }) => id);
+  const positions = new Float32Array(nodeIds.length * 2);
+  laidOutGraph.nodes.forEach((node, index) => {
+    positions[index * 2] = node.position.x;
+    positions[index * 2 + 1] = node.position.y;
+  });
+  return { nodeIds, positions, graph: laidOutGraph };
 }

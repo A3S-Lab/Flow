@@ -215,6 +215,13 @@
   z-index: 2;
 }
 
+/* Handles must remain the primary drag target when a short edge label sits
+   close to its source/target. The label still remains clickable in the gap
+   between nodes, while the node stacking context wins at the port itself. */
+.a3s-workflow-canvas .react-flow__node-flowNode {
+  z-index: 3 !important;
+}
+
 .a3s-workflow-edge-label > span {
   padding: 3px 7px;
   border: 1px solid var(--workflow-line);

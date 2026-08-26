@@ -10,13 +10,13 @@ import {
   validatePlaygroundConnection,
   type PlaygroundGraphState,
   type PlaygroundNode,
+  type PlaygroundPendingConnection,
 } from './WorkflowPlayground.model';
 import type { FlowWebsiteLocale } from './flow-node-catalog';
 import {
-  applyPlaygroundLayoutKernelOutput,
-  createPlaygroundLayoutKernelInput,
-  layoutPlaygroundKernelInJavaScript,
+  layoutPlaygroundGraphInJavaScript,
   playgroundNodeVisualWidth,
+  resizePlaygroundContainerToFitChildren,
 } from './WorkflowPlayground.layout-kernel';
 
 export function nodeDisplayName(
@@ -56,7 +56,12 @@ export function waitForPreview(
 }
 
 const CHILD_NODE_GAP = 48;
-const CONTAINER_PADDING = 36;
+
+export type PlaygroundGraphEditResult = {
+  graph: PlaygroundGraphState;
+  selectedNodeId: string;
+  connected: boolean;
+};
 
 function downstreamNodeIds(
   startId: string,
@@ -105,37 +110,10 @@ function shiftNodeHorizontally(
   };
 }
 
-function expandContainerToFitChildren(
-  nodes: readonly PlaygroundNode[],
-  parentId: string,
-): PlaygroundNode[] {
-  const requiredWidth = Math.ceil(
-    Math.max(
-      0,
-      ...nodes
-        .filter((node) => node.parentId === parentId)
-        .map((node) => node.position.x + playgroundNodeVisualWidth(node)),
-    ) + CONTAINER_PADDING,
-  );
-  return nodes.map((node) =>
-    node.id === parentId && requiredWidth > playgroundNodeVisualWidth(node)
-      ? {
-          ...node,
-          style: { ...node.style, width: requiredWidth },
-        }
-      : node,
-  );
-}
-
 export function layoutPlaygroundGraph(
   graph: PlaygroundGraphState,
 ): PlaygroundGraphState {
-  const input = createPlaygroundLayoutKernelInput(graph);
-  return applyPlaygroundLayoutKernelOutput(
-    graph,
-    input.nodeIds,
-    layoutPlaygroundKernelInJavaScript(input),
-  );
+  return layoutPlaygroundGraphInJavaScript(graph);
 }
 
 export function addIntoGraph(
@@ -145,7 +123,7 @@ export function addIntoGraph(
   locale: FlowWebsiteLocale,
   insertEdgeId?: string,
   registry: A3SFlowDagNodeRegistry = a3sFlowDagNodeRegistry,
-): { graph: PlaygroundGraphState; selectedNodeId: string } {
+): PlaygroundGraphEditResult {
   const edgeToReplace = insertEdgeId
     ? graph.edges.find(({ id }) => id === insertEdgeId)
     : undefined;
@@ -179,18 +157,25 @@ export function addIntoGraph(
     ...additionNodes,
   ];
 
+  const fitAddedScope = (candidate: PlaygroundGraphState) =>
+    resizeParentChain(
+      candidate,
+      selectedNode?.data.container ? selectedNode.id : insertionParentId,
+    );
+
   if (
     !edgeToReplace?.sourceHandle ||
     !edgeToReplace.targetHandle ||
     !selectedNode
   ) {
     return {
-      graph: {
+      graph: fitAddedScope({
         nodes,
         edges: [...graph.edges, ...addition.edges],
         annotations: graph.annotations,
-      },
+      }),
       selectedNodeId: selectedNode.id,
+      connected: false,
     };
   }
 
@@ -243,41 +228,195 @@ export function addIntoGraph(
               graph.edges,
             )
           : undefined;
+      const insertedGraph = fitAddedScope({
+        nodes:
+          insertionParentId && downstream
+            ? nodes.map((node) =>
+                downstream.has(node.id)
+                  ? shiftNodeHorizontally(
+                      node,
+                      playgroundNodeVisualWidth(selectedNode) + CHILD_NODE_GAP,
+                    )
+                  : node,
+              )
+            : nodes,
+        edges: [
+          ...baseEdges,
+          incomingEdge,
+          createPlaygroundEdge(outgoing, nodes, locale, registry),
+        ],
+        annotations: graph.annotations,
+      });
       return {
-        graph: {
-          nodes:
-            insertionParentId && downstream
-              ? expandContainerToFitChildren(
-                  nodes.map((node) =>
-                    downstream.has(node.id)
-                      ? shiftNodeHorizontally(
-                          node,
-                          playgroundNodeVisualWidth(selectedNode) +
-                            CHILD_NODE_GAP,
-                        )
-                      : node,
-                  ),
-                  insertionParentId,
-                )
-              : nodes,
-          edges: [
-            ...baseEdges,
-            incomingEdge,
-            createPlaygroundEdge(outgoing, nodes, locale, registry),
-          ],
-          annotations: graph.annotations,
-        },
+        graph: insertedGraph,
         selectedNodeId: selectedNode.id,
+        connected: true,
       };
     }
   }
 
   return {
-    graph: {
+    graph: fitAddedScope({
       nodes,
       edges: [...graph.edges, ...addition.edges],
       annotations: graph.annotations,
-    },
+    }),
     selectedNodeId: selectedNode.id,
+    connected: false,
+  };
+}
+
+function absoluteNodePosition(
+  node: PlaygroundNode,
+  nodes: readonly PlaygroundNode[],
+  visited = new Set<string>(),
+): XYPosition {
+  if (!node.parentId || visited.has(node.id)) return { ...node.position };
+  const parent = nodes.find(({ id }) => id === node.parentId);
+  if (!parent) return { ...node.position };
+  visited.add(node.id);
+  const parentPosition = absoluteNodePosition(parent, nodes, visited);
+  return {
+    x: parentPosition.x + node.position.x,
+    y: parentPosition.y + node.position.y,
+  };
+}
+
+function positionInParentScope(
+  position: XYPosition,
+  parentId: string | undefined,
+  nodes: readonly PlaygroundNode[],
+): XYPosition {
+  if (!parentId) return { ...position };
+  const parent = nodes.find(({ id }) => id === parentId);
+  if (!parent) return { ...position };
+  const parentPosition = absoluteNodePosition(parent, nodes);
+  return {
+    x: position.x - parentPosition.x,
+    y: position.y - parentPosition.y,
+  };
+}
+
+/** Resizes the new node's container and every ancestor that contains it. */
+function resizeParentChain(
+  graph: PlaygroundGraphState,
+  startId: string | undefined,
+): PlaygroundGraphState {
+  let next = graph;
+  let currentId = startId;
+  const visited = new Set<string>();
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId);
+    const current = next.nodes.find(({ id }) => id === currentId);
+    if (!current?.data.container) {
+      currentId = current?.parentId;
+      continue;
+    }
+    next = resizePlaygroundContainerToFitChildren(next, currentId);
+    currentId = next.nodes.find(({ id }) => id === currentId)?.parentId;
+  }
+  return next;
+}
+
+/** Adds a node at a dropped connection point and wires its first compatible input. */
+export function addConnectedNodeIntoGraph(
+  graph: PlaygroundGraphState,
+  type: string,
+  position: XYPosition,
+  locale: FlowWebsiteLocale,
+  pending: PlaygroundPendingConnection,
+  registry: A3SFlowDagNodeRegistry = a3sFlowDagNodeRegistry,
+): PlaygroundGraphEditResult {
+  const sourceNode = graph.nodes.find(({ id }) => id === pending.source);
+  if (!sourceNode) {
+    const fallback = addIntoGraph(
+      graph,
+      type,
+      position,
+      locale,
+      undefined,
+      registry,
+    );
+    return fallback;
+  }
+  const parentId = sourceNode.parentId;
+  const localPosition = positionInParentScope(position, parentId, graph.nodes);
+  const addition = createNodeAddition(
+    type,
+    localPosition,
+    locale,
+    graph.nodes,
+    parentId,
+    registry,
+  );
+  const selectedNode =
+    addition.nodes.find(
+      (node) => node.parentId === parentId && node.data.container,
+    ) ??
+    addition.nodes.find((node) => node.parentId === parentId) ??
+    addition.nodes[0];
+  if (!selectedNode) {
+    return {
+      graph,
+      selectedNodeId: pending.source,
+      connected: false,
+    };
+  }
+
+  const nodes = [
+    ...graph.nodes.map((node) => ({ ...node, selected: false })),
+    ...addition.nodes.map((node) => ({
+      ...node,
+      selected: node.id === selectedNode.id,
+    })),
+  ];
+  const edges = [...graph.edges, ...addition.edges];
+  const sourceManifest = registry.require(sourceNode.data.dagNode.data.type);
+  const sourcePort = sourceManifest.ports.outputs.find(
+    ({ id }) => id === pending.sourceHandle,
+  );
+  const targetManifest = registry.require(type);
+  if (!sourcePort) {
+    return {
+      graph: { nodes, edges, annotations: graph.annotations },
+      selectedNodeId: selectedNode.id,
+      connected: false,
+    };
+  }
+
+  for (const input of targetManifest.ports.inputs) {
+    const candidate = {
+      source: pending.source,
+      sourceHandle: pending.sourceHandle,
+      target: selectedNode.id,
+      targetHandle: input.id,
+    };
+    if (!validatePlaygroundConnection(candidate, nodes, edges, registry).ok) {
+      continue;
+    }
+    const edge = createPlaygroundEdge(candidate, nodes, locale, registry);
+    const connectedGraph = resizeParentChain(
+      {
+        nodes,
+        edges: [...edges, edge],
+        annotations: graph.annotations,
+      },
+      selectedNode.data.container ? selectedNode.id : parentId,
+    );
+    return {
+      graph: connectedGraph,
+      selectedNodeId: selectedNode.id,
+      connected: true,
+    };
+  }
+
+  const unconnectedGraph = resizeParentChain(
+    { nodes, edges, annotations: graph.annotations },
+    selectedNode.data.container ? selectedNode.id : parentId,
+  );
+  return {
+    graph: unconnectedGraph,
+    selectedNodeId: selectedNode.id,
+    connected: false,
   };
 }

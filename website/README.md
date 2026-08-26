@@ -34,15 +34,17 @@ npm run bench:playground
 The benchmark is a local engineering baseline. Record browser Worker and
 WebAssembly layout timings separately when evaluating a release build.
 
-The custom-node catalog and workflow-designer each have deterministic A3S Test
-suites. The workflow-designer suite covers editing a connection label and
-preserving its port identity. Start the local site on the suite's fixed origin,
-then validate and run the relevant suite from `website/`:
+The homepage workflow designer and custom-node catalog each have deterministic
+A3S Test suites. The workflow-designer suite also covers editing a connection
+label and preserving its port identity. Start the local site on the suite's
+fixed origin, then validate and run the relevant suite from `website/`:
 
 ```sh
 npm run dev -- --host 127.0.0.1 --port 4173
 a3s-test check tests/e2e/workflow-custom-nodes.acl --json
 a3s-test run tests/e2e/workflow-custom-nodes.acl --browser-driver standalone --browser-executable agent-browser --json
+a3s-test check tests/e2e/home-workflow-canvas.acl --json
+a3s-test run tests/e2e/home-workflow-canvas.acl --browser-driver standalone --browser-executable agent-browser --json
 a3s-test check tests/e2e/workflow-designer-regression.acl --json
 a3s-test run tests/e2e/workflow-designer-regression.acl --browser-driver standalone --browser-executable agent-browser --json
 ```
@@ -51,7 +53,13 @@ a3s-test run tests/e2e/workflow-designer-regression.acl --browser-driver standal
 
 The current release uses a product homepage centered on the AI Native Workflow Engine. It explains the shared node manifests, React and Vue components, CLI, Skill, graph compiler, and durable runtime as one system. The homepage uses real `@a3s-lab/flow-ui` node components rather than a separate playground implementation.
 
-Homepage copy lives in `theme/components/HomeCopy.ts`. Structure and product scenes live in `theme/components/HomeLayout.tsx` and `theme/components/HomeVisuals.tsx`. Keep Chinese and English copy synchronized, preserve the visible locale controls, and add stable output assertions to `scripts/check-built-site.mjs` when the narrative changes.
+Homepage copy lives in `theme/components/HomeCopy.ts`. Structure and product
+scenes live in `theme/components/HomeLayout.tsx`, while the workflow demo is
+split across `HeroWorkflowCanvas.tsx`, `HeroWorkflowInspector.tsx`, and
+`HeroWorkflowCanvas.model.ts`; supporting scenes remain in `HomeVisuals.tsx`.
+Keep Chinese and English copy synchronized, preserve the visible locale
+controls, and add stable output assertions to `scripts/check-built-site.mjs`
+when the narrative changes.
 
 ## Version and locale layout
 

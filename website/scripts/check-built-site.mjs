@@ -88,6 +88,28 @@ assertIncludes(
 assertIncludes(home, 'flow-motion-scene', 'Playground-style homepage motion');
 assertIncludes(
   home,
+  'data-node-id="start"',
+  'homepage start node from the real manifest registry',
+);
+assertIncludes(
+  home,
+  'data-node-id="risk-review"',
+  'homepage task node from the real manifest registry',
+);
+assertIncludes(
+  home,
+  'data-node-id="route-result"',
+  'homepage condition node from the real manifest registry',
+);
+assertIncludes(home, 'aria-label="添加节点"', 'homepage node catalog control');
+assertIncludes(home, 'aria-label="缩小画布"', 'homepage zoom controls');
+assertIncludes(
+  englishHome,
+  'data-node-id="risk-review"',
+  'English homepage real task node',
+);
+assertIncludes(
+  home,
   'flow-hero-canvas__inspector',
   'homepage configuration-panel scene',
 );
