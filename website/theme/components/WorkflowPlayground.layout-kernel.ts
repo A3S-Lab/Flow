@@ -12,6 +12,30 @@ export type PlaygroundLayoutKernelInput = {
   heights: Float32Array;
 };
 
+/** Stable origins used by the layout kernel for each React Flow scope. */
+export const PLAYGROUND_LAYOUT_ORIGINS = {
+  root: { x: 88, y: 124 },
+  // Keep room for a container's header while leaving the first child aligned
+  // with the coordinates used by the sample workflows.
+  child: { x: 36, y: 170 },
+} as const;
+
+/** Minimum breathing room between the last child and a container edge. */
+export const PLAYGROUND_CONTAINER_PADDING = {
+  right: 36,
+  bottom: 36,
+} as const;
+
+/** Persisted child coordinates are relative to the top-left of their parent. */
+export const PLAYGROUND_CHILD_CONTENT_ORIGIN = {
+  x: 0,
+  y: 0,
+} as const;
+
+const MIN_CONTAINER_WIDTH = 600;
+const MIN_CONTAINER_HEIGHT = 360;
+type LayoutScopeId = string | null;
+
 class NumericMinHeap {
   readonly #values: number[] = [];
 
@@ -54,13 +78,29 @@ class NumericMinHeap {
 }
 
 export function playgroundNodeVisualWidth(node: PlaygroundNode): number {
-  const width = node.measured?.width ?? node.width ?? node.style?.width;
-  return typeof width === 'number' ? width : 240;
+  // A resized container's explicit style is authoritative. React Flow can
+  // expose the dimensions from the previous CSS frame for one render.
+  const width = node.style?.width ?? node.width ?? node.measured?.width;
+  return finiteDimension(width, 240);
 }
 
 export function playgroundNodeVisualHeight(node: PlaygroundNode): number {
-  const height = node.measured?.height ?? node.height ?? node.style?.height;
-  return typeof height === 'number' ? height : 126;
+  const height = node.style?.height ?? node.height ?? node.measured?.height;
+  return finiteDimension(height, 126);
+}
+
+function finiteDimension(value: unknown, fallback: number): number {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value > 0 ? value : fallback;
+  }
+  if (typeof value !== 'string' || !value.trim()) return fallback;
+  const trimmed = value.trim();
+  // A percentage is relative to the parent and cannot be measured here.
+  if (trimmed.endsWith('%')) return fallback;
+  const parsed = trimmed.endsWith('px')
+    ? Number.parseFloat(trimmed.slice(0, -2))
+    : Number(trimmed);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function compareVisualOrder(left: PlaygroundNode, right: PlaygroundNode) {
@@ -73,9 +113,10 @@ function compareVisualOrder(left: PlaygroundNode, right: PlaygroundNode) {
 
 export function createPlaygroundLayoutKernelInput(
   graph: PlaygroundGraphState,
+  scopeId: LayoutScopeId = null,
 ): PlaygroundLayoutKernelInput {
   const nodes = graph.nodes
-    .filter((node) => !node.parentId)
+    .filter((node) => (node.parentId ?? null) === scopeId)
     .sort(compareVisualOrder);
   const indexById = new Map(nodes.map(({ id }, index) => [id, index]));
   const edgePairs = graph.edges.flatMap((edge) => {
@@ -92,6 +133,26 @@ export function createPlaygroundLayoutKernelInput(
     widths: Float32Array.from(nodes.map(playgroundNodeVisualWidth)),
     heights: Float32Array.from(nodes.map(playgroundNodeVisualHeight)),
   };
+}
+
+/** Shift kernel coordinates into a nested parent's content area. */
+export function offsetPlaygroundLayoutPositions(
+  positions: Float32Array,
+  scopeId: LayoutScopeId,
+): Float32Array {
+  const origin =
+    scopeId === null
+      ? PLAYGROUND_LAYOUT_ORIGINS.root
+      : PLAYGROUND_LAYOUT_ORIGINS.child;
+  const deltaX = origin.x - PLAYGROUND_LAYOUT_ORIGINS.root.x;
+  const deltaY = origin.y - PLAYGROUND_LAYOUT_ORIGINS.root.y;
+  if (deltaX === 0 && deltaY === 0) return positions;
+  const shifted = new Float32Array(positions.length);
+  for (let index = 0; index < positions.length; index += 2) {
+    shifted[index] = positions[index] + deltaX;
+    shifted[index + 1] = positions[index + 1] + deltaY;
+  }
+  return shifted;
 }
 
 export function layoutPlaygroundKernelInJavaScript({
@@ -213,4 +274,214 @@ export function applyPlaygroundLayoutKernelOutput(
     };
   });
   return changed ? { ...graph, nodes } : graph;
+}
+
+function scopeMatches(node: PlaygroundNode, scopeId: LayoutScopeId): boolean {
+  return (node.parentId ?? null) === scopeId;
+}
+
+function containerDimension(
+  node: PlaygroundNode,
+  dimension: 'width' | 'height',
+): number {
+  const value =
+    dimension === 'width'
+      ? playgroundNodeVisualWidth(node)
+      : playgroundNodeVisualHeight(node);
+  return Number.isFinite(value) && value > 0
+    ? value
+    : dimension === 'width'
+      ? 240
+      : 126;
+}
+
+/**
+ * Keeps a container large enough for all direct children. This is done in the
+ * same graph update as the child coordinates so React Flow never calculates
+ * an edge against a stale parent boundary.
+ */
+export function resizePlaygroundContainerToFitChildren(
+  graph: PlaygroundGraphState,
+  containerId: string,
+): PlaygroundGraphState {
+  const container = graph.nodes.find(({ id }) => id === containerId);
+  if (!container || !container.data.container) return graph;
+  const children = graph.nodes.filter((node) => node.parentId === containerId);
+
+  // Clamp dropped children into the parent's content origin before measuring.
+  // Moving a direct child container also moves its complete nested subtree.
+  const minimumX = children.reduce(
+    (minimum, child) =>
+      Math.min(
+        minimum,
+        Number.isFinite(child.position.x) ? child.position.x : 0,
+      ),
+    Number.POSITIVE_INFINITY,
+  );
+  const minimumY = children.reduce(
+    (minimum, child) =>
+      Math.min(
+        minimum,
+        Number.isFinite(child.position.y) ? child.position.y : 0,
+      ),
+    Number.POSITIVE_INFINITY,
+  );
+  const shiftX = Number.isFinite(minimumX)
+    ? Math.max(0, PLAYGROUND_CHILD_CONTENT_ORIGIN.x - minimumX)
+    : 0;
+  const shiftY = Number.isFinite(minimumY)
+    ? Math.max(0, PLAYGROUND_CHILD_CONTENT_ORIGIN.y - minimumY)
+    : 0;
+  const shiftedChildren = children.map((child) => {
+    if (shiftX === 0 && shiftY === 0) return child;
+    const position = {
+      x: (Number.isFinite(child.position.x) ? child.position.x : 0) + shiftX,
+      y: (Number.isFinite(child.position.y) ? child.position.y : 0) + shiftY,
+    };
+    return {
+      ...child,
+      position,
+      data: {
+        ...child.data,
+        dagNode: {
+          ...child.data.dagNode,
+          position: structuredClone(position),
+        },
+      },
+    };
+  });
+  const shiftedById = new Map(
+    shiftedChildren.map((child) => [child.id, child] as const),
+  );
+  const requiredWidth = Math.ceil(
+    Math.max(
+      MIN_CONTAINER_WIDTH,
+      ...shiftedChildren.map(
+        (child) =>
+          Math.max(0, child.position.x) +
+          containerDimension(child, 'width') +
+          PLAYGROUND_CONTAINER_PADDING.right,
+      ),
+    ),
+  );
+  const requiredHeight = Math.ceil(
+    Math.max(
+      MIN_CONTAINER_HEIGHT,
+      ...shiftedChildren.map(
+        (child) =>
+          Math.max(0, child.position.y) +
+          containerDimension(child, 'height') +
+          PLAYGROUND_CONTAINER_PADDING.bottom,
+      ),
+    ),
+  );
+  const currentWidth = containerDimension(container, 'width');
+  const currentHeight = containerDimension(container, 'height');
+  const width = Math.max(currentWidth, requiredWidth);
+  const height = Math.max(currentHeight, requiredHeight);
+  const styleWidth = container.style?.width;
+  const styleHeight = container.style?.height;
+  if (
+    shiftX === 0 &&
+    shiftY === 0 &&
+    styleWidth === width &&
+    styleHeight === height &&
+    container.initialWidth === width &&
+    container.initialHeight === height
+  ) {
+    return graph;
+  }
+
+  const nodes = graph.nodes.map((node) => {
+    const shifted = shiftedById.get(node.id);
+    if (node.id === containerId) {
+      return {
+        ...node,
+        initialWidth: width,
+        initialHeight: height,
+        style: { ...node.style, width, height },
+      };
+    }
+    return shifted ?? node;
+  });
+  return { ...graph, nodes };
+}
+
+/** Applies one scope's coordinates and synchronizes its parent boundary. */
+export function applyPlaygroundScopeLayout(
+  graph: PlaygroundGraphState,
+  scopeId: LayoutScopeId,
+  positions: Float32Array,
+): PlaygroundGraphState {
+  const input = createPlaygroundLayoutKernelInput(graph, scopeId);
+  const shifted = offsetPlaygroundLayoutPositions(positions, scopeId);
+  let next = applyPlaygroundLayoutKernelOutput(graph, input.nodeIds, shifted);
+  if (scopeId !== null) {
+    next = resizePlaygroundContainerToFitChildren(next, scopeId);
+  }
+  return next;
+}
+
+/** Layout every scope from the leaves upward so parent sizes use final child dimensions. */
+export async function layoutPlaygroundGraphWithKernel(
+  graph: PlaygroundGraphState,
+  runKernel: (
+    input: PlaygroundLayoutKernelInput,
+  ) => Float32Array | Promise<Float32Array>,
+): Promise<PlaygroundGraphState> {
+  let next = graph;
+  const activeScopes = new Set<string>();
+
+  const visit = async (scopeId: LayoutScopeId): Promise<void> => {
+    if (scopeId !== null) {
+      if (activeScopes.has(scopeId)) return;
+      activeScopes.add(scopeId);
+    }
+    const childContainers = next.nodes.filter(
+      (node) => scopeMatches(node, scopeId) && node.data.container,
+    );
+    for (const child of childContainers) await visit(child.id);
+
+    const input = createPlaygroundLayoutKernelInput(next, scopeId);
+    if (input.nodeIds.length > 0) {
+      next = applyPlaygroundScopeLayout(next, scopeId, await runKernel(input));
+    } else if (scopeId !== null) {
+      next = resizePlaygroundContainerToFitChildren(next, scopeId);
+    }
+    if (scopeId !== null) activeScopes.delete(scopeId);
+  };
+
+  await visit(null);
+  return next;
+}
+
+/** Synchronous layout path used by tests and the performance benchmark. */
+export function layoutPlaygroundGraphInJavaScript(
+  graph: PlaygroundGraphState,
+): PlaygroundGraphState {
+  let next = graph;
+  const activeScopes = new Set<string>();
+  const visit = (scopeId: LayoutScopeId): void => {
+    if (scopeId !== null) {
+      if (activeScopes.has(scopeId)) return;
+      activeScopes.add(scopeId);
+    }
+    const childContainers = next.nodes.filter(
+      (node) => scopeMatches(node, scopeId) && node.data.container,
+    );
+    for (const child of childContainers) visit(child.id);
+    const input = createPlaygroundLayoutKernelInput(next, scopeId);
+    if (input.nodeIds.length > 0) {
+      next = applyPlaygroundScopeLayout(
+        next,
+        scopeId,
+        layoutPlaygroundKernelInJavaScript(input),
+      );
+    } else if (scopeId !== null) {
+      next = resizePlaygroundContainerToFitChildren(next, scopeId);
+    }
+    if (scopeId !== null) activeScopes.delete(scopeId);
+  };
+  visit(null);
+  return next;
 }

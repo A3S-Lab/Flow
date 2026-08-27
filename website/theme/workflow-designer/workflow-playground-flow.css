@@ -81,13 +81,54 @@ body:has(.a3s-workflow-playground) :where(#root, #app) {
 }
 
 .a3s-workflow-node-shell.is-container {
-  width: 520px;
-  height: 340px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
 }
 
 .a3s-workflow-node-shell > .a3s-form-workflow-node-preview {
   max-width: none;
   cursor: pointer;
+}
+
+.a3s-workflow-node-shell.is-container
+  > .a3s-form-workflow-node-preview[data-node-shape='container'] {
+  box-sizing: border-box;
+  display: flex !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none;
+  height: 100% !important;
+  min-height: 0 !important;
+  flex-direction: column;
+}
+
+.a3s-workflow-node-shell.is-container
+  > .a3s-form-workflow-node-preview[data-node-shape='container']
+  .a3s-form-workflow-node-preview-body {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.a3s-workflow-node-shell.is-container
+  .a3s-form-workflow-node-preview-container {
+  box-sizing: border-box;
+  width: calc(100% - 10px);
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+  margin: 0 5px 5px;
+}
+
+.a3s-workflow-node-shell.is-container
+  > .a3s-form-workflow-node-preview[data-node-shape='container']
+  > footer {
+  flex: 0 0 auto;
 }
 
 .a3s-workflow-node-shell:not(.is-container)
@@ -314,9 +355,5 @@ body:has(.a3s-workflow-playground) :where(#root, #app) {
   .a3s-workflow-logo {
     width: 30px;
     height: 30px;
-  }
-
-  .a3s-workflow-node-shell.is-container {
-    width: min(520px, calc(100vw - 76px));
   }
 }

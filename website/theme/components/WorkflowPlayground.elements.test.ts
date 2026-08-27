@@ -44,6 +44,19 @@ describe('Workflow Playground element reconciliation', () => {
     expect(unchanged.displayNodes).toBe(first.displayNodes);
     expect(unchanged.displayEdges).toBe(first.displayEdges);
 
+    expect(
+      first.displayEdges.find(
+        ({ source, target }) =>
+          source === 'item_iteration_start' && target === 'normalize_line',
+      )?.data?.internal,
+    ).toBe(true);
+    expect(
+      first.displayEdges.find(
+        ({ source, target }) =>
+          source === 'validate_order' && target === 'route_serviceability',
+      )?.data?.internal,
+    ).toBe(false);
+
     const updatedNodeId = 'validate_order';
     const updatedNodeIndex = graph.nodes.findIndex(
       ({ id }) => id === updatedNodeId,

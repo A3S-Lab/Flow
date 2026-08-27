@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  addConnectedNodeIntoGraph,
   addIntoGraph,
   layoutPlaygroundGraph,
 } from './WorkflowPlayground.graph';
@@ -151,5 +152,178 @@ describe('Workflow Playground graph editing', () => {
     expect(result.edges).toBe(sample.edges);
     expect(result.annotations).toBe(sample.annotations);
     expect(result.nodes.find(({ id }) => id === childNode?.id)).toBe(childNode);
+  });
+
+  it('lays out child scopes and keeps their container bounds in sync', () => {
+    const catalog = createPlaygroundNodeCatalog('en');
+    const sample = createSampleWorkflow('en', catalog);
+    const result = layoutPlaygroundGraph(sample);
+    const children = result.nodes.filter(
+      ({ parentId }) => parentId === 'item_iteration',
+    );
+    const container = result.nodes.find(({ id }) => id === 'item_iteration');
+    expect(children.length).toBeGreaterThan(1);
+    expect(
+      Math.min(...children.map(({ position }) => position.x)),
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      Math.min(...children.map(({ position }) => position.y)),
+    ).toBeGreaterThanOrEqual(0);
+    expect(Number(container?.style?.width)).toBeGreaterThanOrEqual(
+      Math.max(
+        ...children.map(
+          ({ position, width = 240 }) => position.x + Number(width) + 36,
+        ),
+      ),
+    );
+    expect(Number(container?.style?.height)).toBeGreaterThanOrEqual(
+      Math.max(
+        ...children.map(
+          ({ position, height = 126 }) => position.y + Number(height) + 36,
+        ),
+      ),
+    );
+  });
+
+  it('places and connects a node dropped from a child-scope output', () => {
+    const catalog = createPlaygroundNodeCatalog('en');
+    const sample = createSampleWorkflow('en', catalog);
+    const result = addConnectedNodeIntoGraph(
+      sample,
+      'flow.step',
+      { x: 1_900, y: 260 },
+      'en',
+      {
+        source: 'normalize_line',
+        sourceHandle: 'success',
+        position: { x: 1_900, y: 260 },
+      },
+      catalog.registry,
+    );
+    const added = result.graph.nodes.find(
+      ({ id }) => id === result.selectedNodeId,
+    );
+    expect(added).toMatchObject({ parentId: 'item_iteration' });
+    expect(added?.position).toEqual({ x: 340, y: 240 });
+    expect(result.connected).toBe(true);
+    expect(result.graph.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: 'normalize_line',
+          sourceHandle: 'success',
+          target: result.selectedNodeId,
+          targetHandle: 'in',
+        }),
+      ]),
+    );
+  });
+
+  it('connects a dropped container to the container node itself', () => {
+    const catalog = createPlaygroundNodeCatalog('en');
+    const sample = createSampleWorkflow('en', catalog);
+    const result = addConnectedNodeIntoGraph(
+      sample,
+      'iteration',
+      { x: 2_100, y: 300 },
+      'en',
+      {
+        source: 'item_iteration',
+        sourceHandle: 'done',
+        position: { x: 2_100, y: 300 },
+      },
+      catalog.registry,
+    );
+    const added = result.graph.nodes.find(
+      ({ id }) => id === result.selectedNodeId,
+    );
+    expect(added).toMatchObject({
+      data: { container: true },
+      parentId: undefined,
+    });
+    expect(result.graph.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: 'item_iteration',
+          target: result.selectedNodeId,
+          targetHandle: 'in',
+        }),
+      ]),
+    );
+  });
+
+  it('expands a child container when a dropped connection is outside its bounds', () => {
+    const catalog = createPlaygroundNodeCatalog('en');
+    const sample = createSampleWorkflow('en', catalog);
+    const result = addConnectedNodeIntoGraph(
+      sample,
+      'flow.step',
+      { x: 5_000, y: 5_000 },
+      'en',
+      {
+        source: 'normalize_line',
+        sourceHandle: 'success',
+        position: { x: 5_000, y: 5_000 },
+      },
+      catalog.registry,
+    );
+    const added = result.graph.nodes.find(
+      ({ id }) => id === result.selectedNodeId,
+    );
+    const container = result.graph.nodes.find(
+      ({ id }) => id === 'item_iteration',
+    );
+    expect(added).toMatchObject({ parentId: 'item_iteration' });
+    expect(added?.position.x).toBeGreaterThanOrEqual(0);
+    expect(added?.position.y).toBeGreaterThanOrEqual(0);
+    expect(Number(container?.style?.width)).toBeGreaterThanOrEqual(
+      (added?.position.x ?? 0) + Number(added?.style?.width ?? 240) + 36,
+    );
+    expect(Number(container?.style?.height)).toBeGreaterThanOrEqual(
+      (added?.position.y ?? 0) + Number(added?.style?.height ?? 126) + 36,
+    );
+    expect(result.connected).toBe(true);
+  });
+
+  it('keeps nested dropped containers inside both parent scopes', () => {
+    const catalog = createPlaygroundNodeCatalog('en');
+    const sample = createSampleWorkflow('en', catalog);
+    const result = addConnectedNodeIntoGraph(
+      sample,
+      'iteration',
+      { x: 2_400, y: 1_000 },
+      'en',
+      {
+        source: 'normalize_line',
+        sourceHandle: 'success',
+        position: { x: 2_400, y: 1_000 },
+      },
+      catalog.registry,
+    );
+    const nested = result.graph.nodes.find(
+      ({ id }) => id === result.selectedNodeId,
+    );
+    const parent = result.graph.nodes.find(({ id }) => id === 'item_iteration');
+    const nestedChildren = result.graph.nodes.filter(
+      ({ parentId }) => parentId === result.selectedNodeId,
+    );
+    expect(nested).toMatchObject({
+      parentId: 'item_iteration',
+      data: { container: true },
+    });
+    expect(nestedChildren.length).toBeGreaterThan(0);
+    expect(Number(nested?.style?.width)).toBeGreaterThanOrEqual(
+      Math.max(
+        ...nestedChildren.map(
+          ({ position, style }) =>
+            position.x + Number(style?.width ?? 240) + 36,
+        ),
+      ),
+    );
+    expect(Number(parent?.style?.width)).toBeGreaterThanOrEqual(
+      (nested?.position.x ?? 0) + Number(nested?.style?.width ?? 600) + 36,
+    );
+    expect(Number(parent?.style?.height)).toBeGreaterThanOrEqual(
+      (nested?.position.y ?? 0) + Number(nested?.style?.height ?? 360) + 36,
+    );
   });
 });

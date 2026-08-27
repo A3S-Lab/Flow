@@ -65,7 +65,16 @@ export type PlaygroundAnnotationNode = Node<
 
 export type PlaygroundCanvasNode = PlaygroundNode | PlaygroundAnnotationNode;
 
+/** A source handle and the canvas point where a new node should be placed. */
+export type PlaygroundPendingConnection = {
+  source: string;
+  sourceHandle: string;
+  position: XYPosition;
+};
+
 export type PlaygroundEdgeData = {
+  /** True when both endpoints live inside the same child scope. */
+  internal?: boolean;
   routing?: PlaygroundEdgeRouting;
   sourcePortLabel?: string;
   insertLabel?: string;
@@ -158,6 +167,7 @@ export function playgroundGraphSemanticKey(
 }
 
 const NORMAL_NODE_WIDTH = 240;
+const NORMAL_NODE_HEIGHT = 126;
 const CONTAINER_NODE_WIDTH = 600;
 const CONTAINER_NODE_HEIGHT = 360;
 
@@ -202,11 +212,15 @@ export function createPlaygroundNode(
         position: { x: position.x, y: position.y },
       });
   const container = manifest.role === 'container';
+  const initialWidth = container ? CONTAINER_NODE_WIDTH : NORMAL_NODE_WIDTH;
+  const initialHeight = container ? CONTAINER_NODE_HEIGHT : NORMAL_NODE_HEIGHT;
 
   return {
     id,
     type: 'flowNode',
     position,
+    initialWidth,
+    initialHeight,
     parentId: options.parentId,
     extent: options.parentId ? 'parent' : undefined,
     expandParent: Boolean(options.parentId),

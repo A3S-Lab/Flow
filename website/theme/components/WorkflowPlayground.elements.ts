@@ -68,6 +68,7 @@ type AnnotationCacheEntry = {
 type EdgeCacheEntry = {
   activeColor: string;
   animated: boolean;
+  internal: boolean;
   insertLabel: string;
   lineColor: string;
   locale: FlowWebsiteLocale;
@@ -247,12 +248,18 @@ export function reconcileWorkflowPlaygroundElements(
       running &&
       (statuses[edge.source] === 'running' ||
         statuses[edge.target] === 'running');
-    const sourceNodeData = nodeById.get(edge.source)?.data.dagNode.data;
+    const sourceNode = nodeById.get(edge.source);
+    const targetNode = nodeById.get(edge.target);
+    const internal = Boolean(
+      sourceNode?.parentId && sourceNode.parentId === targetNode?.parentId,
+    );
+    const sourceNodeData = sourceNode?.data.dagNode.data;
     const previous = cache.edges.get(edge.id);
     if (
       previous?.source === edge &&
       previous.selected === selected &&
       previous.animated === animated &&
+      previous.internal === internal &&
       previous.sourceNodeData === sourceNodeData &&
       previous.locale === locale &&
       previous.registry === registry &&
@@ -288,6 +295,7 @@ export function reconcileWorkflowPlaygroundElements(
       },
       data: {
         ...edge.data,
+        internal,
         sourcePortLabel,
         routing: edgeRouting,
         insertLabel: copy.addNode,
@@ -297,6 +305,7 @@ export function reconcileWorkflowPlaygroundElements(
     cache.edges.set(edge.id, {
       activeColor: edgePalette.active,
       animated,
+      internal,
       insertLabel: copy.addNode,
       lineColor: edgePalette.line,
       locale,

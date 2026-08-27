@@ -84,6 +84,8 @@ export function sampleContainer(
   });
   return {
     ...node,
+    initialWidth: CONTAINER_WIDTH,
+    initialHeight: CONTAINER_HEIGHT,
     style: {
       ...node.style,
       width: CONTAINER_WIDTH,
