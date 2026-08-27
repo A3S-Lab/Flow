@@ -16,6 +16,7 @@ import {
 } from "../src/react/workflow-configuration-widgets";
 import { WorkflowCodeEditor } from "../src/react/workflow-code-editor";
 import { WorkflowPromptWidget } from "../src/react/workflow-configuration-editors";
+import { WorkflowDifyWidget } from "../src/react/workflow-dify-widget";
 import { SelectControl } from "../src/react/select-control";
 
 const conditionField = {
@@ -308,6 +309,51 @@ describe("workflow configuration widgets", () => {
         .value,
     ).toBe("暂无数据。");
     data.unmount();
+  });
+
+  it("keeps adapter selectors and primitive lists lossless while editing", () => {
+    const onChange = vi.fn();
+    const listView = render(
+      <WorkflowDifyWidget
+        {...widgetProps({
+          node: {
+            ...conditionField,
+            label: "数据集",
+            customProps: { difyEditor: "string-list" },
+          },
+          value: ["dataset-a", "dataset-b"],
+          onChange,
+        })}
+      />,
+    );
+    const first = within(listView.container).getByRole("textbox", {
+      name: "比较值 1",
+    });
+    fireEvent.change(first, { target: { value: "dataset-c" } });
+    expect(onChange).toHaveBeenLastCalledWith(["dataset-c", "dataset-b"]);
+    listView.unmount();
+
+    const selectorChange = vi.fn();
+    const selectorView = render(
+      <WorkflowDifyWidget
+        {...widgetProps({
+          node: {
+            ...conditionField,
+            label: "查询变量",
+            customProps: { difyEditor: "selector" },
+          },
+          value: ["start", "query"],
+          onChange: selectorChange,
+        })}
+      />,
+    );
+    const selector = within(selectorView.container).getByRole("textbox", {
+      name: "选择器",
+    });
+    expect((selector as HTMLInputElement).value).toBe("start.query");
+    fireEvent.change(selector, { target: { value: "input.query" } });
+    expect(selectorChange).toHaveBeenLastCalledWith(["input", "query"]);
+    selectorView.unmount();
   });
 
   it("can unmount code editors before their asynchronous runtime settles", async () => {

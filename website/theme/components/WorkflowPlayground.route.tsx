@@ -113,7 +113,10 @@ export function WorkflowPlaygroundRoute({
   onCopilotRequest,
 }: WorkflowPlaygroundRouteProps) {
   const locale: FlowWebsiteLocale = useLang() === 'en' ? 'en' : 'zh';
-  const catalog = useMemo(() => createPlaygroundNodeCatalog(locale), [locale]);
+  const catalog = useMemo(
+    () => createPlaygroundNodeCatalog(locale, { includeDify: true }),
+    [locale],
+  );
   const examples = useMemo(
     () => createWorkflowExamples(locale, catalog),
     [catalog, locale],

@@ -37,6 +37,22 @@ const FLOW_NODE_VISUALS: Readonly<Record<string, WorkflowNodeVisualIdentity>> = 
   'iteration-start': { icon: 'play', tone: 'green', family: 'entry' },
   loop: { icon: 'redo', tone: 'green', family: 'container' },
   'loop-start': { icon: 'play', tone: 'green', family: 'entry' },
+  'dify.start': { icon: 'play', tone: 'violet', family: 'entry' },
+  'dify.llm': { icon: 'sparkles', tone: 'violet', family: 'action' },
+  'dify.if-else': { icon: 'layout', tone: 'cyan', family: 'branch' },
+  'dify.http': { icon: 'link', tone: 'violet', family: 'action' },
+  'dify.knowledge-retrieval': { icon: 'search', tone: 'violet', family: 'action' },
+  'dify.question-classifier': { icon: 'layout', tone: 'cyan', family: 'branch' },
+  'dify.parameter-extractor': { icon: 'settings', tone: 'violet', family: 'action' },
+  'dify.template-transform': { icon: 'settings', tone: 'violet', family: 'action' },
+  'dify.variable-assigner': { icon: 'components', tone: 'violet', family: 'action' },
+  'dify.code': { icon: 'settings', tone: 'violet', family: 'action' },
+  'dify.end': { icon: 'check-square', tone: 'green', family: 'terminal' },
+  'dify.answer': { icon: 'text', tone: 'green', family: 'terminal' },
+  'dify.document-extractor': { icon: 'file', tone: 'violet', family: 'action' },
+  'dify.loop': { icon: 'redo', tone: 'cyan', family: 'container' },
+  'dify.iteration': { icon: 'list', tone: 'cyan', family: 'container' },
+  'dify.list-operator': { icon: 'list', tone: 'violet', family: 'action' },
 };
 
 function categoryIcon(category: string): DesignerIconName {

@@ -17,6 +17,9 @@ type ContractNode = WorkflowNodeDefinition & {
   manifestVersion?: number;
   owner?: string;
   role?: string;
+  adapter?: string;
+  difyType?: string;
+  sourceVersion?: string;
   runtimeBinding?: string;
   stableIdBinding?: string;
   internal?: boolean;
@@ -84,6 +87,9 @@ export interface WorkflowNodeContractSnapshot {
   manifestVersion?: number;
   owner?: string;
   role?: string;
+  adapter?: string;
+  difyType?: string;
+  sourceVersion?: string;
   runtimeBinding?: string;
   stableIdBinding?: string;
   internal: boolean;
@@ -222,6 +228,10 @@ export function projectWorkflowNodeContract(
         : undefined,
     owner: typeof candidate.owner === 'string' ? candidate.owner : undefined,
     role: typeof candidate.role === 'string' ? candidate.role : undefined,
+    adapter: typeof candidate.adapter === 'string' ? candidate.adapter : undefined,
+    difyType: typeof candidate.difyType === 'string' ? candidate.difyType : undefined,
+    sourceVersion:
+      typeof candidate.sourceVersion === 'string' ? candidate.sourceVersion : undefined,
     runtimeBinding:
       typeof candidate.runtimeBinding === 'string'
         ? candidate.runtimeBinding
@@ -297,6 +307,9 @@ function contractCopy(chinese: boolean) {
         version: 'Manifest 版本',
         owner: '所有者',
         role: '角色',
+        adapter: '适配器',
+        difyType: 'Dify 类型',
+        sourceVersion: '来源版本',
         runtime: '运行绑定',
         stableId: '稳定 ID',
         flags: '标记',
@@ -340,6 +353,9 @@ function contractCopy(chinese: boolean) {
         version: 'Manifest version',
         owner: 'Owner',
         role: 'Role',
+        adapter: 'Adapter',
+        difyType: 'Dify type',
+        sourceVersion: 'Source version',
         runtime: 'Runtime binding',
         stableId: 'Stable ID',
         flags: 'Flags',
@@ -399,6 +415,9 @@ function ContractMeta({
     [copy.version, snapshot.manifestVersion?.toString()],
     [copy.owner, snapshot.owner],
     [copy.role, snapshot.role],
+    [copy.adapter, snapshot.adapter],
+    [copy.difyType, snapshot.difyType],
+    [copy.sourceVersion, snapshot.sourceVersion],
     [copy.runtime, snapshot.runtimeBinding],
     [copy.stableId, snapshot.stableIdBinding],
     [copy.containerStart, snapshot.containerStartNodeType],

@@ -1,7 +1,9 @@
 import {
   createA3SFlowDagNodeCatalog,
+  createA3SFlowDifyNodeRegistrations,
   createA3SFlowExpression,
   defineA3SFlowCustomDagNode,
+  extendA3SFlowDagNodeCatalog,
   type A3SFlowDagNodeCatalog,
   type A3SFlowDagPortDefinition,
   type WorkflowNodeFieldDefinition,
@@ -145,11 +147,12 @@ function field(
 /** Demo host catalog used to exercise the public custom-node extension contract. */
 export function createPlaygroundNodeCatalog(
   locale: FlowWebsiteLocale,
+  options: { includeDify?: boolean } = {},
 ): A3SFlowDagNodeCatalog {
   const risk = COPY.risk;
   const reserve = COPY.reserve;
   const notify = COPY.notify;
-  return createA3SFlowDagNodeCatalog([
+  const hostCatalog = createA3SFlowDagNodeCatalog([
     createCustomsDocumentReviewNode(locale),
     defineA3SFlowCustomDagNode({
       manifest: {
@@ -475,4 +478,9 @@ export function createPlaygroundNodeCatalog(
       },
     }),
   ]);
+  if (!options.includeDify) return hostCatalog;
+  return extendA3SFlowDagNodeCatalog(
+    hostCatalog,
+    createA3SFlowDifyNodeRegistrations(locale),
+  );
 }

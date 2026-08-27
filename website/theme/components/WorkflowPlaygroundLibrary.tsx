@@ -25,7 +25,9 @@ import {
   XCircle,
 } from '@phosphor-icons/react';
 import {
+  isA3SFlowDifyNodeManifest,
   localizeA3SFlowDagManifest,
+  type A3SFlowDifyNodeManifest,
   type A3SFlowDagNodeCatalog,
 } from '@a3s-lab/flow-ui';
 import {
@@ -61,9 +63,35 @@ const iconByType: Readonly<Record<string, typeof Play>> = {
   'commerce.customs.document-review': FileMagnifyingGlass,
   'commerce.inventory.reserve': Archive,
   'commerce.message.dispatch': PaperPlaneTilt,
+  'dify.start': Play,
+  'dify.llm': Lightning,
+  'dify.if-else': GitBranch,
+  'dify.http': PlugsConnected,
+  'dify.knowledge-retrieval': MagnifyingGlass,
+  'dify.question-classifier': GitBranch,
+  'dify.parameter-extractor': Lightning,
+  'dify.template-transform': FileMagnifyingGlass,
+  'dify.variable-assigner': ArrowsClockwise,
+  'dify.code': FlowArrow,
+  'dify.end': CheckCircle,
+  'dify.answer': PaperPlaneTilt,
+  'dify.document-extractor': FileMagnifyingGlass,
+  'dify.loop': ArrowClockwise,
+  'dify.iteration': Repeat,
+  'dify.list-operator': Stack,
 };
 
 function toneForType(type: string): string {
+  if (type.startsWith('dify.')) {
+    if (
+      type === 'dify.if-else' ||
+      type === 'dify.loop' ||
+      type === 'dify.iteration'
+    )
+      return 'cyan';
+    if (type === 'dify.end' || type === 'dify.answer') return 'green';
+    return 'violet';
+  }
   if (type === 'flow.complete' || type === 'flow.progress') return 'green';
   if (type === 'flow.fail' || type === 'flow.cancel') return 'red';
   if (type === 'flow.wait' || type === 'flow.hook') return 'orange';
@@ -97,9 +125,12 @@ export function WorkflowPlaygroundLibrary({
   onDragStart,
   onSelect,
 }: WorkflowPlaygroundLibraryProps) {
-  const [activeTab, setActiveTab] = useState<'built-in' | 'custom'>('built-in');
+  const [activeTab, setActiveTab] = useState<'built-in' | 'dify' | 'custom'>(
+    'built-in',
+  );
   const [query, setQuery] = useState('');
   const builtInTabRef = useRef<HTMLButtonElement>(null);
+  const difyTabRef = useRef<HTMLButtonElement>(null);
   const customTabRef = useRef<HTMLButtonElement>(null);
   const normalizedQuery = query.trim().toLocaleLowerCase(locale);
   const matchesQuery = (values: readonly string[]) =>
@@ -125,34 +156,62 @@ export function WorkflowPlaygroundLibrary({
   }, [catalog.registry, locale, normalizedQuery]);
   const customNodes = useMemo(
     () =>
-      catalog.custom.filter(({ manifest, capability }) =>
-        matchesQuery([
-          manifest.display_name,
-          manifest.description,
-          manifest.type,
-          capability.id,
-          capability.version,
-          capability.handler,
-        ]),
+      catalog.custom.filter(
+        ({ manifest, capability }) =>
+          !isA3SFlowDifyNodeManifest(manifest) &&
+          matchesQuery([
+            manifest.display_name,
+            manifest.description,
+            manifest.type,
+            capability.id,
+            capability.version,
+            capability.handler,
+          ]),
+      ),
+    [catalog.custom, locale, normalizedQuery],
+  );
+  const difyNodes = useMemo(
+    () =>
+      catalog.custom.filter(
+        ({ manifest, capability }) =>
+          isA3SFlowDifyNodeManifest(manifest) &&
+          matchesQuery([
+            manifest.display_name,
+            manifest.description,
+            manifest.type,
+            manifest.difyType,
+            manifest.sourceVersion,
+            capability.id,
+            capability.handler,
+          ]),
       ),
     [catalog.custom, locale, normalizedQuery],
   );
   const onTabKeyDown = (
     event: KeyboardEvent<HTMLButtonElement>,
-    tab: 'built-in' | 'custom',
+    tab: 'built-in' | 'dify' | 'custom',
   ) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
+    const tabs = ['built-in', 'dify', 'custom'] as const;
     const next =
       event.key === 'Home'
-        ? 'built-in'
+        ? tabs[0]
         : event.key === 'End'
-          ? 'custom'
-          : tab === 'built-in'
-            ? 'custom'
-            : 'built-in';
+          ? tabs[tabs.length - 1]
+          : tabs[
+              (tabs.indexOf(tab) +
+                (event.key === 'ArrowLeft' ? -1 : 1) +
+                tabs.length) %
+                tabs.length
+            ];
     setActiveTab(next);
-    (next === 'built-in' ? builtInTabRef : customTabRef).current?.focus();
+    (next === 'built-in'
+      ? builtInTabRef
+      : next === 'dify'
+        ? difyTabRef
+        : customTabRef
+    ).current?.focus();
   };
 
   if (!open) return null;
@@ -214,6 +273,26 @@ export function WorkflowPlaygroundLibrary({
           </span>
         </button>
         <button
+          aria-controls="workflow-dify-nodes"
+          aria-selected={activeTab === 'dify'}
+          className={activeTab === 'dify' ? 'is-active' : undefined}
+          id="workflow-dify-tab"
+          onClick={() => setActiveTab('dify')}
+          onKeyDown={(event) => onTabKeyDown(event, 'dify')}
+          ref={difyTabRef}
+          role="tab"
+          tabIndex={activeTab === 'dify' ? 0 : -1}
+          type="button"
+        >
+          {copy.difyNodes}
+          <span>
+            {difyNodes.length ||
+              catalog.custom.filter(({ manifest }) =>
+                isA3SFlowDifyNodeManifest(manifest),
+              ).length}
+          </span>
+        </button>
+        <button
           aria-controls="workflow-custom-nodes"
           aria-selected={activeTab === 'custom'}
           className={activeTab === 'custom' ? 'is-active' : undefined}
@@ -226,7 +305,12 @@ export function WorkflowPlaygroundLibrary({
           type="button"
         >
           {copy.customNodes}
-          <span>{catalog.custom.length}</span>
+          <span>
+            {customNodes.length ||
+              catalog.custom.filter(
+                ({ manifest }) => !isA3SFlowDifyNodeManifest(manifest),
+              ).length}
+          </span>
         </button>
       </div>
 
@@ -234,13 +318,17 @@ export function WorkflowPlaygroundLibrary({
         aria-labelledby={
           activeTab === 'built-in'
             ? 'workflow-built-in-tab'
-            : 'workflow-custom-tab'
+            : activeTab === 'dify'
+              ? 'workflow-dify-tab'
+              : 'workflow-custom-tab'
         }
         className="a3s-node-library__groups"
         id={
           activeTab === 'built-in'
             ? 'workflow-built-in-nodes'
-            : 'workflow-custom-nodes'
+            : activeTab === 'dify'
+              ? 'workflow-dify-nodes'
+              : 'workflow-custom-nodes'
         }
         role="tabpanel"
       >
@@ -296,6 +384,70 @@ export function WorkflowPlaygroundLibrary({
             </section>
           ))}
         {activeTab === 'built-in' && builtInGroups.length === 0 && (
+          <p className="a3s-node-library__empty">{copy.noNodes}</p>
+        )}
+        {activeTab === 'dify' && difyNodes.length > 0 && (
+          <section aria-labelledby="workflow-group-dify">
+            <h3 id="workflow-group-dify">{copy.difyNodes}</h3>
+            <p className="a3s-node-library__description">
+              {copy.difyNodesDescription}
+            </p>
+            <div>
+              {difyNodes.map(({ manifest, capability }) => {
+                const difyManifest = manifest as A3SFlowDifyNodeManifest;
+                const Icon = iconByType[difyManifest.type] ?? FlowArrow;
+                return (
+                  <button
+                    aria-label={copy.addNamedNode(difyManifest.display_name)}
+                    className="is-custom is-dify"
+                    data-field-count={difyManifest.fields.length}
+                    data-port-count={
+                      difyManifest.ports.inputs.length +
+                      difyManifest.ports.outputs.length
+                    }
+                    data-node-tone="cyan"
+                    draggable
+                    key={difyManifest.type}
+                    onClick={() => onSelect(difyManifest.type)}
+                    onDragEnd={onDragEnd}
+                    onDragStart={(event) =>
+                      onDragStart(event, difyManifest.type)
+                    }
+                    type="button"
+                  >
+                    <span aria-hidden="true">
+                      <Icon weight="duotone" />
+                    </span>
+                    <span>
+                      <strong>{difyManifest.display_name}</strong>
+                      <small>{difyManifest.description}</small>
+                      <code>
+                        {difyManifest.type} · {difyManifest.difyType}
+                      </code>
+                      <small className="a3s-node-library__contract-meta">
+                        {
+                          difyManifest.fields.filter(
+                            (field) => field.show !== false,
+                          ).length
+                        }{' '}
+                        {locale === 'zh' ? '项配置' : 'settings'} ·{' '}
+                        {difyManifest.ports.inputs.length +
+                          difyManifest.ports.outputs.length}{' '}
+                        {locale === 'zh' ? '个端口' : 'ports'}
+                      </small>
+                      <span className="a3s-node-library__capability">
+                        <span>{copy.capabilityReady}</span>
+                        <code>{`${capability.id}@${capability.version}`}</code>
+                        <small>{`${copy.capabilityHandler} · ${capability.handler}`}</small>
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        )}
+        {activeTab === 'dify' && difyNodes.length === 0 && (
           <p className="a3s-node-library__empty">{copy.noNodes}</p>
         )}
         {activeTab === 'custom' && customNodes.length > 0 && (

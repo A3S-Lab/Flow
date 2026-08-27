@@ -1,4 +1,10 @@
-import type { A3SFlowDagNodeCatalog } from '@a3s-lab/flow-ui';
+import {
+  createWorkflowNodeDefaultValue,
+  isA3SFlowDifyNodeManifest,
+  type A3SFlowDagNodeCatalog,
+} from '@a3s-lab/flow-ui';
+type JsonPrimitive = string | number | boolean | null;
+type JsonValue = JsonPrimitive | { [key: string]: JsonValue } | JsonValue[];
 import type { FlowWebsiteLocale } from './flow-node-catalog';
 import { createPlaygroundNodeCatalog } from './WorkflowPlayground.custom-nodes';
 import {
@@ -17,6 +23,201 @@ import {
   type SampleJsonObject,
 } from './WorkflowPlayground.sample.helpers';
 import { createSampleScopes } from './WorkflowPlayground.sample.scopes';
+
+const DIFY_SELECTOR_KEYS = new Set([
+  'query',
+  'selector',
+  'variable',
+  'variable_selector',
+  'query_variable_selector',
+  'query_attachment_selector',
+  'iterator_selector',
+  'output_selector',
+  'value_selector',
+  'model_selector',
+  'dataset_ids',
+  'required',
+  'enum',
+]);
+
+// These values are protocol discriminators, not copy text. Changing one makes
+// a parity example look editable while silently producing a payload Dify
+// cannot import (for example `user-sample` or `string-sample`).
+const DIFY_PROTOCOL_KEYS = new Set([
+  'type',
+  'mode',
+  'role',
+  'logical_operator',
+  'comparison_operator',
+  'operator',
+  'method',
+  'detail',
+  'var_type',
+  'vartype',
+  'item_var_type',
+  'value_type',
+  'output_type',
+  'iterator_input_type',
+  'retrieval_mode',
+  'metadata_filtering_mode',
+  'reasoning_mode',
+  'reasoning_format',
+  'code_language',
+  'error_handle_mode',
+  'serial',
+  'start_node_id',
+  'id',
+  'case_id',
+  'groupid',
+  'children',
+  'url',
+  'api_key',
+  'curl',
+  'provider',
+  'value',
+  'code',
+  'headers',
+  'params',
+]);
+
+function normalizedDifyKey(key: string): string {
+  return key.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLocaleLowerCase();
+}
+
+function editedDifyValue(value: JsonValue, key: string): JsonValue {
+  const normalizedKey = normalizedDifyKey(key);
+  if (typeof value === 'string') {
+    if (
+      DIFY_SELECTOR_KEYS.has(normalizedKey) ||
+      DIFY_PROTOCOL_KEYS.has(normalizedKey)
+    ) {
+      return value;
+    }
+    return value ? `${value}-sample` : 'sample-value';
+  }
+  if (typeof value === 'number') {
+    // Keep fractional values inside the common Dify [0, 1] range while still
+    // making them visibly different from the manifest default.
+    if (value > 0 && value < 1)
+      return Math.min(0.99, Math.round((value + 0.1) * 100) / 100);
+    return value + 1;
+  }
+  if (typeof value === 'boolean') return !value;
+  // `null` is meaningful in Dify schemas (for example code output children).
+  if (value === null) return null;
+  if (Array.isArray(value)) {
+    // Selectors and empty optional lists are already valid wire values. Do not
+    // invent placeholder IDs that cannot resolve in the surrounding graph.
+    if (
+      DIFY_SELECTOR_KEYS.has(normalizedKey) ||
+      DIFY_PROTOCOL_KEYS.has(normalizedKey) ||
+      value.every((item) => Array.isArray(item)) ||
+      value.length === 0
+    ) {
+      return value;
+    }
+    return value.map((item) => editedDifyValue(item, normalizedKey));
+  }
+  const entries = Object.entries(value);
+  if (entries.length === 0) return {};
+  return Object.fromEntries(
+    entries.map(([childKey, childValue]) => [
+      childKey,
+      editedDifyValue(childValue, childKey),
+    ]),
+  );
+}
+
+function editedDifyFieldValue(
+  value: JsonValue,
+  key: string,
+  options: readonly unknown[] | undefined,
+): JsonValue {
+  if (Array.isArray(options) && options.length > 0) {
+    const allowed = options.flatMap((option) => {
+      if (
+        option === null ||
+        ['string', 'number', 'boolean'].includes(typeof option)
+      ) {
+        return [option as JsonValue];
+      }
+      if (typeof option === 'object' && option && !Array.isArray(option)) {
+        const candidate = (option as { value?: unknown }).value;
+        return candidate === null ||
+          ['string', 'number', 'boolean'].includes(typeof candidate)
+          ? [candidate as JsonValue]
+          : [];
+      }
+      return [];
+    });
+    if (allowed.length > 1) {
+      const current = JSON.stringify(value);
+      const alternative = allowed.find(
+        (candidate) => JSON.stringify(candidate) !== current,
+      );
+      if (alternative !== undefined) return alternative;
+    }
+  }
+  return editedDifyValue(value, key);
+}
+
+function createDifyParityNodes(
+  locale: FlowWebsiteLocale,
+  catalog: A3SFlowDagNodeCatalog,
+): PlaygroundNode[] {
+  const manifests = catalog.registry
+    .list({ includeInternal: false })
+    .filter(isA3SFlowDifyNodeManifest);
+  return manifests.map((manifest, index) => {
+    const defaults = createWorkflowNodeDefaultValue(manifest);
+    const configuration = Object.fromEntries(
+      manifest.fields
+        .filter((field) => field.show !== false)
+        .map((field) => [
+          field.name,
+          editedDifyFieldValue(defaults[field.name], field.name, field.options),
+        ]),
+    );
+    return sampleNode(
+      `dify_${manifest.difyType.replaceAll('-', '_')}`,
+      manifest.type,
+      { x: 80 + (index % 4) * 330, y: 80 + Math.floor(index / 4) * 230 },
+      locale,
+      [
+        `Dify ${manifest.display_name} 示例`,
+        `Dify ${manifest.display_name} sample`,
+      ],
+      [
+        `展示 ${manifest.difyType} 的完整嵌套配置和可编辑字段。`,
+        `Demonstrate the complete nested payload and editable fields for ${manifest.difyType}.`,
+      ],
+      { configuration, registry: catalog.registry },
+    );
+  });
+}
+
+export function createDifyParityWorkflow(
+  locale: FlowWebsiteLocale,
+  catalog: A3SFlowDagNodeCatalog,
+): PlaygroundGraphState {
+  const nodes = createDifyParityNodes(locale, catalog);
+  const byType = new Map(
+    nodes.map((node) => [node.data.dagNode.data.type, node]),
+  );
+  const start = byType.get('dify.start');
+  const llm = byType.get('dify.llm');
+  const end = byType.get('dify.end');
+  const connections: SampleConnection[] = [];
+  if (start && llm) connections.push(connection(start.id, 'next', llm.id));
+  if (llm && end) connections.push(connection(llm.id, 'next', end.id));
+  return {
+    nodes,
+    edges: connections.map((value) =>
+      createPlaygroundEdge(value, nodes, locale, catalog.registry),
+    ),
+    annotations: [],
+  };
+}
 
 export function createSampleWorkflow(
   locale: FlowWebsiteLocale,
@@ -765,6 +966,14 @@ export function createSampleWorkflow(
       ],
     ),
   ];
+
+  // The current-version Playground opts into the Dify adapter. Keep the
+  // adapter examples visible in the featured graph so the catalog and the
+  // emitted DSL stay in lock-step, while the legacy/default test catalog is
+  // unchanged when Dify is not enabled.
+  if (catalog.registry.list().some(isA3SFlowDifyNodeManifest)) {
+    nodes.push(...createDifyParityNodes(locale, catalog));
+  }
 
   const connections: SampleConnection[] = [
     connection('order_start', 'next', 'validate_order'),
