@@ -193,9 +193,9 @@ function WorkflowPlaygroundEdgeComponent({
           <svg
             aria-hidden="true"
             className="a3s-workflow-internal-edge-overlay"
-            height="1"
+            data-edge-id={id}
             overflow="visible"
-            width="1"
+            preserveAspectRatio="none"
           >
             <path
               className={`react-flow__edge-path a3s-workflow-internal-edge-path${selected ? ' is-selected' : ''}${animated ? ' is-animated' : ''}`}

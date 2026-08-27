@@ -100,24 +100,20 @@ suite "workflow-designer-regression" {
             text = "跨境高价值订单履约"
         }
 
-        click "fit-complete-canvas" {
-            target = css(".react-flow__controls-button:nth-child(3)")
-        }
-
         click "select-done-connection" {
-            target = css("[data-edge-id=\"edge_compliance_batch_done_score_order_risk_in\"] .a3s-workflow-edge-label__text")
+            target = css("[data-edge-id=\"edge_validate_order_success_route_serviceability_in\"] .a3s-workflow-edge-label__text")
         }
 
         click "open-edge-label-editor" {
-            target = css("[data-edge-id=\"edge_compliance_batch_done_score_order_risk_in\"] .a3s-workflow-edge-label__edit")
+            target = css("[data-edge-id=\"edge_validate_order_success_route_serviceability_in\"] .a3s-workflow-edge-label__edit")
         }
 
         expect "edge-label-editor" {
-            visible = css("[data-edge-id=\"edge_compliance_batch_done_score_order_risk_in\"] input[aria-label=\"编辑连线名称\"]")
+            visible = css("[data-edge-id=\"edge_validate_order_success_route_serviceability_in\"] input[aria-label=\"编辑连线名称\"]")
         }
 
         fill "connection-label" {
-            target = css("[data-edge-id=\"edge_compliance_batch_done_score_order_risk_in\"] input[aria-label=\"编辑连线名称\"]")
+            target = css("[data-edge-id=\"edge_validate_order_success_route_serviceability_in\"] input[aria-label=\"编辑连线名称\"]")
             value = "物流已全部完成"
         }
 
@@ -130,7 +126,7 @@ suite "workflow-designer-regression" {
         }
 
         expect "stable-source-handle" {
-            visible = css("[data-edge-id=\"edge_compliance_batch_done_score_order_risk_in\"]")
+            visible = css("[data-edge-id=\"edge_validate_order_success_route_serviceability_in\"]")
         }
 
         console "edge-label-console" {
@@ -140,6 +136,71 @@ suite "workflow-designer-regression" {
 
         page_errors "edge-label-page-errors" {
             path = "evidence/workflow-edge-label-page-errors.json"
+            clear = false
+        }
+    }
+
+    scenario "nested-edge-rendering" {
+        name = "Keep child-scope edge overlays visible across viewport changes"
+        surface = "web"
+        timeout_ms = 60000
+
+        viewport "desktop" {
+            width = 1440
+            height = 900
+        }
+
+        navigate "open-complete-example" {
+            url = "http://127.0.0.1:4173/Flow/playground?example=cross-border-fulfillment"
+        }
+
+        wait "page-ready" {
+            text = "跨境高价值订单履约"
+        }
+
+        click "fit-complete-canvas" {
+            target = css(".react-flow__controls-button[aria-label=\"Fit View\"]")
+        }
+
+        expect "nested-edge-after-fit" {
+            visible = css(".a3s-workflow-internal-edge-overlay[data-edge-id=\"edge_item_iteration_start_next_normalize_line_in\"] path")
+        }
+
+        click "open-iteration-inspector" {
+            target = css(".react-flow__node[data-id=\"item_iteration\"] article")
+        }
+
+        expect "iteration-inspector" {
+            text = "逐项分配库存"
+        }
+
+        click "fit-with-inspector" {
+            target = css(".react-flow__controls-button[aria-label=\"Fit View\"]")
+        }
+
+        expect "nested-edge-with-inspector" {
+            visible = css(".a3s-workflow-internal-edge-overlay[data-edge-id=\"edge_item_iteration_start_next_normalize_line_in\"]")
+        }
+
+        click "zoom-in-with-inspector" {
+            target = css(".react-flow__controls-button[aria-label=\"Zoom In\"]")
+        }
+
+        expect "nested-edge-after-zoom" {
+            visible = css(".a3s-workflow-internal-edge-overlay[data-edge-id=\"edge_item_iteration_start_next_normalize_line_in\"]")
+        }
+
+        screenshot "nested-edge-rendering" {
+            path = "screenshots/nested-edge-rendering.png"
+        }
+
+        console "nested-edge-console" {
+            path = "evidence/nested-edge-console.json"
+            clear = false
+        }
+
+        page_errors "nested-edge-page-errors" {
+            path = "evidence/nested-edge-page-errors.json"
             clear = false
         }
     }
