@@ -30,6 +30,19 @@ a3s-flow digest workflow.json --pretty
 a3s-flow sample --output workflow.json --pretty
 ```
 
+## Designer extension context
+
+When a host designer opens the CLI, Skill, or Copilot extension area, it can
+send the current `A3SFlowDesignerContext` alongside the request. Prefer the
+complete `dsl`/`documentJson` as the source document and use `selection` to
+focus the response. A node selection includes its incoming and outgoing edges,
+related nodes, and parent scope; an edge selection includes both endpoint
+nodes. Treat this context as read-only. Hosts should pass it through
+`serializeA3SFlowDesignerContext` when crossing a process boundary and should
+return structured, reviewable proposals instead of mutating the canvas. For an
+edge selection, use `selection.sourceNode` and `selection.targetNode` for the
+endpoint projection.
+
 All commands emit JSON. Exit code `0` means success, `1` means the workflow or node settings were rejected, and `2` means the command, file, or runtime invocation was invalid.
 
 ## Guardrails

@@ -74,6 +74,7 @@ type AnnotationCacheEntry = {
 type EdgeCacheEntry = {
   activeColor: string;
   animated: boolean;
+  internal: boolean;
   beginEdgeLabelEdit: WorkflowPlaygroundElementsOptions['beginEdgeLabelEdit'];
   cancelEdgeLabelEdit: WorkflowPlaygroundElementsOptions['cancelEdgeLabelEdit'];
   commitEdgeLabelEdit: WorkflowPlaygroundElementsOptions['onCommitEdgeLabelEdit'];
@@ -326,6 +327,7 @@ export function reconcileWorkflowPlaygroundElements(
         ...edge.data,
         editLabel: copy.editEdgeLabel,
         editingLabel: editing,
+        internal,
         labelPlaceholder: copy.edgeLabelPlaceholder,
         sourcePortLabel,
         routing: edgeRouting,
@@ -340,6 +342,7 @@ export function reconcileWorkflowPlaygroundElements(
     cache.edges.set(edge.id, {
       activeColor: edgePalette.active,
       animated,
+      internal,
       beginEdgeLabelEdit,
       cancelEdgeLabelEdit,
       commitEdgeLabelEdit: onCommitEdgeLabelEdit,

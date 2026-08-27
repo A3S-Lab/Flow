@@ -222,6 +222,40 @@
   z-index: 3 !important;
 }
 
+/* Child-scope edges are mirrored into the viewport portal, which is painted
+   after the node layer. Keep the original edge group for hit testing and
+   accessibility, but hide its duplicate stroke. */
+.a3s-workflow-canvas .react-flow__edge-path.is-internal-underlay {
+  opacity: 0;
+}
+
+.a3s-workflow-canvas .a3s-workflow-internal-edge-overlay {
+  position: absolute;
+  z-index: 4;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.a3s-workflow-canvas .a3s-workflow-internal-edge-path {
+  fill: none;
+  stroke: var(--workflow-edge-color);
+  stroke-width: 1.65;
+  pointer-events: none;
+  transition: stroke 140ms ease-out;
+}
+
+.a3s-workflow-canvas
+  .a3s-workflow-internal-edge-path:is(.is-selected, .is-animated) {
+  stroke: var(--workflow-edge-active);
+  stroke-width: 2.15;
+}
+
+.a3s-workflow-canvas .a3s-workflow-edge-label.is-internal {
+  z-index: 5;
+}
+
 .a3s-workflow-edge-label > span {
   padding: 3px 7px;
   border: 1px solid var(--workflow-line);

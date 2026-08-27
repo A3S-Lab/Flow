@@ -43,6 +43,14 @@ import {
 import { WorkflowPlaygroundDebug } from './WorkflowPlaygroundDebug';
 import { WorkflowPlaygroundEdge } from './WorkflowPlaygroundEdge';
 import { useWorkflowPlaygroundElements } from './WorkflowPlayground.elements';
+import {
+  createWorkflowPlaygroundExtensionContext,
+  type WorkflowPlaygroundCopilotRequest,
+  type WorkflowPlaygroundExtensionContext,
+  type WorkflowPlaygroundExtensionSlots,
+  type WorkflowPlaygroundExtensionTab,
+} from './WorkflowPlayground.extensions';
+import { WorkflowPlaygroundExtensionsPanel } from './WorkflowPlaygroundExtensionsPanel';
 import { usePlaygroundDocument } from './WorkflowPlayground.history';
 import { useWorkflowPlaygroundKeyboard } from './WorkflowPlayground.keyboard';
 import { usePlaygroundDraft } from './WorkflowPlayground.persistence';
@@ -115,6 +123,8 @@ function WorkflowPlaygroundSurface({
   backHref,
   catalog,
   example,
+  extensions,
+  onCopilotRequest,
 }: WorkflowPlaygroundSurfaceProps) {
   const locale: FlowWebsiteLocale = useLang() === 'en' ? 'en' : 'zh';
   const copy = workflowPlaygroundCopy[locale];
@@ -153,6 +163,9 @@ function WorkflowPlaygroundSurface({
     PlaygroundPendingConnection | undefined
   >(undefined);
   const [triggerDialogOpen, setTriggerDialogOpen] = useState(false);
+  const [extensionsOpen, setExtensionsOpen] = useState(false);
+  const [extensionTab, setExtensionTab] =
+    useState<WorkflowPlaygroundExtensionTab>('copilot');
   const [draggedType, setDraggedType] = useState<string>();
   const [debugOpen, setDebugOpen] = useState(false);
   const [minimapVisible, setMinimapVisible] = useState(true);
@@ -165,6 +178,9 @@ function WorkflowPlaygroundSurface({
     undefined,
   );
   const graphRef = useRef(graph);
+  const extensionContextRef = useRef<
+    WorkflowPlaygroundExtensionContext | undefined
+  >(undefined);
   graphRef.current = graph;
 
   const clearConnectionGesture = useCallback(() => {
@@ -225,11 +241,17 @@ function WorkflowPlaygroundSurface({
     graph.nodes.length > MINIMAP_NODE_LIMIT ||
     graph.edges.length > MINIMAP_EDGE_LIMIT;
   const openTrace = useCallback(() => {
+    setExtensionsOpen(false);
     setDebugOpen(true);
     setDebugTab('trace');
   }, []);
   const openValidation = useCallback(() => {
+    setExtensionsOpen(false);
     setActivePanel('validation');
+  }, []);
+  const openDocument = useCallback(() => {
+    setExtensionsOpen(false);
+    setActivePanel('document');
   }, []);
   const {
     history,
@@ -297,6 +319,14 @@ function WorkflowPlaygroundSurface({
     setSelectedNodeId(undefined);
     setSelectedAnnotationId(undefined);
     setActivePanel((current) => (current === 'settings' ? undefined : current));
+  }, []);
+
+  const selectAnnotation = useCallback((annotationId: string) => {
+    setSelectedAnnotationId(annotationId);
+    setSelectedNodeId(undefined);
+    setSelectedEdgeId(undefined);
+    setEditingEdgeId(undefined);
+    setActivePanel(undefined);
   }, []);
 
   const beginEdgeLabelEdit = useCallback(
@@ -377,6 +407,7 @@ function WorkflowPlaygroundSurface({
     (edgeId?: string, position?: XYPosition) => {
       if (running) return;
       clearConnectionGesture();
+      setExtensionsOpen(false);
       setPendingConnection(undefined);
       setInsertEdgeId(edgeId);
       setPendingNodePosition(position);
@@ -384,6 +415,20 @@ function WorkflowPlaygroundSurface({
     },
     [clearConnectionGesture, running],
   );
+
+  const toggleExtensions = useCallback(() => {
+    if (extensionsOpen) {
+      setExtensionsOpen(false);
+      return;
+    }
+    closeNodeLibrary();
+    setActivePanel(undefined);
+    setDebugOpen(false);
+    setTriggerDialogOpen(false);
+    setEditingEdgeId(undefined);
+    setExtensionTab('copilot');
+    setExtensionsOpen(true);
+  }, [closeNodeLibrary, extensionsOpen]);
 
   const centerPosition = useCallback((): XYPosition => {
     const bounds = canvasRef.current?.getBoundingClientRect();
@@ -768,6 +813,7 @@ function WorkflowPlaygroundSurface({
     closeNodeLibrary();
     setActivePanel(undefined);
     setDebugOpen(false);
+    setExtensionsOpen(false);
     setTriggerDialogOpen(false);
     setCanvasMode('pan');
     setEditingEdgeId(undefined);
@@ -813,6 +859,7 @@ function WorkflowPlaygroundSurface({
   const resetWorkflow = useCallback(() => {
     stopRun();
     clearConnectionGesture();
+    setExtensionsOpen(false);
     restore(structuredClone(example.graph));
     setSelectedNodeId(undefined);
     setSelectedAnnotationId(undefined);
@@ -836,11 +883,21 @@ function WorkflowPlaygroundSurface({
     stopRun,
   ]);
 
-  const copyDocument = useCallback(() => {
-    void navigator.clipboard
-      .writeText(serializePlaygroundDocument(graph.nodes, graph.edges))
-      .then(() => setAnnouncement(copy.copied))
-      .catch(() => setAnnouncement(copy.copyFailed));
+  const copyDocument = useCallback(async (): Promise<boolean> => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+      setAnnouncement(copy.copyFailed);
+      return false;
+    }
+    try {
+      await navigator.clipboard.writeText(
+        serializePlaygroundDocument(graph.nodes, graph.edges),
+      );
+      setAnnouncement(copy.copied);
+      return true;
+    } catch {
+      setAnnouncement(copy.copyFailed);
+      return false;
+    }
   }, [copy.copied, copy.copyFailed, graph.edges, graph.nodes]);
 
   const exportGraph = useCallback(() => {
@@ -858,6 +915,7 @@ function WorkflowPlaygroundSurface({
   }, [copy.graphExported, example.id, graph.edges, graph.nodes]);
 
   const requestWorkflowRun = useCallback(() => {
+    setExtensionsOpen(false);
     if (running) {
       stopRun();
       return;
@@ -890,6 +948,72 @@ function WorkflowPlaygroundSurface({
     [runWorkflow],
   );
 
+  const extensionActions = useMemo(
+    () => ({
+      selectNode: (nodeId: string) => {
+        if (!graphRef.current.nodes.some(({ id }) => id === nodeId)) return;
+        setSelectedNodeId(nodeId);
+        setSelectedEdgeId(undefined);
+        setSelectedAnnotationId(undefined);
+        setEditingEdgeId(undefined);
+        setActivePanel(undefined);
+      },
+      selectEdge,
+      selectAnnotation,
+      focusCanvas: () => {
+        canvasRef.current?.focus();
+      },
+      openNodeLibrary,
+      copyDsl: copyDocument,
+      requestCopilot: async (instruction: string) => {
+        if (!onCopilotRequest || !extensionContextRef.current) return false;
+        await onCopilotRequest({
+          instruction,
+          context: extensionContextRef.current,
+        });
+        return true;
+      },
+    }),
+    [
+      copyDocument,
+      onCopilotRequest,
+      openNodeLibrary,
+      selectAnnotation,
+      selectEdge,
+    ],
+  );
+
+  const extensionContext = useMemo(
+    () =>
+      createWorkflowPlaygroundExtensionContext({
+        actions: extensionActions,
+        compilation,
+        configurationIssues,
+        exampleId: example.id,
+        graph,
+        locale,
+        selectedAnnotationId,
+        selectedEdgeId,
+        selectedNodeId,
+        version,
+        workflowName: example.title,
+      }),
+    [
+      compilation,
+      configurationIssues,
+      example.id,
+      example.title,
+      extensionActions,
+      graph,
+      locale,
+      selectedAnnotationId,
+      selectedEdgeId,
+      selectedNodeId,
+      version,
+    ],
+  );
+  extensionContextRef.current = extensionContext;
+
   const onPaletteDragStart = useCallback(
     (event: DragEvent<HTMLButtonElement>, type: string) => {
       event.dataTransfer.effectAllowed = 'copy';
@@ -920,6 +1044,7 @@ function WorkflowPlaygroundSurface({
     'a3s-workflow-playground',
     rightPanelOpen ? 'has-right-panel' : '',
     debugOpen ? 'has-debug-panel' : '',
+    extensionsOpen ? 'has-extensions-panel' : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -952,10 +1077,11 @@ function WorkflowPlaygroundSurface({
         locale={locale}
         logoSrc={withBase('/a3s-logo.png')}
         onExport={exportGraph}
-        onOpenDocument={() => setActivePanel('document')}
+        onOpenExtensions={toggleExtensions}
+        onOpenDocument={openDocument}
         onReset={resetWorkflow}
         onRunToggle={requestWorkflowRun}
-        onValidate={() => setActivePanel('validation')}
+        onValidate={openValidation}
         onVersionChange={(targetVersion) => {
           const target =
             targetVersion === defaultVersion
@@ -970,6 +1096,7 @@ function WorkflowPlaygroundSurface({
         }}
         running={running}
         saveState={saveState}
+        extensionsOpen={extensionsOpen}
         version={version}
         versions={versions}
         workflowName={example.title}
@@ -1023,6 +1150,7 @@ function WorkflowPlaygroundSurface({
           onMinimapToggle={() => setMinimapVisible((current) => !current)}
           onModeChange={setCanvasMode}
           onOpenVariables={() => {
+            setExtensionsOpen(false);
             setDebugOpen(true);
             setDebugTab('variables');
           }}
@@ -1033,6 +1161,7 @@ function WorkflowPlaygroundSurface({
           canUndo={canUndo}
           copy={copy}
           onDebugTab={(tab) => {
+            setExtensionsOpen(false);
             setDebugOpen(true);
             setDebugTab(tab);
           }}
@@ -1049,6 +1178,7 @@ function WorkflowPlaygroundSurface({
             minimapVisible && !minimapSuppressed ? 'true' : 'false'
           }
           id="workflow-canvas"
+          tabIndex={-1}
           onDragOver={(event) => {
             event.preventDefault();
             event.dataTransfer.dropEffect = 'copy';
@@ -1127,13 +1257,11 @@ function WorkflowPlaygroundSurface({
                 setSelectedEdgeId(undefined);
                 setEditingEdgeId(undefined);
                 if (node.type === 'annotation') {
-                  setSelectedAnnotationId(node.id);
-                  setSelectedNodeId(undefined);
-                  if (activePanel === 'settings') setActivePanel(undefined);
+                  selectAnnotation(node.id);
                 } else {
                   setSelectedNodeId(node.id);
                   setSelectedAnnotationId(undefined);
-                  setActivePanel('settings');
+                  setActivePanel(extensionsOpen ? undefined : 'settings');
                 }
               }}
               onNodeDragStart={beginDrag}
@@ -1281,6 +1409,7 @@ function WorkflowPlaygroundSurface({
           history={history}
           onClose={() => setDebugOpen(false)}
           onSelectNode={(nodeId) => {
+            setExtensionsOpen(false);
             setSelectedNodeId(nodeId);
             setSelectedAnnotationId(undefined);
             setSelectedEdgeId(undefined);
@@ -1298,6 +1427,18 @@ function WorkflowPlaygroundSurface({
             'graph.edges': String(graph.edges.length),
           }}
         />
+
+        {extensionsOpen && (
+          <WorkflowPlaygroundExtensionsPanel
+            activeTab={extensionTab}
+            context={extensionContext}
+            extensions={extensions}
+            onAnnouncement={setAnnouncement}
+            onClose={() => setExtensionsOpen(false)}
+            onCopilotRequest={onCopilotRequest}
+            onTabChange={setExtensionTab}
+          />
+        )}
       </section>
 
       {triggerDialogOpen && triggerSchema && (
@@ -1324,6 +1465,22 @@ function WorkflowPlaygroundSurface({
   );
 }
 
-export default function WorkflowPlayground() {
-  return <WorkflowPlaygroundRoute surface={WorkflowPlaygroundSurface} />;
+export type WorkflowPlaygroundProps = {
+  extensions?: WorkflowPlaygroundExtensionSlots;
+  onCopilotRequest?: (
+    request: WorkflowPlaygroundCopilotRequest,
+  ) => void | Promise<void>;
+};
+
+export default function WorkflowPlayground({
+  extensions,
+  onCopilotRequest,
+}: WorkflowPlaygroundProps = {}) {
+  return (
+    <WorkflowPlaygroundRoute
+      onCopilotRequest={onCopilotRequest}
+      extensions={extensions}
+      surface={WorkflowPlaygroundSurface}
+    />
+  );
 }

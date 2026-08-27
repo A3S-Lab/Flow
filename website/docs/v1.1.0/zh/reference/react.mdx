@@ -85,3 +85,38 @@ Hook 创建带 manifest 默认值的节点，并把每次修改归一化。`conf
 面板不会保存工作流、管理凭据或调用任务。保存、撤销、多人协作和发布仍由宿主编辑器负责。提交前使用 `a3s-flow validate` 检查整张图，单个表单通过不能证明容器作用域和所有连线都有效。
 
 宿主自定义类型需要把同一份组合 registry 传给 Hook、节点卡片和配置面板。[自定义节点](./custom-nodes)说明了注册、A3S UI 字段渲染、执行能力与发布检查。
+
+## CLI、Skill 与 Copilot 扩展区
+
+设计器可以把同一份完整 DSL 和当前选择投影给终端、编码 Agent 或宿主 Copilot。`@a3s-lab/flow-ui` 提供只读上下文协议和无后端依赖的标签区域，宿主只需要把自己的渲染器插入对应插槽。
+
+```tsx
+import { createA3SFlowDesignerContext } from '@a3s-lab/flow-ui';
+import { A3SFlowDesignerExtensionArea } from '@a3s-lab/flow-ui/react';
+
+const context = createA3SFlowDesignerContext(document, {
+  selection: { kind: 'node', id: 'review-order' },
+  metadata: { surface: 'workflow-editor' },
+});
+
+export function DesignerExtensions() {
+  return (
+    <A3SFlowDesignerExtensionArea
+      context={context}
+      extensions={{
+        cli: ({ documentJson }) => <pre>{documentJson}</pre>,
+        skill: ({ selection, dsl }) => (
+          <SkillPrompt selection={selection} document={dsl} />
+        ),
+        copilot: ({ selection, documentJson }) => (
+          <CopilotDialog selection={selection} dsl={documentJson} />
+        ),
+      }}
+    />
+  );
+}
+```
+
+上下文同时包含 `dsl`、格式化后的 `documentJson`、`nodes`、`edges`、校验问题和 `selection`。选择节点时，`selection.node`、`incomingEdges`、`outgoingEdges`、`relatedNodes` 与父级作用域会一并提供；选择连线时，`selection.edge`、`selection.sourceNode` 和 `selection.targetNode` 可直接用于解释数据流。上下文在创建时会复制并冻结，扩展不能通过引用改写编辑器状态。跨进程发送前使用 `serializeA3SFlowDesignerContext`，它会排除宿主回调，只保留 DSL 和选择快照。
+
+扩展区不会自行调用模型、执行命令或写回图。Copilot 若要修改工作流，应由宿主接收带上下文的请求，返回结构化提案，再经过编辑器审阅后提交。

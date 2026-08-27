@@ -1,0 +1,58 @@
+/* Minimal defaults for the reusable extension area. Hosts can override these
+   tokens and classes to match their designer chrome. */
+.a3s-flow-designer-extensions {
+  --a3s-flow-extension-border: #d8e0eb;
+  --a3s-flow-extension-muted: #56657b;
+  --a3s-flow-extension-accent: #1264ff;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--a3s-flow-extension-border);
+  background: #fff;
+  color: #101827;
+  flex-direction: column;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+.a3s-flow-designer-extensions__header {
+  display: grid;
+  padding: 0.75rem 1rem 0;
+  border-bottom: 1px solid var(--a3s-flow-extension-border);
+  gap: 0.5rem;
+}
+
+.a3s-flow-designer-extensions__tabs {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.a3s-flow-designer-extensions__tabs button {
+  padding: 0.55rem 0.75rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--a3s-flow-extension-muted);
+  cursor: pointer;
+}
+
+.a3s-flow-designer-extensions__tabs button.is-active {
+  border-bottom-color: var(--a3s-flow-extension-accent);
+  color: var(--a3s-flow-extension-accent);
+}
+
+.a3s-flow-designer-extensions__panel {
+  min-height: 0;
+  padding: 1rem;
+  overflow: auto;
+}
+
+.a3s-flow-designer-extensions__panel pre,
+.a3s-flow-designer-extensions pre {
+  max-width: 100%;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+

@@ -17,6 +17,7 @@ export type WorkflowPlaygroundCopy = {
   validate: string;
   run: string;
   stop: string;
+  extensions: string;
   moreActions: string;
   reset: string;
   exportGraph: string;
@@ -147,6 +148,7 @@ export const workflowPlaygroundCopy: Readonly<
     validate: '校验',
     run: '试运行',
     stop: '停止',
+    extensions: 'CLI / Skill / Copilot',
     moreActions: '更多操作',
     reset: '恢复示例',
     exportGraph: '导出工作流',
@@ -300,6 +302,7 @@ export const workflowPlaygroundCopy: Readonly<
     validate: 'Validate',
     run: 'Test run',
     stop: 'Stop',
+    extensions: 'CLI / Skill / Copilot',
     moreActions: 'More actions',
     reset: 'Reset sample',
     exportGraph: 'Export workflow',

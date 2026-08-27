@@ -84,3 +84,38 @@ Pass `connectedOutputPortIds` so semantic validation knows which control exits a
 The panel does not save workflows, manage credentials, or execute tasks. Persistence, undo, collaboration, and publication belong to the host editor. Run `a3s-flow validate` before publication because one valid form does not prove that scopes and graph edges are valid.
 
 For a host-owned type, pass one composed registry to the hook, preview, and panel. The [custom node guide](./custom-nodes) covers registration, A3S UI field rendering, executor capabilities, and publication checks.
+
+## CLI, Skill, and Copilot extension area
+
+A designer can expose the complete DSL and the current selection to a terminal, a coding Agent, or a host-owned Copilot. `@a3s-lab/flow-ui` provides a read-only context protocol and a backend-agnostic tab area; the host supplies renderers through slots.
+
+```tsx
+import { createA3SFlowDesignerContext } from '@a3s-lab/flow-ui';
+import { A3SFlowDesignerExtensionArea } from '@a3s-lab/flow-ui/react';
+
+const context = createA3SFlowDesignerContext(document, {
+  selection: { kind: 'node', id: 'review-order' },
+  metadata: { surface: 'workflow-editor' },
+});
+
+export function DesignerExtensions() {
+  return (
+    <A3SFlowDesignerExtensionArea
+      context={context}
+      extensions={{
+        cli: ({ documentJson }) => <pre>{documentJson}</pre>,
+        skill: ({ selection, dsl }) => (
+          <SkillPrompt selection={selection} document={dsl} />
+        ),
+        copilot: ({ selection, documentJson }) => (
+          <CopilotDialog selection={selection} dsl={documentJson} />
+        ),
+      }}
+    />
+  );
+}
+```
+
+The context includes `dsl`, formatted `documentJson`, `nodes`, `edges`, validation issues, and `selection`. A node selection includes `selection.node`, `incomingEdges`, `outgoingEdges`, `relatedNodes`, and its parent scope. An edge selection includes `selection.edge`, `selection.sourceNode`, and `selection.targetNode`, which is enough to explain data flow. Inputs are copied and frozen when the context is created, so a renderer cannot mutate editor state through a retained reference. Use `serializeA3SFlowDesignerContext` at a process boundary; it strips host callbacks and keeps the DSL and selection snapshot.
+
+The area does not call a model, execute commands, or write to the graph. If a Copilot needs to change a workflow, the host should receive the request, return a structured proposal, and let the editor review and commit it.

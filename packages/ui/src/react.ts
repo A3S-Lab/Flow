@@ -13,3 +13,4 @@ export * from './react/workflow-node-panel';
 export * from './react/workflow-node-preview';
 export * from './react/workflow-node-contract';
 export * from './react/workflow-code-editor';
+export * from './react/a3s-flow-designer-extensions';

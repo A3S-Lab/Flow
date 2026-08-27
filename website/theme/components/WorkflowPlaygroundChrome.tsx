@@ -21,6 +21,7 @@ import {
   NotePencil,
   Play,
   Plus,
+  Sparkle,
   Stop,
   TreeStructure,
   WarningCircle,
@@ -109,6 +110,8 @@ type PlaygroundHeaderProps = {
   onOpenDocument: () => void;
   onValidate: () => void;
   onRunToggle: () => void;
+  onOpenExtensions: () => void;
+  extensionsOpen?: boolean;
 };
 
 export function WorkflowPlaygroundHeader({
@@ -130,6 +133,8 @@ export function WorkflowPlaygroundHeader({
   onOpenDocument,
   onValidate,
   onRunToggle,
+  onOpenExtensions,
+  extensionsOpen = false,
 }: PlaygroundHeaderProps) {
   const menuRef = useDismissibleDetails();
 
@@ -173,6 +178,19 @@ export function WorkflowPlaygroundHeader({
         >
           {locale === 'zh' ? 'EN' : '中文'}
         </a>
+        <button
+          aria-pressed={extensionsOpen}
+          className={extensionsOpen ? 'is-extension is-active' : 'is-extension'}
+          onClick={onOpenExtensions}
+          title={copy.extensions}
+          type="button"
+        >
+          <Sparkle
+            aria-hidden="true"
+            weight={extensionsOpen ? 'fill' : 'regular'}
+          />
+          <span>{copy.extensions}</span>
+        </button>
         <button
           className={`is-validate${issueCount === 0 ? ' is-valid' : ''}`}
           onClick={onValidate}

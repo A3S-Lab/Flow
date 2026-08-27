@@ -15,6 +15,10 @@ import {
 import { workflowExamplesCopy } from './WorkflowPlayground.examples.copy';
 import { WorkflowPlaygroundExamples } from './WorkflowPlaygroundExamples';
 import { createPlaygroundNodeCatalog } from './WorkflowPlayground.custom-nodes';
+import type {
+  WorkflowPlaygroundCopilotRequest,
+  WorkflowPlaygroundExtensionSlots,
+} from './WorkflowPlayground.extensions';
 import { pageHref, playgroundHref } from './WorkflowPlayground.routes';
 import { flowNodeGroups, type FlowWebsiteLocale } from './flow-node-catalog';
 
@@ -89,14 +93,24 @@ export type WorkflowPlaygroundSurfaceProps = {
   backHref: string;
   catalog: A3SFlowDagNodeCatalog;
   example: WorkflowExampleDefinition;
+  extensions?: WorkflowPlaygroundExtensionSlots;
+  onCopilotRequest?: (
+    request: WorkflowPlaygroundCopilotRequest,
+  ) => void | Promise<void>;
 };
 
 type WorkflowPlaygroundRouteProps = {
   surface: ComponentType<WorkflowPlaygroundSurfaceProps>;
+  extensions?: WorkflowPlaygroundExtensionSlots;
+  onCopilotRequest?: (
+    request: WorkflowPlaygroundCopilotRequest,
+  ) => void | Promise<void>;
 };
 
 export function WorkflowPlaygroundRoute({
   surface: Surface,
+  extensions,
+  onCopilotRequest,
 }: WorkflowPlaygroundRouteProps) {
   const locale: FlowWebsiteLocale = useLang() === 'en' ? 'en' : 'zh';
   const catalog = useMemo(() => createPlaygroundNodeCatalog(locale), [locale]);
@@ -162,6 +176,8 @@ export function WorkflowPlaygroundRoute({
         backHref={examplesHref}
         catalog={catalog}
         example={selectedExample}
+        extensions={extensions}
+        onCopilotRequest={onCopilotRequest}
       />
     </ReactFlowProvider>
   );

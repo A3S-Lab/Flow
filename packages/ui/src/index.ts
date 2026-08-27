@@ -3,6 +3,7 @@ export * from './integrations/a3s-flow-custom-node';
 export * from './integrations/a3s-flow-dag';
 export * from './integrations/a3s-flow-dsl';
 export * from './integrations/a3s-flow-dsl-types';
+export * from './integrations/a3s-flow-designer-context';
 export * from './integrations/a3s-flow-localization';
 export * from './integrations/a3s-flow-node-manifest';
 export * from './integrations/a3s-flow-validation';
