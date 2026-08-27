@@ -231,9 +231,10 @@
 
 .a3s-workflow-canvas .a3s-workflow-internal-edge-overlay {
   position: absolute;
+  inset: 0;
   z-index: 4;
-  width: 1px;
-  height: 1px;
+  width: 100%;
+  height: 100%;
   overflow: visible;
   pointer-events: none;
 }
