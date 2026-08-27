@@ -27,6 +27,7 @@ export const WORKFLOW_CONFIGURATION_WIDGETS = Object.freeze({
   code: "a3s.workflow.code",
   connection: "a3s.workflow.connection",
   dataDisplay: "a3s.workflow.data-display",
+  dify: "a3s.workflow.dify",
   duration: "a3s.workflow.duration",
   file: "a3s.workflow.file",
   flowBatch: "a3s.flow.batch",
@@ -366,6 +367,11 @@ function isCollectionField(field: WorkflowNodeFieldDefinition): boolean {
     field.type === "table" ||
     field.type === "sortableList" ||
     field.type === "actionPicker" ||
+    // A number of adapters (including Dify) use the wire-level `list`/`array`
+    // type without also setting the optional `list` flag. Treat those types as
+    // collections so their defaults and JSON schemas retain array shape.
+    field.type === "list" ||
+    field.type === "array" ||
     field.list === true ||
     field.is_list === true ||
     field._input_type === "TableInput" ||
@@ -418,6 +424,10 @@ function isConnectionField(field: WorkflowNodeFieldDefinition): boolean {
 
 function workflowControlWidget(field: WorkflowNodeFieldDefinition): string {
   const inputType = field._input_type;
+  const difyEditor = field.difyEditor ?? field.dify_editor;
+  if (typeof difyEditor === "string" && difyEditor.length > 0) {
+    return WORKFLOW_CONFIGURATION_WIDGETS.dify;
+  }
   if (inputType === "A3SFlowExpressionInput") {
     return WORKFLOW_CONFIGURATION_WIDGETS.flowExpression;
   }
@@ -678,6 +688,31 @@ function semanticFieldPresentation(
   ) {
     arrayItemType = scalarType;
   }
+  // Dify keeps several array-of-object payloads (prompt messages, condition
+  // cases, variables, and output definitions) in their original nested
+  // shape. Infer the item schema from the manifest value instead of coercing
+  // those rows to strings as a generic `list` field would.
+  const difyEditor = field.difyEditor ?? field.dify_editor;
+  if (
+    collection &&
+    typeof difyEditor === "string" &&
+    Array.isArray(field.value)
+  ) {
+    const sample = field.value.find((item) => item !== null && item !== undefined);
+    if (sample !== undefined) {
+      if (typeof sample === "object" && !Array.isArray(sample)) {
+        arrayItemType = "object";
+      } else if (Array.isArray(sample)) {
+        arrayItemType = "array";
+      } else if (typeof sample === "boolean") {
+        arrayItemType = "boolean";
+      } else if (typeof sample === "number") {
+        arrayItemType = Number.isInteger(sample) ? "integer" : "number";
+      } else if (typeof sample === "string") {
+        arrayItemType = "string";
+      }
+    }
+  }
 
   const fullWidth =
     field.type === "table" ||
@@ -689,6 +724,7 @@ function semanticFieldPresentation(
         WORKFLOW_CONFIGURATION_WIDGETS.connection,
         WORKFLOW_CONFIGURATION_WIDGETS.code,
         WORKFLOW_CONFIGURATION_WIDGETS.dataDisplay,
+        WORKFLOW_CONFIGURATION_WIDGETS.dify,
         WORKFLOW_CONFIGURATION_WIDGETS.file,
         WORKFLOW_CONFIGURATION_WIDGETS.flowChildren,
         WORKFLOW_CONFIGURATION_WIDGETS.flowSpec,
@@ -784,6 +820,8 @@ function fieldCustomProps(
     ["buttonText", "button_text"],
     ["buttonIcon", "button_icon"],
     ["searchCategory", "search_category"],
+    ["difyEditor", "dify_editor"],
+    ["difySourceVersion", "dify_source_version"],
   ];
   for (const [target, source] of metadata) {
     const value = field[source];
@@ -804,6 +842,15 @@ function fieldCustomProps(
   if (typeof field.expression_purpose === "string") {
     props.expressionPurpose = field.expression_purpose;
   }
+  // Adapter-specific metadata is intentionally copied without interpreting it
+  // here. This keeps the form compiler host-agnostic while allowing a widget
+  // registry (such as the Dify adapter) to select a richer editor.
+  if (typeof field.difyEditor === "string") props.difyEditor = field.difyEditor;
+  if (typeof field.dify_editor === "string") props.difyEditor = field.dify_editor;
+  if (typeof field.difySourceVersion === "string")
+    props.difySourceVersion = field.difySourceVersion;
+  if (typeof field.dify_source_version === "string")
+    props.difySourceVersion = field.dify_source_version;
   return props;
 }
 

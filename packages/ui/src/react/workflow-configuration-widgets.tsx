@@ -19,6 +19,7 @@ import {
   WorkflowSliderWidget,
 } from './workflow-configuration-editors';
 import { WorkflowMetadataIcon } from './workflow-metadata-icon';
+import { WorkflowDifyWidget } from './workflow-dify-widget';
 
 export interface WorkflowFieldValueRequest {
   nodeId: string;
@@ -712,6 +713,8 @@ function parameterControl(
       return <WorkflowMcpControl {...props} />;
     case WORKFLOW_CONFIGURATION_WIDGETS.dataDisplay:
       return <WorkflowDataDisplayWidget {...props} callbacks={callbacks} />;
+    case WORKFLOW_CONFIGURATION_WIDGETS.dify:
+      return <WorkflowDifyWidget {...props} />;
     case 'textarea':
       return <WorkflowMultilineWidget {...props} />;
     case 'slider':
@@ -767,6 +770,8 @@ export function createWorkflowConfigurationWidgetRegistry(
       ParameterWidget(props, callbacks, WORKFLOW_CONFIGURATION_WIDGETS.mcp),
     [WORKFLOW_CONFIGURATION_WIDGETS.dataDisplay]: (props) =>
       ParameterWidget(props, callbacks, WORKFLOW_CONFIGURATION_WIDGETS.dataDisplay),
+    [WORKFLOW_CONFIGURATION_WIDGETS.dify]: (props) =>
+      ParameterWidget(props, callbacks, WORKFLOW_CONFIGURATION_WIDGETS.dify),
   };
 }
 

@@ -2,7 +2,6 @@ import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
 import '@fontsource-variable/noto-sans-sc/wght.css';
 import '@a3s-lab/flow-ui/styles.css';
-import '@a3s-lab/ui/components/code-editor.css';
 import '@xyflow/react/dist/style.css';
 import './index.css';
 import './home.css';

@@ -211,6 +211,80 @@ async function verifyRepositoryNames(root) {
     `(^|[^A-Za-z])${forbiddenName}`,
     'iu',
   );
+  // The adapter is an intentional, host-owned integration surface. Keep the
+  // repository-wide guard for prose and unrelated code while allowing the
+  // small set of source files that define, render, or exercise that adapter.
+  const intentionalAdapterFiles = new Set([
+    path.join('packages', 'ui', 'src', 'index.ts'),
+    path.join('packages', 'ui', 'src', 'react.ts'),
+    path.join(
+      'packages',
+      'ui',
+      'src',
+      'integrations',
+      `a3s-flow-${forbiddenName}.ts`,
+    ),
+    path.join(
+      'packages',
+      'ui',
+      'src',
+      'integrations',
+      'a3s-flow-custom-node.ts',
+    ),
+    path.join('packages', 'ui', 'src', 'integrations', 'workflow-node-form.ts'),
+    path.join('packages', 'ui', 'src', 'react', 'a3s-flow-node-summary.ts'),
+    path.join(
+      'packages',
+      'ui',
+      'src',
+      'react',
+      'workflow-configuration-widgets.tsx',
+    ),
+    path.join('packages', 'ui', 'src', 'react', 'workflow-node-contract.tsx'),
+    path.join('packages', 'ui', 'src', 'react', 'workflow-node-visual.ts'),
+    path.join(
+      'packages',
+      'ui',
+      'src',
+      'react',
+      `workflow-${forbiddenName}-widget.tsx`,
+    ),
+    path.join('packages', 'ui', 'src', 'styles', 'workflow-node.css'),
+    path.join('packages', 'ui', 'tests', 'configuration-widgets.test.tsx'),
+    path.join('website', 'theme', 'components', 'WorkflowPlayground.copy.ts'),
+    path.join(
+      'website',
+      'theme',
+      'components',
+      'WorkflowPlayground.custom-nodes.ts',
+    ),
+    path.join(
+      'website',
+      'theme',
+      'components',
+      `WorkflowPlayground.${forbiddenName}.test.ts`,
+    ),
+    path.join(
+      'website',
+      'theme',
+      'components',
+      'WorkflowPlayground.examples.ts',
+    ),
+    path.join('website', 'theme', 'components', 'WorkflowPlayground.route.tsx'),
+    path.join('website', 'theme', 'components', 'WorkflowPlayground.sample.ts'),
+    path.join(
+      'website',
+      'theme',
+      'components',
+      'WorkflowPlaygroundLibrary.tsx',
+    ),
+    path.join(
+      'website',
+      'theme',
+      'workflow-designer',
+      'workflow-playground-editor-panels.css',
+    ),
+  ]);
   const sourceExtensions = new Set([
     '.acl',
     '.cjs',
@@ -234,13 +308,17 @@ async function verifyRepositoryNames(root) {
   ]);
   const files = await collectFiles(
     root,
-    new Set(['.git', 'doc_build', 'node_modules', 'target']),
+    new Set(['.git', 'dist', 'doc_build', 'node_modules', 'target']),
   );
 
   for (const file of files) {
     if (!sourceExtensions.has(path.extname(file).toLowerCase())) continue;
     const source = await readFile(file, 'utf8');
-    if (forbiddenNamePattern.test(source)) {
+    const relative = path.relative(root, file);
+    if (
+      forbiddenNamePattern.test(source) &&
+      !intentionalAdapterFiles.has(relative)
+    ) {
       throw new Error(`Found a forbidden external product name: ${file}`);
     }
   }
