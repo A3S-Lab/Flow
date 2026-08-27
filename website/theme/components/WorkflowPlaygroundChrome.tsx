@@ -239,6 +239,7 @@ type PlaygroundRailProps = {
   edgeColor: PlaygroundEdgeColor;
   edgeRouting: PlaygroundEdgeRouting;
   minimapVisible: boolean;
+  minimapSuppressed?: boolean;
   onAdd: () => void;
   onAddNote: () => void;
   onArrange: () => void;
@@ -257,6 +258,7 @@ export function WorkflowPlaygroundRail({
   edgeColor,
   edgeRouting,
   minimapVisible,
+  minimapSuppressed = false,
   onAdd,
   onAddNote,
   onArrange,
@@ -359,15 +361,25 @@ export function WorkflowPlaygroundRail({
             <span>{copy.fitView}</span>
           </button>
           <button
+            disabled={minimapSuppressed}
             onClick={(event) => runMenuAction(event, onMinimapToggle)}
+            title={minimapSuppressed ? copy.minimapPaused : undefined}
             type="button"
           >
-            {minimapVisible ? (
+            {minimapSuppressed ? (
+              <EyeSlash aria-hidden="true" />
+            ) : minimapVisible ? (
               <EyeSlash aria-hidden="true" />
             ) : (
               <Eye aria-hidden="true" />
             )}
-            <span>{minimapVisible ? copy.hideMinimap : copy.showMinimap}</span>
+            <span>
+              {minimapSuppressed
+                ? copy.minimapPaused
+                : minimapVisible
+                  ? copy.hideMinimap
+                  : copy.showMinimap}
+            </span>
           </button>
           <button
             onClick={(event) => runMenuAction(event, onOpenVariables)}

@@ -48,6 +48,16 @@ describe("A3S Flow workflow document helpers", () => {
     expect(digestA3SFlowWorkflowDsl(document)).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it("keeps author-facing edge labels out of the execution digest", () => {
+    const document = fixture();
+    const labeled = structuredClone(document);
+    labeled.workflow.graph.edges[0].label = "Ready for review";
+
+    expect(digestA3SFlowWorkflowDsl(labeled)).toBe(
+      digestA3SFlowWorkflowDsl(document),
+    );
+  });
+
   it("rejects application modes outside the workflow contract", () => {
     const document = fixture();
     const imported = {

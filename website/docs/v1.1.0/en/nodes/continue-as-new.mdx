@@ -1,0 +1,20 @@
+---
+title: Continue as new node
+description: Close the current history segment and create a successor with new input.
+---
+
+# Continue as new `flow.continue-as-new`
+
+A continue-as-new node closes the current history segment and creates a successor run for the same workflow. It fits long polling, paged processing, recurring maintenance, and any process that must bound history per segment. The old run commits a continued outcome. The successor inherits workflow definition, runtime build, and patch markers, then enters through the normal start node.
+
+## Successor input
+
+The `input` expression creates start data for the next run. Paged work should carry a stable cursor, references to accumulated results, and every confirmed business value needed to resume. Do not rely on a process-local counter or current page position. Keep the new input small but complete so the successor can recover independently and its audit trail explains where it resumed.
+
+The `successor` port describes authoring intent. The closed run does not continue through that port as ordinary control flow. The engine rejects continuation while unconsumed signals remain, which prevents an already received business message from disappearing across the boundary. Cancellation cleanup cannot create a successor. Use a child workflow when work should branch into an independently managed parallel run.
+
+## History and release checks
+
+Test cursor boundaries, empty and final pages, repeated continuation requests, a process exit before successor creation, and linkage between the two runs. Monitoring should group segments under one business chain while showing each segment ID. When deploying a new build, confirm that the successor routes to a compatible worker and that old segments retain the code required to replay their committed history.
+
+<NodeReference type="flow.continue-as-new" />

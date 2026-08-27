@@ -15,12 +15,16 @@ describe('Workflow Playground element reconciliation', () => {
     const graph = createSampleWorkflow('zh', catalog);
     const callbacks = {
       beginEdit: vi.fn(),
+      beginEdgeLabelEdit: vi.fn(),
+      cancelEdgeLabelEdit: vi.fn(),
       endEdit: vi.fn(),
       onDeleteAnnotation: vi.fn(),
       onDeleteNode: vi.fn(),
       onDuplicateNode: vi.fn(),
+      onCommitEdgeLabelEdit: vi.fn(),
       onOpenNodeLibrary: vi.fn(),
       onRunNode: vi.fn(),
+      onSelectEdge: vi.fn(),
       onUpdateAnnotation: vi.fn(),
     };
     const base: WorkflowPlaygroundElementsOptions = {
@@ -134,5 +138,30 @@ describe('Workflow Playground element reconciliation', () => {
     expect(runningUpdate.displayEdges[stableEdgeIndex]).toBe(
       positionUpdate.displayEdges[stableEdgeIndex],
     );
+
+    const labeledGraph = {
+      ...graph,
+      edges: graph.edges.map((edge, index) =>
+        index === 0
+          ? { ...edge, data: { ...edge.data, labelOverride: 'Review lane' } }
+          : edge,
+      ),
+    };
+    const labeled = reconcileWorkflowPlaygroundElements(
+      {
+        ...base,
+        graph: labeledGraph,
+        selectedEdgeId: labeledGraph.edges[0]?.id,
+        editingEdgeId: labeledGraph.edges[0]?.id,
+      },
+      cache,
+    );
+    expect(labeled.displayEdges[0]).toMatchObject({
+      label: 'Review lane',
+      data: {
+        labelOverride: 'Review lane',
+        editingLabel: true,
+      },
+    });
   });
 });

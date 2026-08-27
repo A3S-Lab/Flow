@@ -1,0 +1,206 @@
+---
+title: Workflow graph
+description: Import JSON or YAML graphs, validate nodes, edges, and container scopes, then derive deterministic execution order and semantic identity.
+---
+
+# Workflow graph
+
+`WorkflowDsl` and `WorkflowDag` define the structural boundary for portable workflow documents. They parse nodes and edges, preserve unknown extension fields, validate graph structure, and derive a deterministic plan. The host still binds concrete node execution.
+
+Flow does not grant model, database, or tool access from `data.type`. The host validates and authorizes a node before connecting its semantics to durable steps.
+
+## Full documents and bare graphs
+
+A complete document includes version, application information, and `workflow.graph`. A host that only needs the canvas graph can parse `WorkflowDag` directly.
+
+```rust
+use a3s_flow::{WorkflowDag, WorkflowDsl};
+
+let document = WorkflowDsl::from_yaml(&yaml_source)?;
+let graph = document.graph();
+
+let bare_graph = WorkflowDag::from_json(&json_source)?;
+```
+
+One UTF-8 document is limited to 10 MiB. The currently tested DSL version is `0.7.0`. An older minor may import with warnings. A newer version or different major requires an explicit host decision.
+
+## Minimal graph shape
+
+```json
+{
+  "nodes": [
+    {
+      "id": "start",
+      "position": { "x": 0, "y": 0 },
+      "data": { "type": "start" }
+    },
+    {
+      "id": "validate-order",
+      "position": { "x": 280, "y": 0 },
+      "data": {
+        "type": "tool",
+        "operation": "orders.validate"
+      }
+    },
+    {
+      "id": "end",
+      "position": { "x": 560, "y": 0 },
+      "data": { "type": "end" }
+    }
+  ],
+  "edges": [
+    { "id": "start-validate", "source": "start", "target": "validate-order" },
+    { "id": "validate-end", "source": "validate-order", "target": "end" }
+  ],
+  "viewport": { "x": 0, "y": 0, "zoom": 1 }
+}
+```
+
+Every node needs a non-empty `id` and string `data.type`. Every edge needs a unique ID and existing source and target nodes.
+
+## Connection labels in the Playground
+
+The Playground initially shows the source output-port name in the middle of a connection. For example, a batch node's `done` port is localized as “All complete”. This text helps people read the graph; it is not the port ID used for routing.
+
+Select a connection and click the pencil beside its label, or double-click the label itself. You can also select the connection and press Enter or F2. Press Enter to save, Escape to discard, or leave the field to save it. Clearing the field restores the port's default name. Custom names are kept in the local draft and in an exported workflow file.
+
+Renaming a label does not change `sourceHandle`, `targetHandle`, the execution plan, or runtime semantics. Condition branch names should still be edited through the node's `matched_label` and `otherwise_label` fields because those fields are part of the condition node's business copy. A regular connection name is presentation metadata, so validate the graph by its port IDs before publishing.
+
+## Derive an execution plan
+
+```rust
+let plan = graph.execution_plan()?;
+println!("top_level={:?}", plan.top_level());
+
+for (scope, order) in plan.scopes() {
+    println!("scope={scope:?} order={order:?}");
+}
+```
+
+When several nodes are ready in one scope, the plan sorts by stable ID to remove input-array ordering effects. A plan expresses structural topology only. It does not execute nodes or choose failure, retry, and authorization policy.
+
+An empty canvas can parse and round-trip so an editor may retain drafts. `execution_plan()` rejects it because there is no executable node.
+
+## Structural validation
+
+Planning rejects these conditions.
+
+- Duplicate or empty node and edge IDs
+- Missing string `data.type`
+- An edge referencing a missing node
+- A self-edge
+- A cycle in any scope
+- An edge crossing top-level and container scopes
+- A `parentId` referring to a missing or unsupported container
+- An iteration or loop container without its matching start child
+- More than 10,000 nodes or 100,000 edges
+
+These checks make topology deterministic. They do not validate business parameters for a particular executor. The host must apply a schema to every authorized node type.
+
+## Playground performance budget
+
+The Playground keeps React Flow's visible-element rendering enabled. Layout input
+is transferred to a dedicated Worker, where the WebAssembly graph kernel computes
+coordinates. Configuration validation, DAG compilation, serialization, and
+element reconciliation stay deterministic and are measured separately.
+
+Run the benchmark from `website/` with:
+
+```sh
+npm run bench:playground
+```
+
+The command measures 100, 500, and 1,000 node fan-out graphs in Node.js. It
+prints p50, p95, and p99 latency in milliseconds for each operation. The layout
+row is the JavaScript fallback because Node.js does not provide a browser Worker
+or the browser WebAssembly loader. Browser layout therefore needs a separate
+measurement in the target browser.
+
+The following is a checked-in reference run from 2026-08-26 on an arm64 Mac14,9
+with macOS 26.3, Node.js 26.7.0, and Vitest 3.2.7. Values are local baselines,
+not a promise about every device or deployment.
+
+| Nodes | Operation                    |      p50 |      p95 |       p99 |
+| ----: | ---------------------------- | -------: | -------: | --------: |
+|   100 | Layout fallback              | 0.094 ms | 0.136 ms |  0.224 ms |
+|   100 | Configuration validation     | 0.010 ms | 0.013 ms |  0.028 ms |
+|   100 | DAG compilation              | 0.458 ms | 0.708 ms |  0.916 ms |
+|   100 | DSL serialization            | 0.437 ms | 0.571 ms |  0.708 ms |
+|   100 | No-op element reconciliation | 0.015 ms | 0.023 ms |  0.045 ms |
+|   100 | One-node runtime update      | 0.016 ms | 0.021 ms |  0.041 ms |
+|   500 | Layout fallback              | 0.472 ms | 0.625 ms |  0.759 ms |
+|   500 | Configuration validation     | 0.052 ms | 0.068 ms |  0.134 ms |
+|   500 | DAG compilation              | 2.617 ms | 3.020 ms |  3.344 ms |
+|   500 | DSL serialization            | 2.306 ms | 2.616 ms |  2.935 ms |
+|   500 | No-op element reconciliation | 0.088 ms | 0.131 ms |  0.191 ms |
+|   500 | One-node runtime update      | 0.093 ms | 0.134 ms |  0.227 ms |
+| 1,000 | Layout fallback              | 0.972 ms | 1.299 ms |  1.559 ms |
+| 1,000 | Configuration validation     | 0.103 ms | 0.159 ms |  0.262 ms |
+| 1,000 | DAG compilation              | 5.377 ms | 5.997 ms |  7.340 ms |
+| 1,000 | DSL serialization            | 4.642 ms | 5.134 ms | 15.599 ms |
+| 1,000 | No-op element reconciliation | 0.196 ms | 0.330 ms |  0.508 ms |
+| 1,000 | One-node runtime update      | 0.202 ms | 0.284 ms |  0.432 ms |
+
+For review, keep the p95 budget at 2 ms for layout fallback, 1 ms for
+configuration validation, 12 ms for DAG compilation and serialization, and 2 ms
+for reconciliation at 1,000 nodes. A browser release should additionally record
+the first Worker layout, scroll responsiveness, and the effect of the minimap.
+Large graphs keep only visible React Flow nodes mounted, and long inspector and
+library lists use CSS `content-visibility` with containment so off-screen rows do
+not require a layout pass. The minimap pauses automatically above 800 nodes or
+4,000 edges and shows a status note instead of competing with canvas scrolling.
+
+## Iteration and loop scopes
+
+`iteration` and `loop` nodes may own a container scope. Children declare the scope through `parentId`, and internal edges may connect nodes within that same container only.
+
+```json
+{
+  "id": "for-each-item",
+  "data": {
+    "type": "iteration",
+    "start_node_id": "iteration-start"
+  }
+}
+```
+
+The matching start node has three requirements.
+
+1. Its `parentId` equals the container ID.
+2. Iteration uses `iteration-start`, while loop uses `loop-start`.
+3. The container has at least one additional executable child.
+
+`plan.scope("for-each-item")` returns deterministic order inside the container. The container itself remains in the top-level plan.
+
+## Semantic digest
+
+`execution_digest()` produces a stable SHA-256 identity for executable semantics.
+
+```rust
+let digest = graph.execution_digest()?;
+println!("execution_digest={digest}");
+```
+
+Node positions, selection state, viewport, and input-array order do not affect the digest. Node `data`, semantic edge data, endpoints, and scope do. A host may use it to detect whether two publications only changed canvas layout.
+
+The digest proves matching input semantics only. It does not prove that host node bindings are identical. Executor versions still belong in host release identity or `runtime_build_id`.
+
+## Lossless round trips and extensions
+
+The parser retains unknown top-level, application, workflow, node-presentation, and edge-presentation fields. `to_yaml()` and `to_json()` write those fields back.
+
+Preservation does not imply semantic acceptance. Keep an allowlist at the security boundary.
+
+- Parse and enforce document size first.
+- Run structural plan validation.
+- Apply host schemas to allowed `data.type` values.
+- Resolve credential references and reject plaintext secrets in graph documents.
+- Record document digest and executor versions at publication time.
+
+## Connect graphs to durable execution
+
+The graph compiler returns node order, while the Flow engine persists run decisions. A host commonly maps a node to a stable step ID and stores branch choices or container cursors in step output or continuation input.
+
+If graph semantics change while old runs remain active, create a new workflow definition version or a replay-safe patch path. Do not interpret existing history with a replacement graph.
+
+See `examples/workflow_dsl_import.rs` for a complete import program.

@@ -1,19 +1,23 @@
 import { useEffect } from 'react';
 
 type WorkflowPlaygroundKeyboardOptions = {
+  beginEdgeLabelEdit?: (edgeId: string) => void;
   deleteSelection: () => void;
   dismissPanels: () => void;
   duplicateNode: (nodeId: string) => void;
   redo: () => void;
+  selectedEdgeId?: string;
   selectedNodeId?: string;
   undo: () => void;
 };
 
 export function useWorkflowPlaygroundKeyboard({
+  beginEdgeLabelEdit,
   deleteSelection,
   dismissPanels,
   duplicateNode,
   redo,
+  selectedEdgeId,
   selectedNodeId,
   undo,
 }: WorkflowPlaygroundKeyboardOptions) {
@@ -39,6 +43,13 @@ export function useWorkflowPlaygroundKeyboard({
       ) {
         event.preventDefault();
         duplicateNode(selectedNodeId);
+      } else if (
+        (event.key === 'Enter' || event.key === 'F2') &&
+        selectedEdgeId &&
+        beginEdgeLabelEdit
+      ) {
+        event.preventDefault();
+        beginEdgeLabelEdit(selectedEdgeId);
       } else if (event.key === 'Delete' || event.key === 'Backspace') {
         event.preventDefault();
         deleteSelection();
@@ -49,10 +60,12 @@ export function useWorkflowPlaygroundKeyboard({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
+    beginEdgeLabelEdit,
     deleteSelection,
     dismissPanels,
     duplicateNode,
     redo,
+    selectedEdgeId,
     selectedNodeId,
     undo,
   ]);

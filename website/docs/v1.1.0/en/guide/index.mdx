@@ -1,0 +1,167 @@
+---
+title: Run the first durable workflow
+description: Run a two-phase workflow in memory, inspect its snapshot and history, then choose a durable store.
+---
+
+# Run the first durable workflow
+
+After completing this page, you will have a minimal workflow that runs without external infrastructure. It schedules one task, commits the task result to history, replays, and finishes. The terminal should print `Completed`, and the output should contain `hello Ada`. The in-memory store keeps the first run focused on the runtime boundary and event order.
+
+## Prerequisites
+
+Flow 1.1 requires Rust 1.88 or newer.
+
+```console
+rustc --version
+cargo --version
+```
+
+Pin the Flow release in the application `Cargo.toml`. The example also uses Tokio, `async-trait`, and `serde_json`.
+
+```toml title="Cargo.toml"
+[dependencies]
+a3s-flow = "=1.1.0"
+async-trait = "0.1"
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt"] }
+```
+
+Default features include the native TypeScript adapter. A Rust-only host can use a smaller feature set.
+
+```toml
+a3s-flow = { version = "=1.1.0", default-features = false }
+```
+
+## Separate decisions from side effects
+
+`run_workflow` reads committed history and returns the next `RuntimeCommand`. It must not hide network requests, file writes, or random choices inside that decision. `run_step` is the boundary for external work.
+
+```rust title="src/main.rs"
+use a3s_flow::{
+    FlowEngine, FlowError, FlowRuntime, RuntimeCommand, StepInvocation,
+    WorkflowInvocation, WorkflowSpec,
+};
+use async_trait::async_trait;
+use serde_json::json;
+use std::sync::Arc;
+
+struct GreetingRuntime;
+
+#[async_trait]
+impl FlowRuntime for GreetingRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let ctx = invocation.context();
+
+        if let Some(output) = ctx.step_output("greet") {
+            return Ok(ctx.complete(output.clone()));
+        }
+
+        Ok(ctx.schedule_step(
+            "greet",
+            "greet_user",
+            json!({ "name": ctx.input()["name"] }),
+        ))
+    }
+
+    async fn run_step(
+        &self,
+        invocation: StepInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        match invocation.step_name.as_str() {
+            "greet_user" => {
+                let name = invocation.input["name"]
+                    .as_str()
+                    .unwrap_or("unknown");
+                Ok(json!({ "message": format!("hello {name}") }))
+            }
+            step => Err(FlowError::Runtime(format!("unknown step: {step}"))),
+        }
+    }
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> a3s_flow::Result<()> {
+    let engine = FlowEngine::in_memory(Arc::new(GreetingRuntime));
+    let spec = WorkflowSpec::rust_embedded(
+        "demo.greeting",
+        "0.1.0",
+        "demo",
+        "main",
+    );
+
+    let run_id = engine
+        .start_with_id("greeting-ada", spec, json!({ "name": "Ada" }))
+        .await?;
+    let snapshot = engine.snapshot(&run_id).await?;
+
+    println!("status={:?} output={:?}", snapshot.status, snapshot.output);
+    Ok(())
+}
+```
+
+Run the application.
+
+```console
+cargo run
+```
+
+The final snapshot should be `Completed`, with output from the committed `greet` step. The workflow function ran twice.
+
+1. The first replay has no `greet` output and returns `ScheduleStep`.
+2. The step executes and commits `StepCompleted`.
+3. The second replay reads that output and returns `Complete`.
+
+No process-local variable records the workflow position. History does.
+
+## When the result differs
+
+An `unknown step` error means the name passed to `schedule_step` does not match a branch in `run_step`. Check `greet_user`, correct the mismatch, and run the example again.
+
+`RunConflict` during startup means the same run ID already belongs to a different definition or input. Use a new ID during development. In production, first decide whether the caller is retrying the original request or creating a genuinely new run.
+
+If the status remains `Running` or `Suspended`, print raw history and inspect the last committed event. When no task result was committed, inspect the error returned by `run_step`. When the run is waiting for a timer, hook, or signal, continue with the matching guide instead of polling in process memory.
+
+## Why the run ID is stable
+
+`start_with_id()` lets a caller retry run creation safely. The same run ID, workflow definition, and input return the existing run. Flow returns `RunConflict` when any immutable authority differs, including these fields.
+
+- Workflow name, definition version, runtime kind, or entrypoint
+- `runtime_build_id` and patch markers
+- Initial JSON input
+
+This check prevents a common duplicate-submission mistake. It also prevents one business identifier from silently becoming a different run.
+
+## Read raw history
+
+Snapshots serve application decisions. Raw history serves audits and diagnosis.
+
+```rust
+let history = engine.history(&run_id).await?;
+for envelope in history {
+    println!(
+        "sequence={} key={}",
+        envelope.sequence,
+        envelope.event.event_key(),
+    );
+}
+```
+
+The store returns envelopes in sequence order. Concurrent writers use `append_if_sequence()`. A stale write returns `EventConflict` instead of replacing the durable winner.
+
+## Choose the next guide
+
+For a real integration, continue in dependency order.
+
+- Read the [runtime contract](/guide/runtime-contract) before adding external side effects.
+- Use [retries and waits](/guide/retries-and-waits) for failure policy and deadlines.
+- Use [signals and hooks](/guide/signals-and-hooks) for business messages, approvals, and webhooks.
+- Select [durable persistence](/operations/persistence) before a run must survive process loss.
+
+The repository includes a typed two-step example.
+
+```console
+cargo run --example sequential_steps
+```

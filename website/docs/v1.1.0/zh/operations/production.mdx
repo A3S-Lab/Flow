@@ -1,0 +1,213 @@
+---
+title: Worker 与发布
+description: 组装任务管理、调度器、精确版本路由、观察者和安全停机，并用故障演练验证恢复能力。
+---
+
+# Worker 与发布
+
+生产运行要把四项职责分开。
+
+| 职责         | 组件                          | 权威范围               |
+| ------------ | ----------------------------- | ---------------------- |
+| 历史         | `FlowEventStore`              | 运行唯一状态权威       |
+| 决定与步骤   | `FlowEngine` 和 `FlowRuntime` | 重放、校验、步骤执行   |
+| 定时恢复     | `FlowScheduler`               | 扫描到期工作并派发任务 |
+| 任务生命周期 | Boot 任务管理或宿主队列       | 租约、重试、超时、停机 |
+
+队列任务可以重复，任务记录也可以过期。每个处理器都要回到事件存储确认当前状态。
+
+## 推荐的任务管理接线
+
+打开 `boot` 与目标存储功能，宿主同时直接依赖 Boot 来创建队列。
+
+```toml
+[dependencies]
+a3s-flow = { version = "=1.1.0", features = ["boot", "sqlite"] }
+a3s-boot = { version = "0.2.0", default-features = false, features = ["queue"] }
+```
+
+```rust
+use a3s_boot::{ModuleRef, Queue, QueueRetryPolicy};
+use a3s_flow::{
+    BootFlowTaskDeduplication, BootFlowTaskManager,
+    BootFlowTaskPolicy, FlowEngine, FlowScheduler,
+};
+use std::sync::Arc;
+use std::time::Duration;
+
+let queue = Arc::new(Queue::in_process("flow"));
+let policy = BootFlowTaskPolicy::new()
+    .with_retry_policy(QueueRetryPolicy::fixed(
+        3,
+        Duration::from_secs(1),
+    ))
+    .with_timeout(Duration::from_secs(30))
+    .with_max_stalled_count(2)
+    .remove_on_complete(true)
+    .with_deduplication(
+        BootFlowTaskDeduplication::UntilTerminalOrTtl(
+            Duration::from_secs(300),
+        ),
+    );
+
+let tasks = Arc::new(
+    BootFlowTaskManager::new(engine.clone(), queue.clone())
+        .with_task_policy(policy)?,
+);
+
+tasks.register()?;
+queue.start(ModuleRef::new()).await?;
+
+let scheduler = FlowScheduler::new(engine.clone(), tasks.clone());
+let tick = scheduler.enqueue_due_work(chrono::Utc::now()).await?;
+println!("enqueued={}", tick.enqueued_tasks);
+```
+
+Boot 管理处理器注册、任务状态、租约、任务重试和停机。Flow 负责任务载荷和引擎处理语义。任务层重试解决 Worker 故障，步骤重试解决业务步骤失败，两层预算要分别设置。
+
+进程内队列只适合单进程或开发环境。任务本身也需要跨进程恢复时，使用宿主配置的持久 Boot 后端。
+
+## 调度循环
+
+调度器只处理定时等待和延迟重试。Hook 与信号由外部入口主动派发。
+
+```rust
+loop {
+    let now = chrono::Utc::now();
+    scheduler.enqueue_due_work(now).await?;
+
+    let delay = scheduler
+        .next_wakeup_delay(now)
+        .await?
+        .unwrap_or(std::time::Duration::from_secs(30));
+
+    tokio::time::sleep(delay.min(
+        std::time::Duration::from_secs(30),
+    ))
+    .await;
+}
+```
+
+允许多个调度器同时扫描。它们可能派发重复任务，事件序号和等待状态会让处理收敛。仍要给扫描循环设置抖动、退避和数据库超时，避免故障期间形成紧密重试。
+
+## 固定运行版本
+
+每次发布为实际可执行代码生成具体 `RuntimeBuildId`，并同时配置引擎与新运行定义。
+
+```rust
+use a3s_flow::{
+    FlowEngine, RuntimeBuildCompatibility, RuntimeBuildId,
+    WorkflowSpec,
+};
+
+let build = RuntimeBuildId::new("orders-2026.08.23-sha51e73a2")?;
+let compatibility = RuntimeBuildCompatibility::new(build.clone());
+
+let engine = FlowEngine::builder(runtime)
+    .with_store(store)
+    .with_runtime_build_compatibility(compatibility)
+    .build();
+
+let spec = WorkflowSpec::rust_embedded(
+    "orders.fulfill",
+    "2",
+    "orders",
+    "main",
+)
+.with_runtime_build(build);
+```
+
+配置过版本兼容性的引擎默认拒绝未固定历史。迁移旧运行时可以短期调用 `accept_unpinned()`，待旧运行清空后移除。
+
+## 精确任务路由
+
+滚动发布期间同时保留旧版和新版处理器，并按持久版本身份建立路由。
+
+```rust
+use a3s_flow::{FlowScheduler, RuntimeBuildTaskRouter};
+use std::sync::Arc;
+
+let routes = RuntimeBuildTaskRouter::new()
+    .with_route(build_v1, tasks_v1)?
+    .with_route(build_v2, tasks_v2)?;
+
+let scheduler = FlowScheduler::new(
+    control_engine,
+    Arc::new(routes),
+);
+```
+
+调度器在派发任何任务前检查本轮所有目标路由。缺少一个版本时整轮失败，不会先派发一半。旧路由要保留到没有活动历史再需要它。
+
+`with_compatible_build()` 只在当前 Worker 确实包含旧历史需要的完整代码和依赖时使用。版本号相近、测试少量成功或数据结构可反序列化都不够。
+
+## 回放安全的代码改动
+
+新代码会改变工作流决定时，为新运行添加不可变补丁标记，并在运行时保留两个分支。
+
+```rust
+if ctx.has_patch_marker("orders.reserve-inventory-v2") {
+    ctx.schedule_step(
+        "reserve-v2",
+        "reserveInventoryV2",
+        input,
+    )
+} else {
+    ctx.schedule_step(
+        "reserve-v1",
+        "reserveInventoryV1",
+        input,
+    )
+}
+```
+
+部署顺序固定为先发布同时包含两条路径的代码，再给新定义添加标记，最后等旧历史结束后移除旧分支。补丁 ID 不能复用为另一次修改。
+
+## 观察与指标
+
+观察者在事件提交后运行，不能回滚已经成功的事件，也不能成为工作流状态权威。
+
+```rust
+let observer = Arc::new(
+    FanoutFlowEventObserver::new()
+        .with_observer(audit_sink)
+        .with_observer(metrics_sink),
+);
+
+let engine = FlowEngine::builder(runtime)
+    .with_store(store)
+    .with_observer(observer)
+    .build();
+```
+
+指标标签只放工作流名、定义版本、事件键和状态等低基数字段。运行 ID、步骤 ID、Hook 令牌和错误全文进入日志或追踪，不进入指标标签。Hook 令牌始终需要脱敏。
+
+至少监控以下数据。
+
+- 各状态运行数与最老暂停时间
+- 到期唤醒数量、扫描延迟与任务排队时间
+- 步骤尝试、重试耗尽和执行时长
+- 活动 Hook 数量、最老 Hook 和回调冲突
+- 事件存储错误、序号竞争和迁移验证失败
+- 各 `runtime_build_id` 的活动运行与路由覆盖
+
+## 安全停机
+
+1. 停止接收新运行和外部回调。
+2. 停止调度器继续派发。
+3. 等待或重新入队当前租约。
+4. 关闭任务队列和数据库连接。
+5. 保持工作流为非终态，交给替代进程恢复。
+
+普通部署停机不要调用 `terminate_for_host_shutdown()`。那个 API 表示宿主已经决定运行永远不能恢复。
+
+## 上线故障演练
+
+在投产前至少验证四个窗口。
+
+1. 步骤外部副作用成功后、完成事件提交前退出，确认幂等重投。
+2. 等待到期任务重复派发，确认只形成一个完成事件。
+3. 子请求提交后、子运行创建前退出，确认子身份不重复。
+4. 新版本缺少旧版本路由，确认任务不被错误 Worker 接收且历史不变。
+
+演练要使用与生产相同的存储和队列类型。只在内存存储上通过无法证明数据库锁、租约和恢复顺序正确。

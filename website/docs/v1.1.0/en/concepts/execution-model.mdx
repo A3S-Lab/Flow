@@ -1,0 +1,138 @@
+---
+title: Execution model
+description: Understand how event history, snapshot projection, deterministic commands, optimistic concurrency, and at-least-once steps form a durable run.
+---
+
+# Execution model
+
+Flow stores each workflow run as an append-only event stream. In-process call stacks, local variables, and async tasks are not durable state. Whenever a worker takes a run, it reconstructs a snapshot from history and asks runtime code for the next decision.
+
+As a result, execution may move to another machine after any committed event. Recovery depends on history and compatible runtime code, not memory left by the original process.
+
+## One replay cycle
+
+Each cycle has four phases.
+
+1. Read committed events for a run and project `WorkflowRunSnapshot`.
+2. Call `FlowRuntime::run_workflow()` with the definition, input, and history.
+3. Validate one returned `RuntimeCommand` and append its events at an expected sequence.
+4. Replay again, stop on a durable wait, or reach a terminal outcome.
+
+```text
+history -> snapshot -> workflow decision -> validated event append
+   ^                                              |
+   +---------------- replay or resume ------------+
+```
+
+Runtime code emits one decision per cycle. A step batch or child-workflow batch is still one atomic command. Flow validates the complete identity set before advancing any member.
+
+## A snapshot is a projection
+
+`WorkflowRunSnapshot` summarizes current status, steps, waits, hooks, signals, children, progress, and terminal outcome. It is useful for APIs and operations, but it cannot replace history.
+
+```rust
+let snapshot = engine.snapshot("order-2026-0001").await?;
+println!("status={:?}", snapshot.status);
+
+let history = engine.history("order-2026-0001").await?;
+for envelope in history {
+    println!(
+        "sequence={} event={}",
+        envelope.sequence,
+        envelope.event.event_key(),
+    );
+}
+```
+
+A store must return the complete stream in order. Saving only the latest snapshot loses information needed for replay, audit, and concurrency checks.
+
+## Where determinism is enforced
+
+Flow does not require a workflow function to be mathematically pure. It does require the same durable decision for the same history. Replay compares these fields explicitly.
+
+- Step ID, name, input, and retry policy
+- Wait ID and UTC deadline
+- Hook ID, token, and metadata
+- Signal wait ID and signal name
+- Child-workflow ID, definition, input, and cancellation policy
+- Continuation input, patch markers, and runtime-build identity
+
+If an existing identity reappears with different parameters, Flow reports nondeterministic replay instead of accepting new values silently.
+
+Do not read current time, randomness, environment variables, network responses, or mutable global state while choosing a workflow command. Put those reads in a step and consume the durable step output.
+
+```rust
+if let Some(rate) = ctx.step_output("read-rate") {
+    return Ok(ctx.complete(rate.clone()));
+}
+
+Ok(ctx.schedule_step(
+    "read-rate",
+    "readExchangeRate",
+    serde_json::json!({ "pair": "CNY/USD" }),
+))
+```
+
+## Physical step delivery is at least once
+
+A step output becomes visible only after `StepCompleted` commits. A process may exit after an external call succeeds but before that event is stored. A replacement worker cannot observe success and executes the same attempt again.
+
+Every side-effecting step therefore needs a business idempotency key. A common key combines run ID, step ID, and target resource ID.
+
+```text
+order-2026-0001:reserve-stock:sku-8842
+```
+
+Flow prevents a committed successful step from being invoked again during replay. It cannot provide an atomic commit across an external database or payment API.
+
+## How concurrent writes converge
+
+Event stores implement optimistic concurrency through `append_if_sequence()`. A worker that read sequence 7 may append only with expected sequence 7. If another worker has already committed sequence 8, the stale write returns `EventConflict`.
+
+The engine responds to recoverable sequence races by reading history and replaying. Workflow code does not need a lock around the whole run, and the store never overwrites a winning decision with a late event.
+
+## Suspension does not hold a worker
+
+These conditions release current compute.
+
+- Waiting for a future UTC time
+- Waiting for a delayed retry
+- Waiting for a named signal
+- Waiting for a hook callback
+- Waiting for a first-class child workflow
+
+`FlowScheduler` scans durable indexes for timer and retry deadlines, then dispatches run-targeted resume tasks. External entry points push signal and hook tasks. No thread, future, or process needs to remain alive during suspension.
+
+## Run states and terminal outcomes
+
+Common active states include `Pending`, `Running`, `Suspended`, and `Cancelling`. `WorkflowTerminalOutcome` describes final results.
+
+| Outcome          | Meaning                                            |
+| ---------------- | -------------------------------------------------- |
+| `Completed`      | Workflow returned successful JSON output           |
+| `Failed`         | Application or runtime chose failure               |
+| `Cancelled`      | Cleanup-aware cancellation finished                |
+| `TimedOut`       | Run ended at a declared deadline                   |
+| `RetryExhausted` | A step exhausted retry and chose run failure       |
+| `HostShutdown`   | Host explicitly declared the run non-resumable     |
+| `ContinuedAsNew` | This history segment closed and linked a successor |
+
+Ordinary process loss should not create a terminal outcome. A replacement worker can continue a non-terminal run.
+
+## Long histories and code rollout
+
+Long loops use `continue_as_new()` to close the current stream and create a successor with new input. The successor inherits the complete `WorkflowSpec`. A continuation cannot change code version or patch markers.
+
+During rolling deployment, `runtime_build_id` pins a run to code capable of replaying it. Patch markers persist a code-branch choice for new runs. Both mechanisms establish authority before the first decision so old and new workers do not interpret one history differently.
+
+## Design review questions
+
+Review workflow code with five questions.
+
+1. Can this value change during replay?
+2. Does every changing value come from a durable step, signal, or hook output?
+3. Does each decision have a stable ID with one enduring meaning?
+4. Can the target system deduplicate a repeated side effect?
+5. Can the current process disappear completely while the run waits?
+
+If any answer is unclear, draw the corresponding event and recovery point before writing runtime code.

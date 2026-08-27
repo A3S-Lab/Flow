@@ -14,10 +14,32 @@ export type HomeCopy = {
     draft: string;
     saved: string;
     validate: string;
+    validating: string;
+    validated: string;
     testRun: string;
+    runIdle: string;
+    runRunning: string;
+    runComplete: string;
+    nodeIdle: string;
+    nodeRunning: string;
+    nodeSuccess: string;
     addNode: string;
     selectTool: string;
     panTool: string;
+    canvasTools: string;
+    nodeCatalog: string;
+    closeNodeCatalog: string;
+    inspector: string;
+    inspectorTabs: string;
+    closeInspector: string;
+    openInspector: string;
+    zoomLabel: string;
+    zoomIn: string;
+    zoomOut: string;
+    fitView: string;
+    outputs: string;
+    branchMatched: string;
+    branchOtherwise: string;
     settings: string;
     lastRun: string;
     taskName: string;
@@ -121,14 +143,36 @@ export const homeCopy: Readonly<Record<HomeLocale, HomeCopy>> = {
       secondary: '打开 Playground',
       status: '图结构有效',
       run: '客户支持工作流',
-      resumed: '试运行完成 · 5 个节点',
+      resumed: '试运行完成 · 3 个节点',
       draft: '本地草稿',
       saved: '已自动保存',
       validate: '校验',
+      validating: '校验中…',
+      validated: '已校验',
       testRun: '试运行',
+      runIdle: '准备运行',
+      runRunning: '运行中…',
+      runComplete: '运行完成',
+      nodeIdle: '待运行',
+      nodeRunning: '运行中',
+      nodeSuccess: '已完成',
       addNode: '添加节点',
       selectTool: '选择节点',
       panTool: '平移画布',
+      canvasTools: '画布工具',
+      nodeCatalog: '节点目录',
+      closeNodeCatalog: '关闭节点目录',
+      inspector: '节点检查器',
+      inspectorTabs: '检查器视图',
+      closeInspector: '关闭检查器',
+      openInspector: '打开检查器',
+      zoomLabel: '画布缩放',
+      zoomIn: '放大画布',
+      zoomOut: '缩小画布',
+      fitView: '适应画布',
+      outputs: '输出端口',
+      branchMatched: '符合',
+      branchOtherwise: '其他',
       settings: '配置',
       lastRun: '运行结果',
       taskName: '任务名称',
@@ -163,7 +207,7 @@ export const homeCopy: Readonly<Record<HomeLocale, HomeCopy>> = {
     system: {
       eyebrow: 'ENGINE · COMPONENTS · CLI · SKILL',
       title: '一份节点清单怎样走到编辑器、CLI 和运行时',
-      body: 'Flow 1.0 提供 18 个公开节点。每个 manifest 都声明字段、端口、默认值和运行绑定。React 与 Vue 据此渲染界面，CLI 与 Skill 据此创建和校验文档。图通过校验以后，才交给持久执行引擎。',
+      body: 'Flow 1.1 提供 18 个公开节点。每个 manifest 都声明字段、端口、默认值和运行绑定。React 与 Vue 据此渲染界面，CLI 与 Skill 据此创建和校验文档。图通过校验以后，才交给持久执行引擎。',
       mapLabel: 'A3S Flow 产品组成',
       items: [
         { title: '节点 manifest', detail: '字段、端口、默认值与运行绑定' },
@@ -357,14 +401,36 @@ and report the semantic digest.`,
       secondary: 'Open Playground',
       status: 'Graph valid',
       run: 'Customer support workflow',
-      resumed: 'Test run complete · 5 nodes',
+      resumed: 'Test run complete · 3 nodes',
       draft: 'Local draft',
       saved: 'Autosaved',
       validate: 'Validate',
+      validating: 'Validating…',
+      validated: 'Validated',
       testRun: 'Test run',
+      runIdle: 'Ready to run',
+      runRunning: 'Running…',
+      runComplete: 'Run complete',
+      nodeIdle: 'Queued',
+      nodeRunning: 'Running',
+      nodeSuccess: 'Completed',
       addNode: 'Add node',
       selectTool: 'Select nodes',
       panTool: 'Pan canvas',
+      canvasTools: 'Canvas tools',
+      nodeCatalog: 'Node catalog',
+      closeNodeCatalog: 'Close node catalog',
+      inspector: 'Node inspector',
+      inspectorTabs: 'Inspector views',
+      closeInspector: 'Close inspector',
+      openInspector: 'Open inspector',
+      zoomLabel: 'Canvas zoom',
+      zoomIn: 'Zoom in',
+      zoomOut: 'Zoom out',
+      fitView: 'Fit view',
+      outputs: 'Output ports',
+      branchMatched: 'matched',
+      branchOtherwise: 'otherwise',
       settings: 'Settings',
       lastRun: 'Last run',
       taskName: 'Task name',
@@ -402,7 +468,7 @@ and report the semantic digest.`,
     system: {
       eyebrow: 'ENGINE · COMPONENTS · CLI · SKILL',
       title: 'How one node catalog reaches the editor, CLI, and runtime',
-      body: 'Flow 1.0 exposes 18 public nodes. Each manifest declares fields, ports, defaults, and runtime binding. React and Vue render from that contract, while the CLI and Skill create and validate documents against it. Only a valid graph reaches the durable engine.',
+      body: 'Flow 1.1 exposes 18 public nodes. Each manifest declares fields, ports, defaults, and runtime binding. React and Vue render from that contract, while the CLI and Skill create and validate documents against it. Only a valid graph reaches the durable engine.',
       mapLabel: 'A3S Flow product system',
       items: [
         {

@@ -10,6 +10,7 @@ const docsRoot = path.join(siteRoot, 'docs');
 const snapshotFile = path.join(siteRoot, 'version-snapshots.json');
 const locales = ['zh', 'en'];
 const expectedPageCounts = new Map([
+  ['v1.1.0', 41],
   ['v1.0.0', 41],
   ['v0.13.1', 5],
   ['v0.12.0', 5],
@@ -106,16 +107,19 @@ async function verifyPage(page, locale, version, localeRoot) {
   }
 
   const visibleProse = extractVisibleProse(source, frontmatter[0]);
-  const isCurrentHome = version === defaultVersion && route === 'index.mdx';
-  const isCurrentPlayground =
-    version === defaultVersion && route === 'playground/index.mdx';
-  if (isCurrentHome) {
-    if (!/^pageType:\s*home$/mu.test(frontmatter[1])) {
+  const isHome = route === 'index.mdx';
+  const isHomePage = /^pageType:\s*home$/mu.test(frontmatter[1]);
+  if (isHome) {
+    if (version === defaultVersion && !isHomePage) {
       throw new Error(`The current homepage must use pageType home: ${page}`);
     }
-    return;
+    // Archived home pages intentionally retain a minimal shell. Their layout
+    // is rendered by the archive theme, so they do not need duplicate prose.
+    if (isHomePage) return;
   }
-  if (isCurrentPlayground) {
+
+  const isPlayground = route === 'playground/index.mdx';
+  if (isPlayground) {
     for (const field of [
       'pageType: blank',
       'navbar: false',
@@ -128,10 +132,13 @@ async function verifyPage(page, locale, version, localeRoot) {
         throw new Error(`Playground must declare ${field}: ${page}`);
       }
     }
-    if (visibleProse.trim() !== '') {
+    if (version === defaultVersion && visibleProse.trim() !== '') {
       throw new Error(`Playground must not include document prose: ${page}`);
     }
-    if (!source.includes('<WorkflowPlayground />')) {
+    if (
+      version === defaultVersion &&
+      !source.includes('<WorkflowPlayground />')
+    ) {
       throw new Error(`Playground must render the workflow designer: ${page}`);
     }
     return;

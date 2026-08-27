@@ -12,21 +12,21 @@ export type PlaygroundLayoutKernelInput = {
   heights: Float32Array;
 };
 
-/** Stable origins used by the layout kernel for each React Flow scope. */
+/** The visual origin used by React Flow for each layout scope. */
 export const PLAYGROUND_LAYOUT_ORIGINS = {
   root: { x: 88, y: 124 },
-  // Keep room for a container's header while leaving the first child aligned
-  // with the coordinates used by the sample workflows.
+  // Leave room for the container title and keep the internal start node at
+  // the same authoring baseline used by the sample workflows.
   child: { x: 36, y: 170 },
 } as const;
 
-/** Minimum breathing room between the last child and a container edge. */
+/** Extra breathing room around nodes inside a container preview. */
 export const PLAYGROUND_CONTAINER_PADDING = {
   right: 36,
   bottom: 36,
 } as const;
 
-/** Persisted child coordinates are relative to the top-left of their parent. */
+/** Keep persisted child coordinates inside the container's outer edge. */
 export const PLAYGROUND_CHILD_CONTENT_ORIGIN = {
   x: 0,
   y: 0,
@@ -34,6 +34,7 @@ export const PLAYGROUND_CHILD_CONTENT_ORIGIN = {
 
 const MIN_CONTAINER_WIDTH = 600;
 const MIN_CONTAINER_HEIGHT = 360;
+
 type LayoutScopeId = string | null;
 
 class NumericMinHeap {
@@ -78,8 +79,9 @@ class NumericMinHeap {
 }
 
 export function playgroundNodeVisualWidth(node: PlaygroundNode): number {
-  // A resized container's explicit style is authoritative. React Flow can
-  // expose the dimensions from the previous CSS frame for one render.
+  // Explicit style dimensions are the source of truth after a container has
+  // been resized. React Flow's measured dimensions can describe the previous
+  // CSS frame for one render and would otherwise make a fresh layout overflow.
   const width = node.style?.width ?? node.width ?? node.measured?.width;
   return finiteDimension(width, 240);
 }
@@ -94,8 +96,10 @@ function finiteDimension(value: unknown, fallback: number): number {
     return Number.isFinite(value) && value > 0 ? value : fallback;
   }
   if (typeof value !== 'string' || !value.trim()) return fallback;
+  // React Flow dimensions are numeric, but persisted drafts may contain a
+  // pixel string. Percentage dimensions are relative to the parent and must
+  // not be mistaken for a fixed visual width here.
   const trimmed = value.trim();
-  // A percentage is relative to the parent and cannot be measured here.
   if (trimmed.endsWith('%')) return fallback;
   const parsed = trimmed.endsWith('px')
     ? Number.parseFloat(trimmed.slice(0, -2))
@@ -135,7 +139,11 @@ export function createPlaygroundLayoutKernelInput(
   };
 }
 
-/** Shift kernel coordinates into a nested parent's content area. */
+/**
+ * Moves the numeric kernel coordinates into the content area of a nested
+ * React Flow parent. The WASM kernel intentionally stays scope-agnostic and
+ * uses the same stable origin for every invocation.
+ */
 export function offsetPlaygroundLayoutPositions(
   positions: Float32Array,
   scopeId: LayoutScopeId,
@@ -296,9 +304,9 @@ function containerDimension(
 }
 
 /**
- * Keeps a container large enough for all direct children. This is done in the
- * same graph update as the child coordinates so React Flow never calculates
- * an edge against a stale parent boundary.
+ * Expands a container to contain every direct child after a scoped layout.
+ * Dimensions never shrink below the existing authoring size, so an author can
+ * keep a deliberately spacious subflow while newly arranged nodes still fit.
  */
 export function resizePlaygroundContainerToFitChildren(
   graph: PlaygroundGraphState,
@@ -308,8 +316,11 @@ export function resizePlaygroundContainerToFitChildren(
   if (!container || !container.data.container) return graph;
   const children = graph.nodes.filter((node) => node.parentId === containerId);
 
-  // Clamp dropped children into the parent's content origin before measuring.
-  // Moving a direct child container also moves its complete nested subtree.
+  // A node can arrive here from a pointer drop before React Flow has had a
+  // chance to clamp it to `extent: parent`. Move the whole direct-child row
+  // into the content area first, then measure the resulting bounds. Shifting a
+  // child container is enough to move its complete nested subtree because its
+  // descendants remain in that child's local coordinate system.
   const minimumX = children.reduce(
     (minimum, child) =>
       Math.min(
@@ -407,7 +418,7 @@ export function resizePlaygroundContainerToFitChildren(
   return { ...graph, nodes };
 }
 
-/** Applies one scope's coordinates and synchronizes its parent boundary. */
+/** Applies a scoped coordinate buffer and keeps its parent boundary in sync. */
 export function applyPlaygroundScopeLayout(
   graph: PlaygroundGraphState,
   scopeId: LayoutScopeId,
@@ -422,7 +433,11 @@ export function applyPlaygroundScopeLayout(
   return next;
 }
 
-/** Layout every scope from the leaves upward so parent sizes use final child dimensions. */
+/**
+ * Arranges every graph scope from the leaves upward. This is shared by the
+ * synchronous benchmark/test path and by the browser Worker client, ensuring
+ * both paths produce identical parent-relative coordinates.
+ */
 export async function layoutPlaygroundGraphWithKernel(
   graph: PlaygroundGraphState,
   runKernel: (
@@ -437,17 +452,22 @@ export async function layoutPlaygroundGraphWithKernel(
       if (activeScopes.has(scopeId)) return;
       activeScopes.add(scopeId);
     }
+
     const childContainers = next.nodes.filter(
       (node) => scopeMatches(node, scopeId) && node.data.container,
     );
-    for (const child of childContainers) await visit(child.id);
+    for (const child of childContainers) {
+      await visit(child.id);
+    }
 
     const input = createPlaygroundLayoutKernelInput(next, scopeId);
     if (input.nodeIds.length > 0) {
-      next = applyPlaygroundScopeLayout(next, scopeId, await runKernel(input));
+      const positions = await runKernel(input);
+      next = applyPlaygroundScopeLayout(next, scopeId, positions);
     } else if (scopeId !== null) {
       next = resizePlaygroundContainerToFitChildren(next, scopeId);
     }
+
     if (scopeId !== null) activeScopes.delete(scopeId);
   };
 
@@ -455,10 +475,13 @@ export async function layoutPlaygroundGraphWithKernel(
   return next;
 }
 
-/** Synchronous layout path used by tests and the performance benchmark. */
+/** Synchronous convenience wrapper used by tests and the performance bench. */
 export function layoutPlaygroundGraphInJavaScript(
   graph: PlaygroundGraphState,
 ): PlaygroundGraphState {
+  // The callback never yields, so the async implementation cannot be used
+  // directly without returning a Promise. Keep this small synchronous walker
+  // equivalent to the browser path for benchmark callers.
   let next = graph;
   const activeScopes = new Set<string>();
   const visit = (scopeId: LayoutScopeId): void => {

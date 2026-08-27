@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Added a complete manifest-contract inspector for the React authoring panel,
+  including node metadata, typed ports, output definitions, field visibility,
+  value state, and the original manifest properties with secret redaction.
+- Unified conditional field visibility and partial build-config overrides across
+  form generation, validation, previews, and serialized workflow documents.
+- Improved large Playground graphs with visible-element rendering,
+  `content-visibility` containment for long panels, adaptive minimap pausing,
+  and a reproducible 100/500/1,000-node p50/p95/p99 benchmark harness for the
+  Worker and WebAssembly layout path.
+- Added deterministic A3S Test coverage for the complete designer and custom
+  node catalog, including localized A3S UI controls and browser error checks.
+
+## 1.1.0 - 2026-08-25
+
 - Hardened custom workflow-node authoring with deeply immutable manifests,
   shared composite-field validation, exact host capability publication checks,
   and a complete Playground sample containing every built-in, internal, and

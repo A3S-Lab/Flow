@@ -1,0 +1,21 @@
+[
+  "index",
+  "start",
+  "condition",
+  "step",
+  "batch",
+  "wait",
+  "hook",
+  "signal",
+  "child-operation",
+  "child-workflow",
+  "child-workflows",
+  "continue-as-new",
+  "progress",
+  "complete",
+  "fail",
+  "cancel",
+  "timeout",
+  "iteration",
+  "loop"
+]

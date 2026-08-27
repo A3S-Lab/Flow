@@ -147,6 +147,441 @@
   color: #ffffff;
 }
 
+/* Trigger input modal: keep the entry contract readable without hiding the
+   canvas context behind a generic form dialog. */
+.a3s-trigger-dialog-backdrop {
+  z-index: 120;
+  padding: 24px;
+  background: rgb(15 23 42 / 34%);
+  backdrop-filter: blur(2px);
+}
+
+.a3s-trigger-dialog {
+  display: flex;
+  width: min(680px, 100%);
+  max-height: min(760px, calc(100dvh - 48px));
+  padding: 0;
+  overflow: hidden;
+  flex-direction: column;
+  border: 1px solid var(--workflow-line-strong);
+  border-radius: 16px;
+  background: var(--workflow-surface);
+  box-shadow: 0 22px 60px rgb(15 23 42 / 20%);
+}
+
+.a3s-trigger-dialog__header {
+  display: grid;
+  padding: 22px 24px 16px;
+  align-items: start;
+  grid-template-columns: 40px minmax(0, 1fr) 34px;
+  gap: 12px;
+  border-bottom: 1px solid var(--workflow-line);
+}
+
+.a3s-trigger-dialog__icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgb(18 100 255 / 22%);
+  border-radius: 11px;
+  background: var(--workflow-blue-soft);
+  color: var(--workflow-blue);
+  place-items: center;
+}
+
+.a3s-trigger-dialog__icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.a3s-trigger-dialog__header p {
+  margin: 2px 0 4px;
+  color: var(--workflow-blue);
+  font-family: var(--workflow-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+.a3s-trigger-dialog__header h2 {
+  margin: 0;
+  color: var(--workflow-text);
+  font-size: 19px;
+  font-weight: 720;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+
+.a3s-trigger-dialog__header > button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--workflow-muted);
+  cursor: pointer;
+  place-items: center;
+}
+
+.a3s-trigger-dialog__header > button:hover,
+.a3s-trigger-dialog__header > button:focus-visible {
+  border-color: var(--workflow-line);
+  background: var(--workflow-surface-muted);
+  color: var(--workflow-text);
+}
+
+.a3s-trigger-dialog__header > button svg {
+  width: 17px;
+  height: 17px;
+}
+
+.a3s-trigger-dialog__intro {
+  margin: 0;
+  padding: 14px 24px 0;
+  color: var(--workflow-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.a3s-trigger-dialog__contract {
+  display: flex;
+  margin: 14px 24px 0;
+  padding: 10px 12px;
+  border: 1px solid rgb(18 100 255 / 17%);
+  border-radius: 9px;
+  background: var(--workflow-blue-soft);
+  align-items: center;
+  gap: 9px;
+}
+
+.a3s-trigger-dialog__contract > svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  color: var(--workflow-blue);
+}
+
+.a3s-trigger-dialog__contract span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.a3s-trigger-dialog__contract strong {
+  overflow: hidden;
+  color: var(--workflow-blue-dark);
+  font-family: var(--workflow-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-trigger-dialog__contract small {
+  color: var(--workflow-muted);
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.a3s-trigger-dialog form {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.a3s-trigger-dialog__fields {
+  min-height: 0;
+  padding: 18px 24px 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.a3s-trigger-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.a3s-trigger-fieldset + .a3s-trigger-fieldset {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--workflow-line);
+}
+
+.a3s-trigger-fieldset legend {
+  display: flex;
+  width: 100%;
+  padding: 0;
+  color: var(--workflow-text);
+  font-size: 11px;
+  font-weight: 700;
+  justify-content: space-between;
+  line-height: 1.4;
+}
+
+.a3s-trigger-fieldset legend em,
+.a3s-trigger-field label em {
+  margin-left: 4px;
+  color: var(--workflow-red);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.a3s-trigger-fieldset__fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.a3s-trigger-fieldset > .a3s-trigger-field__description {
+  margin: 5px 0 10px;
+}
+
+.a3s-trigger-fieldset > .a3s-trigger-fieldset__fields {
+  margin-top: 10px;
+}
+
+.a3s-trigger-field {
+  min-width: 0;
+}
+
+.a3s-trigger-field.is-invalid {
+  --trigger-field-border: var(--workflow-red);
+}
+
+.a3s-trigger-field label {
+  display: flex;
+  min-height: 18px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--workflow-text);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.a3s-trigger-field label > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.a3s-trigger-field label small {
+  flex: 0 0 auto;
+  color: var(--workflow-faint);
+  font-family: var(--workflow-mono);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.a3s-trigger-field input:not([type='checkbox']),
+.a3s-trigger-field select,
+.a3s-trigger-field textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 5px;
+  padding: 8px 9px;
+  border: 1px solid var(--trigger-field-border, var(--workflow-line));
+  border-radius: 7px;
+  outline: none;
+  background: var(--workflow-surface);
+  color: var(--workflow-text);
+  font: 11px/1.4 var(--workflow-sans);
+  transition:
+    border-color 130ms ease-out,
+    box-shadow 130ms ease-out;
+}
+
+.a3s-trigger-field textarea {
+  min-height: 78px;
+  resize: vertical;
+  font-family: var(--workflow-mono);
+  font-size: 10px;
+}
+
+.a3s-trigger-field input:not([type='checkbox']):focus,
+.a3s-trigger-field select:focus,
+.a3s-trigger-field textarea:focus {
+  border-color: var(--workflow-blue);
+  box-shadow: 0 0 0 3px rgb(18 100 255 / 12%);
+}
+
+.a3s-trigger-field.is-invalid input:not([type='checkbox']):focus,
+.a3s-trigger-field.is-invalid select:focus,
+.a3s-trigger-field.is-invalid textarea:focus {
+  border-color: var(--workflow-red);
+  box-shadow: 0 0 0 3px rgb(220 38 38 / 11%);
+}
+
+.a3s-trigger-field__description {
+  margin: 4px 0 0;
+  color: var(--workflow-faint);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.a3s-trigger-field__errors {
+  display: grid;
+  margin-top: 4px;
+  color: var(--workflow-red);
+  font-size: 9px;
+  line-height: 1.4;
+  gap: 2px;
+}
+
+.a3s-trigger-checkbox {
+  display: inline-flex !important;
+  width: fit-content;
+  margin-top: 7px;
+  padding: 6px 8px;
+  border: 1px solid var(--trigger-field-border, var(--workflow-line));
+  border-radius: 7px;
+  background: var(--workflow-surface);
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+
+.a3s-trigger-checkbox input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--workflow-blue);
+}
+
+.a3s-trigger-checkbox span {
+  color: var(--workflow-muted);
+  font-size: 10px;
+}
+
+.a3s-trigger-dialog__summary {
+  margin: 8px 24px 0;
+  padding: 8px 10px;
+  border: 1px solid rgb(220 38 38 / 19%);
+  border-radius: 7px;
+  background: var(--workflow-red-soft);
+  color: var(--workflow-red);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.a3s-trigger-dialog__footer {
+  display: flex;
+  min-height: 66px;
+  margin-top: 14px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--workflow-line);
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.a3s-trigger-dialog__footer > span {
+  color: var(--workflow-faint);
+  font-family: var(--workflow-mono);
+  font-size: 9px;
+}
+
+.a3s-trigger-dialog__footer > div {
+  display: flex;
+  margin: 0;
+  gap: 7px;
+}
+
+.a3s-trigger-dialog__footer button {
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid var(--workflow-line);
+  border-radius: 7px;
+  background: var(--workflow-surface);
+  color: var(--workflow-text);
+  font-size: 10px;
+  font-weight: 680;
+  cursor: pointer;
+}
+
+.a3s-trigger-dialog__footer button:hover,
+.a3s-trigger-dialog__footer button:focus-visible {
+  border-color: var(--workflow-line-strong);
+  background: var(--workflow-surface-muted);
+}
+
+.a3s-trigger-dialog__submit {
+  display: inline-flex;
+  border-color: var(--workflow-blue) !important;
+  background: var(--workflow-blue) !important;
+  color: #ffffff !important;
+  align-items: center;
+  gap: 6px;
+}
+
+.a3s-trigger-dialog__submit:hover,
+.a3s-trigger-dialog__submit:focus-visible {
+  border-color: var(--workflow-blue-dark) !important;
+  background: var(--workflow-blue-dark) !important;
+}
+
+.a3s-trigger-dialog__submit svg {
+  width: 13px;
+  height: 13px;
+}
+
+@media (max-width: 520px) {
+  .a3s-trigger-dialog-backdrop {
+    padding: 0;
+    align-items: end;
+  }
+
+  .a3s-trigger-dialog {
+    width: 100%;
+    max-height: min(820px, 94dvh);
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 16px 16px 0 0;
+  }
+
+  .a3s-trigger-dialog__header,
+  .a3s-trigger-dialog__intro,
+  .a3s-trigger-dialog__fields,
+  .a3s-trigger-dialog__footer {
+    padding-right: 17px;
+    padding-left: 17px;
+  }
+
+  .a3s-trigger-dialog__contract {
+    margin-right: 17px;
+    margin-left: 17px;
+  }
+
+  .a3s-trigger-fieldset__fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .a3s-trigger-dialog__footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .a3s-trigger-dialog__footer > div,
+  .a3s-trigger-dialog__footer button {
+    width: 100%;
+  }
+
+  .a3s-trigger-dialog__footer > div {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+  }
+}
+
 .a3s-workflow-toast {
   position: fixed;
   z-index: 100;

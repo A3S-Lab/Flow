@@ -1,0 +1,13 @@
+[
+  {
+    "text": "文档",
+    "link": "/guide/",
+    "activeMatch": "^/(guide|concepts|operations|runtimes|reference)"
+  },
+  { "text": "节点", "link": "/nodes/", "activeMatch": "^/nodes" },
+  {
+    "text": "Playground",
+    "link": "/playground/",
+    "activeMatch": "^/playground"
+  }
+]

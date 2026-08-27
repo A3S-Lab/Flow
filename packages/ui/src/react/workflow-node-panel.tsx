@@ -12,6 +12,8 @@ import {
   type CreateWorkflowNodeFormOptions,
   createWorkflowNodeDefaultValue,
   createWorkflowNodeForm,
+  isWorkflowNodeFieldVisible,
+  resolveWorkflowNodeFields,
   WORKFLOW_CONFIGURATION_WIDGET_KEYS,
   type WorkflowNodeDefinition,
   type WorkflowNodeFieldDefinition,
@@ -26,6 +28,7 @@ import {
   WorkflowFieldAccessory,
 } from './workflow-configuration-widgets';
 import { workflowNodeVisual } from './workflow-node-visual';
+import { WorkflowNodeContractDetails } from './workflow-node-contract';
 
 export interface WorkflowNodeConfigurationPanelProps {
   node: WorkflowNodeDefinition;
@@ -206,12 +209,31 @@ export function WorkflowNodeConfigurationPanel(props: WorkflowNodeConfigurationP
   );
   const inputTypes = panelInputTypes(props.node);
   const outputTypes = panelOutputTypes(props.node);
-  const activeFields = props.buildConfig ? Object.values(props.buildConfig) : props.node.fields;
+  const activeFields = resolveWorkflowNodeFields(props.node, {
+    buildConfig: props.buildConfig,
+    fieldVisibility: props.fieldVisibility,
+  });
   const isVisible = (field: WorkflowNodeFieldDefinition) =>
-    props.fieldVisibility?.[field.name] ?? field.show !== false;
+    isWorkflowNodeFieldVisible(field, undefined, props.fieldVisibility);
   const visibleCount = activeFields.filter(isVisible).length;
   const advancedCount = activeFields.filter((field) => field.advanced && isVisible(field)).length;
   const conditionalCount = activeFields.length - visibleCount;
+  const manifestMetadata = props.node as WorkflowNodeDefinition & {
+    manifestVersion?: number;
+    owner?: string;
+    role?: string;
+    stableIdBinding?: string;
+    internal?: boolean;
+    ports?: {
+      inputs?: readonly unknown[];
+      outputs?: readonly unknown[];
+    };
+  };
+  const portCount =
+    (manifestMetadata.ports
+      ? (manifestMetadata.ports.inputs?.length ?? 0) +
+        (manifestMetadata.ports.outputs?.length ?? 0)
+      : (inputTypes.length > 0 ? 1 : 0) + (outputTypes.length > 0 ? 1 : 0));
   const runtimeBinding =
     'runtimeBinding' in props.node && typeof props.node.runtimeBinding === 'string'
       ? props.node.runtimeBinding
@@ -266,6 +288,17 @@ export function WorkflowNodeConfigurationPanel(props: WorkflowNodeConfigurationP
       data-node-family={nodeVisual.family}
       data-node-tone={nodeVisual.tone}
       data-read-only={props.readOnly || undefined}
+      data-manifest-version={manifestMetadata.manifestVersion}
+      data-node-owner={manifestMetadata.owner}
+      data-node-role={manifestMetadata.role}
+      data-node-internal={String(manifestMetadata.internal === true)}
+      data-node-official={String(props.node.official === true)}
+      data-node-tool-mode={String(props.node.tool_mode === true)}
+      data-stable-id-binding={manifestMetadata.stableIdBinding}
+      data-field-count={activeFields.length}
+      data-visible-field-count={visibleCount}
+      data-advanced-field-count={advancedCount}
+      data-port-count={portCount}
       aria-label={`${displayTitle} ${copy.panelSections}`}
     >
       <header className="a3s-form-workflow-node-panel-header">
@@ -505,25 +538,13 @@ export function WorkflowNodeConfigurationPanel(props: WorkflowNodeConfigurationP
           )}
 
           {taskPresentation && (
-            <details className="a3s-form-workflow-node-developer-details">
-              <summary>{copy.developerDetails}</summary>
-              <dl>
-                <div>
-                  <dt>{copy.nodeType}</dt>
-                  <dd>
-                    <code>{props.node.type}</code>
-                  </dd>
-                </div>
-                {runtimeBinding && (
-                  <div>
-                    <dt>{copy.runtimeBinding}</dt>
-                    <dd>
-                      <code>{runtimeBinding}</code>
-                    </dd>
-                  </div>
-                )}
-              </dl>
-            </details>
+            <WorkflowNodeContractDetails
+              buildConfig={props.buildConfig}
+              fieldVisibility={props.fieldVisibility}
+              locale={props.locale}
+              node={props.node}
+              value={props.value}
+            />
           )}
         </div>
       )}

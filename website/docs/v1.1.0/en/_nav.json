@@ -1,0 +1,13 @@
+[
+  {
+    "text": "Docs",
+    "link": "/guide/",
+    "activeMatch": "^/(guide|concepts|operations|runtimes|reference)"
+  },
+  { "text": "Nodes", "link": "/nodes/", "activeMatch": "^/nodes" },
+  {
+    "text": "Playground",
+    "link": "/playground/",
+    "activeMatch": "^/playground"
+  }
+]

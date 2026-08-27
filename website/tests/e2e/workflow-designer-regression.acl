@@ -81,4 +81,66 @@ suite "workflow-designer-regression" {
             clear = false
         }
     }
+
+    scenario "edit-connection-label" {
+        name = "Edit and restore a presentation-only connection label"
+        surface = "web"
+        timeout_ms = 60000
+
+        viewport "desktop" {
+            width = 1440
+            height = 900
+        }
+
+        navigate "open-complete-example" {
+            url = "http://127.0.0.1:4173/Flow/playground?example=cross-border-fulfillment"
+        }
+
+        wait "page-ready" {
+            text = "跨境高价值订单履约"
+        }
+
+        click "fit-complete-canvas" {
+            target = css(".react-flow__controls-button:nth-child(3)")
+        }
+
+        click "select-done-connection" {
+            target = css("[data-edge-id=\"edge_compliance_batch_done_score_order_risk_in\"] .a3s-workflow-edge-label__text")
+        }
+
+        click "open-edge-label-editor" {
+            target = css("[data-edge-id=\"edge_compliance_batch_done_score_order_risk_in\"] .a3s-workflow-edge-label__edit")
+        }
+
+        expect "edge-label-editor" {
+            visible = css("[data-edge-id=\"edge_compliance_batch_done_score_order_risk_in\"] input[aria-label=\"编辑连线名称\"]")
+        }
+
+        fill "connection-label" {
+            target = css("[data-edge-id=\"edge_compliance_batch_done_score_order_risk_in\"] input[aria-label=\"编辑连线名称\"]")
+            value = "物流已全部完成"
+        }
+
+        press "save-connection-label" {
+            key = "Enter"
+        }
+
+        expect "custom-connection-label" {
+            text = "物流已全部完成"
+        }
+
+        expect "stable-source-handle" {
+            visible = css("[data-edge-id=\"edge_compliance_batch_done_score_order_risk_in\"]")
+        }
+
+        console "edge-label-console" {
+            path = "evidence/workflow-edge-label-console.json"
+            clear = false
+        }
+
+        page_errors "edge-label-page-errors" {
+            path = "evidence/workflow-edge-label-page-errors.json"
+            clear = false
+        }
+    }
 }

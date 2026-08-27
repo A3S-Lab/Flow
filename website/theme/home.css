@@ -357,12 +357,17 @@
   height: 100%;
 }
 
-.flow-hero-canvas__edges path {
+.flow-hero-canvas__edges > path {
   fill: none;
   stroke: #a4b4c9;
   stroke-linecap: round;
   stroke-width: 1.5;
   vector-effect: non-scaling-stroke;
+}
+
+.flow-hero-canvas__edges marker path {
+  fill: currentColor;
+  stroke: none;
 }
 
 .flow-hero-canvas__rail {

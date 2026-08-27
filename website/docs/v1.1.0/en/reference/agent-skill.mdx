@@ -1,0 +1,84 @@
+---
+title: a3s-flow Skill
+description: Install and invoke the A3S Flow Skill so coding agents create and validate workflows against the installed node catalog.
+---
+
+# a3s-flow Skill
+
+After installation, a coding agent can invoke `$a3s-flow` to create or update workflow documents. The Skill first inspects the local CLI, then creates nodes, wires ports, validates the graph, reviews deterministic order, and produces semantic digests. It ships with `@a3s-lab/flow-ui`, carries no second node catalog, and does not guess which fields a package version supports.
+
+## Locate and install it
+
+```bash
+npm install @a3s-lab/flow-ui @a3s-lab/ui
+node --input-type=module -e "console.log(import.meta.resolve('@a3s-lab/flow-ui/skill'))"
+```
+
+The second command prints the package URL for `SKILL.md`. Its containing `a3s-flow` directory is the complete Skill to register.
+
+The package contains this complete directory.
+
+```text
+skills/a3s-flow/
+  SKILL.md
+  agents/openai.yaml
+  references/workflow-dsl.md
+```
+
+Register the whole `a3s-flow` directory with the coding agent's Skill root. A personal Codex installation normally places it at `$CODEX_HOME/skills/a3s-flow`. A team repository can instead keep a reproducible link or copy command. Keep the reference file with the entry point because document envelopes and container-scope rules live there.
+
+## When to invoke it
+
+Invoke `$a3s-flow` when a task creates a workflow document, chooses nodes, edits manifest-owned settings, connects ports, repairs DAG validation, constructs an iteration or loop scope, reviews deterministic order, or records a release digest. A discussion limited to runtime concepts or ordinary Rust APIs does not need the Skill, which keeps node-authoring procedures out of unrelated work.
+
+## Write a bounded request
+
+Name the target file, business order, identities that must remain stable, and the evidence expected at completion. This gives the agent clear boundaries without asking it to invent fields.
+
+```text
+Use $a3s-flow to add a human approval node after agent-task in
+workflow.json. Keep existing node IDs, connect valid ports, validate
+and compile the graph, then report the document and graph digests.
+```
+
+For a new document, explicitly permit the CLI sample as the starting point.
+
+```text
+Use $a3s-flow to create workflow.json from the CLI sample. Replace the
+sample task with risk.review, add a timeout path, validate every node,
+and explain the compiled order before writing the final digest.
+```
+
+## What the Skill does
+
+The workflow begins with `a3s-flow nodes --pretty`, followed by `a3s-flow node <type> --pretty` for each candidate. New nodes come from `a3s-flow new`, preserving manifest defaults. After field and edge edits, the agent runs `validate`, `compile`, and `digest` in order. If validation reports issues, it repairs the named paths or edges and repeats the entire sequence.
+
+That sequence keeps decisions aligned with the installed package and prevents a digest from being reported before the graph is executable. The final response should identify changed nodes and edges, show the compiled top-level and container order, report both digests, and name any task handlers or host integration that still needs implementation.
+
+## Containers and durable identity
+
+An iteration or loop has exactly one matching internal start node. Every nested node uses the container ID as `parentId`, and every nested edge remains inside that scope. The normal graph stays acyclic because repetition is expressed through `iteration` or `loop`. The Skill treats IDs for steps, hooks, progress records, child operations, and child workflows as replay-sensitive identity. It should not rename them after runs exist unless the user explicitly requests a migration.
+
+## Security and ownership
+
+A workflow document may describe task names, runtime entry points, input mappings, and callback contracts. It must not contain secrets, access tokens, production connection strings, or authorization decisions. The host still owns credentials, permissions, idempotency, compensation, task execution, event storage, and deployment. The Skill edits only files placed in scope and does not publish packages, push repositories, or call production runs without separate authorization.
+
+Unknown semantic extensions in an imported document are preserved by default. Position, dimensions, title, description, and selection are editor data and can change without affecting semantic identity. The agent must never invent a digest or runtime binding, and it must not silence validation by deleting fields or edges whose purpose has not been understood.
+
+## Project-owned custom nodes
+
+The packaged Skill knows the official CLI catalog. It does not infer custom node fields or executor handlers. A project that permits custom nodes should give the agent a local reference naming the catalog module, admitted node types, capability owner, and typed publication command. The agent then follows that project command instead of weakening an `unknown_node` failure. The [custom node guide](./custom-nodes) defines the required registry and capability checks.
+
+## Verify the installation
+
+```bash
+npx a3s-flow nodes --pretty
+npx a3s-flow sample --output workflow.json --pretty
+npx a3s-flow validate workflow.json --pretty
+```
+
+The catalog should report 18 public nodes. The sample should contain start, task, and completion nodes. Once validation passes, the Skill has a complete local source of truth. Repeat these checks after upgrading `@a3s-lab/flow-ui`, and have the agent read the new manifests instead of relying on field names remembered from an earlier session.
+
+If `import.meta.resolve` cannot find the package, run the command from the project where the dependencies were installed. A global installation does not pin the node version for the current project.
+
+If the Skill reports `unknown_node`, run `npx a3s-flow nodes --pretty` and compare the requested type with the installed catalog. When validation fails, repair the reported path or edge before running `compile` and `digest`. Field names remembered from an earlier session never replace the local manifest.

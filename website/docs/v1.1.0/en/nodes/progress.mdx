@@ -1,0 +1,20 @@
+---
+title: Run progress node
+description: Record a durably identified milestone, counts, message, and structured details.
+---
+
+# Record progress `flow.progress`
+
+A progress node writes an inspectable milestone, count, and short message to event history. It is useful for batch counts, import stages, and long operations whose confirmed progress should appear before completion. Progress is observational data. It does not replace business state needed for branching and it does not invoke a host task.
+
+## Progress fields
+
+`progress_id` is stable identity for one update and normally follows the graph node ID. `completed` is the confirmed amount. `total` is optional and, when present, cannot be below completed. `message` describes the milestone briefly, while `details` holds small structured data or an object reference. Every expression should read committed values so replay cannot produce different content for the same update.
+
+After commit, control continues through `recorded`. Do not write conflicting content under one progress ID. For several milestones, use separate stable nodes or include explicit iteration identity in a controlled loop design. High-frequency telemetry belongs in a metrics system. Recording every byte, model token, or polling tick as a workflow event creates unnecessary history and operational load.
+
+## Presentation and validation
+
+An interface should state that progress comes from the latest committed event and distinguish running, waiting, failed, and terminal states. Test an unknown total, zero, completed greater than total, duplicate submission, process recovery, and oversized details. Before release, define retention, permissions, and localized units so operators can connect every displayed number to the real business measurement.
+
+<NodeReference type="flow.progress" />

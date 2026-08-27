@@ -34,6 +34,29 @@ describe('Workflow Playground local draft', () => {
     );
   });
 
+  it('persists and normalizes custom edge labels', () => {
+    const graph = structuredClone(createSampleWorkflow('en'));
+    graph.edges[0].data = { labelOverride: '  Ready\nfor review  ' };
+    const draft = createPlaygroundDraft(graph, 'curve', 'blue');
+    const restored = parsePlaygroundDraft(
+      JSON.parse(JSON.stringify(draft)) as unknown,
+    );
+
+    expect(restored?.graph.edges[0].data?.labelOverride).toBe(
+      'Ready for review',
+    );
+  });
+
+  it('migrates an exported top-level edge label into the draft override', () => {
+    const graph = structuredClone(createSampleWorkflow('en'));
+    delete graph.edges[0].data;
+    graph.edges[0].label = 'Manual handoff';
+
+    expect(parsePlaygroundDraft(graph)?.graph.edges[0].data).toMatchObject({
+      labelOverride: 'Manual handoff',
+    });
+  });
+
   it('falls back to curves for an unknown routing value', () => {
     const graph = createSampleWorkflow('en');
 
@@ -50,6 +73,32 @@ describe('Workflow Playground local draft', () => {
     const { annotations: _annotations, ...legacyGraph } = graph;
 
     expect(parsePlaygroundDraft(legacyGraph)?.graph.annotations).toEqual([]);
+  });
+
+  it('adds initial dimensions to drafts created before virtual node rendering', () => {
+    const graph = structuredClone(createSampleWorkflow('en'));
+    graph.nodes = graph.nodes.map(
+      ({
+        initialHeight: _initialHeight,
+        initialWidth: _initialWidth,
+        ...node
+      }) => node,
+    );
+
+    const restored = parsePlaygroundDraft(graph)?.graph;
+    const regularNode = restored?.nodes.find(({ id }) => id === 'order_start');
+    const containerNode = restored?.nodes.find(
+      ({ id }) => id === 'item_iteration',
+    );
+
+    expect(regularNode).toMatchObject({
+      initialWidth: 240,
+      initialHeight: 126,
+    });
+    expect(containerNode).toMatchObject({
+      initialWidth: 1176,
+      initialHeight: 480,
+    });
   });
 
   it('falls back to the default for an unknown connection color', () => {

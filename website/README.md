@@ -1,6 +1,6 @@
 # A3S Flow documentation website
 
-This directory contains the bilingual, versioned A3S Flow documentation built with Rspress. Chinese is the default locale. The current release is mounted at `/Flow/`, English at `/Flow/en/`, and archived releases under `/Flow/<version>/`.
+This directory contains the bilingual, versioned A3S Flow documentation built with Rspress. Chinese is the default locale. The current `v1.1.0` release is mounted at `/Flow/`, English at `/Flow/en/`, and archived releases under `/Flow/<version>/`.
 
 ## Local development
 
@@ -24,20 +24,42 @@ Run all source checks before committing documentation changes:
 npm run check --prefix website
 ```
 
-The custom-node catalog has a deterministic A3S Test suite. Start the local
-site on the suite's fixed origin, then validate and run it from `website/`:
+The Playground performance harness covers 100, 500, and 1,000 node graphs and
+prints p50, p95, and p99 operation latency. Run it from this directory with:
+
+```sh
+npm run bench:playground
+```
+
+The benchmark is a local engineering baseline. Record browser Worker and
+WebAssembly layout timings separately when evaluating a release build.
+
+The homepage workflow designer and custom-node catalog each have deterministic
+A3S Test suites. The workflow-designer suite also covers editing a connection
+label and preserving its port identity. Start the local site on the suite's
+fixed origin, then validate and run the relevant suite from `website/`:
 
 ```sh
 npm run dev -- --host 127.0.0.1 --port 4173
 a3s-test check tests/e2e/workflow-custom-nodes.acl --json
 a3s-test run tests/e2e/workflow-custom-nodes.acl --browser-driver standalone --browser-executable agent-browser --json
+a3s-test check tests/e2e/home-workflow-canvas.acl --json
+a3s-test run tests/e2e/home-workflow-canvas.acl --browser-driver standalone --browser-executable agent-browser --json
+a3s-test check tests/e2e/workflow-designer-regression.acl --json
+a3s-test run tests/e2e/workflow-designer-regression.acl --browser-driver standalone --browser-executable agent-browser --json
 ```
 
 ## Current homepage
 
 The current release uses a product homepage centered on the AI Native Workflow Engine. It explains the shared node manifests, React and Vue components, CLI, Skill, graph compiler, and durable runtime as one system. The homepage uses real `@a3s-lab/flow-ui` node components rather than a separate playground implementation.
 
-Homepage copy lives in `theme/components/HomeCopy.ts`. Structure and product scenes live in `theme/components/HomeLayout.tsx` and `theme/components/HomeVisuals.tsx`. Keep Chinese and English copy synchronized, preserve the visible locale controls, and add stable output assertions to `scripts/check-built-site.mjs` when the narrative changes.
+Homepage copy lives in `theme/components/HomeCopy.ts`. Structure and product
+scenes live in `theme/components/HomeLayout.tsx`, while the workflow demo is
+split across `HeroWorkflowCanvas.tsx`, `HeroWorkflowInspector.tsx`, and
+`HeroWorkflowCanvas.model.ts`; supporting scenes remain in `HomeVisuals.tsx`.
+Keep Chinese and English copy synchronized, preserve the visible locale
+controls, and add stable output assertions to `scripts/check-built-site.mjs`
+when the narrative changes.
 
 ## Version and locale layout
 
@@ -45,6 +67,9 @@ Every published version has two route-identical trees:
 
 ```text
 docs/
+├── v1.1.0/
+│   ├── zh/
+│   └── en/
 ├── v1.0.0/
 │   ├── zh/
 │   └── en/
@@ -81,6 +106,6 @@ After deployment, verify these routes in a browser:
 - `/Flow/` opens the Chinese current homepage.
 - `/Flow/en/` opens the English current homepage.
 - Both language controls preserve the selected version.
-- All version controls reach real snapshots, including `v0.13.1` and `v0.12.0`.
+- All version controls reach real snapshots, including `v1.0.0`, `v0.13.1`, and `v0.12.0`.
 - Desktop and mobile navigation expose search, language, version, and repository links.
 - No asset request escapes the `/Flow/` base path.

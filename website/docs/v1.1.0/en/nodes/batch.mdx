@@ -1,0 +1,20 @@
+---
+title: Step batch node
+description: Declare stable task members with separate input, retry, and exhaustion settings.
+---
+
+# Run step batch `flow.batch`
+
+A batch declares several host tasks that may advance independently and reports results in declaration order. It works well for a bounded, known set such as checking several records or calling a fixed group of tools. If the collection is large or must resume page by page, split it with a stable cursor or use an iteration container so each member has a clearer scope.
+
+## Member settings
+
+Each entry in `steps` has `step_key`, `step_name`, `input_mapping`, `max_attempts`, `retry_delay_ms`, and `on_exhausted`. The key must be unique inside the node and combines with the graph node ID to form durable task identity. Members may finish in any order, but keys and declaration order must not be rebuilt from completion order. When a graph already has runs, preserve every member key and its semantic position.
+
+Each `input_mapping` creates separate parameters and retry settings apply per member. If at least one member chooses `continue_workflow`, the node exposes `recoverable_failure` and `errors` so downstream logic can inspect failed members. The default `fail_run` closes the run when that member exhausts attempts. Host handlers still need at-least-once safety, with idempotency derived from run, node, member, and attempt identity.
+
+## Results and capacity
+
+After every member resolves, control continues through `done` and `results` follows declaration order. Recoverable errors preserve that order as well, so array position must not be interpreted as completion time. Test empty lists, duplicate keys, partial failure, complete failure, process recovery, and large results. Store references for large outputs. Bound the batch against host concurrency, queue capacity, and tenant limits so one node cannot submit more work than downstream systems can absorb.
+
+<NodeReference type="flow.batch" />

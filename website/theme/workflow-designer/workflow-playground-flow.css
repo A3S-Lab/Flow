@@ -69,6 +69,24 @@ body:has(.a3s-workflow-playground) :where(#root, #app) {
   color: var(--workflow-violet);
 }
 
+.a3s-workflow-canvas .flow-playground-canvas__minimap-paused {
+  position: absolute;
+  z-index: 6;
+  right: 52px;
+  bottom: 12px;
+  max-width: 190px;
+  padding: 7px 9px;
+  border: 1px solid var(--workflow-line);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 92%);
+  color: var(--workflow-faint);
+  font-family: var(--workflow-mono);
+  font-size: 9px;
+  line-height: 1.35;
+  pointer-events: none;
+  text-align: right;
+}
+
 .a3s-workflow-canvas .react-flow__node-flowNode {
   border: 0;
   background: transparent;

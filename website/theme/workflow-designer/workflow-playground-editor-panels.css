@@ -291,6 +291,23 @@
   white-space: nowrap;
 }
 
+.a3s-node-library__groups small.a3s-node-library__contract-meta {
+  display: block;
+  margin-top: 5px;
+  color: var(--workflow-faint);
+  font-family: var(--workflow-mono);
+  font-size: 8px;
+  line-height: 1.3;
+  -webkit-line-clamp: 1;
+}
+
+.a3s-node-library__groups section,
+.a3s-node-library__groups section > div > button {
+  content-visibility: auto;
+  contain: layout style paint;
+  contain-intrinsic-size: 0 74px;
+}
+
 .a3s-node-library__groups section > div > button.is-custom {
   min-height: 112px;
 }

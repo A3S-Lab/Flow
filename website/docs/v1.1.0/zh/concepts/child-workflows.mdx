@@ -1,0 +1,134 @@
+---
+title: 子工作流
+description: 启动单个或批量第一类子运行，处理跨事件流恢复、结果顺序、深度限制和取消传播。
+---
+
+# 子工作流
+
+第一类子工作流适合由 Flow 共同管理生命周期的独立运行。父运行保存子运行定义、输入、全局运行 ID、取消策略和终态结果。任一进程退出后，引擎可以从父子两条事件流修复进度。
+
+如果外部任务由另一个系统拥有，只需要保存关联，应使用 `ChildOperationReference`。第一类子工作流会参与驱动、恢复、取消和保留策略，语义更重。
+
+## 启动一个子运行
+
+父工作流先查看稳定 `child_id` 的结果。尚无终态时，返回启动命令。
+
+```rust
+use a3s_flow::WorkflowTerminalOutcome;
+
+match ctx.child_workflow_outcome("import") {
+    Some(WorkflowTerminalOutcome::Completed { output }) => {
+        Ok(ctx.complete(output.clone()))
+    }
+    Some(outcome) => {
+        Ok(ctx.fail(format!("child import failed: {outcome:?}")))
+    }
+    None => Ok(ctx.start_child_workflow(
+        "import",
+        child_spec,
+        serde_json::json!({ "batch": 7 }),
+    )),
+}
+```
+
+`child_id` 只需在父运行内唯一。引擎为子运行生成全局 `run_id`，并把它写入父历史。重放时改动子定义、输入或取消策略会被判定为非确定性。
+
+## 两条事件流之间的提交顺序
+
+父子启动跨越两个事件流，无法依赖单次数据库写入同时完成全部状态。Flow 采用可修复顺序。
+
+1. 父运行提交子请求，其中已经包含生成的子运行 ID。
+2. 引擎用该 ID 创建并驱动子运行。
+3. 子运行形成终态后，父运行提交结果。
+4. 父工作流重放并读取结果。
+
+进程可能停在步骤 1 和 2 之间，也可能停在步骤 2 和 3 之间。替代 Worker 根据父请求和子历史补齐缺失部分。它不会为同一个 `child_id` 生成第二个子身份。
+
+## 读取子运行投影
+
+```rust
+let parent = engine.snapshot(&parent_run_id).await?;
+let child = parent
+    .child_workflow("import")
+    .ok_or_else(|| FlowError::Runtime("missing child".to_string()))?;
+
+println!("child_run={} open={}", child.run_id, child.is_open());
+```
+
+`ChildWorkflowSnapshot` 包含请求时间、请求序号、定义、输入、策略与可选终态。`output_as::<T>()` 只在子运行成功完成时返回类型化输出。
+
+## 批量子工作流
+
+互相独立的子任务可以在一个命令中声明。
+
+```rust
+let children = values
+    .into_iter()
+    .enumerate()
+    .map(|(ordinal, value)| {
+        ctx.child_workflow(
+            format!("item-{ordinal:04}"),
+            child_spec.clone(),
+            serde_json::json!({ "value": value }),
+        )
+    })
+    .collect();
+
+Ok(ctx.start_child_workflows(children))
+```
+
+一批最多 64 个子运行。更大的扇出要拆成稳定窗口，等当前窗口结果全部持久化后再安排下一个窗口。
+
+结果在父历史里按照请求顺序保存，不按照实际完成时间排序。父工作流逐个读取固定 `child_id`，可以稳定汇总输出。
+
+## 取消传播
+
+默认策略 `RequestCancellation` 会在父运行收到取消请求时通知已经打开的子运行。父运行停在 `Cancelling`，直到这些子运行形成终态。
+
+`Abandon` 让子运行独立存活，父运行可以完成取消。它仍然会在正常父流程中等待结果。
+
+```rust
+use a3s_flow::ChildWorkflowCancellationPolicy;
+
+let command = ctx.child_workflow_with_policy(
+    "detached-report",
+    report_spec,
+    report_input,
+    ChildWorkflowCancellationPolicy::Abandon,
+);
+```
+
+取消请求之后才创建的子运行被视作清理工作，不继承已有请求。立即终止父运行时，请求取消策略的活动子运行也会立即终止，不运行清理分支。
+
+## 续段和子运行
+
+子运行可以自行 `continue_as_new()`。父运行会跟随子续段链，直到活动叶子形成终态，然后记录最终结果。父投影保留根子运行 ID，运维查询可以用 `continuation_chain()` 展开后继段。
+
+父运行自身续段时，已经形成的关系属于原历史段。业务设计应在续段输入中携带后续处理需要的最小游标，不要依赖进程内的父子对象。
+
+## 运行版本路由
+
+父与子可以使用不同的 `runtime_build_id`。启动或继续活动子运行的 Worker 必须接受子运行版本。子运行已经终止后，只接受父版本的 Worker也可以把终态结果写回父历史。
+
+生产发布需要为仍在活动的每个版本保留精确任务路由。不要把语义版本相近当成可重放证明。
+
+## 边界与限制
+
+- 单批最多 64 个子运行。
+- 引擎默认限制父子嵌套深度，宿主可以通过构建器设置更小的上限。
+- 祖先检查会拒绝父子环。
+- 保留操作以完整父子组件为单位，活动、受保护或过新的成员会阻止整组删除。
+- 子步骤仍然采用至少一次交付，需要自己的业务幂等键。
+
+## 选择建议
+
+满足以下条件时使用第一类子工作流。
+
+- 子任务需要独立运行 ID、历史、重试和可观测状态。
+- 父运行必须可靠等待它的终态。
+- 取消策略需要在父子之间持久传播。
+- 子任务可能持续很久或使用独立运行版本。
+
+只需要调用一个外部接口并取回结果时，用步骤更直接。外部任务由其他系统拥有时，用子操作引用加信号或 Hook 更合适。
+
+完整示例位于 `examples/child_workflow.rs` 和 `examples/child_workflow_batch.rs`。

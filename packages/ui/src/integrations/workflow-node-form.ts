@@ -67,6 +67,65 @@ export interface CreateWorkflowNodeFormOptions {
   compatibility?: readonly string[];
 }
 
+/**
+ * Compares JSON-like values without relying on object identity. Manifest
+ * conditions commonly contain arrays or small objects, and those values are
+ * cloned when a DAG node crosses the editor boundary.
+ */
+function equalJsonLike(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right)) return false;
+    return (
+      left.length === right.length &&
+      left.every((entry, index) => equalJsonLike(entry, right[index]))
+    );
+  }
+  if (
+    !left ||
+    !right ||
+    typeof left !== "object" ||
+    typeof right !== "object"
+  ) {
+    return false;
+  }
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRecord);
+  const rightKeys = Object.keys(rightRecord);
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key) =>
+        Object.hasOwn(rightRecord, key) &&
+        equalJsonLike(leftRecord[key], rightRecord[key]),
+    )
+  );
+}
+
+/**
+ * Resolves whether a manifest field should be presented for the current
+ * configuration. Explicit host visibility overrides take precedence over the
+ * static `show` flag and `visible_when` condition.
+ */
+export function isWorkflowNodeFieldVisible(
+  field: WorkflowNodeFieldDefinition,
+  value?: Readonly<Record<string, unknown>>,
+  fieldVisibility?: Readonly<Record<string, boolean>>,
+): boolean {
+  if (fieldVisibility && Object.hasOwn(fieldVisibility, field.name)) {
+    return fieldVisibility[field.name] === true;
+  }
+  if (field.show === false) return false;
+  const condition = field.visible_when;
+  // A form document may be compiled before a value exists. In that case keep
+  // conditional fields available; the host can provide a visibility map when
+  // it has a live DAG configuration.
+  if (!condition || value === undefined) return true;
+  if (!Object.hasOwn(value, condition.field)) return false;
+  return equalJsonLike(value[condition.field], condition.equals);
+}
+
 function isChineseLocale(locale: string | undefined): boolean {
   return locale?.toLocaleLowerCase().startsWith("zh") === true;
 }
@@ -445,6 +504,13 @@ function workflowControlWidget(field: WorkflowNodeFieldDefinition): string {
   return "text";
 }
 
+/** Returns the canonical A3S UI control selected for a workflow field. */
+export function workflowNodeFieldControl(
+  field: WorkflowNodeFieldDefinition,
+): string {
+  return workflowControlWidget(field);
+}
+
 function semanticName(field: WorkflowNodeFieldDefinition): string {
   return `${field.name} ${field.display_name ?? ""}`
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
@@ -810,17 +876,53 @@ function tableFieldNodes(
   ];
 }
 
+/**
+ * Returns the manifest fields in declaration order and applies host-side
+ * build-config overrides by field name. Overrides are shallow-merged so a
+ * caller can change one presentation property without accidentally dropping
+ * the field's type, default, validation, or semantic metadata. New names are
+ * retained as explicit host extensions and appended after manifest fields.
+ */
+export function resolveWorkflowNodeFields(
+  node: WorkflowNodeDefinition,
+  options: CreateWorkflowNodeFormOptions = {},
+  value?: Readonly<Record<string, unknown>>,
+): WorkflowNodeFieldDefinition[] {
+  const fieldsByName = new Map<string, WorkflowNodeFieldDefinition>();
+  const order: string[] = [];
+  for (const field of node.fields) {
+    fieldsByName.set(field.name, { ...field });
+    order.push(field.name);
+  }
+  for (const [name, override] of Object.entries(options.buildConfig ?? {})) {
+    if (override.name !== name) {
+      throw new TypeError(
+        `Workflow build-config key ${name} must match field name ${override.name}.`,
+      );
+    }
+    const base = fieldsByName.get(name);
+    fieldsByName.set(name, base ? { ...base, ...override } : { ...override });
+    if (!base) order.push(name);
+  }
+  return order.map((name) => {
+    const field = fieldsByName.get(name);
+    if (!field) throw new Error(`Missing workflow field ${name}.`);
+    const visible = isWorkflowNodeFieldVisible(
+      field,
+      value,
+      options.fieldVisibility,
+    );
+    return visible === (field.show !== false)
+      ? field
+      : { ...field, show: visible };
+  });
+}
+
 function fieldsForNode(
   node: WorkflowNodeDefinition,
   options: CreateWorkflowNodeFormOptions,
 ): WorkflowNodeFieldDefinition[] {
-  const configured = options.buildConfig
-    ? Object.values(options.buildConfig)
-    : node.fields.map((field) => ({ ...field }));
-  return configured.map((field) => {
-    const visible = options.fieldVisibility?.[field.name];
-    return visible === undefined ? field : { ...field, show: visible };
-  });
+  return resolveWorkflowNodeFields(node, options);
 }
 
 interface SemanticFieldRun {

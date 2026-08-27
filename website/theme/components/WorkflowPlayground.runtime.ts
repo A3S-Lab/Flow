@@ -95,71 +95,74 @@ export function useWorkflowPlaygroundRuntime({
     ],
   );
 
-  const runWorkflow = useCallback(async () => {
-    if (running) return;
-    if (!compilation.ok || configurationIssueCount > 0) {
-      onOpenValidation();
-      return;
-    }
-    const controller = new AbortController();
-    runAbort.current?.abort();
-    runAbort.current = controller;
-    const order = [
-      ...compilation.plan.topLevel,
-      ...Object.values(compilation.plan.scopes).flat(),
-    ];
-    const steps: PlaygroundRunStep[] = [];
-    setRunning(true);
-    onOpenTrace();
-    setTrace([]);
-    setStatuses({});
+  const runWorkflow = useCallback(
+    async (_input?: unknown) => {
+      if (running) return;
+      if (!compilation.ok || configurationIssueCount > 0) {
+        onOpenValidation();
+        return;
+      }
+      const controller = new AbortController();
+      runAbort.current?.abort();
+      runAbort.current = controller;
+      const order = [
+        ...compilation.plan.topLevel,
+        ...Object.values(compilation.plan.scopes).flat(),
+      ];
+      const steps: PlaygroundRunStep[] = [];
+      setRunning(true);
+      onOpenTrace();
+      setTrace([]);
+      setStatuses({});
 
-    for (const nodeId of order) {
-      const node = graph.nodes.find(({ id }) => id === nodeId);
-      if (!node) continue;
-      setRunningNodeId(nodeId);
-      setStatuses((current) => ({ ...current, [nodeId]: 'running' }));
-      if (!(await waitForPreview(280, controller.signal))) return;
-      const step = {
-        nodeId,
-        label: nodeDisplayName(node, locale, registry),
-        type: node.data.dagNode.data.type,
-        durationMs: 280,
+      for (const nodeId of order) {
+        const node = graph.nodes.find(({ id }) => id === nodeId);
+        if (!node) continue;
+        setRunningNodeId(nodeId);
+        setStatuses((current) => ({ ...current, [nodeId]: 'running' }));
+        if (!(await waitForPreview(280, controller.signal))) return;
+        const step = {
+          nodeId,
+          label: nodeDisplayName(node, locale, registry),
+          type: node.data.dagNode.data.type,
+          durationMs: 280,
+        };
+        steps.push(step);
+        setTrace([...steps]);
+        setStatuses((current) => ({ ...current, [nodeId]: 'success' }));
+      }
+
+      const durationMs = steps.reduce(
+        (total, step) => total + step.durationMs,
+        0,
+      );
+      const record: PlaygroundRunRecord = {
+        id: `run-${String(runCounter.current++).padStart(3, '0')}`,
+        startedAt: new Date().toLocaleTimeString(
+          locale === 'zh' ? 'zh-CN' : 'en-US',
+          { hour: '2-digit', minute: '2-digit', second: '2-digit' },
+        ),
+        durationMs,
+        steps,
       };
-      steps.push(step);
-      setTrace([...steps]);
-      setStatuses((current) => ({ ...current, [nodeId]: 'success' }));
-    }
-
-    const durationMs = steps.reduce(
-      (total, step) => total + step.durationMs,
-      0,
-    );
-    const record: PlaygroundRunRecord = {
-      id: `run-${String(runCounter.current++).padStart(3, '0')}`,
-      startedAt: new Date().toLocaleTimeString(
-        locale === 'zh' ? 'zh-CN' : 'en-US',
-        { hour: '2-digit', minute: '2-digit', second: '2-digit' },
-      ),
-      durationMs,
-      steps,
-    };
-    setHistory((current) => [record, ...current].slice(0, 12));
-    setRunningNodeId(undefined);
-    setRunning(false);
-    onAnnouncement(copy.runComplete);
-  }, [
-    compilation,
-    configurationIssueCount,
-    copy.runComplete,
-    graph.nodes,
-    locale,
-    onAnnouncement,
-    onOpenTrace,
-    onOpenValidation,
-    registry,
-    running,
-  ]);
+      setHistory((current) => [record, ...current].slice(0, 12));
+      setRunningNodeId(undefined);
+      setRunning(false);
+      onAnnouncement(copy.runComplete);
+    },
+    [
+      compilation,
+      configurationIssueCount,
+      copy.runComplete,
+      graph.nodes,
+      locale,
+      onAnnouncement,
+      onOpenTrace,
+      onOpenValidation,
+      registry,
+      running,
+    ],
+  );
 
   const resetRuntimeHistory = useCallback(() => {
     setTrace([]);

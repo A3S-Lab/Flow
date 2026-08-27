@@ -199,6 +199,7 @@ export function addIntoGraph(
       nodes,
       locale,
       registry,
+      { labelOverride: edgeToReplace.data?.labelOverride },
     );
 
     for (const output of manifest.ports.outputs) {
@@ -227,27 +228,27 @@ export function addIntoGraph(
               graph.edges,
             )
           : undefined;
+      const insertedGraph = fitAddedScope({
+        nodes:
+          insertionParentId && downstream
+            ? nodes.map((node) =>
+                downstream.has(node.id)
+                  ? shiftNodeHorizontally(
+                      node,
+                      playgroundNodeVisualWidth(selectedNode) + CHILD_NODE_GAP,
+                    )
+                  : node,
+              )
+            : nodes,
+        edges: [
+          ...baseEdges,
+          incomingEdge,
+          createPlaygroundEdge(outgoing, nodes, locale, registry),
+        ],
+        annotations: graph.annotations,
+      });
       return {
-        graph: fitAddedScope({
-          nodes:
-            insertionParentId && downstream
-              ? nodes.map((node) =>
-                  downstream.has(node.id)
-                    ? shiftNodeHorizontally(
-                        node,
-                        playgroundNodeVisualWidth(selectedNode) +
-                          CHILD_NODE_GAP,
-                      )
-                    : node,
-                )
-              : nodes,
-          edges: [
-            ...baseEdges,
-            incomingEdge,
-            createPlaygroundEdge(outgoing, nodes, locale, registry),
-          ],
-          annotations: graph.annotations,
-        }),
+        graph: insertedGraph,
         selectedNodeId: selectedNode.id,
         connected: true,
       };
@@ -296,6 +297,7 @@ function positionInParentScope(
   };
 }
 
+/** Resizes the new node's container and every ancestor that contains it. */
 function resizeParentChain(
   graph: PlaygroundGraphState,
   startId: string | undefined,
@@ -316,7 +318,7 @@ function resizeParentChain(
   return next;
 }
 
-/** Adds a node at a dropped child-scope connection point and wires its first input. */
+/** Adds a node at a dropped connection point and wires its first compatible input. */
 export function addConnectedNodeIntoGraph(
   graph: PlaygroundGraphState,
   type: string,
@@ -327,9 +329,16 @@ export function addConnectedNodeIntoGraph(
 ): PlaygroundGraphEditResult {
   const sourceNode = graph.nodes.find(({ id }) => id === pending.source);
   if (!sourceNode) {
-    return addIntoGraph(graph, type, position, locale, undefined, registry);
+    const fallback = addIntoGraph(
+      graph,
+      type,
+      position,
+      locale,
+      undefined,
+      registry,
+    );
+    return fallback;
   }
-
   const parentId = sourceNode.parentId;
   const localPosition = positionInParentScope(position, parentId, graph.nodes);
   const addition = createNodeAddition(
@@ -347,7 +356,11 @@ export function addConnectedNodeIntoGraph(
     addition.nodes.find((node) => node.parentId === parentId) ??
     addition.nodes[0];
   if (!selectedNode) {
-    return { graph, selectedNodeId: pending.source, connected: false };
+    return {
+      graph,
+      selectedNodeId: pending.source,
+      connected: false,
+    };
   }
 
   const nodes = [
@@ -362,6 +375,7 @@ export function addConnectedNodeIntoGraph(
   const sourcePort = sourceManifest.ports.outputs.find(
     ({ id }) => id === pending.sourceHandle,
   );
+  const targetManifest = registry.require(type);
   if (!sourcePort) {
     return {
       graph: { nodes, edges, annotations: graph.annotations },
@@ -370,7 +384,6 @@ export function addConnectedNodeIntoGraph(
     };
   }
 
-  const targetManifest = registry.require(type);
   for (const input of targetManifest.ports.inputs) {
     const candidate = {
       source: pending.source,
@@ -397,11 +410,12 @@ export function addConnectedNodeIntoGraph(
     };
   }
 
+  const unconnectedGraph = resizeParentChain(
+    { nodes, edges, annotations: graph.annotations },
+    selectedNode.data.container ? selectedNode.id : parentId,
+  );
   return {
-    graph: resizeParentChain(
-      { nodes, edges, annotations: graph.annotations },
-      selectedNode.data.container ? selectedNode.id : parentId,
-    ),
+    graph: unconnectedGraph,
     selectedNodeId: selectedNode.id,
     connected: false,
   };

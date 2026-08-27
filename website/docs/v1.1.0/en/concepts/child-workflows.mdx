@@ -1,0 +1,134 @@
+---
+title: Child workflows
+description: Start single or batched first-class child runs with cross-stream recovery, ordered outcomes, depth bounds, and cancellation propagation.
+---
+
+# Child workflows
+
+A first-class child workflow is an independent run whose lifecycle Flow manages with its parent. The parent stores child definition, input, global run ID, cancellation policy, and terminal outcome. After process loss, the engine repairs progress from both event streams.
+
+Use `ChildOperationReference` when another system owns an external job and Flow only needs durable linkage. A first-class child participates in driving, recovery, cancellation, and retention, so it carries a stronger contract.
+
+## Start one child run
+
+Parent workflow code first checks the stable `child_id` outcome. If no terminal outcome exists, it returns a start command.
+
+```rust
+use a3s_flow::WorkflowTerminalOutcome;
+
+match ctx.child_workflow_outcome("import") {
+    Some(WorkflowTerminalOutcome::Completed { output }) => {
+        Ok(ctx.complete(output.clone()))
+    }
+    Some(outcome) => {
+        Ok(ctx.fail(format!("child import failed: {outcome:?}")))
+    }
+    None => Ok(ctx.start_child_workflow(
+        "import",
+        child_spec,
+        serde_json::json!({ "batch": 7 }),
+    )),
+}
+```
+
+`child_id` needs to be unique within its parent only. The engine generates a globally addressable child `run_id` and stores it in parent history. Changing child spec, input, or cancellation policy during replay is nondeterministic.
+
+## Commit order across two streams
+
+Parent and child startup spans two event streams, so one database write cannot complete every state transition. Flow uses a repairable order.
+
+1. The parent commits a child request containing the generated child run ID.
+2. The engine creates and drives the child with that ID.
+3. After the child reaches a terminal outcome, the parent commits that result.
+4. Parent workflow code replays and reads the result.
+
+A process may stop between steps 1 and 2 or between steps 2 and 3. A replacement worker fills the missing side from the parent request and child history. It does not generate another child identity for the same `child_id`.
+
+## Inspect the child projection
+
+```rust
+let parent = engine.snapshot(&parent_run_id).await?;
+let child = parent
+    .child_workflow("import")
+    .ok_or_else(|| FlowError::Runtime("missing child".to_string()))?;
+
+println!("child_run={} open={}", child.run_id, child.is_open());
+```
+
+`ChildWorkflowSnapshot` contains request time and sequence, definition, input, policy, and optional terminal outcome. `output_as::<T>()` returns typed output only when the child completed successfully.
+
+## Batch child workflows
+
+Declare independent children in one command.
+
+```rust
+let children = values
+    .into_iter()
+    .enumerate()
+    .map(|(ordinal, value)| {
+        ctx.child_workflow(
+            format!("item-{ordinal:04}"),
+            child_spec.clone(),
+            serde_json::json!({ "value": value }),
+        )
+    })
+    .collect();
+
+Ok(ctx.start_child_workflows(children))
+```
+
+One batch accepts at most 64 children. Split larger fan-out into stable windows and schedule the next window only after all current outcomes are durable.
+
+Parent history records outcomes in request order rather than wall-clock completion order. Parent code reads fixed `child_id` values to aggregate results deterministically.
+
+## Cancellation propagation
+
+The default `RequestCancellation` policy notifies open children when the parent receives a cancellation request. The parent remains `Cancelling` until those children reach terminal outcomes.
+
+`Abandon` leaves a child independently active and allows parent cancellation to finish. During normal execution the parent still waits for its result.
+
+```rust
+use a3s_flow::ChildWorkflowCancellationPolicy;
+
+let command = ctx.child_workflow_with_policy(
+    "detached-report",
+    report_spec,
+    report_input,
+    ChildWorkflowCancellationPolicy::Abandon,
+);
+```
+
+A child created after the cancellation request is cleanup work and does not inherit that existing request. Immediate parent termination also terminates active children using request cancellation without running their cleanup branches.
+
+## Continuation and children
+
+A child may call `continue_as_new()` itself. The parent follows the child continuation chain until its active leaf becomes terminal, then records the final outcome. Parent projection retains the child root ID, while operations may expand successors through `continuation_chain()`.
+
+When the parent continues as new, relationships already created belong to the old history segment. Carry only the minimal cursor needed by future work in continuation input. Do not rely on in-process parent-child objects.
+
+## Runtime-build routing
+
+Parent and child may use different `runtime_build_id` values. A worker that starts or advances an active child must admit the child build. After the child is terminal, a worker that admits only the parent build can persist its outcome in parent history.
+
+Production rollout needs exact task routes for every still-active build. Similar semantic versions are not evidence of replay compatibility.
+
+## Bounds and invariants
+
+- One batch accepts at most 64 child runs.
+- The engine bounds parent-child nesting depth, and the builder may configure a smaller limit.
+- Ancestry checks reject parent-child cycles.
+- Retention acts on complete parent-child components. An active, held, or recent member keeps the whole component.
+- Child steps still have at-least-once delivery and need their own business idempotency keys.
+
+## Selection guide
+
+Use a first-class child when these conditions apply.
+
+- The task needs an independent run ID, history, retry, and observable state.
+- The parent must wait reliably for its terminal outcome.
+- Cancellation policy must persist across the parent-child boundary.
+- The task may live for a long time or use a distinct runtime build.
+
+For one external request and response, a step is simpler. When another system owns the job, use a child-operation link with a signal or hook.
+
+See `examples/child_workflow.rs` and `examples/child_workflow_batch.rs` for complete programs.

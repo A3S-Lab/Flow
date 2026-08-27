@@ -1,0 +1,20 @@
+---
+title: Iteration container
+description: Create a child-canvas scope for collection members and define entry, parent, and edge rules.
+---
+
+# Iteration `iteration`
+
+An iteration container applies one child-canvas scope to every member of a collection. The `items` expression is evaluated before the container starts, giving the host a deterministic input set to compile into stable tasks or child runs. Use it when every member follows the same processing structure and each item needs an explicit input and result boundary. Window very large collections before they reach the container so one run does not retain excessive task state.
+
+## Child-canvas structure
+
+Each iteration container owns exactly one internal `iteration-start` node. Its ID must equal `start_node_id`, and its `parentId` must equal the container node ID. Every other child node uses the same parent ID. The entry node exposes the current member on its `item` data port, and `next` connects to the first executable child. Keep both endpoints of every child edge inside the same scope and include at least one executable node after the internal entry.
+
+The normal graph stays acyclic. Do not draw a return edge to express repetition. Control enters through `in` and leaves through `done` after the host has resolved every member. The host defines serial or bounded-parallel execution, result aggregation, and failure policy. Publish those choices with the workflow because order and capacity behavior affect retries, incident handling, and reproducibility.
+
+## Stable members and validation
+
+Give each member a repeatable business identity and avoid collections whose order depends on randomness or an unrecorded live query. Test an empty collection, one member, duplicate business keys, partial failure, runtime recovery, concurrency limits, and output ordering. When validation reports a cross-scope edge, inspect each child `parentId` and both edge endpoints. Use a loop container when one state should be processed repeatedly under a changing condition. For large deterministic sets, combine upstream pagination with a stable cursor and one iteration container per window.
+
+<NodeReference type="iteration" />

@@ -3,45 +3,25 @@ import {
   Browsers,
   Check,
   Copy,
-  Cursor,
   Database,
   GitBranch,
-  Hand,
-  Play,
-  Plus,
   Robot,
   ShieldCheck,
   SlidersHorizontal,
   TerminalWindow,
   UserFocus,
   Wrench,
-  X,
 } from '@phosphor-icons/react';
 import {
   a3sFlowDagNodeRegistry,
-  createA3SFlowDagNode,
   localizeA3SFlowDagManifest,
 } from '@a3s-lab/flow-ui';
 import { A3SFlowDagNodePreview } from '@a3s-lab/flow-ui/react';
 import { useMemo, useState, type KeyboardEvent } from 'react';
 import type { HomeCopy, HomeLocale } from './HomeCopy';
+import { demoNode } from './HeroWorkflowCanvas.model';
 
-type NodeConfiguration = NonNullable<
-  Parameters<typeof createA3SFlowDagNode>[2]
->;
-
-function demoNode(
-  type: string,
-  id: string,
-  configuration: NodeConfiguration = {},
-) {
-  return createA3SFlowDagNode(
-    id,
-    a3sFlowDagNodeRegistry.require(type),
-    configuration,
-    { position: { x: 0, y: 0 } },
-  );
-}
+export { HeroWorkflowCanvas } from './HeroWorkflowCanvas';
 
 export function FlowSystemMap({ copy }: { copy: HomeCopy['system'] }) {
   const [manifest, components, automation, compiler, runtime] = copy.items;
@@ -95,171 +75,6 @@ export function FlowSystemMap({ copy }: { copy: HomeCopy['system'] }) {
           <small>{runtime.detail}</small>
         </div>
       </article>
-    </div>
-  );
-}
-
-export function HeroWorkflowCanvas({
-  locale,
-  copy,
-}: {
-  locale: HomeLocale;
-  copy: HomeCopy['hero'];
-}) {
-  const nodes = useMemo(
-    () => [
-      demoNode('flow.start', 'start', { workflow_name: 'support.triage' }),
-      demoNode('flow.step', 'risk-review', {
-        step_name: copy.taskNameAfter,
-      }),
-      demoNode('flow.condition', 'route-result'),
-    ],
-    [copy.taskNameAfter],
-  );
-
-  const summaries =
-    locale === 'zh'
-      ? [
-          [{ id: 'workflow', label: '工作流', value: 'support.triage' }],
-          [{ id: 'task', label: '任务', value: copy.taskNameAfter }],
-          [{ id: 'rule', label: '判断规则', value: 'result.risk < 0.7' }],
-        ]
-      : [
-          [{ id: 'workflow', label: 'Workflow', value: 'support.triage' }],
-          [{ id: 'task', label: 'Task', value: copy.taskNameAfter }],
-          [{ id: 'rule', label: 'Rule', value: 'result.risk < 0.7' }],
-        ];
-
-  return (
-    <div className="flow-hero-canvas flow-motion-scene" aria-label={copy.run}>
-      <header>
-        <div className="flow-hero-canvas__identity">
-          <span aria-hidden="true">
-            <GitBranch size={14} weight="bold" />
-          </span>
-          <span>
-            <strong>{copy.run}</strong>
-            <small>
-              {copy.draft} <i aria-hidden="true" /> {copy.saved}
-            </small>
-          </span>
-        </div>
-        <div className="flow-hero-canvas__actions" aria-hidden="true">
-          <span className="is-valid">
-            <Check size={12} weight="bold" />
-            {copy.validate}
-          </span>
-          <span className="is-run">
-            <Play size={11} weight="fill" />
-            {copy.testRun}
-          </span>
-        </div>
-      </header>
-      <div className="flow-hero-canvas__board">
-        <nav className="flow-hero-canvas__rail" aria-hidden="true">
-          <span className="is-primary" title={copy.addNode}>
-            <Plus weight="bold" />
-          </span>
-          <span className="is-active" title={copy.selectTool}>
-            <Cursor />
-          </span>
-          <span title={copy.panTool}>
-            <Hand />
-          </span>
-          <i />
-          <span>
-            <GitBranch />
-          </span>
-        </nav>
-        <svg
-          aria-hidden="true"
-          className="flow-hero-canvas__edges"
-          viewBox="0 0 720 430"
-          preserveAspectRatio="none"
-        >
-          <path
-            className="is-edge-1"
-            d="M 248 184 C 280 184, 284 184, 316 184"
-            pathLength="1"
-          />
-          <path
-            className="is-edge-2"
-            d="M 486 184 C 518 184, 522 184, 554 184"
-            pathLength="1"
-          />
-        </svg>
-        {nodes.map((node, index) => (
-          <div
-            className={`flow-hero-canvas__node is-${index + 1}${index === 1 ? ' is-target' : ''}`}
-            key={node.id}
-          >
-            <A3SFlowDagNodePreview
-              dagNode={node}
-              locale={locale}
-              summary={summaries[index]}
-              technical={false}
-            />
-          </div>
-        ))}
-
-        <span className="flow-hero-canvas__cursor" aria-hidden="true">
-          <Cursor size={14} weight="fill" />
-        </span>
-
-        <aside className="flow-hero-canvas__inspector" aria-hidden="true">
-          <header>
-            <span>
-              <Wrench size={15} weight="duotone" />
-            </span>
-            <div>
-              <strong>{locale === 'zh' ? '风险复核' : 'Risk review'}</strong>
-              <small>
-                {locale === 'zh'
-                  ? '调用已注册任务并保存结果'
-                  : 'Run a registered task and save its result'}
-              </small>
-            </div>
-            <X size={14} />
-          </header>
-          <div className="flow-hero-canvas__tabs">
-            <strong>{copy.settings}</strong>
-            <span>{copy.lastRun}</span>
-          </div>
-          <section>
-            <label>
-              <span>{copy.taskName}</span>
-              <b className="flow-hero-canvas__field-value">
-                <i>{copy.taskNameBefore}</i>
-                <em>{copy.taskNameAfter}</em>
-              </b>
-            </label>
-            <div className="flow-hero-canvas__retry">
-              <span>
-                <strong>{copy.retry}</strong>
-                <small>{copy.retryDetail}</small>
-              </span>
-              <i />
-            </div>
-            <div className="flow-hero-canvas__retry-fields">
-              <span>{copy.attempts}</span>
-              <span>{copy.delay}</span>
-            </div>
-            <div className="flow-hero-canvas__next">
-              <GitBranch size={13} />
-              <span>{copy.nextStep}</span>
-            </div>
-          </section>
-          <footer>
-            <Check size={12} weight="bold" />
-            {copy.autoSaved}
-          </footer>
-        </aside>
-
-        <output className="flow-hero-canvas__toast">
-          <Check aria-hidden="true" size={13} weight="bold" />
-          {copy.resumed}
-        </output>
-      </div>
     </div>
   );
 }

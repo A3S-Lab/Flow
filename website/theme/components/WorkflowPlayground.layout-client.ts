@@ -19,7 +19,7 @@ type PendingRequest = {
 export type PlaygroundLayoutCoordinates = {
   nodeIds: string[];
   positions: Float32Array;
-  /** The complete scoped result, including resized parent containers. */
+  /** Full scoped result, including resized parent containers. */
   graph: PlaygroundGraphState;
 };
 
@@ -143,8 +143,8 @@ async function layoutInputOffThread(
     return layoutPlaygroundKernelInJavaScript(input);
   }
 
-  // postMessage transfers (and detaches) the input buffers. Keep a copy for a
-  // deterministic fallback if the worker times out or fails.
+  // Transferable buffers are detached by postMessage. Keep a local copy so a
+  // timeout or a worker error can fall back without reconstructing graph state.
   const fallbackInput: PlaygroundLayoutKernelInput = {
     nodeIds: input.nodeIds,
     sources: input.sources.slice(),

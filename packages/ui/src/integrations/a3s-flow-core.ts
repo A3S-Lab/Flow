@@ -807,7 +807,8 @@ export function createA3SFlowNodeBuildConfig(
     if (field.name !== name) {
       throw new Error(`A3S Flow build-config key ${name} must match field name ${field.name}.`);
     }
-    fields.set(name, { ...field });
+    const base = fields.get(name);
+    fields.set(name, base ? { ...base, ...field } : { ...field });
   }
   return Object.fromEntries(fields);
 }

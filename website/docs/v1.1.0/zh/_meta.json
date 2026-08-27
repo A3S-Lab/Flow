@@ -1,0 +1,10 @@
+[
+  { "type": "section-header", "label": "A3S Flow 1.1" },
+  { "type": "dir", "name": "guide", "label": "开始使用" },
+  { "type": "dir", "name": "concepts", "label": "核心概念" },
+  { "type": "dir", "name": "nodes", "label": "工作流节点" },
+  { "type": "dir", "name": "operations", "label": "生产运行" },
+  { "type": "dir", "name": "runtimes", "label": "运行时" },
+  { "type": "dir", "name": "reference", "label": "参考" },
+  { "type": "dir", "name": "playground", "label": "工作流 Playground" }
+]

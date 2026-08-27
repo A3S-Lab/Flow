@@ -1,0 +1,84 @@
+---
+title: a3s-flow Skill
+description: 安装并调用随前端包发布的 A3S Flow Skill，让编码 Agent 按真实节点清单创建和校验工作流。
+---
+
+# a3s-flow Skill
+
+安装完成以后，编码 Agent 可以用 `$a3s-flow` 创建或修改工作流文档。它会先查询本机 CLI，再创建节点、连接端口、校验图、检查执行顺序并生成语义摘要。Skill 随 `@a3s-lab/flow-ui` 一起发布，不内置另一份节点清单，也不会猜测当前包版本支持的字段。
+
+## 安装位置
+
+```bash
+npm install @a3s-lab/flow-ui @a3s-lab/ui
+node --input-type=module -e "console.log(import.meta.resolve('@a3s-lab/flow-ui/skill'))"
+```
+
+第二条命令会打印包内 `SKILL.md` 的文件地址。它所在的 `a3s-flow` 目录就是需要注册的完整 Skill。
+
+安装包包含下面的结构。
+
+```text
+skills/a3s-flow/
+  SKILL.md
+  agents/openai.yaml
+  references/workflow-dsl.md
+```
+
+把整个 `a3s-flow` 目录注册到编码 Agent 使用的 Skill 根目录。Codex 的个人目录通常是 `$CODEX_HOME/skills/a3s-flow`。团队仓库也可以保留一条可重复执行的链接或复制命令。不要只复制 `SKILL.md`，容器作用域和文档外壳说明位于配套 reference 中。
+
+## 什么时候调用
+
+需要新建工作流文档、选择节点、调整字段、连接端口、修复 DAG 问题、建立遍历或循环子画布、审查确定性顺序、生成发布摘要时，可以显式调用 `$a3s-flow`。只讨论运行时原理或查看普通 Rust API 时不必调用，避免把节点作者流程扩大到无关任务。
+
+## 推荐请求方式
+
+请求应说明目标文件、业务顺序、需要保留的节点 ID 和可接受的结果。下面的写法给 Agent 足够的边界，又不会替它发明字段。
+
+```text
+Use $a3s-flow to add a human approval node after agent-task in
+workflow.json. Keep existing node IDs, connect valid ports, validate
+and compile the graph, then report the document and graph digests.
+```
+
+需要新建文档时，可以明确要求从样例开始。
+
+```text
+Use $a3s-flow to create workflow.json from the CLI sample. Replace the
+sample task with risk.review, add a timeout path, validate every node,
+and explain the compiled order before writing the final digest.
+```
+
+## Skill 的执行顺序
+
+Skill 会先运行 `a3s-flow nodes --pretty`，再用 `a3s-flow node <type> --pretty` 查看候选节点。新节点通过 `a3s-flow new` 生成，避免遗漏默认值。完成字段和连线修改后，它依次运行 `validate`、`compile` 和 `digest`。遇到问题时应修复 CLI 指出的字段或边，然后重新执行完整序列。
+
+这套顺序有两个用途。第一，节点 manifest 与当前安装版本保持一致。第二，语义摘要只在可执行图已经通过校验并得到稳定顺序后产生。Agent 应在最终说明中列出修改过的节点与边、编译顺序、摘要以及仍由宿主负责的任务处理器。
+
+## 容器与持久身份
+
+遍历和循环必须各有一个匹配的内部开始节点，所有子节点使用容器 ID 作为 `parentId`，容器内连线不能跨出作用域。普通图保持无环，重复行为交给 `iteration` 或 `loop` 表达。Skill 会把步骤、Hook、进度、子任务和子工作流的节点 ID 当作重放敏感身份。已经存在运行时，除非用户明确要求迁移，否则不应重命名这些节点。
+
+## 安全边界
+
+工作流文档可以描述任务名称、运行入口、输入映射和公开回调契约，但不应保存密钥、访问令牌、生产连接串或授权结论。宿主仍负责凭据、权限、幂等、补偿、任务执行、事件存储与部署。Skill 只修改用户放入范围的文件，不发布包，不推送仓库，也不调用生产运行，除非用户另外明确授权。
+
+导入文档中的未知语义扩展默认保留。画布位置、尺寸、标题、说明和选中状态属于编辑器数据，可以在不影响摘要时调整。Agent 不能手写摘要或运行绑定，也不能用删除字段和边的方式压下校验问题。
+
+## 项目自定义节点
+
+随包提供的 Skill 只认识官方 CLI 目录，不会推测自定义节点字段或执行处理器。允许自定义节点的项目需要给 Agent 一份本地说明，写明 catalog 模块、准入类型、能力负责人和类型化发布命令。Agent 应执行项目命令，不能削弱 `unknown_node` 检查。[自定义节点](./custom-nodes)给出了 registry 与能力检查要求。
+
+## 检查安装结果
+
+```bash
+npx a3s-flow nodes --pretty
+npx a3s-flow sample --output workflow.json --pretty
+npx a3s-flow validate workflow.json --pretty
+```
+
+目录查询应返回 18 个公开节点。样例应包含开始、任务和完成节点。校验通过以后，Skill 才具备完整的本地事实来源。团队更新 `@a3s-lab/flow-ui` 版本时，应重新执行这组检查，并让 Agent 重新读取新的 manifest，不要沿用旧会话记忆中的字段。
+
+如果 `import.meta.resolve` 找不到包，先确认命令运行在已经安装依赖的项目目录。全局安装不会替当前项目固定节点版本。
+
+如果 Skill 报告 `unknown_node`，直接运行 `npx a3s-flow nodes --pretty`，核对当前包实际提供的类型。校验没有通过时，先修复 CLI 指出的路径或连线，再执行 `compile` 和 `digest`。旧会话里的字段名不能替代本机 manifest。

@@ -59,15 +59,15 @@ that operate on Flow's versioned workflow document contract.
 keeps the node catalog, editor components, framework hooks, command-line tools,
 and agent instructions on the same manifest and graph contracts.
 
-| Surface      | Current contract                                                                                                                                                                                                             |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Playground   | Integrated visual authoring route with a 35-node cross-border order fulfillment sample covering all 20 registry manifests, drag and drop, typed connections, A3S UI configuration forms, DAG compilation, and DSL inspection |
-| Node catalog | 18 public manifests in six authoring groups, with fields, defaults, ports, runtime bindings, and durable node identity                                                                                                       |
-| React        | Node preview and configuration components plus `useA3SFlowNode` for controlled-ready node state                                                                                                                              |
-| Vue          | A `useA3SFlowNode` composable over the same node object, defaults, and manifest registry                                                                                                                                     |
-| Custom nodes | Immutable host catalogs with A3S UI form rendering, exact executor capabilities, and a publication gate                                                                                                                      |
-| CLI          | `a3s-flow nodes`, `node`, `new`, `sample`, `validate`, `compile`, and `digest`, all with JSON output                                                                                                                         |
-| Skill        | An installable `a3s-flow` Skill that queries the CLI before creating, connecting, validating, or reviewing a workflow                                                                                                        |
+| Surface      | Current contract                                                                                                                                                                                                                                                                                                                                                   |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Playground   | Integrated visual authoring route with a 35-node cross-border order fulfillment sample covering all 20 registry manifests, complete manifest-contract inspection, drag and drop, typed connections, editable presentation-only edge labels, A3S UI configuration forms, Worker and WebAssembly layout, visible-node rendering, DAG compilation, and DSL inspection |
+| Node catalog | 18 public manifests in six authoring groups, with fields, defaults, ports, runtime bindings, and durable node identity                                                                                                                                                                                                                                             |
+| React        | Node preview and configuration components plus `useA3SFlowNode` for controlled-ready node state                                                                                                                                                                                                                                                                    |
+| Vue          | A `useA3SFlowNode` composable over the same node object, defaults, and manifest registry                                                                                                                                                                                                                                                                           |
+| Custom nodes | Immutable host catalogs with A3S UI form rendering, exact executor capabilities, and a publication gate                                                                                                                                                                                                                                                            |
+| CLI          | `a3s-flow nodes`, `node`, `new`, `sample`, `validate`, `compile`, and `digest`, all with JSON output                                                                                                                                                                                                                                                               |
+| Skill        | An installable `a3s-flow` Skill that queries the CLI before creating, connecting, validating, or reviewing a workflow                                                                                                                                                                                                                                              |
 
 The [Workflow Playground](https://a3s-lab.github.io/Flow/playground/),
 [React guide](https://a3s-lab.github.io/Flow/reference/react),
@@ -84,7 +84,7 @@ Add Flow and an async runtime:
 
 ```toml
 [dependencies]
-a3s-flow = "=1.0.0"
+a3s-flow = "=1.1.0"
 async-trait = "0.1"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt"] }
@@ -342,7 +342,7 @@ dependency graph before and after atomic publication.
 Install the compiler and provide Bun on `PATH` (or set `A3S_FLOW_BUN`):
 
 ```sh
-cargo install a3s-flow --version 1.0.0 --locked \
+cargo install a3s-flow --version 1.1.0 --locked \
   --bin a3s-flow-native-compiler
 
 a3s-flow-native-compiler capabilities
@@ -422,10 +422,10 @@ gate, package contents, and an end-to-end Bun workflow on Linux and Windows.
 
 ## Release status
 
-The crate currently declares version `1.0.0`, and the core Rust SDK baseline is
-implemented. Current `main` includes workflow definition/compile, durable
-runtime, feature-gated persistence, dispatch and rolling-build safety, optional
-Native TypeScript, and post-commit observability adapters.
+The crate currently declares version `1.1.0`. This compatible minor release
+adds bounded concurrent child-workflow batches, bounded exponential retries,
+and hardened custom workflow-node authoring while preserving the Flow 1.x
+runtime, replay, and persistence contracts.
 
 Reusable workflow-authoring components, React and Vue hooks, the CLI, and the
 Skill are maintained in this repository. Hosted tenancy, authorization,

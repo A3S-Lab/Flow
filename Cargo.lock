@@ -37,7 +37,7 @@ dependencies = [
 
 [[package]]
 name = "a3s-flow"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "a3s-boot",
  "a3s-event",

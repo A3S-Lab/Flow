@@ -154,14 +154,22 @@ describe('Workflow Playground graph editing', () => {
     expect(result.nodes.find(({ id }) => id === childNode?.id)).toBe(childNode);
   });
 
-  it('lays out child scopes and keeps their container bounds in sync', () => {
+  it('lays out child scopes and expands their containers to fit every node', () => {
     const catalog = createPlaygroundNodeCatalog('en');
     const sample = createSampleWorkflow('en', catalog);
+    const container = sample.nodes.find(({ id }) => id === 'item_iteration');
+    expect(container).toBeDefined();
+
     const result = layoutPlaygroundGraph(sample);
     const children = result.nodes.filter(
       ({ parentId }) => parentId === 'item_iteration',
     );
-    const container = result.nodes.find(({ id }) => id === 'item_iteration');
+    const width = Number(
+      result.nodes.find(({ id }) => id === 'item_iteration')?.style?.width,
+    );
+    const height = Number(
+      result.nodes.find(({ id }) => id === 'item_iteration')?.style?.height,
+    );
     expect(children.length).toBeGreaterThan(1);
     expect(
       Math.min(...children.map(({ position }) => position.x)),
@@ -169,25 +177,32 @@ describe('Workflow Playground graph editing', () => {
     expect(
       Math.min(...children.map(({ position }) => position.y)),
     ).toBeGreaterThanOrEqual(0);
-    expect(Number(container?.style?.width)).toBeGreaterThanOrEqual(
+    expect(width).toBeGreaterThanOrEqual(
       Math.max(
         ...children.map(
-          ({ position, width = 240 }) => position.x + Number(width) + 36,
+          ({ position, width: nodeWidth = 240 }) =>
+            position.x + Number(nodeWidth) + 36,
         ),
       ),
     );
-    expect(Number(container?.style?.height)).toBeGreaterThanOrEqual(
+    expect(height).toBeGreaterThanOrEqual(
       Math.max(
         ...children.map(
-          ({ position, height = 126 }) => position.y + Number(height) + 36,
+          ({ position, height: nodeHeight = 126 }) =>
+            position.y + Number(nodeHeight) + 36,
         ),
       ),
     );
   });
 
-  it('places and connects a node dropped from a child-scope output', () => {
+  it('adds and connects a node released from a child-scope output handle', () => {
     const catalog = createPlaygroundNodeCatalog('en');
     const sample = createSampleWorkflow('en', catalog);
+    const source = sample.nodes.find(({ id }) => id === 'normalize_line');
+    const container = sample.nodes.find(({ id }) => id === 'item_iteration');
+    expect(source).toBeDefined();
+    expect(container).toBeDefined();
+
     const result = addConnectedNodeIntoGraph(
       sample,
       'flow.step',
@@ -204,7 +219,8 @@ describe('Workflow Playground graph editing', () => {
       ({ id }) => id === result.selectedNodeId,
     );
     expect(added).toMatchObject({ parentId: 'item_iteration' });
-    expect(added?.position).toEqual({ x: 340, y: 240 });
+    expect(added?.position.x).toBe(340);
+    expect(added?.position.y).toBe(240);
     expect(result.connected).toBe(true);
     expect(result.graph.edges).toEqual(
       expect.arrayContaining([
@@ -251,7 +267,7 @@ describe('Workflow Playground graph editing', () => {
     );
   });
 
-  it('expands a child container when a dropped connection is outside its bounds', () => {
+  it('expands a child scope when a connection drop lands far outside it', () => {
     const catalog = createPlaygroundNodeCatalog('en');
     const sample = createSampleWorkflow('en', catalog);
     const result = addConnectedNodeIntoGraph(

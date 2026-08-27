@@ -1,0 +1,67 @@
+/* Cloud-aligned homepage tokens and the interactive product surface. */
+html:root {
+  --rp-c-brand: #1264ff;
+  --rp-c-brand-dark: #0954df;
+  --rp-c-brand-darker: #0647c2;
+  --rp-c-brand-light: #3f7fff;
+  --rp-c-brand-lighter: #dce9ff;
+  --rp-c-brand-tint: rgb(18 100 255 / 10%);
+  --rp-c-link: #084ed0;
+  --rp-c-bg: #fff;
+  --rp-c-bg-soft: #f6f8fc;
+  --rp-c-bg-mute: #eef3fb;
+  --rp-c-divider: #dce4f0;
+  --rp-c-divider-light: #e8edf5;
+  --rp-c-text-1: #101827;
+  --rp-c-text-2: #56657b;
+  --rp-c-text-3: #8490a3;
+  --flow-bg: #fff;
+  --flow-paper: #f3f5f8;
+  --flow-surface-soft: #f1f6ff;
+  --flow-surface-strong: #e5edf9;
+  --flow-text: #101827;
+  --flow-muted: #56657b;
+  --flow-faint: #8490a3;
+  --flow-line: #dce4f0;
+  --flow-line-strong: #bfd0e8;
+  --flow-border-strong: #a9bddb;
+  --flow-accent: #1264ff;
+  --flow-accent-strong: #084ed0;
+  --flow-accent-soft: #eaf2ff;
+  --flow-success: #0c9b70;
+  --flow-success-soft: #eaf8f3;
+  --flow-wait: #7157c9;
+  --flow-wait-soft: #f2eeff;
+}
+
+html .rp-nav {
+  border-bottom-color: rgb(203 215 233 / 82%);
+  background: rgb(255 255 255 / 88%);
+  box-shadow: 0 10px 34px rgb(31 65 116 / 7%);
+  backdrop-filter: blur(20px) saturate(150%);
+}
+
+.flow-home {
+  --flow-shadow-cloud: 0 24px 64px rgb(36 76 137 / 14%);
+  --flow-shadow-cloud-raised: 0 34px 84px rgb(36 76 137 / 18%);
+}
+
+.flow-hero {
+  background:
+    radial-gradient(circle at 92% 8%, rgb(234 242 255 / 64%), transparent 32%),
+    #f8fbff;
+}
+
+.flow-button.is-primary {
+  background: var(--flow-accent);
+  box-shadow: 0 12px 26px -13px rgb(18 100 255 / 72%);
+}
+
+.flow-button.is-primary:hover {
+  background: var(--flow-accent-strong);
+}
+
+.flow-home :where(a, button, [tabindex='0']):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--flow-accent) 72%, #fff);
+  outline-offset: 3px;
+}

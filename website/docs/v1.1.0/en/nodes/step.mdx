@@ -1,0 +1,20 @@
+---
+title: Run step node
+description: Call one host task with explicit input, retries, and a recoverable failure branch.
+---
+
+# Run step `flow.step`
+
+A step delegates one external operation to a handler registered by the host. Common handlers call a model, MCP tool, HTTP service, database operation, or business API. Flow records the schedule request, attempts, and committed result. The host owns credentials, permission checks, network access, and actual side effects. `step_name` must match a stable entry in the host registry, and deployment should prove that the handler is available before runs use it.
+
+## Input and retries
+
+The `input` expression builds task parameters from start data or committed upstream results. The resulting input remains stable across retries, so the expression must not pull a fresh time, random number, or mutable process value. If the task needs such a value, create it inside the host handler and return it as a committed result. For large files or model responses, pass an object reference instead of placing an entire payload in event history.
+
+`max_attempts` includes the first execution. `retry_delay_ms` is the wait before another attempt. With `on_exhausted` set to `fail_run`, exhausted attempts end the run. With `continue_workflow`, the node exposes `failed` control and `error` data so the graph can compensate, degrade, or request human action. An external idempotency key should include run, node, and attempt identity.
+
+## Ports and operational checks
+
+`success` and `result` become available only after the result commits. A process can exit after an external operation succeeds but before that commit, so the same attempt may be delivered again. Test this path against the real handler. Connect `failed` and `error` only when the continuation policy enables them. Before production, review timeouts, error redaction, handler build routing, compensation, retry bounds, and behavior for permanent failures.
+
+<NodeReference type="flow.step" />
