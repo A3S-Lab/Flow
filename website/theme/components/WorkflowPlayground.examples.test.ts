@@ -4,6 +4,9 @@ import { describe, expect, it } from 'vitest';
 import { createPlaygroundNodeCatalog } from './WorkflowPlayground.custom-nodes';
 import { createWorkflowExamples } from './WorkflowPlayground.examples';
 import { WorkflowPlaygroundExamples } from './WorkflowPlaygroundExamples';
+import { WorkflowPlaygroundHeader } from './WorkflowPlaygroundChrome';
+import { WorkflowPlaygroundTriggerDialog } from './WorkflowPlaygroundTriggerDialog';
+import { workflowPlaygroundCopy } from './WorkflowPlayground.copy';
 import {
   compilePlaygroundGraph,
   validatePlaygroundConfigurations,
@@ -91,5 +94,90 @@ describe('Workflow Playground example library', () => {
     for (const example of examples.filter(({ featured }) => !featured)) {
       expect(grid).toContain(`/playground?example=${example.id}`);
     }
+  });
+
+  it('renders website selectors through the Flow A3S UI contract', () => {
+    const catalog = createPlaygroundNodeCatalog('en');
+    const examples = createWorkflowExamples('en', catalog);
+    const examplesHtml = renderToStaticMarkup(
+      createElement(WorkflowPlaygroundExamples, {
+        exampleHref: (exampleId) => `/playground?example=${exampleId}`,
+        examples,
+        homeHref: '/',
+        languageHref: '/zh/playground',
+        locale: 'en',
+        logoSrc: '/a3s-logo.png',
+        onSelect: () => {},
+        onVersionChange: () => {},
+        version: 'v1.0.0',
+        versionHref: (version) => `/${version}`,
+        versions: ['v1.0.0', 'v1.1.0'],
+      }),
+    );
+    expect(examplesHtml).not.toContain('<select');
+    expect(examplesHtml).toContain('data-a3s-select="flow"');
+    expect(examplesHtml).toContain('role="combobox"');
+
+    const headerHtml = renderToStaticMarkup(
+      createElement(WorkflowPlaygroundHeader, {
+        backHref: '/',
+        backLabel: 'Back',
+        copy: workflowPlaygroundCopy.en,
+        languageHref: '/zh/playground',
+        locale: 'en',
+        logoSrc: '/a3s-logo.png',
+        onExport: () => {},
+        onOpenDocument: () => {},
+        onOpenExtensions: () => {},
+        onReset: () => {},
+        onRunToggle: () => {},
+        onValidate: () => {},
+        issueCount: 0,
+        running: false,
+        saveState: 'saved',
+        version: 'v1.0.0',
+        versions: ['v1.0.0', 'v1.1.0'],
+        workflowName: 'Example workflow',
+        onVersionChange: () => {},
+      }),
+    );
+    expect(headerHtml).not.toContain('<select');
+    expect(headerHtml).toContain('id="workflow-playground-version"');
+    expect(headerHtml).toContain('role="combobox"');
+  });
+
+  it('keeps trigger enum values lossless while rendering readable object labels', () => {
+    const schema = {
+      type: 'object' as const,
+      properties: {
+        mode: { type: 'string' as const, enum: ['safe', 'fast'] },
+        policy: {
+          type: 'object' as const,
+          enum: [{ b: 1, a: 'strict' }],
+        },
+        enabled: { type: 'boolean' as const, enum: [true, false] },
+        nullable: {
+          type: ['string', 'null'] as ('string' | 'null')[],
+          enum: [null, ''],
+        },
+      },
+    };
+    const html = renderToStaticMarkup(
+      createElement(WorkflowPlaygroundTriggerDialog, {
+        copy: workflowPlaygroundCopy.en,
+        locale: 'en',
+        onClose: () => {},
+        onSubmit: () => {},
+        schema,
+        workflowName: 'Example workflow',
+      }),
+    );
+    expect(html).not.toContain('<select');
+    expect(html).toContain('role="combobox"');
+    expect(html).toContain('a3s-json:');
+    expect(html).not.toContain('role="option">a3s-json:');
+    expect(html).toContain(
+      'role="option">{&quot;a&quot;:&quot;strict&quot;,&quot;b&quot;:1}',
+    );
   });
 });

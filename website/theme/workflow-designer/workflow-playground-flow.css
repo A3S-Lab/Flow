@@ -22,7 +22,12 @@ body:has(.a3s-workflow-playground) :where(#root, #app) {
   align-items: center;
 }
 
-.a3s-workflow-version select {
+.a3s-workflow-version .a3s-flow-select-control {
+  width: auto;
+  min-width: 84px;
+}
+
+.a3s-workflow-version .a3s-flow-select-control > button {
   height: 34px;
   padding: 0 26px 0 10px;
   border: 1px solid var(--workflow-line);
@@ -33,6 +38,23 @@ body:has(.a3s-workflow-playground) :where(#root, #app) {
   font-family: var(--workflow-mono);
   font-size: 10px;
   font-weight: 650;
+}
+
+.a3s-workflow-version .a3s-flow-select-control > button:hover:not(:disabled),
+.a3s-workflow-version .a3s-flow-select-control > button[aria-expanded='true'] {
+  border-color: var(--workflow-blue);
+}
+
+.a3s-workflow-version .a3s-flow-select-control > [data-popover] {
+  width: max(100%, 128px);
+  border-color: var(--workflow-line);
+  background: var(--workflow-surface);
+}
+
+.a3s-workflow-version .a3s-flow-select-control [role='option'] {
+  color: var(--workflow-text);
+  font-family: var(--workflow-sans);
+  font-size: 11px;
 }
 
 .a3s-workflow-canvas.is-dragging-node::after {

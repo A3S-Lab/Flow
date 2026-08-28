@@ -22,7 +22,14 @@ export interface WorkflowNodeTableColumn {
 /** Host-owned field metadata used to compile a workflow-node configuration form. */
 export interface WorkflowNodeFieldDefinition {
   name: string;
+  /** Form-compatible widget spelling for hosts that already expose one. */
+  widget?: string;
+  /** Explicit Flow control override (camelCase and snake_case are accepted). */
+  controlWidget?: string;
+  control_widget?: string;
   _input_type?: string;
+  inputType?: string;
+  input_type?: string;
   type?: string;
   display_name?: string;
   info?: string;
@@ -42,6 +49,20 @@ export interface WorkflowNodeFieldDefinition {
   refresh_button?: boolean;
   combobox?: boolean;
   options?: unknown[];
+  /** JSON-Schema-style enum accepted by hosts that do not use `options`. */
+  enum?: unknown[];
+  /** Common host spelling for an option list. */
+  choices?: unknown[];
+  values?: unknown[];
+  /** Optional nested schema supplied by form-oriented hosts. */
+  schema?: {
+    enum?: unknown[];
+    options?: unknown[];
+    choices?: unknown[];
+    values?: unknown[];
+    items?: { enum?: unknown[]; options?: unknown[]; [key: string]: unknown };
+    [key: string]: unknown;
+  };
   input_types?: string[];
   fileTypes?: string[];
   file_types?: string[];
@@ -51,7 +72,8 @@ export interface WorkflowNodeFieldDefinition {
     field: string;
     equals: unknown;
   };
-  table_schema?: WorkflowNodeTableColumn[] | { columns?: WorkflowNodeTableColumn[] };
+  table_schema?:
+    WorkflowNodeTableColumn[] | { columns?: WorkflowNodeTableColumn[] };
   model_type?: string;
   [key: string]: unknown;
 }

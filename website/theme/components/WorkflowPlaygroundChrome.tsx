@@ -34,6 +34,7 @@ import {
   type PlaygroundEdgeColor,
   type PlaygroundEdgeRouting,
 } from './WorkflowPlayground.model';
+import { SelectControl } from '@a3s-lab/flow-ui/react';
 
 export type PlaygroundCanvasMode = 'pan' | 'select' | 'comment';
 export type PlaygroundDebugTab = 'trace' | 'variables' | 'history';
@@ -158,8 +159,10 @@ export function WorkflowPlaygroundHeader({
       <div className="a3s-workflow-header__actions">
         <label className="a3s-workflow-version">
           <span className="a3s-visually-hidden">{copy.version}</span>
-          <select
+          <SelectControl
             aria-label={copy.version}
+            className="a3s-workflow-version__select"
+            id="workflow-playground-version"
             onChange={(event) => onVersionChange(event.target.value)}
             value={version}
           >
@@ -168,7 +171,7 @@ export function WorkflowPlaygroundHeader({
                 {item}
               </option>
             ))}
-          </select>
+          </SelectControl>
         </label>
         <a
           aria-label={copy.language}

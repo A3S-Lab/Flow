@@ -5,7 +5,14 @@ import type { FormWidgetProps } from '@a3s-lab/ui/form/react';
 import { SelectControl } from './select-control';
 import { WorkflowCodeEditor } from './workflow-code-editor';
 
-const PROPERTY_TYPES = ['string', 'number', 'integer', 'boolean', 'object', 'array'] as const;
+const PROPERTY_TYPES = [
+  'string',
+  'number',
+  'integer',
+  'boolean',
+  'object',
+  'array',
+] as const;
 const INVALID_SCHEMA_DRAFT = '__a3s_form_invalid_schema_draft__';
 
 function isChinese(locale: string): boolean {
@@ -13,7 +20,9 @@ function isChinese(locale: string): boolean {
 }
 
 function objectValue(value: JsonValue | undefined): JsonObject {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : {};
 }
 
 interface InvalidSchemaDraft {
@@ -39,7 +48,9 @@ function invalidSchemaDraftValue(
   ];
 }
 
-function invalidSchemaDraftFrom(value: JsonValue | undefined): InvalidSchemaDraft | undefined {
+function invalidSchemaDraftFrom(
+  value: JsonValue | undefined,
+): InvalidSchemaDraft | undefined {
   if (Array.isArray(value) && value.length === 1) {
     const marker = objectValue(value[0]);
     const kind = marker[INVALID_SCHEMA_DRAFT];
@@ -49,7 +60,9 @@ function invalidSchemaDraftFrom(value: JsonValue | undefined): InvalidSchemaDraf
         schema: objectValue(marker.schema),
         source: typeof marker.source === 'string' ? marker.source : undefined,
         fieldNames: Array.isArray(marker.fieldNames)
-          ? marker.fieldNames.filter((name): name is string => typeof name === 'string')
+          ? marker.fieldNames.filter(
+              (name): name is string => typeof name === 'string',
+            )
           : typeof marker.fieldName === 'string'
             ? [marker.fieldName]
             : undefined,
@@ -71,12 +84,16 @@ function requiredFields(schema: JsonObject): string[] {
 
 function propertyType(value: JsonValue): string {
   const schema = objectValue(value);
-  return typeof schema.type === 'string' && PROPERTY_TYPES.some((type) => type === schema.type)
+  return typeof schema.type === 'string' &&
+    PROPERTY_TYPES.some((type) => type === schema.type)
     ? schema.type
     : 'string';
 }
 
-function propertyTypeLabel(type: (typeof PROPERTY_TYPES)[number], chinese: boolean): string {
+function propertyTypeLabel(
+  type: (typeof PROPERTY_TYPES)[number],
+  chinese: boolean,
+): string {
   if (!chinese) return type;
   return {
     string: '文本',
@@ -139,7 +156,10 @@ function SchemaFieldRow({
     onRename(next);
   };
   return (
-    <li className="a3s-form-flow-schema-row" data-invalid={nameError || undefined}>
+    <li
+      className="a3s-form-flow-schema-row"
+      data-invalid={nameError || undefined}
+    >
       <div className="a3s-form-flow-schema-row-fields">
         <label htmlFor={nameId}>
           <span>{chinese ? '字段名' : 'Field name'}</span>
@@ -165,7 +185,7 @@ function SchemaFieldRow({
             }}
           />
         </label>
-        <label htmlFor={typeId}>
+        <label htmlFor={`${typeId}-trigger`}>
           <span>{chinese ? '数据类型' : 'Type'}</span>
           <SelectControl
             id={typeId}
@@ -244,7 +264,10 @@ function AdvancedSchemaEditor({
     setInvalid(Boolean(draftInvalid));
   }, [draftInvalid, source]);
   return (
-    <div className="a3s-form-flow-schema-json" data-invalid={invalid || undefined}>
+    <div
+      className="a3s-form-flow-schema-json"
+      data-invalid={invalid || undefined}
+    >
       <WorkflowCodeEditor
         ariaLabel={chinese ? '输入规则 JSON' : 'Input schema JSON'}
         describedBy={
@@ -262,7 +285,11 @@ function AdvancedSchemaEditor({
           setDraft(next);
           try {
             const parsed = JSON.parse(next) as JsonValue;
-            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            if (
+              !parsed ||
+              typeof parsed !== 'object' ||
+              Array.isArray(parsed)
+            ) {
               setInvalid(true);
               onInvalidDraft(next);
               return;
@@ -307,22 +334,33 @@ export function A3SFlowSchemaWidget(props: FormWidgetProps) {
   const names = Object.keys(properties);
   const invalidFieldNames =
     invalidDraft?.kind === 'field-name' ? (invalidDraft.fieldNames ?? []) : [];
-  const writeWithInvalidFields = (next: JsonObject, candidates: readonly string[]) => {
+  const writeWithInvalidFields = (
+    next: JsonObject,
+    candidates: readonly string[],
+  ) => {
     const nextProperties = schemaProperties(next);
-    const remaining = candidates.filter((name) => Object.hasOwn(nextProperties, name));
+    const remaining = candidates.filter((name) =>
+      Object.hasOwn(nextProperties, name),
+    );
     if (remaining.length === 0) {
       props.onChange(next);
       return;
     }
-    props.onChange(invalidSchemaDraftValue(next, 'field-name', undefined, remaining));
+    props.onChange(
+      invalidSchemaDraftValue(next, 'field-name', undefined, remaining),
+    );
   };
-  const update = (next: JsonObject) => writeWithInvalidFields(next, invalidFieldNames);
+  const update = (next: JsonObject) =>
+    writeWithInvalidFields(next, invalidFieldNames);
   const resolveInvalidField = (next: JsonObject, name: string) =>
     writeWithInvalidFields(
       next,
       invalidFieldNames.filter((candidate) => candidate !== name),
     );
-  const updateProperties = (nextProperties: JsonObject, nextRequired = [...required]) =>
+  const updateProperties = (
+    nextProperties: JsonObject,
+    nextRequired = [...required],
+  ) =>
     update({
       ...schema,
       type: 'object',
@@ -339,7 +377,8 @@ export function A3SFlowSchemaWidget(props: FormWidgetProps) {
       aria-describedby={props.describedBy}
       aria-invalid={props.invalid || undefined}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) props.onBlur?.();
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+          props.onBlur?.();
       }}
       onFocus={props.onFocus}
     >
@@ -354,7 +393,11 @@ export function A3SFlowSchemaWidget(props: FormWidgetProps) {
               disabled={props.disabled}
               locale={props.locale}
               existingNames={names}
-              valuePath={props.valuePath ? `${props.valuePath}.properties.${name}` : undefined}
+              valuePath={
+                props.valuePath
+                  ? `${props.valuePath}.properties.${name}`
+                  : undefined
+              }
               onInvalidDraft={() =>
                 props.onChange(
                   invalidSchemaDraftValue(schema, 'field-name', undefined, [
@@ -400,13 +443,17 @@ export function A3SFlowSchemaWidget(props: FormWidgetProps) {
               }}
               onRemove={() => {
                 const nextProperties = Object.fromEntries(
-                  Object.entries(properties).filter(([candidate]) => candidate !== name),
+                  Object.entries(properties).filter(
+                    ([candidate]) => candidate !== name,
+                  ),
                 );
                 const nextSchema = {
                   ...schema,
                   type: 'object',
                   properties: nextProperties,
-                  required: [...required].filter((candidate) => candidate !== name),
+                  required: [...required].filter(
+                    (candidate) => candidate !== name,
+                  ),
                 };
                 resolveInvalidField(nextSchema, name);
               }}
@@ -417,9 +464,13 @@ export function A3SFlowSchemaWidget(props: FormWidgetProps) {
         <div className="a3s-form-flow-schema-empty">
           <DesignerIcon name="field" size={18} />
           <span>
-            <strong>{chinese ? '暂未限定输入字段' : 'No input fields defined'}</strong>
+            <strong>
+              {chinese ? '暂未限定输入字段' : 'No input fields defined'}
+            </strong>
             <small>
-              {chinese ? '当前允许传入任意 JSON 字段。' : 'Any JSON field is currently accepted.'}
+              {chinese
+                ? '当前允许传入任意 JSON 字段。'
+                : 'Any JSON field is currently accepted.'}
             </small>
           </span>
         </div>
@@ -446,14 +497,18 @@ export function A3SFlowSchemaWidget(props: FormWidgetProps) {
             type="checkbox"
             checked={schema.additionalProperties !== false}
             disabled={props.disabled}
-            onChange={(event) => update({ ...schema, additionalProperties: event.target.checked })}
+            onChange={(event) =>
+              update({ ...schema, additionalProperties: event.target.checked })
+            }
           />
           <span>{chinese ? '允许其他字段' : 'Allow additional fields'}</span>
         </label>
       </div>
 
       <details className="a3s-form-flow-schema-advanced">
-        <summary>{chinese ? '高级 JSON Schema' : 'Advanced JSON Schema'}</summary>
+        <summary>
+          {chinese ? '高级 JSON Schema' : 'Advanced JSON Schema'}
+        </summary>
         <AdvancedSchemaEditor
           id={`${props.id}-advanced`}
           schema={schema}
@@ -461,7 +516,12 @@ export function A3SFlowSchemaWidget(props: FormWidgetProps) {
           onInvalidDraft={(source) => {
             if (invalidFieldNames.length > 0) {
               props.onChange(
-                invalidSchemaDraftValue(schema, 'field-name', undefined, invalidFieldNames),
+                invalidSchemaDraftValue(
+                  schema,
+                  'field-name',
+                  undefined,
+                  invalidFieldNames,
+                ),
               );
               return;
             }
@@ -470,7 +530,9 @@ export function A3SFlowSchemaWidget(props: FormWidgetProps) {
           disabled={props.disabled}
           locale={props.locale}
           describedBy={props.describedBy}
-          draftSource={invalidDraft?.kind === 'json' ? invalidDraft.source : undefined}
+          draftSource={
+            invalidDraft?.kind === 'json' ? invalidDraft.source : undefined
+          }
           draftInvalid={invalidDraft?.kind === 'json'}
         />
       </details>

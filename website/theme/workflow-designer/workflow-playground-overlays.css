@@ -382,7 +382,6 @@
 }
 
 .a3s-trigger-field input:not([type='checkbox']),
-.a3s-trigger-field select,
 .a3s-trigger-field textarea {
   display: block;
   width: 100%;
@@ -400,6 +399,56 @@
     box-shadow 130ms ease-out;
 }
 
+.a3s-trigger-field .a3s-flow-select-control {
+  display: block;
+  width: 100%;
+  margin-top: 5px;
+}
+
+.a3s-trigger-field .a3s-flow-select-control > button {
+  display: flex;
+  width: 100%;
+  min-height: 36px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 9px;
+  border: 1px solid var(--trigger-field-border, var(--workflow-line));
+  border-radius: 7px;
+  outline: none;
+  background: var(--workflow-surface);
+  color: var(--workflow-text);
+  font: 11px/1.4 var(--workflow-sans);
+  text-align: start;
+  transition:
+    border-color 130ms ease-out,
+    box-shadow 130ms ease-out;
+}
+
+.a3s-trigger-field .a3s-flow-select-control > button:hover:not(:disabled),
+.a3s-trigger-field .a3s-flow-select-control > button[aria-expanded='true'] {
+  border-color: var(--workflow-blue);
+}
+
+.a3s-trigger-field .a3s-flow-select-control > button > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-trigger-field .a3s-flow-select-control > [data-popover] {
+  width: 100%;
+  max-height: 190px;
+  border-color: var(--workflow-line);
+  background: var(--workflow-surface);
+}
+
+.a3s-trigger-field .a3s-flow-select-control [role='option'] {
+  color: var(--workflow-text);
+  font: 11px/1.4 var(--workflow-sans);
+}
+
 .a3s-trigger-field textarea {
   min-height: 78px;
   resize: vertical;
@@ -408,14 +457,14 @@
 }
 
 .a3s-trigger-field input:not([type='checkbox']):focus,
-.a3s-trigger-field select:focus,
+.a3s-trigger-field .a3s-flow-select-control > button:focus-visible,
 .a3s-trigger-field textarea:focus {
   border-color: var(--workflow-blue);
   box-shadow: 0 0 0 3px rgb(18 100 255 / 12%);
 }
 
 .a3s-trigger-field.is-invalid input:not([type='checkbox']):focus,
-.a3s-trigger-field.is-invalid select:focus,
+.a3s-trigger-field.is-invalid .a3s-flow-select-control > button:focus-visible,
 .a3s-trigger-field.is-invalid textarea:focus {
   border-color: var(--workflow-red);
   box-shadow: 0 0 0 3px rgb(220 38 38 / 11%);

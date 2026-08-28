@@ -313,6 +313,20 @@ function jsonEqual(left: unknown, right: unknown): boolean {
   );
 }
 
+/** Stable JSON encoding used when enum values cross the string-only select API. */
+export function stableTriggerJson(value: PlaygroundTriggerValue): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableTriggerJson(item)).join(',')}]`;
+  }
+  if (isTriggerObject(value)) {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableTriggerJson(value[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
 function concreteTypeMatches(
   type: PlaygroundTriggerSchemaType,
   value: unknown,

@@ -11,7 +11,7 @@ const FOCUSABLE_SELECTOR = [
   'a[href]',
   'button:not([disabled])',
   'input:not([disabled])',
-  'select:not([disabled])',
+  '[role="combobox"]:not([disabled]):not([aria-disabled="true"])',
   'textarea:not([disabled])',
   '[contenteditable="true"]',
   '[tabindex]',

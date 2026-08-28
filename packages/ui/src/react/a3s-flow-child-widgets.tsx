@@ -10,7 +10,9 @@ function isChinese(locale: string): boolean {
 }
 
 function objectValue(value: JsonValue | undefined): JsonObject {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : {};
 }
 
 function stringValue(value: JsonValue | undefined, fallback = ''): string {
@@ -74,7 +76,7 @@ function WorkflowSpecEditor({
           onChange={(event) => updateSpec({ version: event.target.value })}
         />
       </label>
-      <label htmlFor={`${id}-runtime`}>
+      <label htmlFor={`${id}-runtime-trigger`}>
         <span>{chinese ? '运行时' : 'Runtime'}</span>
         <SelectControl
           id={`${id}-runtime`}
@@ -94,7 +96,9 @@ function WorkflowSpecEditor({
           value={stringValue(runtime.entrypoint)}
           disabled={disabled}
           required
-          onChange={(event) => updateRuntime({ entrypoint: event.target.value })}
+          onChange={(event) =>
+            updateRuntime({ entrypoint: event.target.value })
+          }
         />
       </label>
       <label htmlFor={`${id}-export`}>
@@ -105,7 +109,9 @@ function WorkflowSpecEditor({
           value={stringValue(runtime.export_name)}
           disabled={disabled}
           required
-          onChange={(event) => updateRuntime({ export_name: event.target.value })}
+          onChange={(event) =>
+            updateRuntime({ export_name: event.target.value })
+          }
         />
       </label>
     </div>
@@ -121,7 +127,8 @@ export function A3SFlowWorkflowSpecWidget(props: FormWidgetProps) {
       aria-describedby={props.describedBy}
       aria-invalid={props.invalid || undefined}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) props.onBlur?.();
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+          props.onBlur?.();
       }}
       onFocus={props.onFocus}
     >
@@ -141,7 +148,9 @@ function childrenValue(value: JsonValue | undefined): JsonObject[] {
 }
 
 function uniqueChildId(children: readonly JsonObject[]): string {
-  const ids = new Set(children.map((child) => stringValue(child.child_id)).filter(Boolean));
+  const ids = new Set(
+    children.map((child) => stringValue(child.child_id)).filter(Boolean),
+  );
   let index = children.length + 1;
   while (ids.has(`child-${index}`)) index += 1;
   return `child-${index}`;
@@ -170,13 +179,19 @@ function JsonObjectEditor({
   onChange: (value: JsonObject) => void;
 }) {
   const chinese = isChinese(locale);
-  const [draft, setDraft] = useState(() => JSON.stringify(objectValue(value), null, 2));
+  const [draft, setDraft] = useState(() =>
+    JSON.stringify(objectValue(value), null, 2),
+  );
   const [invalid, setInvalid] = useState(false);
-  useEffect(() => setDraft(JSON.stringify(objectValue(value), null, 2)), [value]);
+  useEffect(
+    () => setDraft(JSON.stringify(objectValue(value), null, 2)),
+    [value],
+  );
   const commit = () => {
     try {
       const parsed = JSON.parse(draft) as unknown;
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+        throw new Error();
       setInvalid(false);
       onChange(parsed as JsonObject);
     } catch {
@@ -184,7 +199,11 @@ function JsonObjectEditor({
     }
   };
   return (
-    <label className="a3s-form-flow-child-input" htmlFor={id} data-invalid={invalid || undefined}>
+    <label
+      className="a3s-form-flow-child-input"
+      htmlFor={id}
+      data-invalid={invalid || undefined}
+    >
       <span>{chinese ? '子工作流输入' : 'Child input'}</span>
       <WorkflowCodeEditor
         ariaLabel={chinese ? '子工作流输入 JSON' : 'Child workflow input JSON'}
@@ -224,20 +243,28 @@ export function A3SFlowChildrenWidget(props: FormWidgetProps) {
   const chinese = isChinese(props.locale);
   const children = childrenValue(props.value);
   const identity = useRef(0);
-  const [keys, setKeys] = useState(() => children.map(() => `child-ui-${identity.current++}`));
+  const [keys, setKeys] = useState(() =>
+    children.map(() => `child-ui-${identity.current++}`),
+  );
   const addButtonId = useId();
   useEffect(() => {
     setKeys((current) => {
       if (current.length === children.length) return current;
-      if (current.length > children.length) return current.slice(0, children.length);
+      if (current.length > children.length)
+        return current.slice(0, children.length);
       const next = [...current];
-      while (next.length < children.length) next.push(`child-ui-${identity.current++}`);
+      while (next.length < children.length)
+        next.push(`child-ui-${identity.current++}`);
       return next;
     });
   }, [children.length]);
   const update = (next: JsonObject[]) => props.onChange(next);
   const updateChild = (index: number, patch: JsonObject) =>
-    update(children.map((child, candidate) => (candidate === index ? { ...child, ...patch } : child)));
+    update(
+      children.map((child, candidate) =>
+        candidate === index ? { ...child, ...patch } : child,
+      ),
+    );
   const move = (index: number, offset: -1 | 1) => {
     const target = index + offset;
     if (target < 0 || target >= children.length) return;
@@ -258,14 +285,21 @@ export function A3SFlowChildrenWidget(props: FormWidgetProps) {
       aria-describedby={props.describedBy}
       aria-invalid={props.invalid || undefined}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) props.onBlur?.();
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+          props.onBlur?.();
       }}
       onFocus={props.onFocus}
     >
       <div className="a3s-form-flow-children-toolbar">
         <span>
-          <strong>{chinese ? `${children.length} 个子工作流` : `${children.length} child workflows`}</strong>
-          <small>{chinese ? '按列表顺序提交' : 'Submitted in list order'}</small>
+          <strong>
+            {chinese
+              ? `${children.length} 个子工作流`
+              : `${children.length} child workflows`}
+          </strong>
+          <small>
+            {chinese ? '按列表顺序提交' : 'Submitted in list order'}
+          </small>
         </span>
         <button
           id={addButtonId}
@@ -275,7 +309,10 @@ export function A3SFlowChildrenWidget(props: FormWidgetProps) {
           data-variant="secondary"
           disabled={props.disabled || children.length >= 64}
           onClick={() => {
-            setKeys((current) => [...current, `child-ui-${identity.current++}`]);
+            setKeys((current) => [
+              ...current,
+              `child-ui-${identity.current++}`,
+            ]);
             update([...children, newChild(children)]);
           }}
         >
@@ -287,8 +324,14 @@ export function A3SFlowChildrenWidget(props: FormWidgetProps) {
         <div className="a3s-form-flow-children-empty">
           <DesignerIcon name="list" size={18} />
           <span>
-            <strong>{chinese ? '还没有子工作流' : 'No child workflows yet'}</strong>
-            <small>{chinese ? '至少添加一项后才能应用配置。' : 'Add at least one item before applying.'}</small>
+            <strong>
+              {chinese ? '还没有子工作流' : 'No child workflows yet'}
+            </strong>
+            <small>
+              {chinese
+                ? '至少添加一项后才能应用配置。'
+                : 'Add at least one item before applying.'}
+            </small>
           </span>
         </div>
       ) : (
@@ -301,7 +344,12 @@ export function A3SFlowChildrenWidget(props: FormWidgetProps) {
                 <details open={index === 0 ? true : undefined}>
                   <summary>
                     <span>{index + 1}</span>
-                    <strong>{childId || (chinese ? `子工作流 ${index + 1}` : `Child ${index + 1}`)}</strong>
+                    <strong>
+                      {childId ||
+                        (chinese
+                          ? `子工作流 ${index + 1}`
+                          : `Child ${index + 1}`)}
+                    </strong>
                     <DesignerIcon name="chevron-down" size={14} />
                   </summary>
                   <div className="a3s-form-flow-child-editor">
@@ -313,8 +361,14 @@ export function A3SFlowChildrenWidget(props: FormWidgetProps) {
                         value={childId}
                         disabled={props.disabled}
                         required
-                        data-a3s-form-path={props.valuePath ? `${props.valuePath}.${index}.child_id` : undefined}
-                        onChange={(event) => updateChild(index, { child_id: event.target.value })}
+                        data-a3s-form-path={
+                          props.valuePath
+                            ? `${props.valuePath}.${index}.child_id`
+                            : undefined
+                        }
+                        onChange={(event) =>
+                          updateChild(index, { child_id: event.target.value })
+                        }
                       />
                     </label>
                     <WorkflowSpecEditor
@@ -331,20 +385,29 @@ export function A3SFlowChildrenWidget(props: FormWidgetProps) {
                       locale={props.locale}
                       onChange={(input) => updateChild(index, { input })}
                     />
-                    <label htmlFor={`${itemId}-policy`}>
-                      <span>{chinese ? '取消策略' : 'Cancellation policy'}</span>
+                    <label htmlFor={`${itemId}-policy-trigger`}>
+                      <span>
+                        {chinese ? '取消策略' : 'Cancellation policy'}
+                      </span>
                       <SelectControl
                         id={`${itemId}-policy`}
-                        value={stringValue(child.cancellation_policy, 'request_cancellation')}
+                        value={stringValue(
+                          child.cancellation_policy,
+                          'request_cancellation',
+                        )}
                         disabled={props.disabled}
                         onChange={(event) =>
-                          updateChild(index, { cancellation_policy: event.target.value })
+                          updateChild(index, {
+                            cancellation_policy: event.target.value,
+                          })
                         }
                       >
                         <option value="request_cancellation">
                           {chinese ? '请求取消' : 'Request cancellation'}
                         </option>
-                        <option value="abandon">{chinese ? '保留运行' : 'Leave running'}</option>
+                        <option value="abandon">
+                          {chinese ? '保留运行' : 'Leave running'}
+                        </option>
                       </SelectControl>
                     </label>
                     <div className="a3s-form-flow-child-actions">
@@ -353,7 +416,9 @@ export function A3SFlowChildrenWidget(props: FormWidgetProps) {
                         className="btn"
                         data-size="icon-sm"
                         data-variant="ghost"
-                        aria-label={chinese ? '上移子工作流' : 'Move child workflow up'}
+                        aria-label={
+                          chinese ? '上移子工作流' : 'Move child workflow up'
+                        }
                         disabled={props.disabled || index === 0}
                         onClick={() => move(index, -1)}
                       >
@@ -364,8 +429,12 @@ export function A3SFlowChildrenWidget(props: FormWidgetProps) {
                         className="btn"
                         data-size="icon-sm"
                         data-variant="ghost"
-                        aria-label={chinese ? '下移子工作流' : 'Move child workflow down'}
-                        disabled={props.disabled || index === children.length - 1}
+                        aria-label={
+                          chinese ? '下移子工作流' : 'Move child workflow down'
+                        }
+                        disabled={
+                          props.disabled || index === children.length - 1
+                        }
                         onClick={() => move(index, 1)}
                       >
                         <DesignerIcon name="arrow-down" size={14} />
@@ -375,11 +444,21 @@ export function A3SFlowChildrenWidget(props: FormWidgetProps) {
                         className="btn"
                         data-size="icon-sm"
                         data-variant="ghost"
-                        aria-label={chinese ? '删除子工作流' : 'Remove child workflow'}
+                        aria-label={
+                          chinese ? '删除子工作流' : 'Remove child workflow'
+                        }
                         disabled={props.disabled}
                         onClick={() => {
-                          setKeys((current) => current.filter((_, candidate) => candidate !== index));
-                          update(children.filter((_, candidate) => candidate !== index));
+                          setKeys((current) =>
+                            current.filter(
+                              (_, candidate) => candidate !== index,
+                            ),
+                          );
+                          update(
+                            children.filter(
+                              (_, candidate) => candidate !== index,
+                            ),
+                          );
                         }}
                       >
                         <DesignerIcon name="trash" size={14} />

@@ -11,7 +11,9 @@ function isChinese(locale: string): boolean {
 }
 
 function objectValue(value: JsonValue | undefined): JsonObject {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : {};
 }
 
 function batchMembers(value: JsonValue | undefined): JsonObject[] {
@@ -20,7 +22,9 @@ function batchMembers(value: JsonValue | undefined): JsonObject[] {
 
 function uniqueMemberKey(members: readonly JsonObject[]): string {
   const keys = new Set(
-    members.flatMap((member) => (typeof member.step_key === 'string' ? [member.step_key] : [])),
+    members.flatMap((member) =>
+      typeof member.step_key === 'string' ? [member.step_key] : [],
+    ),
   );
   let index = members.length + 1;
   while (keys.has(`member-${index}`)) index += 1;
@@ -38,19 +42,31 @@ function newMember(members: readonly JsonObject[]): JsonObject {
   };
 }
 
-function memberTitle(member: JsonObject, index: number, chinese: boolean): string {
+function memberTitle(
+  member: JsonObject,
+  index: number,
+  chinese: boolean,
+): string {
   const handler =
-    typeof member.step_name === 'string' && member.step_name ? member.step_name : undefined;
+    typeof member.step_name === 'string' && member.step_name
+      ? member.step_name
+      : undefined;
   return handler ?? (chinese ? `任务 ${index + 1}` : `Task ${index + 1}`);
 }
 
-function numberInputValue(value: JsonValue | undefined, fallback: number): number | '' {
-  if (value === null || (typeof value === 'number' && !Number.isFinite(value))) return '';
+function numberInputValue(
+  value: JsonValue | undefined,
+  fallback: number,
+): number | '' {
+  if (value === null || (typeof value === 'number' && !Number.isFinite(value)))
+    return '';
   return typeof value === 'number' ? value : fallback;
 }
 
 function numberFromInput(input: HTMLInputElement): number | null {
-  return input.value === '' || !Number.isFinite(input.valueAsNumber) ? null : input.valueAsNumber;
+  return input.value === '' || !Number.isFinite(input.valueAsNumber)
+    ? null
+    : input.valueAsNumber;
 }
 
 function fieldPath(
@@ -75,7 +91,8 @@ export function A3SFlowBatchWidget(props: FormWidgetProps) {
     reconciledMemberCount.current = members.length;
     setMemberIds((current) => {
       if (current.length === members.length) return current;
-      if (current.length > members.length) return current.slice(0, members.length);
+      if (current.length > members.length)
+        return current.slice(0, members.length);
       const next = [...current];
       while (next.length < members.length) {
         next.push(`member-ui-${nextMemberId.current}`);
@@ -87,7 +104,9 @@ export function A3SFlowBatchWidget(props: FormWidgetProps) {
   const updateMembers = (next: JsonObject[]) => props.onChange(next);
   const updateMember = (index: number, patch: JsonObject) =>
     updateMembers(
-      members.map((member, candidate) => (candidate === index ? { ...member, ...patch } : member)),
+      members.map((member, candidate) =>
+        candidate === index ? { ...member, ...patch } : member,
+      ),
     );
   const moveMember = (index: number, offset: -1 | 1) => {
     const target = index + offset;
@@ -103,9 +122,14 @@ export function A3SFlowBatchWidget(props: FormWidgetProps) {
   };
   const errors = props.errors ?? [];
   const firstErrorMember = errors.flatMap((error) => {
-    if (!props.valuePath || !error.path.startsWith(`${props.valuePath}.`)) return [];
-    const index = Number(error.path.slice(props.valuePath.length + 1).split('.')[0]);
-    return Number.isInteger(index) && index >= 0 && index < members.length ? [index] : [];
+    if (!props.valuePath || !error.path.startsWith(`${props.valuePath}.`))
+      return [];
+    const index = Number(
+      error.path.slice(props.valuePath.length + 1).split('.')[0],
+    );
+    return Number.isInteger(index) && index >= 0 && index < members.length
+      ? [index]
+      : [];
   })[0];
   const visibleExpandedIndex = firstErrorMember ?? expandedIndex;
   const errorIdsForPath = (path: string | undefined) =>
@@ -116,7 +140,9 @@ export function A3SFlowBatchWidget(props: FormWidgetProps) {
       : [];
   const removeMember = (index: number) => {
     reconciledMemberCount.current = members.length - 1;
-    setMemberIds((current) => current.filter((_, candidate) => candidate !== index));
+    setMemberIds((current) =>
+      current.filter((_, candidate) => candidate !== index),
+    );
     updateMembers(members.filter((_, candidate) => candidate !== index));
   };
 
@@ -129,13 +155,16 @@ export function A3SFlowBatchWidget(props: FormWidgetProps) {
       aria-describedby={props.describedBy}
       aria-invalid={Boolean(props.invalid)}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) props.onBlur?.();
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+          props.onBlur?.();
       }}
       onFocus={props.onFocus}
     >
       <div className="a3s-form-flow-batch-toolbar">
         <span>
-          <strong>{chinese ? `${members.length} 项任务` : `${members.length} tasks`}</strong>
+          <strong>
+            {chinese ? `${members.length} 项任务` : `${members.length} tasks`}
+          </strong>
           <small>{chinese ? '按列表顺序执行' : 'Runs in list order'}</small>
         </span>
         <button
@@ -163,20 +192,44 @@ export function A3SFlowBatchWidget(props: FormWidgetProps) {
         <ol className="a3s-form-flow-batch-list">
           {members.map((member, index) => {
             const stepKey =
-              typeof member.step_key === 'string' ? member.step_key : `member-${index + 1}`;
-            const memberId = memberIds[index] ?? `member-ui-fallback-${index + 1}`;
-            const handler = typeof member.step_name === 'string' ? member.step_name : '';
+              typeof member.step_key === 'string'
+                ? member.step_key
+                : `member-${index + 1}`;
+            const memberId =
+              memberIds[index] ?? `member-ui-fallback-${index + 1}`;
+            const handler =
+              typeof member.step_name === 'string' ? member.step_name : '';
             const attempts = numberInputValue(member.max_attempts, 3);
             const delay = numberInputValue(member.retry_delay_ms, 0);
             const exhausted =
-              member.on_exhausted === 'continue_workflow' ? 'continue_workflow' : 'fail_run';
-            const memberValuePath = props.valuePath ? `${props.valuePath}.${index}` : undefined;
+              member.on_exhausted === 'continue_workflow'
+                ? 'continue_workflow'
+                : 'fail_run';
+            const memberValuePath = props.valuePath
+              ? `${props.valuePath}.${index}`
+              : undefined;
             const stepKeyPath = fieldPath(props.valuePath, index, 'step_key');
             const stepNamePath = fieldPath(props.valuePath, index, 'step_name');
-            const mappingPath = fieldPath(props.valuePath, index, 'input_mapping');
-            const attemptsPath = fieldPath(props.valuePath, index, 'max_attempts');
-            const delayPath = fieldPath(props.valuePath, index, 'retry_delay_ms');
-            const exhaustedPath = fieldPath(props.valuePath, index, 'on_exhausted');
+            const mappingPath = fieldPath(
+              props.valuePath,
+              index,
+              'input_mapping',
+            );
+            const attemptsPath = fieldPath(
+              props.valuePath,
+              index,
+              'max_attempts',
+            );
+            const delayPath = fieldPath(
+              props.valuePath,
+              index,
+              'retry_delay_ms',
+            );
+            const exhaustedPath = fieldPath(
+              props.valuePath,
+              index,
+              'on_exhausted',
+            );
             const retryInvalid = errors.some(
               (error) =>
                 error.path === attemptsPath ||
@@ -192,10 +245,11 @@ export function A3SFlowBatchWidget(props: FormWidgetProps) {
             const mappingLabelId = `${props.id}-${memberId}-input-label`;
             const memberInvalid = Boolean(
               memberValuePath &&
-                errors.some(
-                  (error) =>
-                    error.path === memberValuePath || error.path.startsWith(`${memberValuePath}.`),
-                ),
+              errors.some(
+                (error) =>
+                  error.path === memberValuePath ||
+                  error.path.startsWith(`${memberValuePath}.`),
+              ),
             );
             return (
               <li key={memberId} data-invalid={memberInvalid || undefined}>
@@ -210,7 +264,9 @@ export function A3SFlowBatchWidget(props: FormWidgetProps) {
                   }}
                 >
                   <summary>
-                    <span className="a3s-form-flow-batch-index">{index + 1}</span>
+                    <span className="a3s-form-flow-batch-index">
+                      {index + 1}
+                    </span>
                     <span>
                       <strong>{memberTitle(member, index, chinese)}</strong>
                       <small>{stepKey}</small>
@@ -235,9 +291,13 @@ export function A3SFlowBatchWidget(props: FormWidgetProps) {
                             required
                             data-a3s-form-path={stepKeyPath}
                             aria-invalid={stepKeyErrors.length > 0 || undefined}
-                            aria-describedby={stepKeyErrors.join(' ') || undefined}
+                            aria-describedby={
+                              stepKeyErrors.join(' ') || undefined
+                            }
                             onChange={(event) =>
-                              updateMember(index, { step_key: event.target.value })
+                              updateMember(index, {
+                                step_key: event.target.value,
+                              })
                             }
                           />
                           <small>
@@ -255,11 +315,17 @@ export function A3SFlowBatchWidget(props: FormWidgetProps) {
                             disabled={props.disabled}
                             required
                             data-a3s-form-path={stepNamePath}
-                            aria-invalid={stepNameErrors.length > 0 || undefined}
-                            aria-describedby={stepNameErrors.join(' ') || undefined}
+                            aria-invalid={
+                              stepNameErrors.length > 0 || undefined
+                            }
+                            aria-describedby={
+                              stepNameErrors.join(' ') || undefined
+                            }
                             placeholder="task.run"
                             onChange={(event) =>
-                              updateMember(index, { step_name: event.target.value })
+                              updateMember(index, {
+                                step_name: event.target.value,
+                              })
                             }
                           />
                           <small>
@@ -271,12 +337,16 @@ export function A3SFlowBatchWidget(props: FormWidgetProps) {
                       </div>
 
                       <div className="a3s-form-flow-batch-mapping">
-                        <span id={mappingLabelId}>{chinese ? '任务输入' : 'Task input'}</span>
+                        <span id={mappingLabelId}>
+                          {chinese ? '任务输入' : 'Task input'}
+                        </span>
                         <div data-a3s-form-path={mappingPath}>
                           <FlowExpressionEditor
                             id={`${props.id}-${memberId}-input`}
                             value={member.input_mapping}
-                            onChange={(value) => updateMember(index, { input_mapping: value })}
+                            onChange={(value) =>
+                              updateMember(index, { input_mapping: value })
+                            }
                             locale={props.locale}
                             purpose="input"
                             disabled={props.disabled}
@@ -297,8 +367,12 @@ export function A3SFlowBatchWidget(props: FormWidgetProps) {
                             : `Failure and retry · up to ${attempts} attempts`}
                         </summary>
                         <div className="a3s-form-flow-batch-retry-fields">
-                          <label htmlFor={`${props.id}-${memberId}-max-attempts`}>
-                            <span>{chinese ? '最多尝试次数' : 'Maximum attempts'}</span>
+                          <label
+                            htmlFor={`${props.id}-${memberId}-max-attempts`}
+                          >
+                            <span>
+                              {chinese ? '最多尝试次数' : 'Maximum attempts'}
+                            </span>
                             <input
                               id={`${props.id}-${memberId}-max-attempts`}
                               className="input"
@@ -308,15 +382,27 @@ export function A3SFlowBatchWidget(props: FormWidgetProps) {
                               value={attempts}
                               disabled={props.disabled}
                               data-a3s-form-path={attemptsPath}
-                              aria-invalid={attemptsErrors.length > 0 || undefined}
-                              aria-describedby={attemptsErrors.join(' ') || undefined}
+                              aria-invalid={
+                                attemptsErrors.length > 0 || undefined
+                              }
+                              aria-describedby={
+                                attemptsErrors.join(' ') || undefined
+                              }
                               onChange={(event) =>
-                                updateMember(index, { max_attempts: numberFromInput(event.target) })
+                                updateMember(index, {
+                                  max_attempts: numberFromInput(event.target),
+                                })
                               }
                             />
                           </label>
-                          <label htmlFor={`${props.id}-${memberId}-retry-delay`}>
-                            <span>{chinese ? '重试间隔（毫秒）' : 'Retry delay (ms)'}</span>
+                          <label
+                            htmlFor={`${props.id}-${memberId}-retry-delay`}
+                          >
+                            <span>
+                              {chinese
+                                ? '重试间隔（毫秒）'
+                                : 'Retry delay (ms)'}
+                            </span>
                             <input
                               id={`${props.id}-${memberId}-retry-delay`}
                               className="input"
@@ -328,7 +414,9 @@ export function A3SFlowBatchWidget(props: FormWidgetProps) {
                               disabled={props.disabled}
                               data-a3s-form-path={delayPath}
                               aria-invalid={delayErrors.length > 0 || undefined}
-                              aria-describedby={delayErrors.join(' ') || undefined}
+                              aria-describedby={
+                                delayErrors.join(' ') || undefined
+                              }
                               onChange={(event) =>
                                 updateMember(index, {
                                   retry_delay_ms: numberFromInput(event.target),
@@ -336,24 +424,40 @@ export function A3SFlowBatchWidget(props: FormWidgetProps) {
                               }
                             />
                           </label>
-                          <label htmlFor={`${props.id}-${memberId}-on-exhausted`}>
-                            <span>{chinese ? '尝试次数用完后' : 'After all attempts fail'}</span>
+                          <label
+                            htmlFor={`${props.id}-${memberId}-on-exhausted-trigger`}
+                          >
+                            <span>
+                              {chinese
+                                ? '尝试次数用完后'
+                                : 'After all attempts fail'}
+                            </span>
                             <SelectControl
                               id={`${props.id}-${memberId}-on-exhausted`}
                               value={exhausted}
                               disabled={props.disabled}
                               data-a3s-form-path={exhaustedPath}
-                              aria-invalid={exhaustedErrors.length > 0 || undefined}
-                              aria-describedby={exhaustedErrors.join(' ') || undefined}
+                              aria-invalid={
+                                exhaustedErrors.length > 0 || undefined
+                              }
+                              aria-describedby={
+                                exhaustedErrors.join(' ') || undefined
+                              }
                               onChange={(event) =>
-                                updateMember(index, { on_exhausted: event.target.value })
+                                updateMember(index, {
+                                  on_exhausted: event.target.value,
+                                })
                               }
                             >
                               <option value="fail_run">
-                                {chinese ? '结束工作流并标记失败' : 'End workflow as failed'}
+                                {chinese
+                                  ? '结束工作流并标记失败'
+                                  : 'End workflow as failed'}
                               </option>
                               <option value="continue_workflow">
-                                {chinese ? '进入失败分支' : 'Continue through the failure branch'}
+                                {chinese
+                                  ? '进入失败分支'
+                                  : 'Continue through the failure branch'}
                               </option>
                             </SelectControl>
                           </label>
@@ -377,7 +481,9 @@ export function A3SFlowBatchWidget(props: FormWidgetProps) {
                           className="btn"
                           data-size="sm"
                           data-variant="ghost"
-                          disabled={props.disabled || index === members.length - 1}
+                          disabled={
+                            props.disabled || index === members.length - 1
+                          }
                           onClick={() => moveMember(index, 1)}
                         >
                           <DesignerIcon name="arrow-down" size={13} />

@@ -691,6 +691,15 @@
   white-space: nowrap;
 }
 
+.a3s-flow-select-control[data-value-empty="true"] > button > span {
+  color: var(--a3s-form-muted);
+}
+
+.a3s-flow-select-control > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 .a3s-flow-select-control > button > svg {
   flex: 0 0 auto;
   color: var(--a3s-form-muted);
@@ -742,6 +751,13 @@
 .a3s-flow-select-control [role="option"].active,
 .a3s-flow-select-control [role="option"]:hover {
   background: var(--a3s-form-panel-soft);
+}
+
+.a3s-flow-select-control [role="option"][aria-disabled="true"] {
+  color: var(--a3s-form-muted);
+  cursor: not-allowed;
+  opacity: 0.62;
+  pointer-events: none;
 }
 
 .a3s-flow-select-control [role="option"][aria-selected="true"]::after {

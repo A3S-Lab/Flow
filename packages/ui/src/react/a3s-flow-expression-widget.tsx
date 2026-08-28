@@ -1,4 +1,8 @@
-import type { FormExpression, JsonObject, JsonValue } from '@a3s-lab/ui/form/core';
+import type {
+  FormExpression,
+  JsonObject,
+  JsonValue,
+} from '@a3s-lab/ui/form/core';
 import { A3S_FLOW_EXPRESSION_API_VERSION } from '../integrations/a3s-flow-core';
 import {
   A3S_FLOW_COMPARISON_OPERATORS as COMPARISON_OPERATORS,
@@ -24,7 +28,8 @@ import { DesignerIcon } from './designer-icons';
 import type { FormWidgetProps } from '@a3s-lab/ui/form/react';
 import { SelectControl } from './select-control';
 
-type ExpressionMode = 'none' | 'source' | 'value' | 'compare' | 'template' | 'advanced';
+type ExpressionMode =
+  'none' | 'source' | 'value' | 'compare' | 'template' | 'advanced';
 
 export interface FlowExpressionEditorProps {
   id: string;
@@ -73,7 +78,9 @@ function isDraftLiteralExpression(
   );
 }
 
-function isComparisonOperator(value: JsonValue | undefined): value is ComparisonOperator {
+function isComparisonOperator(
+  value: JsonValue | undefined,
+): value is ComparisonOperator {
   return COMPARISON_OPERATORS.some((operator) => operator === value);
 }
 
@@ -112,7 +119,9 @@ function editableExpressionFrom(
   if (
     !isObject(value) ||
     value.apiVersion !== A3S_FLOW_EXPRESSION_API_VERSION ||
-    Object.keys(value).some((key) => key !== 'apiVersion' && key !== 'expression')
+    Object.keys(value).some(
+      (key) => key !== 'apiVersion' && key !== 'expression',
+    )
   ) {
     return undefined;
   }
@@ -125,7 +134,9 @@ function editableExpressionFrom(
   ) {
     return undefined;
   }
-  return expressionMode(candidate, purpose) === 'advanced' ? undefined : candidate;
+  return expressionMode(candidate, purpose) === 'advanced'
+    ? undefined
+    : candidate;
 }
 function envelope(expression: FormExpression): JsonObject {
   return { apiVersion: A3S_FLOW_EXPRESSION_API_VERSION, expression };
@@ -145,9 +156,13 @@ function purposeFrom(value: string | undefined): ExpressionPurpose {
   }
 }
 
-function editableComparison(expression: FormExpression): expression is ComparisonExpression {
+function editableComparison(
+  expression: FormExpression,
+): expression is ComparisonExpression {
   return (
-    isComparison(expression) && expression.left.op === 'field' && expression.right.op === 'literal'
+    isComparison(expression) &&
+    expression.left.op === 'field' &&
+    expression.right.op === 'literal'
   );
 }
 
@@ -155,13 +170,17 @@ function editableTemplate(expression: FormExpression): boolean {
   if (
     expression.op !== 'concat' ||
     expression.values.some(
-      (part) => part.op !== 'field' && (part.op !== 'literal' || typeof part.value !== 'string'),
+      (part) =>
+        part.op !== 'field' &&
+        (part.op !== 'literal' || typeof part.value !== 'string'),
     )
   ) {
     return false;
   }
   const source = expressionToTemplate(expression);
-  return JSON.stringify(templateToExpression(source)) === JSON.stringify(expression);
+  return (
+    JSON.stringify(templateToExpression(source)) === JSON.stringify(expression)
+  );
 }
 
 function expressionMode(
@@ -177,7 +196,8 @@ function expressionMode(
     if (editableComparison(expression)) return 'compare';
     return expression.op === 'field' ? 'source' : 'advanced';
   }
-  if (purpose === 'token') return expression.op === 'field' ? 'source' : 'advanced';
+  if (purpose === 'token')
+    return expression.op === 'field' ? 'source' : 'advanced';
   if (purpose === 'error' && editableTemplate(expression)) return 'template';
   if (expression.op === 'field') return 'source';
   if (expression.op === 'literal') return 'value';
@@ -188,16 +208,23 @@ function invalidExpressionDraft(source: string): JsonValue {
   return [{ [INVALID_EXPRESSION_DRAFT]: source }];
 }
 
-function invalidExpressionDraftSource(value: JsonValue | undefined): string | undefined {
+function invalidExpressionDraftSource(
+  value: JsonValue | undefined,
+): string | undefined {
   if (Array.isArray(value) && value.length === 1) {
     const marker = value[0];
-    if (isObject(marker) && typeof marker[INVALID_EXPRESSION_DRAFT] === 'string') {
+    if (
+      isObject(marker) &&
+      typeof marker[INVALID_EXPRESSION_DRAFT] === 'string'
+    ) {
       return marker[INVALID_EXPRESSION_DRAFT];
     }
   }
   if (value === undefined || expressionFrom(value)) return undefined;
   const source = JSON.stringify(
-    isObject(value) && Object.hasOwn(value, 'expression') ? value.expression : value,
+    isObject(value) && Object.hasOwn(value, 'expression')
+      ? value.expression
+      : value,
     null,
     2,
   );
@@ -212,7 +239,10 @@ function modesFor(purpose: ExpressionPurpose): ExpressionMode[] {
   return ['source', 'value', 'advanced'];
 }
 
-function defaultExpression(mode: ExpressionMode, purpose: ExpressionPurpose): FormExpression {
+function defaultExpression(
+  mode: ExpressionMode,
+  purpose: ExpressionPurpose,
+): FormExpression {
   if (mode === 'none') return { op: 'literal', value: null };
   if (mode === 'compare') {
     return {
@@ -242,7 +272,10 @@ function defaultExpression(mode: ExpressionMode, purpose: ExpressionPurpose): Fo
     return { op: 'literal', value };
   }
   if (mode === 'advanced') return { op: 'field', path: 'input' };
-  return { op: 'field', path: purpose === 'datetime' ? 'input.resumeAt' : 'input' };
+  return {
+    op: 'field',
+    path: purpose === 'datetime' ? 'input.resumeAt' : 'input',
+  };
 }
 
 function parseLiteral(value: string): JsonValue {
@@ -261,22 +294,30 @@ function templateToExpression(source: string): FormExpression {
   let cursor = 0;
   for (const match of source.matchAll(pattern)) {
     const start = match.index ?? 0;
-    if (start > cursor) values.push({ op: 'literal', value: source.slice(cursor, start) });
+    if (start > cursor)
+      values.push({ op: 'literal', value: source.slice(cursor, start) });
     values.push({ op: 'field', path: match[1] ?? 'input' });
     cursor = start + match[0].length;
   }
-  if (cursor < source.length) values.push({ op: 'literal', value: source.slice(cursor) });
+  if (cursor < source.length)
+    values.push({ op: 'literal', value: source.slice(cursor) });
   if (values.length === 0) values.push({ op: 'literal', value: source });
   return { op: 'concat', values };
 }
 
-function modeLabel(mode: ExpressionMode, purpose: ExpressionPurpose, chinese: boolean): string {
+function modeLabel(
+  mode: ExpressionMode,
+  purpose: ExpressionPurpose,
+  chinese: boolean,
+): string {
   if (mode === 'none') return chinese ? '自动生成' : 'Generated automatically';
   if (mode === 'source') return chinese ? '来自工作流字段' : 'Workflow field';
   if (mode === 'compare') return chinese ? '条件判断' : 'Comparison';
   if (mode === 'template') return chinese ? '文本模板' : 'Text template';
-  if (mode === 'advanced') return chinese ? '高级表达式' : 'Advanced expression';
-  if (purpose === 'datetime') return chinese ? '固定 UTC 时间' : 'Fixed UTC time';
+  if (mode === 'advanced')
+    return chinese ? '高级表达式' : 'Advanced expression';
+  if (purpose === 'datetime')
+    return chinese ? '固定 UTC 时间' : 'Fixed UTC time';
   return chinese ? '固定值' : 'Fixed value';
 }
 
@@ -297,16 +338,25 @@ export function FlowExpressionEditor({
   const variables = useA3SFlowExpressionVariables(suppliedVariables);
   const chinese = isChinese(locale);
   const purpose = purposeFrom(rawPurpose);
-  const structuredExpression = expressionFrom(value) ?? editableExpressionFrom(value, purpose);
-  const draftSource = structuredExpression ? undefined : invalidExpressionDraftSource(value);
-  const expression = structuredExpression ?? defaultExpression('advanced', purpose);
-  const mode = draftSource === undefined ? expressionMode(expression, purpose) : 'advanced';
+  const structuredExpression =
+    expressionFrom(value) ?? editableExpressionFrom(value, purpose);
+  const draftSource = structuredExpression
+    ? undefined
+    : invalidExpressionDraftSource(value);
+  const expression =
+    structuredExpression ?? defaultExpression('advanced', purpose);
+  const mode =
+    draftSource === undefined
+      ? expressionMode(expression, purpose)
+      : 'advanced';
   const leftPath =
     isComparison(expression) && expression.left.op === 'field'
       ? expression.left.path
       : 'input.value';
   const rightValue =
-    isComparison(expression) && expression.right.op === 'literal' ? expression.right.value : true;
+    isComparison(expression) && expression.right.op === 'literal'
+      ? expression.right.value
+      : true;
 
   const updateExpression = (next: FormExpression) => onChange(envelope(next));
 
@@ -320,18 +370,23 @@ export function FlowExpressionEditor({
       aria-describedby={describedBy}
       aria-invalid={Boolean(invalid)}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onBlur?.();
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+          onBlur?.();
       }}
       onFocus={onFocus}
     >
       <div className="a3s-form-flow-expression-mode">
-        <label htmlFor={`${id}-mode`}>{chinese ? '取值方式' : 'Value source'}</label>
+        <label htmlFor={`${id}-mode-trigger`}>
+          {chinese ? '取值方式' : 'Value source'}
+        </label>
         <SelectControl
           id={`${id}-mode`}
           value={mode}
           disabled={disabled}
           onChange={(event) =>
-            updateExpression(defaultExpression(event.target.value as ExpressionMode, purpose))
+            updateExpression(
+              defaultExpression(event.target.value as ExpressionMode, purpose),
+            )
           }
         >
           {modesFor(purpose).map((candidate) => (
@@ -400,7 +455,10 @@ export function FlowExpressionEditor({
           onChange={(event) =>
             updateExpression({
               op: 'literal',
-              value: purpose === 'error' ? event.target.value : parseLiteral(event.target.value),
+              value:
+                purpose === 'error'
+                  ? event.target.value
+                  : parseLiteral(event.target.value),
             })
           }
         />
@@ -427,7 +485,10 @@ export function FlowExpressionEditor({
             disabled={disabled}
             aria-label={chinese ? '判断方式' : 'Comparison operator'}
             onChange={(event) =>
-              updateExpression({ ...expression, op: event.target.value as ComparisonOperator })
+              updateExpression({
+                ...expression,
+                op: event.target.value as ComparisonOperator,
+              })
             }
           >
             {COMPARISON_OPERATORS.map((operator) => (
@@ -445,7 +506,10 @@ export function FlowExpressionEditor({
             onChange={(event) =>
               updateExpression({
                 ...expression,
-                right: { op: 'literal', value: parseLiteral(event.target.value) },
+                right: {
+                  op: 'literal',
+                  value: parseLiteral(event.target.value),
+                },
               })
             }
           />
@@ -462,8 +526,14 @@ export function FlowExpressionEditor({
           aria-invalid={invalid || undefined}
           aria-describedby={describedBy}
           aria-label={chinese ? '失败信息模板' : 'Failure message template'}
-          placeholder={chinese ? '任务失败：{{input.reason}}' : 'Task failed: {{input.reason}}'}
-          onValueChange={(value) => updateExpression(templateToExpression(value))}
+          placeholder={
+            chinese
+              ? '任务失败：{{input.reason}}'
+              : 'Task failed: {{input.reason}}'
+          }
+          onValueChange={(value) =>
+            updateExpression(templateToExpression(value))
+          }
         />
       )}
 

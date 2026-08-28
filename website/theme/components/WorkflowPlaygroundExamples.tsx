@@ -18,6 +18,7 @@ import {
   workflowExamplesCopy,
   type WorkflowExamplesCopy,
 } from './WorkflowPlayground.examples.copy';
+import { SelectControl } from '@a3s-lab/flow-ui/react';
 import type { PlaygroundNode } from './WorkflowPlayground.model';
 import type { FlowWebsiteLocale } from './flow-node-catalog';
 
@@ -226,10 +227,12 @@ export function WorkflowPlaygroundExamples({
           </div>
         </div>
         <div className="a3s-example-library-header__actions">
-          <label>
+          <label className="a3s-example-library-header__version">
             <span className="a3s-visually-hidden">{copy.version}</span>
-            <select
+            <SelectControl
               aria-label={copy.version}
+              className="a3s-example-library-header__version-select"
+              id="workflow-example-library-version"
               onChange={(event) => onVersionChange(event.currentTarget.value)}
               value={version}
             >
@@ -238,7 +241,7 @@ export function WorkflowPlaygroundExamples({
                   {item}
                 </option>
               ))}
-            </select>
+            </SelectControl>
           </label>
           <a
             aria-label={copy.language}

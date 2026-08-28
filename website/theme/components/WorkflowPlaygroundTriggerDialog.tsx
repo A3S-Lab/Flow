@@ -20,11 +20,13 @@ import {
   triggerSchemaAllowsType,
   triggerSchemaType,
   validateTriggerInput,
+  stableTriggerJson,
   type PlaygroundTriggerFieldError,
   type PlaygroundTriggerSchema,
   type PlaygroundTriggerValue,
 } from './WorkflowPlayground.trigger';
 import type { FlowWebsiteLocale } from './flow-node-catalog';
+import { SelectControl } from '@a3s-lab/flow-ui/react';
 
 type TriggerDialogProps = {
   copy: WorkflowPlaygroundCopy;
@@ -100,15 +102,20 @@ function scalarValue(
   return '';
 }
 
+const ENUM_VALUE_PREFIX = 'a3s-json:';
+
 function enumOptionValue(value: PlaygroundTriggerValue): string {
-  return JSON.stringify(value);
+  return `${ENUM_VALUE_PREFIX}${stableTriggerJson(value)}`;
 }
 
 function parseEnumOption(raw: string): PlaygroundTriggerValue {
+  const encoded = raw.startsWith(ENUM_VALUE_PREFIX)
+    ? raw.slice(ENUM_VALUE_PREFIX.length)
+    : raw;
   try {
-    return JSON.parse(raw) as PlaygroundTriggerValue;
+    return JSON.parse(encoded) as PlaygroundTriggerValue;
   } catch {
-    return raw;
+    return encoded;
   }
 }
 
@@ -122,7 +129,11 @@ function focusTriggerField(root: HTMLElement, path: string): void {
   const field = [
     ...root.querySelectorAll<HTMLElement>('[data-trigger-path]'),
   ].find((candidate) => (candidate.dataset.triggerPath ?? '') === targetPath);
-  field?.querySelector<HTMLElement>('input, select, textarea')?.focus();
+  field
+    ?.querySelector<HTMLElement>(
+      '[role="combobox"], input:not([type="hidden"]), textarea, button',
+    )
+    ?.focus();
 }
 
 function SchemaField({
@@ -146,8 +157,10 @@ function SchemaField({
   const describedBy = fieldErrors.length ? `${inputId}-error` : undefined;
   const current = triggerValueAtPath(value, path);
   const type = triggerSchemaType(schema);
+  const enumValues = schema.enum ?? [];
+  const enumSelect = enumValues.length > 0;
 
-  if (type === 'object') {
+  if (type === 'object' && !enumSelect) {
     const properties = triggerSchemaProperties(schema);
     return (
       <fieldset
@@ -197,7 +210,7 @@ function SchemaField({
     );
   }
 
-  if (type === 'array') {
+  if (type === 'array' && !enumSelect) {
     return (
       <JsonField
         errors={fieldErrors}
@@ -215,29 +228,21 @@ function SchemaField({
     );
   }
 
-  const enumValues = schema.enum ?? [];
-  const enumSelect = enumValues.length > 0;
   const valueForInput = scalarValue(schema, current);
+  const enumValueMatchesCurrent = enumValues.some(
+    (option) =>
+      current !== undefined &&
+      stableTriggerJson(option) === stableTriggerJson(current),
+  );
   const common = {
     'aria-describedby': describedBy,
     'aria-invalid': fieldErrors.length > 0 || undefined,
     id: inputId,
     name: pathKey,
   };
-  const onScalarChange = (
-    event: ChangeEvent<HTMLInputElement | HTMLSelectElement>,
-  ) => {
+  const onScalarChange = (event: ChangeEvent<HTMLInputElement>) => {
     if (type === 'boolean') {
-      onChange(
-        path,
-        event.target instanceof HTMLInputElement
-          ? event.target.checked
-          : event.target.value === 'true',
-      );
-      return;
-    }
-    if (enumSelect) {
-      onChange(path, parseEnumOption(event.target.value));
+      onChange(path, event.target.checked);
       return;
     }
     if (type === 'number' || type === 'integer') {
@@ -259,7 +264,7 @@ function SchemaField({
     );
   };
 
-  if (type === 'value' || type === 'null') {
+  if ((type === 'value' || type === 'null') && !enumSelect) {
     return (
       <JsonField
         errors={fieldErrors}
@@ -289,8 +294,8 @@ function SchemaField({
       className={`a3s-trigger-field${fieldErrors.length ? ' is-invalid' : ''}`}
       data-trigger-path={pathKey}
     >
-      <label htmlFor={inputId}>
-        <span>
+      <label htmlFor={enumSelect ? `${inputId}-trigger` : inputId}>
+        <span id={`${inputId}-label`}>
           {label}
           {required && (
             <em aria-label={locale === 'zh' ? '必填' : 'required'}>*</em>
@@ -302,27 +307,32 @@ function SchemaField({
         <p className="a3s-trigger-field__description">{schema.description}</p>
       )}
       {enumSelect ? (
-        <select
+        <SelectControl
           {...common}
+          aria-labelledby={`${inputId}-label`}
+          className="a3s-trigger-field__select"
+          required={required}
           value={
-            current === undefined || current === ''
+            current === undefined || !enumValueMatchesCurrent
               ? ''
-              : enumOptionValue(valueForInput)
+              : enumOptionValue(current)
           }
-          onChange={onScalarChange}
+          onChange={(event) =>
+            onChange(path, parseEnumOption(event.target.value))
+          }
         >
           <option value="">
             {locale === 'zh' ? '选择一个值…' : 'Choose a value…'}
           </option>
-          {enumValues.map((option) => (
+          {enumValues.map((option, index) => (
             <option
-              key={enumOptionValue(option)}
+              key={`${enumOptionValue(option)}-${index}`}
               value={enumOptionValue(option)}
             >
-              {typeof option === 'string' ? option : enumOptionValue(option)}
+              {typeof option === 'string' ? option : stableTriggerJson(option)}
             </option>
           ))}
-        </select>
+        </SelectControl>
       ) : type === 'boolean' ? (
         <label className="a3s-trigger-checkbox" htmlFor={inputId}>
           <input
@@ -484,7 +494,9 @@ export function WorkflowPlaygroundTriggerDialog({
         : null;
     const frame = window.requestAnimationFrame(() => {
       dialogRef.current
-        ?.querySelector<HTMLElement>('input, select, textarea, button')
+        ?.querySelector<HTMLElement>(
+          '[role="combobox"], input:not([type="hidden"]), textarea, button',
+        )
         ?.focus();
     });
     const onKeyDown = (event: KeyboardEvent) => {
@@ -495,12 +507,15 @@ export function WorkflowPlaygroundTriggerDialog({
       }
       if (event.key !== 'Tab' || !dialogRef.current) return;
       const focusable = [
-        ...dialogRef.current.querySelectorAll<HTMLElement>(
-          'button, input, select, textarea, [href]',
+        ...new Set(
+          dialogRef.current.querySelectorAll<HTMLElement>(
+            'button, input:not([type="hidden"]), textarea, [role="combobox"], [href], [tabindex]',
+          ),
         ),
       ].filter(
         (element) =>
           !element.hasAttribute('disabled') &&
+          element.getAttribute('aria-disabled') !== 'true' &&
           element.getAttribute('tabindex') !== '-1',
       );
       if (focusable.length === 0) return;
