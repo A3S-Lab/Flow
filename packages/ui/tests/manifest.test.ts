@@ -312,7 +312,27 @@ describe("A3S Flow authoring manifests", () => {
         .querySelector(".a3s-form-workflow-node-panel")
         ?.getAttribute("data-node-role"),
     ).toBe("runtime-command");
+    expect(
+      panel.container.querySelector(
+        ".a3s-form-workflow-node-header-actions a",
+      ),
+    ).not.toBeNull();
     panel.unmount();
+
+    const compactPanel = render(
+      createElement(A3SFlowDagNodeConfigurationPanel, {
+        dagNode,
+        locale: "en",
+        onChange: () => undefined,
+        showDocumentation: false,
+      }),
+    );
+    expect(
+      compactPanel.container.querySelector(
+        ".a3s-form-workflow-node-header-actions a",
+      ),
+    ).toBeNull();
+    compactPanel.unmount();
 
     const preview = render(
       createElement(A3SFlowDagNodePreview, {

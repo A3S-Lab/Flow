@@ -52,6 +52,8 @@ export interface WorkflowNodeConfigurationPanelProps {
   presentation?: 'catalog' | 'task';
   onRun?: (value: JsonObject) => void | Promise<void>;
   onClose?: () => void;
+  /** Whether to expose the node documentation action in the panel header. */
+  showDocumentation?: boolean;
   lastRun?: ReactNode;
   title?: string;
   description?: string;
@@ -392,7 +394,7 @@ export function WorkflowNodeConfigurationPanel(props: WorkflowNodeConfigurationP
               <span>{resetPending ? copy.confirmReset : copy.reset}</span>
             </button>
           )}
-          {props.node.documentation && (
+          {props.showDocumentation !== false && props.node.documentation && (
             <a
               className="btn"
               data-size="sm"

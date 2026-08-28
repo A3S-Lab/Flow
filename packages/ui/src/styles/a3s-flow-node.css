@@ -8,12 +8,21 @@
     0 2px 5px rgb(20 27 43 / 6%);
 }
 
+/* Task panels favor scanability: keep controls touchable while reducing
+   the repeated chrome between a label, its help text, and its value. */
+.a3s-form-flow-node-panel .a3s-form-renderer {
+  --a3s-form-field-height: 36px;
+  --a3s-form-field-height-compact: 34px;
+  --a3s-form-gap: 10px;
+  gap: 10px;
+}
+
 .a3s-form-flow-node-panel .a3s-form-workflow-node-panel-header {
-  min-height: 82px;
+  min-height: 68px;
   flex-direction: row;
   align-items: flex-start;
   gap: 10px;
-  padding: 13px 11px 11px 14px;
+  padding: 10px 10px 9px 12px;
   border-bottom: 1px solid var(--a3s-form-line);
 }
 
@@ -33,15 +42,15 @@
 }
 
 .a3s-form-flow-node-panel .a3s-form-workflow-node-icon {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border: 0;
   border-radius: 7px;
 }
 
 .a3s-form-flow-node-panel .a3s-form-workflow-node-title-line h2 {
   overflow: hidden;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 680;
   line-height: 1.35;
   text-overflow: ellipsis;
@@ -72,14 +81,14 @@
 }
 
 .a3s-form-flow-node-panel .a3s-form-workflow-node-title-input {
-  height: 24px;
-  font-size: 15px;
+  height: 22px;
+  font-size: 14px;
   font-weight: 680;
   line-height: 1.35;
 }
 
 .a3s-form-flow-node-panel .a3s-form-workflow-node-description-input {
-  height: 21px;
+  height: 19px;
   margin-top: 1px;
   color: var(--a3s-form-muted);
   font-size: 11px;
@@ -124,12 +133,13 @@
 }
 
 .a3s-form-flow-node-panel .a3s-form-workflow-node-tabs {
+  min-height: 36px;
   padding-inline: 16px;
 }
 
 :where(.a3s-form-flow-node-panel) .a3s-form-workflow-node-tabs > button {
-  min-height: 42px;
-  font-size: 12px;
+  min-height: 35px;
+  font-size: 11px;
 }
 
 .a3s-form-flow-node-panel .a3s-form-workflow-node-settings {
@@ -532,12 +542,12 @@
 }
 
 .a3s-form-flow-node-panel .a3s-form-workflow-node-form {
-  padding: 17px 16px 22px;
+  padding: 12px 16px 16px;
 }
 
 .a3s-form-flow-node-panel .a3s-form-workflow-node-form .a3s-form-layout.a3s-form-flow > header {
-  margin-bottom: 15px;
-  padding-bottom: 9px;
+  margin-bottom: 10px;
+  padding-bottom: 7px;
 }
 
 .a3s-form-flow-node-panel .a3s-form-workflow-node-form .a3s-form-collapse > header h2 {
@@ -550,8 +560,8 @@
 }
 
 .a3s-form-flow-node-panel .a3s-form-workflow-node-form .a3s-form-group.a3s-form-flow > header {
-  margin: 7px 0 12px;
-  padding-bottom: 8px;
+  margin: 4px 0 8px;
+  padding-bottom: 6px;
 }
 
 .a3s-form-flow-node-panel .a3s-form-workflow-node-form .a3s-form-group.a3s-form-flow > header h2 {
@@ -563,9 +573,68 @@
 }
 
 .a3s-form-flow-node-panel .a3s-form-workflow-node-form .a3s-form-actions {
-  bottom: -19px;
-  margin: 8px -16px -19px;
-  padding: 10px 16px;
+  bottom: -16px;
+  margin: 7px -16px -16px;
+  padding: 8px 16px;
+}
+
+.a3s-form-flow-node-panel .a3s-form-field {
+  gap: 5px;
+}
+
+.a3s-form-flow-node-panel .a3s-form-grid {
+  row-gap: 9px;
+}
+
+.a3s-form-flow-node-panel .a3s-form-flow-expression {
+  gap: 7px;
+}
+
+.a3s-form-flow-node-panel .a3s-form-flow-expression-mode {
+  gap: 8px;
+}
+
+.a3s-form-flow-node-panel .a3s-flow-select-control > button {
+  min-height: 36px;
+}
+
+.a3s-form-flow-node-panel .a3s-form-flow-expression-source .a3s-flow-variable-input > input {
+  height: 36px;
+}
+
+.a3s-form-flow-node-panel .a3s-form-workflow-connection {
+  min-height: 46px;
+  gap: 8px;
+  padding-block: 6px;
+}
+
+.a3s-form-flow-node-panel .a3s-form-workflow-field-accessory {
+  min-height: 42px;
+  gap: 7px;
+  margin: 6px 0 8px;
+  padding-block: 6px;
+}
+
+.a3s-form-flow-node-panel .a3s-form-workflow-parameter-control {
+  gap: 6px;
+}
+
+.a3s-form-flow-node-panel .a3s-form-workflow-node-form .a3s-form-collapse > details > summary {
+  padding: 8px 10px;
+}
+
+.a3s-form-flow-node-panel .a3s-form-workflow-node-form .a3s-form-collapse > details > .a3s-form-group {
+  padding: 4px 10px 10px;
+}
+
+.a3s-form-flow-node-panel .a3s-form-workflow-node-contract-details > summary {
+  min-height: 36px;
+  padding: 8px 16px;
+}
+
+.a3s-form-flow-node-panel .a3s-form-workflow-node-contract-details-body {
+  gap: 14px;
+  padding: 0 14px 14px;
 }
 
 .a3s-form-flow-expression {
