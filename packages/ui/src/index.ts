@@ -1,6 +1,5 @@
 export * from './integrations/a3s-flow-core';
 export * from './integrations/a3s-flow-custom-node';
-export * from './integrations/a3s-flow-dify';
 export * from './integrations/a3s-flow-dag';
 export * from './integrations/a3s-flow-dsl';
 export * from './integrations/a3s-flow-dsl-types';

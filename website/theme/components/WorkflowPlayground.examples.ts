@@ -6,10 +6,7 @@ import {
   type PlaygroundGraphState,
   type PlaygroundNode,
 } from './WorkflowPlayground.model';
-import {
-  createDifyParityWorkflow,
-  createSampleWorkflow,
-} from './WorkflowPlayground.sample';
+import { createSampleWorkflow } from './WorkflowPlayground.sample';
 import {
   connection,
   expression,
@@ -914,37 +911,13 @@ const EXAMPLES: readonly ExampleMetadata[] = [
     ],
     create: createIncidentRecoveryWorkflow,
   },
-  {
-    id: 'dify-1-16-parity',
-    category: 'agent',
-    level: 'advanced',
-    title: ['Dify 1.16 节点对齐', 'Dify 1.16 node parity'],
-    description: [
-      '用一张可编辑画布检查 Dify 节点的嵌套 DSL、条件、HTTP、模型和循环配置。',
-      'Inspect nested DSL, conditions, HTTP, model, and loop configuration across the Dify nodes in one editable canvas.',
-    ],
-    outcome: [
-      '每个适配节点都带有非默认示例值，修改后可直接查看保留的原始 payload。',
-      'Every adapter carries edited sample values so you can inspect the preserved payload after changes.',
-    ],
-    capabilities: [
-      ['Dify 1.16', 'Dify 1.16'],
-      ['嵌套 DSL', 'Nested DSL'],
-      ['条件与循环', 'Conditions and loops'],
-      ['HTTP 请求', 'HTTP request'],
-    ],
-    create: createDifyParityWorkflow,
-  },
 ] as const;
 
 export function createWorkflowExamples(
   locale: FlowWebsiteLocale,
   catalog: A3SFlowDagNodeCatalog = createPlaygroundNodeCatalog(locale),
 ): readonly WorkflowExampleDefinition[] {
-  const hasDifyAdapter = catalog.registry.get('dify.start') !== undefined;
-  return EXAMPLES.filter(
-    (example) => example.id !== 'dify-1-16-parity' || hasDifyAdapter,
-  ).map((example) => ({
+  return EXAMPLES.map((example) => ({
     id: example.id,
     category: example.category,
     level: example.level,
