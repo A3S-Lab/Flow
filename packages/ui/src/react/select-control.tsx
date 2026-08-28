@@ -14,22 +14,21 @@ import {
 } from 'react';
 import { loadA3SUIRuntime } from './a3s-ui-runtime';
 import { DesignerIcon } from './designer-icons';
-
-type SelectElement = HTMLElement & {
-  _destroy?: () => void;
-  refresh?: () => void;
-  close?: (focusOnTrigger?: boolean) => void;
-  value?: string;
-};
+import {
+  hasSelectRuntime,
+  type SelectControlChangeEvent,
+  type SelectElement,
+  type SelectOption,
+  useSelectFallbackController,
+} from './select-control-fallback';
 
 function loadSelectRuntime(): Promise<void> {
   return loadA3SUIRuntime('select', () => import('@a3s-lab/ui/select'));
 }
 
-export type SelectControlChangeEvent = {
-  currentTarget: { value: string };
-  target: { value: string };
-};
+type SelectRuntimeStatus = 'idle' | 'loading' | 'ready' | 'failed';
+
+export type { SelectControlChangeEvent } from './select-control-fallback';
 
 export interface SelectControlProps extends Omit<
   SelectHTMLAttributes<HTMLSelectElement>,
@@ -56,12 +55,6 @@ export interface SelectControlProps extends Omit<
   placeholder?: string | null;
   value?: string | number | null;
 }
-
-type SelectOption = {
-  disabled: boolean;
-  label: string;
-  value: string;
-};
 
 function selectOptions(
   children: ReactNode,
@@ -240,8 +233,17 @@ export function SelectControl({
   const elementRef = useRef<SelectElement | null>(null);
   const valueRef = useRef(effectiveValue);
   const onChangeRef = useRef(onChange);
+  const optionsRef = useRef(options);
+  const disabledRef = useRef(disabledState);
+  const mountedRef = useRef(false);
+  const fallbackOpenRef = useRef(false);
+  const fallbackActiveIndexRef = useRef(-1);
+  const runtimeStatusRef = useRef<SelectRuntimeStatus>('idle');
+  const runtimePromiseRef = useRef<Promise<void> | null>(null);
   valueRef.current = effectiveValue;
   onChangeRef.current = onChange;
+  optionsRef.current = options;
+  disabledRef.current = disabledState;
 
   const synchronize = useCallback((element: HTMLElement) => {
     const select = element as SelectElement;
@@ -252,10 +254,81 @@ export function SelectControl({
     element.dataset.valueEmpty = valueRef.current === '' ? 'true' : 'false';
   }, []);
 
+  const ensureRuntime = useCallback((): Promise<void> => {
+    const element = elementRef.current;
+    if (!element) return Promise.resolve();
+
+    if (hasSelectRuntime(element)) {
+      runtimeStatusRef.current = 'ready';
+      synchronize(element);
+      return Promise.resolve();
+    }
+
+    if (runtimeStatusRef.current === 'loading' && runtimePromiseRef.current) {
+      return runtimePromiseRef.current;
+    }
+
+    runtimeStatusRef.current = 'loading';
+    const request = loadSelectRuntime()
+      .then(() => {
+        if (!mountedRef.current) return;
+        const current = elementRef.current;
+        if (!current) return;
+
+        // A host may have loaded the component module before this element was
+        // inserted. Ask the shared runtime to scan once more in that case.
+        if (!hasSelectRuntime(current)) {
+          window.basecoat?.init('select');
+        }
+        if (!hasSelectRuntime(current)) {
+          runtimeStatusRef.current = 'failed';
+          return;
+        }
+
+        runtimeStatusRef.current = 'ready';
+        synchronize(current);
+        if (fallbackOpenRef.current && !disabledRef.current) {
+          current.open?.();
+        } else if (disabledRef.current) {
+          fallbackOpenRef.current = false;
+          current.close?.(false);
+        }
+      })
+      .catch((error: unknown) => {
+        runtimeStatusRef.current = 'failed';
+        if (mountedRef.current && typeof window !== 'undefined') {
+          console.error(
+            '[A3S Flow] Failed to initialize the select control.',
+            error,
+          );
+        }
+      });
+    runtimePromiseRef.current = request;
+    return request;
+  }, [synchronize]);
+
+  const {
+    setFallbackOpen,
+    handleTriggerClick,
+    handleTriggerKeyDown,
+    handleFallbackListboxClick,
+  } = useSelectFallbackController({
+    elementRef,
+    optionsRef,
+    valueRef,
+    disabledRef,
+    fallbackOpenRef,
+    fallbackActiveIndexRef,
+    onChangeRef,
+    ensureRuntime,
+    onClick,
+    onKeyDown,
+  });
+
   useEffect(() => {
     const element = elementRef.current;
     if (!element) return;
-    let active = true;
+    mountedRef.current = true;
     const handleChange = (event: Event) => {
       const detail = (event as CustomEvent<{ value?: unknown }>).detail;
       const nextValue =
@@ -273,37 +346,41 @@ export function SelectControl({
       const relatedTarget = event.relatedTarget;
       if (relatedTarget instanceof Node && element.contains(relatedTarget))
         return;
-      element.close?.(false);
+      if (hasSelectRuntime(element)) {
+        element.close?.(false);
+        fallbackOpenRef.current = false;
+      } else {
+        setFallbackOpen(false);
+      }
     };
     element.addEventListener('focusout', handleFocusOut);
-    void loadSelectRuntime()
-      .then(() => {
-        if (active) synchronize(element);
-      })
-      .catch((error: unknown) => {
-        if (!active || typeof window === 'undefined') return;
-        console.error(
-          '[A3S Flow] Failed to initialize the select control.',
-          error,
-        );
-      });
+    void ensureRuntime();
     return () => {
-      active = false;
+      mountedRef.current = false;
+      runtimeStatusRef.current = 'idle';
+      fallbackOpenRef.current = false;
       element.removeEventListener('change', handleChange);
       element.removeEventListener('focusout', handleFocusOut);
       element._destroy?.();
     };
-  }, [synchronize]);
+  }, [ensureRuntime, setFallbackOpen]);
 
   useEffect(() => {
     const element = elementRef.current;
     if (!element) return;
-    if (disabledState) element.close?.(false);
+    if (disabledState) {
+      // Clear the fallback latch even when the runtime attaches in the same
+      // commit. Otherwise the late runtime promise could reopen a disabled
+      // control after this effect has already closed it.
+      fallbackOpenRef.current = false;
+      if (hasSelectRuntime(element)) element.close?.(false);
+      else setFallbackOpen(false);
+    }
     if (!element.refresh) return;
     element.refresh();
     if (element.value !== effectiveValue) element.value = effectiveValue;
     element.dataset.valueEmpty = effectiveValue === '' ? 'true' : 'false';
-  }, [disabledState, effectiveValue, optionsSignature]);
+  }, [disabledState, effectiveValue, optionsSignature, setFallbackOpen]);
 
   const triggerAria: AriaAttributes = {
     'aria-describedby': ariaDescribedBy,
@@ -343,9 +420,9 @@ export function SelectControl({
         disabled={disabledState}
         id={triggerId}
         onBlur={onBlur}
-        onClick={onClick}
+        onClick={handleTriggerClick}
         onFocus={onFocus}
-        onKeyDown={onKeyDown}
+        onKeyDown={handleTriggerKeyDown}
         role="combobox"
         tabIndex={tabIndex}
         title={title}
@@ -373,6 +450,7 @@ export function SelectControl({
               event.preventDefault();
             }
           }}
+          onClick={handleFallbackListboxClick}
           role="listbox"
         >
           {options.map((option, index) => (

@@ -13,6 +13,9 @@
   Worker and WebAssembly layout path.
 - Added deterministic A3S Test coverage for the complete designer and custom
   node catalog, including localized A3S UI controls and browser error checks.
+- Made the A3S UI select adapter progressively usable while its browser runtime
+  loads, preserving first-click, pointer, keyboard, focus, and disabled states
+  in embedded workflow configuration panels.
 
 ## 1.1.0 - 2026-08-25
 

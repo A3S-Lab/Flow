@@ -51,6 +51,27 @@ function widgetProps(overrides: Partial<FormWidgetProps> = {}): FormWidgetProps 
 }
 
 describe('workflow configuration widgets', () => {
+  it('opens a select when clicked before the runtime initialization settles', async () => {
+    const onChange = vi.fn();
+    const view = render(
+      <SelectControl aria-label="Immediate mode" onChange={onChange} value="durable">
+        <option value="durable">Durable</option>
+        <option value="local">Local</option>
+      </SelectControl>,
+    );
+    const root = view.container.querySelector<HTMLElement>('.a3s-flow-select-control');
+    const trigger = screen.getByRole('combobox', { name: 'Immediate mode' });
+
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    await waitFor(() => expect(root?.getAttribute('data-select-initialized')).toBe('true'));
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+
+    fireEvent.click(screen.getByRole('option', { name: 'Local' }));
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ target: { value: 'local' } }));
+    view.unmount();
+  });
+
   it('keeps every value-source mode and expression envelope in sync', async () => {
     function Harness() {
       const [value, setValue] = useState<JsonObject>({
