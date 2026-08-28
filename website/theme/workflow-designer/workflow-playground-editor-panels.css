@@ -319,19 +319,6 @@
   min-height: 112px;
 }
 
-.a3s-node-library__groups section > div > button.is-dify {
-  border-color: color-mix(
-    in srgb,
-    var(--workflow-blue) 26%,
-    var(--workflow-line)
-  );
-  background: color-mix(
-    in srgb,
-    var(--workflow-blue-soft) 38%,
-    var(--workflow-surface)
-  );
-}
-
 .a3s-node-library__capability {
   display: grid;
   margin-top: 8px;

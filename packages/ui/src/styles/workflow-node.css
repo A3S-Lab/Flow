@@ -503,160 +503,10 @@
 .a3s-form-workflow-prompt-editor,
 .a3s-form-workflow-sortable,
 .a3s-form-workflow-actions-editor,
-.a3s-form-workflow-mcp-control,
-.a3s-form-workflow-dify {
+.a3s-form-workflow-mcp-control {
   display: grid;
   min-width: 0;
   gap: 8px;
-}
-
-.a3s-form-workflow-dify {
-  padding: 9px;
-  border: 1px solid color-mix(in srgb, var(--a3s-node-accent) 22%, var(--a3s-form-line));
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--a3s-node-accent) 3%, var(--a3s-form-panel));
-}
-
-.a3s-form-workflow-dify-header {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 7px;
-  color: var(--a3s-form-muted);
-  font-size: 10px;
-}
-
-.a3s-form-workflow-dify-header > span:nth-child(2) {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.a3s-form-workflow-dify-header code {
-  margin-left: auto;
-  color: var(--a3s-form-subtle);
-  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
-  font-size: 9px;
-}
-
-.a3s-form-workflow-dify-editor,
-.a3s-form-workflow-dify-grid,
-.a3s-form-workflow-dify-rows,
-.a3s-form-workflow-dify-condition-list,
-.a3s-form-workflow-dify-json {
-  display: grid;
-  min-width: 0;
-  gap: 8px;
-}
-
-.a3s-form-workflow-dify-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.a3s-form-workflow-dify-label {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--a3s-form-subtle);
-  font-size: 10px;
-  font-weight: 650;
-}
-
-.a3s-form-workflow-dify-input {
-  display: block;
-  min-width: 0;
-}
-
-.a3s-form-workflow-dify-input :where(.input, .select, .textarea) {
-  width: 100%;
-  min-width: 0;
-  font-size: 11px;
-}
-
-.a3s-form-workflow-dify-input .textarea {
-  min-height: 58px;
-}
-
-.a3s-form-workflow-dify-toggle {
-  display: flex;
-  min-height: 34px;
-  align-items: center;
-  gap: 7px;
-  color: var(--a3s-form-ink);
-  font-size: 11px;
-}
-
-.a3s-form-workflow-dify-toggle input {
-  accent-color: var(--a3s-node-accent);
-}
-
-.a3s-form-workflow-dify-rows,
-.a3s-form-workflow-dify-condition-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.a3s-form-workflow-dify-rows > li,
-.a3s-form-workflow-dify-condition-list > li {
-  display: grid;
-  min-width: 0;
-  gap: 8px;
-  padding: 9px;
-  border: 1px solid var(--a3s-form-line);
-  border-radius: 8px;
-  background: var(--a3s-form-panel);
-}
-
-.a3s-form-workflow-dify-row-head {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  color: var(--a3s-form-ink);
-  font-size: 11px;
-}
-
-.a3s-form-workflow-dify-row-head button {
-  flex: 0 0 auto;
-}
-
-.a3s-form-workflow-dify-condition-list > li {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: end;
-}
-
-.a3s-form-flow-node-panel .a3s-form-workflow-dify {
-  gap: 6px;
-  padding: 7px;
-}
-
-.a3s-form-flow-node-panel .a3s-form-workflow-dify-rows > li,
-.a3s-form-flow-node-panel .a3s-form-workflow-dify-condition-list > li {
-  gap: 6px;
-  padding: 7px;
-}
-
-.a3s-form-workflow-dify-condition-list > li > button {
-  width: fit-content;
-}
-
-.a3s-form-workflow-dify-json textarea {
-  width: 100%;
-  min-height: 92px;
-  resize: vertical;
-  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
-  font-size: 10px;
-  line-height: 1.45;
-}
-
-.a3s-form-workflow-dify-json[data-invalid="true"] textarea {
-  border-color: var(--a3s-form-red);
-}
-
-.a3s-form-workflow-dify-json small {
-  color: var(--a3s-form-muted);
-  font-size: 10px;
 }
 
 .a3s-form-workflow-parameter-actions {
@@ -1789,11 +1639,6 @@
 
   .a3s-form-workflow-file-control > small {
     grid-column: 1;
-  }
-
-  .a3s-form-workflow-dify-grid,
-  .a3s-form-workflow-dify-condition-list > li {
-    grid-template-columns: minmax(0, 1fr);
   }
 
   .a3s-form-workflow-node-form .a3s-form-grid > * {

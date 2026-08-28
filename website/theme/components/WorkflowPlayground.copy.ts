@@ -62,8 +62,6 @@ export type WorkflowPlaygroundCopy = {
   nodeLibraryDescription: string;
   builtInNodes: string;
   customNodes: string;
-  difyNodes: string;
-  difyNodesDescription: string;
   capabilityReady: string;
   capabilityHandler: string;
   noCustomNodes: string;
@@ -209,8 +207,6 @@ export const workflowPlaygroundCopy: Readonly<
     nodeLibraryDescription: '从内置清单或已授权的自定义节点中选择。',
     builtInNodes: '内置节点',
     customNodes: '自定义节点',
-    difyNodes: 'Dify 1.16',
-    difyNodesDescription: 'Dify 1.16 节点适配器，保留原始 DSL 结构。',
     capabilityReady: '能力已绑定',
     capabilityHandler: '处理器',
     noCustomNodes: '当前没有已注册的自定义节点。',
@@ -366,8 +362,6 @@ export const workflowPlaygroundCopy: Readonly<
       'Choose from the built-in catalog or authorized custom nodes.',
     builtInNodes: 'Built-in nodes',
     customNodes: 'Custom nodes',
-    difyNodes: 'Dify 1.16',
-    difyNodesDescription: 'Dify 1.16 adapters with lossless node payloads.',
     capabilityReady: 'Capability bound',
     capabilityHandler: 'Handler',
     noCustomNodes: 'No custom nodes are registered.',

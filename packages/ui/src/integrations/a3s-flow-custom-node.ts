@@ -48,7 +48,6 @@ export interface DefineA3SFlowCustomDagNodeInput {
 const EXACT_SEMVER =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const CUSTOM_NODE_TYPE = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*){2,}$/u;
-const ADAPTER_NODE_TYPE = /^dify\.[a-z][a-z0-9-]*$/u;
 const CAPABILITY_ID = /^[a-z][a-z0-9-]*(?:[/.][a-z][a-z0-9-]*)+$/u;
 const RESERVED_CUSTOM_NODE_TYPES = new Set([
   'iteration',
@@ -61,25 +60,9 @@ function nonEmpty(value: string, label: string): void {
   if (!value.trim()) throw new TypeError(`${label} must not be empty.`);
 }
 
-function validateCustomNodeType(
-  type: string,
-  manifest: A3SFlowDagNodeManifestInput | A3SFlowDagNodeManifest,
-): void {
+function validateCustomNodeType(type: string): void {
   if (type.startsWith('flow.') || RESERVED_CUSTOM_NODE_TYPES.has(type)) {
     throw new TypeError(`Custom A3S Flow DAG node type ${type} is reserved.`);
-  }
-  // The first-party Dify adapter uses the upstream two-segment names
-  // (`dify.llm`, `dify.http`, ...). Keep the stricter three-segment rule for
-  // arbitrary host extensions while explicitly admitting that reserved
-  // adapter namespace.
-  if (ADAPTER_NODE_TYPE.test(type)) {
-    const adapter = (manifest as Record<string, unknown>).adapter;
-    if (adapter !== 'dify') {
-      throw new TypeError(
-        `Custom A3S Flow DAG node type ${type} is reserved for the Dify adapter namespace.`,
-      );
-    }
-    return;
   }
   if (!CUSTOM_NODE_TYPE.test(type)) {
     throw new TypeError(
@@ -134,7 +117,7 @@ export function isA3SFlowDagNodeCapabilityBindingValid(
 export function defineA3SFlowCustomDagNode(
   input: DefineA3SFlowCustomDagNodeInput,
 ): A3SFlowCustomDagNodeRegistration {
-  validateCustomNodeType(input.manifest.type, input.manifest);
+  validateCustomNodeType(input.manifest.type);
   if (input.manifest.role !== 'host') {
     throw new TypeError(
       `Custom A3S Flow DAG node ${input.manifest.type} must use the host role.`,
@@ -213,42 +196,5 @@ export function createA3SFlowDagNodeCatalog(
     ]),
     capabilities,
     custom,
-  });
-}
-
-/**
- * Extends an already-composed catalog while retaining every capability from
- * the base catalog. This is useful for adapters (for example Dify) that are
- * enabled per host or per Playground route instead of globally.
- */
-export function extendA3SFlowDagNodeCatalog(
-  baseCatalog: A3SFlowDagNodeCatalog,
-  registrations: readonly A3SFlowCustomDagNodeRegistration[],
-): A3SFlowDagNodeCatalog {
-  const extension = createA3SFlowDagNodeCatalog(
-    registrations,
-    baseCatalog.registry,
-  );
-  const orderedBindings = [
-    ...baseCatalog.capabilities.list(),
-    ...extension.capabilities.list(),
-  ];
-  const bindings = new Map(
-    orderedBindings.map((binding) => [binding.nodeType, binding]),
-  );
-  const capabilities: A3SFlowDagNodeCapabilityRegistry = Object.freeze({
-    get: (type: string) => bindings.get(type),
-    require: (type: string) => {
-      const binding = bindings.get(type);
-      if (!binding)
-        throw new Error(`Unknown A3S Flow DAG node capability: ${type}`);
-      return binding;
-    },
-    list: () => [...orderedBindings],
-  });
-  return Object.freeze({
-    registry: extension.registry,
-    capabilities,
-    custom: Object.freeze([...baseCatalog.custom, ...extension.custom]),
   });
 }

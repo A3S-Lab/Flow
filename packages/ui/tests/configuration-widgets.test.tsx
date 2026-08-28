@@ -20,7 +20,6 @@ import {
 } from '../src/react/workflow-configuration-widgets';
 import { WorkflowCodeEditor } from '../src/react/workflow-code-editor';
 import { WorkflowPromptWidget } from '../src/react/workflow-configuration-editors';
-import { WorkflowDifyWidget } from '../src/react/workflow-dify-widget';
 import { SelectControl } from '../src/react/select-control';
 
 const conditionField = {
@@ -521,36 +520,6 @@ describe('workflow configuration widgets', () => {
     view.unmount();
   });
 
-  it('uses the A3S UI Select runtime inside Dify editors', async () => {
-    const view = render(
-      <WorkflowDifyWidget
-        {...widgetProps({
-          node: {
-            ...conditionField,
-            customProps: { difyEditor: 'model' },
-          },
-          value: {
-            provider: 'openai',
-            name: 'gpt-4o',
-            mode: 'chat',
-            completion_params: { temperature: 0.7, max_tokens: 1024 },
-          },
-        })}
-      />,
-    );
-
-    expect(view.container.querySelectorAll('select')).toHaveLength(0);
-    const root = view.container.querySelector('.a3s-flow-select-control');
-    expect(root).not.toBeNull();
-    await waitFor(() =>
-      expect(root?.getAttribute('data-select-initialized')).toBe('true'),
-    );
-    expect(
-      within(view.container).getByRole('combobox', { name: '模式' }),
-    ).toBeTruthy();
-    view.unmount();
-  });
-
   it('localizes canvas connection actions for the Chinese panel', () => {
     render(
       <WorkflowFieldAccessory
@@ -790,51 +759,6 @@ describe('workflow configuration widgets', () => {
         .value,
     ).toBe('暂无数据。');
     data.unmount();
-  });
-
-  it('keeps adapter selectors and primitive lists lossless while editing', () => {
-    const onChange = vi.fn();
-    const listView = render(
-      <WorkflowDifyWidget
-        {...widgetProps({
-          node: {
-            ...conditionField,
-            label: '数据集',
-            customProps: { difyEditor: 'string-list' },
-          },
-          value: ['dataset-a', 'dataset-b'],
-          onChange,
-        })}
-      />,
-    );
-    const first = within(listView.container).getByRole('textbox', {
-      name: '比较值 1',
-    });
-    fireEvent.change(first, { target: { value: 'dataset-c' } });
-    expect(onChange).toHaveBeenLastCalledWith(['dataset-c', 'dataset-b']);
-    listView.unmount();
-
-    const selectorChange = vi.fn();
-    const selectorView = render(
-      <WorkflowDifyWidget
-        {...widgetProps({
-          node: {
-            ...conditionField,
-            label: '查询变量',
-            customProps: { difyEditor: 'selector' },
-          },
-          value: ['start', 'query'],
-          onChange: selectorChange,
-        })}
-      />,
-    );
-    const selector = within(selectorView.container).getByRole('textbox', {
-      name: '选择器',
-    });
-    expect((selector as HTMLInputElement).value).toBe('start.query');
-    fireEvent.change(selector, { target: { value: 'input.query' } });
-    expect(selectorChange).toHaveBeenLastCalledWith(['input', 'query']);
-    selectorView.unmount();
   });
 
   it('can unmount code editors before their asynchronous runtime settles', async () => {

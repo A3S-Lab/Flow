@@ -66,14 +66,6 @@ function summaryCopy(chinese: boolean) {
         humanApproval: "人工审批",
         webhook: "Webhook",
         hostEvent: "应用事件",
-        model: "模型",
-        prompt: "提示词",
-        url: "URL",
-        datasets: "数据集",
-        conditions: "条件",
-        loopLimit: "循环上限",
-        variables: "变量",
-        configured: "已配置",
       }
     : {
         workflow: "Workflow",
@@ -105,14 +97,6 @@ function summaryCopy(chinese: boolean) {
         humanApproval: "Human approval",
         webhook: "Webhook",
         hostEvent: "Host event",
-        model: "Model",
-        prompt: "Prompt",
-        url: "URL",
-        datasets: "Datasets",
-        conditions: "Conditions",
-        loopLimit: "Loop limit",
-        variables: "Variables",
-        configured: "Configured",
       };
 }
 
@@ -139,19 +123,6 @@ function item(
   value: string | undefined,
 ): WorkflowNodePreviewSummaryItem {
   return { id, label, value: value ?? "" };
-}
-
-function objectValue(value: JsonValue | undefined): JsonObject | undefined {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value
-    : undefined;
-}
-
-function nestedString(
-  value: JsonValue | undefined,
-  key: string,
-): string | undefined {
-  return stringValue(objectValue(value)?.[key]);
 }
 
 export function a3sFlowDagNodePreviewSummary(
@@ -297,70 +268,6 @@ export function a3sFlowDagNodePreviewSummary(
           expressionValue(data.condition, "condition", chinese) ?? copy.notSet,
         ),
       ];
-    case "dify.llm": {
-      const model = objectValue(data.model);
-      const messages = Array.isArray(data.prompt_template)
-        ? data.prompt_template.length
-        : typeof data.prompt_template === "string" && data.prompt_template.trim()
-          ? 1
-          : 0;
-      return [
-        item("model", copy.model, nestedString(data.model, "name") ?? copy.notSet),
-        item("prompt", copy.prompt, messages ? `${messages}` : copy.notSet),
-      ];
-    }
-    case "dify.http":
-      return [item("url", copy.url, stringValue(data.url) ?? copy.notSet)];
-    case "dify.knowledge-retrieval": {
-      const datasets = Array.isArray(data.dataset_ids) ? data.dataset_ids.length : 0;
-      const conditions = objectValue(data.metadata_filtering_conditions)?.conditions;
-      return [
-        item("datasets", copy.datasets, String(datasets)),
-        item(
-          "conditions",
-          copy.conditions,
-          Array.isArray(conditions) ? String(conditions.length) : "0",
-        ),
-      ];
-    }
-    case "dify.if-else": {
-      const cases = Array.isArray(data.cases) ? data.cases : [];
-      return [item("conditions", copy.conditions, String(cases.length))];
-    }
-    case "dify.loop":
-      return [
-        item("loopLimit", copy.loopLimit, String(data.loop_count ?? copy.notSet)),
-      ];
-    case "dify.iteration":
-      return [
-        item(
-          "variables",
-          copy.variables,
-          Array.isArray(data.iterator_selector)
-            ? data.iterator_selector.join(".") || copy.notSet
-            : copy.notSet,
-        ),
-      ];
-    case "dify.start":
-    case "dify.end":
-    case "dify.answer":
-    case "dify.code":
-    case "dify.document-extractor":
-    case "dify.question-classifier":
-    case "dify.parameter-extractor":
-    case "dify.template-transform":
-    case "dify.variable-assigner":
-    case "dify.list-operator": {
-      const field =
-        Array.isArray(data.variables)
-          ? data.variables
-          : Array.isArray(data.outputs)
-            ? data.outputs
-            : Array.isArray(data.parameters)
-              ? data.parameters
-              : undefined;
-      return [item("configured", copy.configured, field ? String(field.length) : copy.ready)];
-    }
     default:
       return [];
   }
