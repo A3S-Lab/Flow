@@ -261,8 +261,8 @@ export function A3SFlowChildrenWidget(props: FormWidgetProps) {
   const update = (next: JsonObject[]) => props.onChange(next);
   const updateChild = (index: number, patch: JsonObject) =>
     update(
-      children.map((child, candidate) =>
-        candidate === index ? { ...child, ...patch } : child,
+      children.map((child, candidateIndex) =>
+        candidateIndex === index ? { ...child, ...patch } : child,
       ),
     );
   const move = (index: number, offset: -1 | 1) => {

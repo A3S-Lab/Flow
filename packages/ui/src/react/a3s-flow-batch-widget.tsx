@@ -104,8 +104,8 @@ export function A3SFlowBatchWidget(props: FormWidgetProps) {
   const updateMembers = (next: JsonObject[]) => props.onChange(next);
   const updateMember = (index: number, patch: JsonObject) =>
     updateMembers(
-      members.map((member, candidate) =>
-        candidate === index ? { ...member, ...patch } : member,
+      members.map((member, candidateIndex) =>
+        candidateIndex === index ? { ...member, ...patch } : member,
       ),
     );
   const moveMember = (index: number, offset: -1 | 1) => {

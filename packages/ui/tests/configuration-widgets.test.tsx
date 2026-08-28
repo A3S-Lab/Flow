@@ -22,6 +22,8 @@ import { SelectControl } from '../src/react/select-control';
 import { FlowExpressionEditor } from '../src/react/a3s-flow-expression-widget';
 import { A3SFlowDagNodeConfigurationPanel } from '../src/react/a3s-flow-dag-node';
 import { A3SFlowSchemaWidget } from '../src/react/a3s-flow-schema-widget';
+import { A3SFlowBatchWidget } from '../src/react/a3s-flow-batch-widget';
+import { A3SFlowChildrenWidget } from '../src/react/a3s-flow-child-widgets';
 import {
   a3sFlowDagNodeRegistry,
   createA3SFlowDagNode,
@@ -146,6 +148,217 @@ describe('workflow configuration widgets', () => {
     fireEvent.click(screen.getByRole('option', { name: 'Fixed value' }));
     await waitFor(() => expect(trigger.textContent).toContain('Fixed value'));
     expect(view.container.querySelector('[data-mode="value"]')).not.toBeNull();
+    view.unmount();
+  });
+
+  it('updates each batch member instead of comparing member objects to indexes', async () => {
+    const onChange = vi.fn();
+    const initial = [
+      {
+        step_key: 'first',
+        step_name: 'task.first',
+        input_mapping: {
+          apiVersion: 'a3s.dev/flow-expression/v1',
+          expression: { op: 'field', path: 'input.first' },
+        },
+        max_attempts: 3,
+        retry_delay_ms: 0,
+        on_exhausted: 'fail_run',
+      },
+      {
+        step_key: 'second',
+        step_name: 'task.second',
+        input_mapping: {
+          apiVersion: 'a3s.dev/flow-expression/v1',
+          expression: { op: 'field', path: 'input.second' },
+        },
+        max_attempts: 4,
+        retry_delay_ms: 100,
+        on_exhausted: 'fail_run',
+      },
+    ] satisfies JsonObject[];
+    const view = render(
+      <A3SFlowBatchWidget
+        {...widgetProps({
+          id: 'batch-members',
+          node: { ...conditionField, label: '批量任务' },
+          value: initial,
+          valuePath: 'members',
+          onChange,
+        })}
+      />,
+    );
+
+    const taskIds = screen.getAllByRole('textbox', { name: /任务 ID/ });
+    fireEvent.change(taskIds[0], { target: { value: 'first-renamed' } });
+    expect(onChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ step_key: 'first-renamed' }),
+      expect.objectContaining({ step_key: 'second' }),
+    ]);
+
+    const taskNames = screen.getAllByRole('textbox', { name: /任务名称/ });
+    fireEvent.change(taskNames[0], { target: { value: 'task.first.v2' } });
+    expect(onChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ step_name: 'task.first.v2' }),
+      expect.objectContaining({ step_name: 'task.second' }),
+    ]);
+
+    fireEvent.change(screen.getAllByRole('spinbutton', { name: '最多尝试次数' })[0], {
+      target: { value: '7' },
+    });
+    expect(onChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ max_attempts: 7 }),
+      expect.objectContaining({ max_attempts: 4 }),
+    ]);
+
+    const sourceSelect = screen.getAllByRole('combobox', { name: '取值方式' })[0];
+    await waitFor(() =>
+      expect(sourceSelect.closest('.a3s-flow-select-control')).not.toBeNull(),
+    );
+    fireEvent.click(sourceSelect);
+    fireEvent.click(screen.getByRole('option', { name: '固定值' }));
+    expect(onChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        input_mapping: expect.objectContaining({
+          expression: expect.objectContaining({ op: 'literal' }),
+        }),
+      }),
+      expect.objectContaining({ step_key: 'second' }),
+    ]);
+
+    const secondSummary = screen
+      .getByText('second', { selector: 'small' })
+      .closest('summary');
+    expect(secondSummary).not.toBeNull();
+    fireEvent.click(secondSummary as HTMLElement);
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('textbox', { name: /任务 ID/ }) as HTMLInputElement)
+          .value,
+      ).toBe('second'),
+    );
+    const secondTaskId = screen.getByRole('textbox', { name: /任务 ID/ });
+    fireEvent.change(secondTaskId, { target: { value: 'second-renamed' } });
+    expect(onChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ step_key: 'first' }),
+      expect.objectContaining({ step_key: 'second-renamed' }),
+    ]);
+
+    const retrySelect = screen.getByRole('combobox', {
+      name: '尝试次数用完后',
+    });
+    fireEvent.click(retrySelect);
+    fireEvent.click(
+      within(retrySelect.closest('.a3s-flow-select-control') as HTMLElement).getByRole(
+        'option',
+        { name: '进入失败分支' },
+      ),
+    );
+    expect(onChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ step_key: 'first' }),
+      expect.objectContaining({ on_exhausted: 'continue_workflow' }),
+    ]);
+    view.unmount();
+  });
+
+  it('updates every child workflow member, including nested editors and policies', async () => {
+    const onChange = vi.fn();
+    const initial = [
+      {
+        child_id: 'child-1',
+        spec: {
+          name: 'workflow.one',
+          version: '1.0.0',
+          runtime: {
+            kind: 'native_ts',
+            entrypoint: 'workflows/one.ts',
+            export_name: 'main',
+          },
+        },
+        input: { order: 1 },
+        cancellation_policy: 'request_cancellation',
+      },
+      {
+        child_id: 'child-2',
+        spec: {
+          name: 'workflow.two',
+          version: '2.0.0',
+          runtime: {
+            kind: 'native_ts',
+            entrypoint: 'workflows/two.ts',
+            export_name: 'main',
+          },
+        },
+        input: { order: 2 },
+        cancellation_policy: 'request_cancellation',
+      },
+    ] satisfies JsonObject[];
+    const view = render(
+      <A3SFlowChildrenWidget
+        {...widgetProps({
+          id: 'child-members',
+          node: { ...conditionField, label: '子工作流' },
+          value: initial,
+          valuePath: 'children',
+          onChange,
+        })}
+      />,
+    );
+
+    const childIds = screen.getAllByRole('textbox', { name: '子工作流 ID' });
+    fireEvent.change(childIds[0], { target: { value: 'child-one-renamed' } });
+    expect(onChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ child_id: 'child-one-renamed' }),
+      expect.objectContaining({ child_id: 'child-2' }),
+    ]);
+
+    const workflowNames = screen.getAllByRole('textbox', { name: '工作流名称' });
+    fireEvent.change(workflowNames[0], { target: { value: 'workflow.one.v2' } });
+    expect(onChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        spec: expect.objectContaining({ name: 'workflow.one.v2' }),
+      }),
+      expect.objectContaining({ child_id: 'child-2' }),
+    ]);
+
+    const childInput = screen.getAllByRole('textbox', {
+      name: '子工作流输入 JSON',
+    })[0] as HTMLTextAreaElement;
+    fireEvent.change(childInput, { target: { value: '{"order":42}' } });
+    fireEvent.blur(childInput);
+    expect(onChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ input: { order: 42 } }),
+      expect.objectContaining({ child_id: 'child-2' }),
+    ]);
+
+    const policySelect = screen.getAllByRole('combobox', { name: '取消策略' })[0];
+    fireEvent.click(policySelect);
+    fireEvent.click(screen.getByRole('option', { name: '保留运行' }));
+    expect(onChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ cancellation_policy: 'abandon' }),
+      expect.objectContaining({ child_id: 'child-2' }),
+    ]);
+
+    fireEvent.click(screen.getByText('child-2', { selector: 'strong' }));
+    const secondChildIds = screen.getAllByRole('textbox', { name: '子工作流 ID' });
+    fireEvent.change(secondChildIds[1], { target: { value: 'child-two-renamed' } });
+    expect(onChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ child_id: 'child-1' }),
+      expect.objectContaining({ child_id: 'child-two-renamed' }),
+    ]);
+
+    const secondPolicy = screen.getAllByRole('combobox', { name: '取消策略' })[1];
+    fireEvent.click(secondPolicy);
+    fireEvent.click(
+      within(secondPolicy.closest('.a3s-flow-select-control') as HTMLElement).getByRole(
+        'option',
+        { name: '保留运行' },
+      ),
+    );
+    expect(onChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ child_id: 'child-1' }),
+      expect.objectContaining({ cancellation_policy: 'abandon' }),
+    ]);
     view.unmount();
   });
   it('uses the A3S UI Select runtime for composite controls', async () => {
