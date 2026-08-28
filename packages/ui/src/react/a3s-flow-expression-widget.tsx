@@ -271,7 +271,23 @@ function defaultExpression(
             : null;
     return { op: 'literal', value };
   }
-  if (mode === 'advanced') return { op: 'field', path: 'input' };
+  if (mode === 'advanced') {
+    // Keep the advanced mode distinguishable from the workflow-field mode.
+    // A bare field expression is classified as `source` on the next render,
+    // which made selecting Advanced expression immediately jump back to the
+    // previous option.  Coalescing the same field with null preserves the
+    // value semantics while giving the expression a genuinely advanced shape.
+    return {
+      op: 'coalesce',
+      values: [
+        {
+          op: 'field',
+          path: purpose === 'datetime' ? 'input.resumeAt' : 'input',
+        },
+        { op: 'literal', value: null },
+      ],
+    };
+  }
   return {
     op: 'field',
     path: purpose === 'datetime' ? 'input.resumeAt' : 'input',
