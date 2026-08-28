@@ -97,10 +97,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-.a3s-form-field
-  .a3s-form-workflow-code-editor.code-editor
-  > section
-  > textarea,
+.a3s-form-workflow-code-editor.code-editor > section > textarea,
 .a3s-form-flow-child-input
   .a3s-form-workflow-code-editor.code-editor
   > section
@@ -123,6 +120,7 @@
   white-space: pre;
 }
 
+.a3s-form-workflow-code-editor.code-editor[data-flow-invalid="true"],
 .a3s-form-workflow-code-editor.code-editor[data-validation-state="invalid"] {
   border-color: var(--a3s-form-red, #c83f45);
 }

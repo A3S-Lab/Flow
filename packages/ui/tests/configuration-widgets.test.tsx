@@ -1,6 +1,6 @@
 import { createElement, useState } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { resolveFormLocaleCatalog } from '@a3s-lab/ui/form/core';
+import { resolveFormLocaleCatalog, type JsonObject, type JsonValue } from '@a3s-lab/ui/form/core';
 import type { FormWidgetProps } from '@a3s-lab/ui/form/react';
 import {
   WORKFLOW_CONFIGURATION_WIDGETS,
@@ -19,6 +19,13 @@ import {
   WorkflowSliderWidget,
 } from '../src/react/workflow-configuration-editors';
 import { SelectControl } from '../src/react/select-control';
+import { FlowExpressionEditor } from '../src/react/a3s-flow-expression-widget';
+import { A3SFlowDagNodeConfigurationPanel } from '../src/react/a3s-flow-dag-node';
+import { A3SFlowSchemaWidget } from '../src/react/a3s-flow-schema-widget';
+import {
+  a3sFlowDagNodeRegistry,
+  createA3SFlowDagNode,
+} from '../src/integrations/a3s-flow-node-manifest';
 
 const conditionField = {
   id: 'condition-input',
@@ -44,6 +51,82 @@ function widgetProps(overrides: Partial<FormWidgetProps> = {}): FormWidgetProps 
 }
 
 describe('workflow configuration widgets', () => {
+  it('keeps every value-source mode and expression envelope in sync', async () => {
+    function Harness() {
+      const [value, setValue] = useState<JsonObject>({
+        apiVersion: 'a3s.dev/flow-expression/v1',
+        expression: {
+          op: 'concat',
+          values: [
+            { op: 'literal', value: 'Failed: ' },
+            { op: 'field', path: 'input.reason' },
+          ],
+        },
+      });
+      return (
+        <>
+          <FlowExpressionEditor
+            id="expression-debug"
+            value={value}
+            onChange={(next) => setValue(next as JsonObject)}
+            locale="en-US"
+            purpose="error"
+          />
+          <output data-testid="expression-op">
+            {(value.expression as JsonObject).op as string}
+          </output>
+        </>
+      );
+    }
+
+    const view = render(<Harness />);
+    const root = view.container.querySelector<HTMLElement>('.a3s-flow-select-control');
+    await waitFor(() => expect(root?.getAttribute('data-select-initialized')).toBe('true'));
+    const trigger = screen.getByRole('combobox', { name: 'Value source' });
+
+    const choose = async (label: string, mode: string, op: string) => {
+      fireEvent.click(trigger);
+      fireEvent.click(screen.getByRole('option', { name: label }));
+      await waitFor(() => {
+        expect(trigger.textContent).toContain(label);
+        expect(
+          view.container.querySelector('.a3s-form-flow-expression')?.getAttribute('data-mode'),
+          ).toBe(mode);
+      });
+      expect(screen.getByTestId('expression-op').textContent).toBe(op);
+    };
+
+    expect(trigger.textContent).toContain('Text template');
+    await choose('Workflow field', 'source', 'field');
+    await choose('Fixed value', 'value', 'literal');
+    await choose('Advanced expression', 'advanced', 'coalesce');
+    await choose('Text template', 'template', 'concat');
+    view.unmount();
+  });
+
+  it('keeps value-source changes working through the DAG configuration panel', async () => {
+    const manifest = a3sFlowDagNodeRegistry.require('flow.fail');
+    const initial = createA3SFlowDagNode('fail_1', manifest);
+    function Harness() {
+      const [node, setNode] = useState(initial);
+      return (
+        <A3SFlowDagNodeConfigurationPanel
+          dagNode={node}
+          locale="en"
+          onChange={setNode}
+          showDocumentation={false}
+        />
+      );
+    }
+    const view = render(<Harness />);
+    const trigger = await screen.findByRole('combobox', { name: 'Value source' });
+    expect(trigger.textContent).toContain('Text template');
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('option', { name: 'Fixed value' }));
+    await waitFor(() => expect(trigger.textContent).toContain('Fixed value'));
+    expect(view.container.querySelector('[data-mode="value"]')).not.toBeNull();
+    view.unmount();
+  });
   it('uses the A3S UI Select runtime for composite controls', async () => {
     const onChange = vi.fn();
     const view = render(
@@ -64,6 +147,32 @@ describe('workflow configuration widgets', () => {
     fireEvent.click(screen.getByRole('option', { name: 'Local' }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ target: { value: 'local' } }));
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    view.unmount();
+  });
+
+  it('keeps pointer selection alive while the trigger remains focused', async () => {
+    const onChange = vi.fn();
+    const view = render(
+      <SelectControl aria-label="Pointer mode" onChange={onChange} value="durable">
+        <option value="durable">Durable</option>
+        <option value="local">Local</option>
+      </SelectControl>,
+    );
+    const root = view.container.querySelector<HTMLElement>('.a3s-flow-select-control');
+    await waitFor(() => expect(root?.getAttribute('data-select-initialized')).toBe('true'));
+
+    const trigger = screen.getByRole('combobox', { name: 'Pointer mode' });
+    fireEvent.click(trigger);
+    const option = screen.getByRole('option', { name: 'Local' });
+    const pointerDown = new Event('pointerdown', { bubbles: true, cancelable: true });
+    option.dispatchEvent(pointerDown);
+
+    expect(pointerDown.defaultPrevented).toBe(true);
+    fireEvent.pointerUp(option);
+    fireEvent.click(option);
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ target: { value: 'local' } }),
+    );
     view.unmount();
   });
 
@@ -490,11 +599,135 @@ describe('workflow configuration widgets', () => {
     const editor = view.container.querySelector<HTMLElement>('.code-editor');
 
     await waitFor(() => expect(editor?.dataset.codeEditorInitialized).toBe('true'));
+    expect(editor?.getAttribute('role')).toBe('group');
+    expect(editor?.getAttribute('data-a3s-components')).toContain('code-editor');
+    expect(editor?.dataset.indentSize).toBe('2');
+    expect(editor?.dataset.validation).toBe('json');
+    expect(editor?.querySelector('textarea')?.id).toBe('localized-code-editor');
+    expect(editor?.id).not.toBe('localized-code-editor');
     expect(editor?.dataset.labelSaved).toBe('已保存');
     expect(editor?.dataset.labelReadonly).toBe('只读');
     expect(editor?.querySelector('[data-code-editor-state]')?.textContent).toBe('已保存');
     expect(editor?.querySelector('[data-code-editor-lines]')?.textContent).toBe('3 行');
     expect(editor?.querySelector('[data-code-editor-characters]')?.textContent).toBe('14 个字符');
+  });
+
+  it('keeps invalid schema drafts local and preserves valid editor formatting', async () => {
+    const initialSchema = {
+      type: 'object',
+      properties: { name: { type: 'string' } },
+      required: ['name'],
+    };
+
+    function Harness() {
+      const [value, setValue] = useState<JsonValue>(initialSchema);
+      const [resetCount, setResetCount] = useState(0);
+      return (
+        <>
+          <A3SFlowSchemaWidget
+            {...widgetProps({
+              id: 'schema-editor',
+              node: { ...conditionField, label: 'Input schema' },
+              value,
+              locale: 'en-US',
+              onChange: (next) => setValue(next),
+            })}
+          />
+          <output data-testid="schema-value">{JSON.stringify(value)}</output>
+          <output data-testid="schema-reset-count">{resetCount}</output>
+          <button
+            type="button"
+            onClick={() => {
+              setValue({
+                type: 'object',
+                properties: { orderId: { type: 'string' } },
+              });
+              setResetCount((count) => count + 1);
+            }}
+          >
+            Reset schema
+          </button>
+        </>
+      );
+    }
+
+    const view = render(<Harness />);
+    fireEvent.click(screen.getByText('Advanced JSON Schema'));
+    const editor = screen.getByRole('textbox', {
+      name: 'Input schema JSON',
+    }) as HTMLTextAreaElement;
+    const invalid = '{"type":"object",';
+    fireEvent.change(editor, { target: { value: invalid } });
+
+    expect(editor.value).toBe(invalid);
+    expect(screen.getByText('The JSON is invalid. Fix it before saving changes.')).toBeTruthy();
+    expect(screen.getByTestId('schema-value').textContent).toBe(JSON.stringify(initialSchema));
+
+    const valid = '{ "type": "object", "properties": { "age": { "type": "number" } } }';
+    fireEvent.change(editor, { target: { value: valid } });
+    await waitFor(() =>
+      expect(screen.getByTestId('schema-value').textContent).toContain('age'),
+    );
+    // The parent echo must not replace the user's intentional one-line
+    // formatting with JSON.stringify(schema, null, 2).
+    expect(editor.value).toBe(valid);
+    expect(screen.queryByText('The JSON is invalid. Fix it before saving changes.')).toBeNull();
+
+    fireEvent.change(editor, { target: { value: '{"broken":' } });
+    expect(editor.value).toBe('{"broken":');
+    fireEvent.click(screen.getByRole('button', { name: 'Reset schema' }));
+    await waitFor(() =>
+      expect(editor.value).toBe(
+        JSON.stringify(
+          { type: 'object', properties: { orderId: { type: 'string' } } },
+          null,
+          2,
+        ),
+      ),
+    );
+    expect(screen.getByTestId('schema-reset-count').textContent).toBe('1');
+    expect(screen.queryByText('The JSON is invalid. Fix it before saving changes.')).toBeNull();
+    view.unmount();
+  });
+
+  it('keeps invalid schema field names out of the stored value', async () => {
+    const onChange = vi.fn();
+    const schema = {
+      type: 'object',
+      properties: {
+        email: { type: 'string' },
+        phone: { type: 'string' },
+      },
+      required: ['email'],
+    };
+    const view = render(
+      <A3SFlowSchemaWidget
+        {...widgetProps({
+          id: 'schema-fields',
+          node: { ...conditionField, label: 'Input schema' },
+          value: schema,
+          locale: 'en-US',
+          onChange,
+        })}
+      />,
+    );
+    const nameInput = screen.getAllByRole('textbox', { name: 'Field name' })[0] as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: 'phone' } });
+    fireEvent.blur(nameInput);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByText('Field names must be non-empty and unique.')).toBeTruthy();
+
+    fireEvent.change(nameInput, { target: { value: 'customerEmail' } });
+    fireEvent.blur(nameInput);
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        properties: expect.objectContaining({ customerEmail: { type: 'string' } }),
+      }),
+    );
+    expect(onChange.mock.calls.at(-1)?.[0]).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ __a3s_form_invalid_schema_draft__: expect.anything() })]),
+    );
+    view.unmount();
   });
 
   it('inserts an externally supplied upstream variable from the prompt keyboard menu', async () => {

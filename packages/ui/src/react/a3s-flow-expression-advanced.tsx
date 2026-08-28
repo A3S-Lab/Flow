@@ -63,20 +63,37 @@ export function AdvancedExpressionEditor({
   variables?: readonly A3SFlowExpressionVariable[];
 }) {
   const chinese = isChinese(locale);
-  const source = draftSource ?? JSON.stringify(expression, null, 2);
-  const [draft, setDraft] = useState(source);
+  const serializedExpression = JSON.stringify(expression, null, 2);
+  const externalSource = draftSource ?? serializedExpression;
+  const [draft, setDraftState] = useState(externalSource);
   const [parseError, setParseError] = useState(Boolean(draftInvalid));
   const errorId = `${id}-draft-error`;
   const suggestionsId = `${id}-variables`;
   const editorRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const invocationRef = useRef<number | undefined>(undefined);
+  const lastExternalSourceRef = useRef(externalSource);
+  const localEditRef = useRef(false);
   const suggestions = useVariableSuggestionState(variables);
 
   useEffect(() => {
-    setDraft(source);
+    if (externalSource !== lastExternalSourceRef.current) {
+      lastExternalSourceRef.current = externalSource;
+      if (localEditRef.current) {
+        // Preserve the exact source produced by the editor when FormRenderer
+        // echoes the parsed expression back through controlled props.
+        localEditRef.current = false;
+      } else {
+        setDraftState(externalSource);
+      }
+    }
     setParseError(Boolean(draftInvalid));
-  }, [draftInvalid, source]);
+  }, [draftInvalid, externalSource]);
+
+  const setDraft = (next: string) => {
+    localEditRef.current = true;
+    setDraftState(next);
+  };
 
   useEffect(() => {
     if (!suggestions.open) return;

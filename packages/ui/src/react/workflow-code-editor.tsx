@@ -1,6 +1,6 @@
 import {
+  useCallback,
   useEffect,
-  useMemo,
   useRef,
   type ChangeEvent,
   type FocusEventHandler,
@@ -8,15 +8,12 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
-import { loadA3SUIRuntime } from './a3s-ui-runtime';
+import { CodeEditor } from '@a3s-lab/ui/react';
 import { DesignerIcon } from './designer-icons';
 
-function loadCodeEditorRuntime(): Promise<void> {
-  return loadA3SUIRuntime(
-    'code-editor',
-    () => import('@a3s-lab/ui/code-editor'),
-  );
-}
+type CodeEditorElement = HTMLElement & {
+  refresh?: () => void;
+};
 
 function lineLabel(count: number, locale: string | undefined): string {
   const chinese = locale?.toLocaleLowerCase().startsWith('zh') === true;
@@ -121,45 +118,37 @@ export function WorkflowCodeEditor({
   value,
   wrap = false,
 }: WorkflowCodeEditorProps) {
-  const editorRef = useRef<HTMLDivElement>(null);
-  const lines = useMemo(() => value.split('\n'), [value]);
-  const characterCount = useMemo(
-    () =>
-      Array.from(value).filter(
-        (character) => character !== '\n' && character !== '\r',
-      ).length,
-    [value],
-  );
+  const editorRef = useRef<CodeEditorElement | null>(null);
   const labels = editorLabels(locale);
 
+  const synchronize = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.refresh?.();
+    const textarea = editor.querySelector<HTMLTextAreaElement>(
+      ':scope > section > textarea',
+    );
+    if (!textarea) return;
+    // The shared runtime owns syntax validation. Flow can still report a
+    // domain-level error for valid JSON, so keep that state independent from
+    // the runtime's data-validation-state attribute.
+    if (invalid) textarea.setAttribute('aria-invalid', 'true');
+  }, [invalid]);
+
   useEffect(() => {
-    let active = true;
-    void loadCodeEditorRuntime()
-      .then(() => {
-        if (active && editorRef.current && typeof window !== 'undefined') {
-          window.basecoat?.refresh(editorRef.current);
-        }
-      })
-      .catch((error: unknown) => {
-        if (!active || typeof window === 'undefined') return;
-        console.error(
-          '[A3S Flow] Failed to initialize the code editor.',
-          error,
-        );
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+    synchronize();
+  }, [disabled, dirty, language, readOnly, synchronize, value]);
 
   return (
-    <div
+    <CodeEditor
       aria-label={ariaLabel}
-      className={['code-editor', 'a3s-form-workflow-code-editor', className]
+      className={['a3s-form-workflow-code-editor', className]
         .filter(Boolean)
         .join(' ')}
       data-dirty={dirty ? 'true' : 'false'}
       data-disabled={disabled ? 'true' : 'false'}
+      data-flow-invalid={invalid ? 'true' : 'false'}
+      data-indent-size="2"
       data-language={language}
       data-label-character={labels.character}
       data-label-characters={labels.characters}
@@ -175,9 +164,15 @@ export function WorkflowCodeEditor({
       data-label-valid={labels.valid}
       data-line-numbers="true"
       data-size={size}
-      data-validation-state={invalid ? 'invalid' : 'valid'}
+      data-validation={language.toLocaleLowerCase() === 'json' ? 'json' : undefined}
       data-wrap={wrap ? 'true' : 'false'}
-      ref={editorRef}
+      onReady={(element) => {
+        editorRef.current = element as CodeEditorElement;
+        synchronize();
+      }}
+      ref={(element) => {
+        editorRef.current = element as CodeEditorElement | null;
+      }}
     >
       <header>
         <div data-code-editor-file>
@@ -190,17 +185,7 @@ export function WorkflowCodeEditor({
         </div>
       </header>
       <section>
-        <div
-          aria-hidden="true"
-          data-code-editor-gutter
-          data-line-count={lines.length}
-        >
-          {lines.map((_, index) => (
-            <span data-line={index + 1} key={index}>
-              {index + 1}
-            </span>
-          ))}
-        </div>
+        <div aria-hidden="true" data-code-editor-gutter role="presentation" />
         <textarea
           aria-controls={ariaControls}
           aria-describedby={describedBy}
@@ -228,16 +213,28 @@ export function WorkflowCodeEditor({
       </section>
       <footer>
         <div data-code-editor-info>
-          {status && <span data-code-editor-state>{status}</span>}
-          <span data-code-editor-lines>{lineLabel(lines.length, locale)}</span>
+          <span data-code-editor-state aria-live="polite">
+            {status ?? labels.saved}
+          </span>
+          <span data-code-editor-lines>{lineLabel(value.split('\n').length, locale)}</span>
           <span data-code-editor-characters>
-            {characterLabel(characterCount, locale)}
+            {characterLabel(
+              Array.from(value).filter(
+                (character) => character !== '\n' && character !== '\r',
+              ).length,
+              locale,
+            )}
           </span>
         </div>
         <div data-code-editor-meta>
+          <output data-code-editor-message />
+          <output
+            aria-label={locale?.toLocaleLowerCase().startsWith('zh') ? '光标位置' : 'Cursor position'}
+            data-code-editor-position
+          />
           {meta ?? <span>{language.toLocaleUpperCase()}</span>}
         </div>
       </footer>
-    </div>
+    </CodeEditor>
   );
 }

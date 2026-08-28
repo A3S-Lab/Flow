@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { JsonObject, JsonValue } from '@a3s-lab/ui/form/core';
 import { DesignerIcon } from './designer-icons';
 import type { FormWidgetProps } from '@a3s-lab/ui/form/react';
@@ -13,7 +13,6 @@ const PROPERTY_TYPES = [
   'object',
   'array',
 ] as const;
-const INVALID_SCHEMA_DRAFT = '__a3s_form_invalid_schema_draft__';
 
 function isChinese(locale: string): boolean {
   return locale.toLocaleLowerCase().startsWith('zh');
@@ -32,28 +31,13 @@ interface InvalidSchemaDraft {
   source?: string;
 }
 
-function invalidSchemaDraftValue(
-  schema: JsonObject,
-  kind: InvalidSchemaDraft['kind'],
-  source?: string,
-  fieldNames?: readonly string[],
-): JsonValue {
-  return [
-    {
-      [INVALID_SCHEMA_DRAFT]: kind,
-      schema,
-      ...(source === undefined ? {} : { source }),
-      ...(fieldNames === undefined ? {} : { fieldNames: [...fieldNames] }),
-    },
-  ];
-}
-
 function invalidSchemaDraftFrom(
   value: JsonValue | undefined,
 ): InvalidSchemaDraft | undefined {
+  const legacyMarker = '__a3s_form_invalid_schema_draft__';
   if (Array.isArray(value) && value.length === 1) {
     const marker = objectValue(value[0]);
-    const kind = marker[INVALID_SCHEMA_DRAFT];
+    const kind = marker[legacyMarker];
     if (kind === 'field-name' || kind === 'json') {
       return {
         kind,
@@ -255,14 +239,33 @@ function AdvancedSchemaEditor({
   draftInvalid?: boolean;
 }) {
   const chinese = isChinese(locale);
-  const source = draftSource ?? JSON.stringify(schema, null, 2);
-  const [draft, setDraft] = useState(source);
+  const serializedSchema = JSON.stringify(schema, null, 2);
+  const externalSource = draftSource ?? serializedSchema;
+  const [draft, setDraftState] = useState(externalSource);
   const [invalid, setInvalid] = useState(Boolean(draftInvalid));
+  const lastExternalSourceRef = useRef(externalSource);
+  const localEditRef = useRef(false);
   const errorId = `${id}-draft-error`;
+
   useEffect(() => {
-    setDraft(source);
+    if (externalSource !== lastExternalSourceRef.current) {
+      lastExternalSourceRef.current = externalSource;
+      if (localEditRef.current) {
+        // The parent is echoing a value that came from this editor. Keep the
+        // exact source text so formatting and the caret are not rewritten.
+        localEditRef.current = false;
+      } else {
+        setDraftState(externalSource);
+      }
+    }
     setInvalid(Boolean(draftInvalid));
-  }, [draftInvalid, source]);
+  }, [draftInvalid, externalSource]);
+
+  const setDraft = (next: string) => {
+    localEditRef.current = true;
+    setDraftState(next);
+  };
+
   return (
     <div
       className="a3s-form-flow-schema-json"
@@ -327,31 +330,75 @@ function AdvancedSchemaEditor({
 
 export function A3SFlowSchemaWidget(props: FormWidgetProps) {
   const chinese = isChinese(props.locale);
-  const invalidDraft = invalidSchemaDraftFrom(props.value);
-  const schema = invalidDraft?.schema ?? objectValue(props.value);
+  const incomingInvalidDraft = invalidSchemaDraftFrom(props.value);
+  const incomingSchema = incomingInvalidDraft?.schema ?? objectValue(props.value);
+  const incomingStateKey = JSON.stringify({
+    id: props.id,
+    node: props.node.id,
+    schema: incomingSchema,
+    invalid: incomingInvalidDraft,
+  });
+  const [localInvalidDraft, setLocalInvalidDraft] =
+    useState<InvalidSchemaDraft | undefined>(() => incomingInvalidDraft);
+  const lastIncomingStateKey = useRef(incomingStateKey);
+
+  useEffect(() => {
+    if (incomingStateKey !== lastIncomingStateKey.current) {
+      lastIncomingStateKey.current = incomingStateKey;
+      // A changed field value or node identity is an external update. Drop
+      // an old local draft so switching nodes and resetting the form refresh
+      // the editor instead of leaking text from the previous field.
+      setLocalInvalidDraft(incomingInvalidDraft);
+    }
+  }, [incomingInvalidDraft, incomingStateKey]);
+
+  const invalidDraft = localInvalidDraft ?? incomingInvalidDraft;
+  const schema = invalidDraft?.schema ?? incomingSchema;
   const properties = schemaProperties(schema);
   const required = new Set(requiredFields(schema));
   const names = Object.keys(properties);
   const invalidFieldNames =
     invalidDraft?.kind === 'field-name' ? (invalidDraft.fieldNames ?? []) : [];
+
+  const keepLocalDraft = (next: InvalidSchemaDraft) => {
+    setLocalInvalidDraft(next);
+  };
+
+  const publish = (next: JsonObject) => {
+    setLocalInvalidDraft(undefined);
+    props.onChange(next);
+  };
+
   const writeWithInvalidFields = (
     next: JsonObject,
     candidates: readonly string[],
   ) => {
+    if (invalidDraft?.kind === 'json') {
+      // Keep an invalid editor source local while field-list controls update
+      // the last valid schema underneath it. The source is restored once the
+      // user fixes the JSON; it is never sent through FormRenderer as data.
+      keepLocalDraft({ ...invalidDraft, schema: next });
+      return;
+    }
     const nextProperties = schemaProperties(next);
     const remaining = candidates.filter((name) =>
       Object.hasOwn(nextProperties, name),
     );
     if (remaining.length === 0) {
-      props.onChange(next);
+      publish(next);
       return;
     }
-    props.onChange(
-      invalidSchemaDraftValue(next, 'field-name', undefined, remaining),
-    );
+    keepLocalDraft({ kind: 'field-name', schema: next, fieldNames: remaining });
   };
   const update = (next: JsonObject) =>
     writeWithInvalidFields(next, invalidFieldNames);
+  const updateFromAdvancedEditor = (next: JsonObject) => {
+    if (invalidDraft?.kind === 'json') {
+      publish(next);
+      return;
+    }
+    update(next);
+  };
   const resolveInvalidField = (next: JsonObject, name: string) =>
     writeWithInvalidFields(
       next,
@@ -398,13 +445,21 @@ export function A3SFlowSchemaWidget(props: FormWidgetProps) {
                   ? `${props.valuePath}.properties.${name}`
                   : undefined
               }
-              onInvalidDraft={() =>
-                props.onChange(
-                  invalidSchemaDraftValue(schema, 'field-name', undefined, [
-                    ...new Set([...invalidFieldNames, name]),
-                  ]),
-                )
-              }
+              onInvalidDraft={() => {
+                const fieldNames = [...new Set([...invalidFieldNames, name])];
+                if (invalidDraft?.kind === 'json') {
+                  keepLocalDraft({
+                    ...invalidDraft,
+                    schema,
+                  });
+                } else {
+                  keepLocalDraft({
+                    kind: 'field-name',
+                    schema,
+                    fieldNames,
+                  });
+                }
+              }}
               onRename={(nextName) => {
                 if (nextName === name) {
                   resolveInvalidField(schema, name);
@@ -512,20 +567,17 @@ export function A3SFlowSchemaWidget(props: FormWidgetProps) {
         <AdvancedSchemaEditor
           id={`${props.id}-advanced`}
           schema={schema}
-          onChange={update}
+          onChange={updateFromAdvancedEditor}
           onInvalidDraft={(source) => {
             if (invalidFieldNames.length > 0) {
-              props.onChange(
-                invalidSchemaDraftValue(
-                  schema,
-                  'field-name',
-                  undefined,
-                  invalidFieldNames,
-                ),
-              );
+              keepLocalDraft({
+                kind: 'field-name',
+                schema,
+                fieldNames: invalidFieldNames,
+              });
               return;
             }
-            props.onChange(invalidSchemaDraftValue(schema, 'json', source));
+            keepLocalDraft({ kind: 'json', schema, source });
           }}
           disabled={props.disabled}
           locale={props.locale}

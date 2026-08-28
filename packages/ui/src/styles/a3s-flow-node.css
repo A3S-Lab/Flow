@@ -953,7 +953,7 @@
   text-align: right;
 }
 
-.a3s-form-field .a3s-form-flow-expression-code-editor > section > textarea {
+.a3s-form-flow-expression-code-editor > section > textarea {
   width: 100%;
   min-width: 0;
   min-height: var(--code-editor-min-height);

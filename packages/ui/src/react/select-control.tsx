@@ -359,6 +359,20 @@ export function SelectControl({
           aria-labelledby={triggerId}
           aria-orientation="vertical"
           id={`${id}-listbox`}
+          onPointerDown={(event) => {
+            // The A3S UI runtime closes a select when its trigger loses focus.
+            // A pointer press on an option would otherwise move focus away
+            // before the runtime's delegated click handler can publish the
+            // new value, leaving the pointer-up on the underlying panel.
+            // Keep focus on the trigger until the option click is processed.
+            const target = event.target;
+            if (
+              target instanceof Element &&
+              target.closest('[role="option"]')
+            ) {
+              event.preventDefault();
+            }
+          }}
           role="listbox"
         >
           {options.map((option, index) => (
