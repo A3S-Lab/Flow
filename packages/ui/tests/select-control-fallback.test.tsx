@@ -175,6 +175,18 @@ describe('SelectControl runtime fallback', () => {
     fireEvent.click(trigger);
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
 
+    // A real follow-up pointer sequence must not be swallowed while the
+    // one-shot retarget guard is still armed.
+    const durableOption = screen.getByRole('option', { name: 'Durable' });
+    fireEvent.pointerDown(durableOption);
+    fireEvent.pointerUp(durableOption);
+    fireEvent.click(durableOption);
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.pointerDown(trigger);
+    fireEvent.pointerUp(trigger);
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+
     trigger.removeEventListener('click', handleTriggerClick);
     listbox?.removeEventListener('click', handleOptionClick);
     view.unmount();

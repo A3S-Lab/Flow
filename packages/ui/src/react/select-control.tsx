@@ -387,12 +387,28 @@ export function SelectControl({
       suppressTriggerClickTimerRef.current = setTimeout(() => {
         suppressTriggerClickRef.current = false;
         suppressTriggerClickTimerRef.current = null;
-      }, 750);
+      }, 250);
     };
     const handleOptionPointerDownCapture = (event: PointerEvent) => {
       const option = optionTarget(event.target);
       optionPointerActiveRef.current = option !== null;
-      if (!option) return;
+      if (!option) {
+        const trigger = element.querySelector<HTMLButtonElement>(
+          ':scope > button',
+        );
+        const target = event.target;
+        // A genuine follow-up pointer sequence starts with pointerdown on the
+        // trigger. It is never the runtime's retargeted click, so let it clear
+        // the one-shot latch before the trigger's click handler runs.
+        if (
+          suppressTriggerClickRef.current &&
+          trigger &&
+          target instanceof Node &&
+          trigger.contains(target)
+        )
+          clearTriggerClickSuppression();
+        return;
+      }
       // The fallback listbox keeps the option click local and never moves
       // focus to the trigger. Only the runtime's close-on-select path can
       // produce the retargeted trigger click this latch is meant to consume.
@@ -443,6 +459,15 @@ export function SelectControl({
       optionPointerActiveRef.current = false;
       clearTriggerClickSuppression();
     };
+    const handleTriggerKeyDownCapture = (event: KeyboardEvent) => {
+      if (!suppressTriggerClickRef.current) return;
+      const trigger = element.querySelector<HTMLButtonElement>(
+        ':scope > button',
+      );
+      const target = event.target;
+      if (trigger && target instanceof Node && trigger.contains(target))
+        clearTriggerClickSuppression();
+    };
     const handleSuppressedTriggerClickCapture = (event: MouseEvent) => {
       if (!suppressTriggerClickRef.current) return;
       const trigger = element.querySelector<HTMLButtonElement>(
@@ -469,6 +494,7 @@ export function SelectControl({
       handlePointerCancelCapture,
       true,
     );
+    element.addEventListener('keydown', handleTriggerKeyDownCapture, true);
     element.addEventListener('click', handleOptionClickCapture, true);
     element.addEventListener(
       'click',
@@ -495,6 +521,7 @@ export function SelectControl({
         handlePointerCancelCapture,
         true,
       );
+      element.removeEventListener('keydown', handleTriggerKeyDownCapture, true);
       element.removeEventListener('click', handleOptionClickCapture, true);
       element.removeEventListener(
         'click',

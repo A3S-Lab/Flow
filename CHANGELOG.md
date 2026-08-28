@@ -16,6 +16,8 @@
 - Made the A3S UI select adapter progressively usable while its browser runtime
   loads, preserving first-click, pointer, keyboard, focus, and disabled states
   in embedded workflow configuration panels.
+- Prevented runtime option-selection re-targeting without swallowing an
+  immediate intentional trigger click.
 - Fixed indexed batch and child-workflow editors so text, expression, JSON, and
   policy changes update the selected member instead of being silently ignored.
 
