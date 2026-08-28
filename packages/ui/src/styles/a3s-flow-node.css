@@ -721,7 +721,9 @@
   box-shadow: var(--a3s-form-shadow-soft);
 }
 
-.a3s-flow-select-control > [data-popover][aria-hidden="true"] {
+/* The A3S UI runtime owns aria-hidden after initialization. Keep the popup
+ * closed during the short async runtime-loading window as well. */
+.a3s-flow-select-control > [data-popover]:not([aria-hidden="false"]) {
   display: none;
 }
 

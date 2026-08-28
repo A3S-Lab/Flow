@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { JsonObject, JsonValue } from '@a3s-lab/ui/form/core';
 import type { FormWidgetProps } from '@a3s-lab/ui/form/react';
 import { DesignerIcon } from './designer-icons';
+import { SelectControl } from './select-control';
 
 type DifyRecord = Record<string, JsonValue>;
 
@@ -218,9 +219,8 @@ function SelectInput({
   return (
     <label className="a3s-form-workflow-dify-input">
       <Label>{label}</Label>
-      <select
+      <SelectControl
         aria-label={label}
-        className="select"
         disabled={disabled}
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -230,7 +230,7 @@ function SelectInput({
             {option.label}
           </option>
         ))}
-      </select>
+      </SelectControl>
     </label>
   );
 }
