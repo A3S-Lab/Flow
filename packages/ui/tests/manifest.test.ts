@@ -373,7 +373,7 @@ describe("A3S Flow authoring manifests", () => {
     ).toBeUndefined();
   });
 
-  it("routes common fields through the A3S UI native-widget adapter", () => {
+  it("routes common fields through the A3S UI workflow form adapter", () => {
     const manifest = requireA3SFlowDagNodeManifest("flow.condition");
     const document = createWorkflowNodeForm(manifest, { presentation: "task" });
     const matchedLabel = document.ui.nodes.find(
@@ -397,7 +397,7 @@ describe("A3S Flow authoring manifests", () => {
 
   it("keeps every visible configuration control on the A3S UI form contract", () => {
     let inputCount = 0;
-    let selectCount = 0;
+    let selectControlCount = 0;
     let textareaCount = 0;
 
     for (const manifest of a3sFlowDagNodeRegistry.list()) {
@@ -428,13 +428,16 @@ describe("A3S Flow authoring manifests", () => {
           `${manifest.type} rendered an input outside the A3S UI input contract`,
         ).toBe(true);
       }
-      for (const select of renderer.querySelectorAll("select")) {
-        selectCount += 1;
-        expect(
-          select.classList.contains("select"),
-          `${manifest.type} rendered a select outside the A3S UI select contract`,
-        ).toBe(true);
-        expect(select.closest(".a3s-form-select-control")).not.toBeNull();
+      expect(
+        renderer.querySelectorAll("select").length,
+        `${manifest.type} must not fall back to a browser-native select`,
+      ).toBe(0);
+      for (const selectControl of renderer.querySelectorAll(
+        ".a3s-flow-select-control",
+      )) {
+        selectControlCount += 1;
+        expect(selectControl.querySelector('[role="combobox"]')).not.toBeNull();
+        expect(selectControl.querySelector('[role="listbox"]')).not.toBeNull();
       }
       for (const textarea of renderer.querySelectorAll("textarea")) {
         textareaCount += 1;
@@ -458,7 +461,7 @@ describe("A3S Flow authoring manifests", () => {
     }
 
     expect(inputCount).toBeGreaterThan(0);
-    expect(selectCount).toBeGreaterThan(0);
+    expect(selectControlCount).toBeGreaterThan(0);
     expect(textareaCount).toBeGreaterThan(0);
   });
 

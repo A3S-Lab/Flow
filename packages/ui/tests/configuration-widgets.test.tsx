@@ -70,6 +70,104 @@ describe("workflow configuration widgets", () => {
     view.unmount();
   });
 
+  it("keeps the select popover closed across a controlled value update", async () => {
+    function StatefulSelect() {
+      const [value, setValue] = useState("durable");
+      return (
+        <SelectControl
+          aria-label="Run mode"
+          onChange={(event) => setValue(event.target.value)}
+          value={value}
+        >
+          <option value="durable">Durable</option>
+          <option value="local">Local</option>
+        </SelectControl>
+      );
+    }
+
+    const view = render(<StatefulSelect />);
+    const root = view.container.querySelector(".a3s-flow-select-control");
+    await waitFor(() =>
+      expect(root?.getAttribute("data-select-initialized")).toBe("true"),
+    );
+    const trigger = screen.getByRole("combobox", { name: "Run mode" });
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("option", { name: "Local" }));
+
+    await waitFor(() => {
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+      expect(trigger.textContent).toContain("Local");
+    });
+    view.unmount();
+  });
+
+  it("uses the A3S UI Select runtime for ordinary enum fields", async () => {
+    const onChange = vi.fn();
+    const registry = createWorkflowConfigurationWidgetRegistry();
+    const view = render(
+      createElement(
+        registry.select,
+        widgetProps({
+          node: {
+            ...conditionField,
+            label: "评分策略",
+            placeholder: "请选择",
+            customProps: { controlWidget: "select" },
+          },
+          options: [
+            { label: "均衡策略 v2", value: "balanced-v2" },
+            { label: "高风险拦截", value: "strict-v1" },
+          ],
+          value: "strict-v1",
+          onChange,
+        }),
+      ),
+    );
+
+    expect(view.container.querySelector("select")).toBeNull();
+    const root = view.container.querySelector(".a3s-flow-select-control");
+    expect(root).not.toBeNull();
+    await waitFor(() => expect(root?.getAttribute("data-select-initialized")).toBe("true"));
+
+    const trigger = within(view.container).getByRole("combobox", {
+      name: "评分策略",
+    });
+    fireEvent.click(trigger);
+    fireEvent.click(
+      within(view.container).getByRole("option", { name: "均衡策略 v2" }),
+    );
+    expect(onChange).toHaveBeenLastCalledWith("balanced-v2");
+    view.unmount();
+  });
+
+  it("uses the A3S UI Select runtime inside Dify editors", async () => {
+    const view = render(
+      <WorkflowDifyWidget
+        {...widgetProps({
+          node: {
+            ...conditionField,
+            customProps: { difyEditor: "model" },
+          },
+          value: {
+            provider: "openai",
+            name: "gpt-4o",
+            mode: "chat",
+            completion_params: { temperature: 0.7, max_tokens: 1024 },
+          },
+        })}
+      />,
+    );
+
+    expect(view.container.querySelectorAll("select")).toHaveLength(0);
+    const root = view.container.querySelector(".a3s-flow-select-control");
+    expect(root).not.toBeNull();
+    await waitFor(() => expect(root?.getAttribute("data-select-initialized")).toBe("true"));
+    expect(
+      within(view.container).getByRole("combobox", { name: "模式" }),
+    ).toBeTruthy();
+    view.unmount();
+  });
+
   it("localizes canvas connection actions for the Chinese panel", () => {
     render(
       <WorkflowFieldAccessory

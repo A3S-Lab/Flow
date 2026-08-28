@@ -93,6 +93,7 @@ export function SelectControl({
   const generatedId = useId();
   const id = suppliedId ?? `a3s-flow-select-${generatedId.replaceAll(':', '')}`;
   const options = useMemo(() => selectOptions(children), [children]);
+  const optionsSignature = JSON.stringify(options);
   const selected =
     options.find((option) => option.value === value) ?? options[0];
   const elementRef = useRef<SelectElement | null>(null);
@@ -146,7 +147,7 @@ export function SelectControl({
     if (!element) return;
     element.refresh?.();
     if (element.value !== value) element.value = value;
-  }, [options, value]);
+  }, [optionsSignature, value]);
 
   const triggerAria: AriaAttributes = {
     'aria-describedby': ariaDescribedBy,
@@ -171,7 +172,6 @@ export function SelectControl({
       <button
         {...triggerAria}
         aria-controls={`${id}-listbox`}
-        aria-expanded="false"
         aria-haspopup="listbox"
         disabled={disabled}
         id={`${id}-trigger`}
@@ -183,7 +183,7 @@ export function SelectControl({
         <span>{selected?.label ?? ''}</span>
         <DesignerIcon name="chevron-down" size={14} />
       </button>
-      <div aria-hidden="true" data-popover id={`${id}-popover`}>
+      <div data-popover id={`${id}-popover`}>
         <div
           aria-labelledby={`${id}-trigger`}
           aria-orientation="vertical"
@@ -197,7 +197,7 @@ export function SelectControl({
               data-label={option.label}
               data-value={option.value}
               id={`${id}-option-${index + 1}`}
-              key={option.value}
+              key={`${option.label}-${option.value}`}
               role="option"
             >
               {option.label}

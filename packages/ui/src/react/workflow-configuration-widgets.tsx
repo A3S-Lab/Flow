@@ -413,6 +413,48 @@ function ModelControl(props: FormWidgetProps) {
   );
 }
 
+/**
+ * Renders the form renderer's ordinary enum fields with the Flow A3S UI
+ * select adapter. The upstream form package keeps its NativeWidget select
+ * intentionally native for compatibility, but workflow panels use the same
+ * runtime-backed surface as the composite Flow controls.
+ */
+function WorkflowSelectWidget(props: FormWidgetProps) {
+  const label = props.node.label ?? props.node.id;
+  const value = props.value === undefined || props.value === null ? '' : String(props.value);
+  return (
+    <SelectControl
+      id={props.id}
+      aria-describedby={props.describedBy}
+      aria-invalid={props.invalid || undefined}
+      aria-label={props.labelledBy ? undefined : label}
+      aria-labelledby={props.labelledBy}
+      disabled={props.disabled}
+      required={props.required}
+      value={value}
+      onBlur={props.onBlur}
+      onFocus={props.onFocus}
+      onChange={(event) => {
+        const selected = props.options.find(
+          (option) => String(option.value) === event.target.value,
+        );
+        props.onChange(selected?.value ?? event.target.value);
+      }}
+    >
+      <option value="">{props.node.placeholder ?? props.messages.selectPlaceholder}</option>
+      {props.options.map((option) => (
+        <option
+          key={`${option.label}-${String(option.value)}`}
+          value={String(option.value)}
+          disabled={option.disabled}
+        >
+          {option.label}
+        </option>
+      ))}
+    </SelectControl>
+  );
+}
+
 function TabsWidget(props: FormWidgetProps) {
   return (
     <div
@@ -719,6 +761,8 @@ function parameterControl(
       return <WorkflowMultilineWidget {...props} />;
     case 'slider':
       return <WorkflowSliderWidget {...props} />;
+    case 'select':
+      return <WorkflowSelectWidget {...props} />;
     default:
       return <NativeWidget {...props} node={{ ...props.node, widget }} />;
   }
@@ -746,6 +790,7 @@ export function createWorkflowConfigurationWidgetRegistry(
   callbacks: WorkflowConfigurationWidgetCallbacks = {},
 ): FormWidgetRegistry {
   return {
+    select: WorkflowSelectWidget,
     [WORKFLOW_CONFIGURATION_WIDGETS.connection]: (props) => ConnectionWidget(props, callbacks),
     [WORKFLOW_CONFIGURATION_WIDGETS.parameter]: (props) => ParameterWidget(props, callbacks),
     [WORKFLOW_CONFIGURATION_WIDGETS.model]: (props) =>
