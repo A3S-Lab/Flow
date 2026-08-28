@@ -108,7 +108,11 @@
   position: relative;
 }
 
-.a3s-example-library-header__actions select {
+.a3s-example-library-header__actions .a3s-flow-select-control {
+  min-width: 84px;
+}
+
+.a3s-example-library-header__actions .a3s-flow-select-control > button {
   min-width: 84px;
   height: 36px;
   padding: 0 28px 0 10px;
@@ -119,6 +123,27 @@
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
+}
+
+.a3s-example-library-header__actions
+  .a3s-flow-select-control
+  > button:hover:not(:disabled),
+.a3s-example-library-header__actions
+  .a3s-flow-select-control
+  > button[aria-expanded='true'] {
+  border-color: var(--workflow-blue);
+}
+
+.a3s-example-library-header__actions .a3s-flow-select-control > [data-popover] {
+  width: max(100%, 128px);
+  border-color: var(--workflow-line);
+  background: var(--workflow-surface);
+}
+
+.a3s-example-library-header__actions .a3s-flow-select-control [role='option'] {
+  color: var(--workflow-text);
+  font-family: var(--workflow-sans);
+  font-size: 11px;
 }
 
 .a3s-example-library-header__actions > a {
@@ -790,7 +815,7 @@
 
   .a3s-example-library-header__identity > a,
   .a3s-example-library-header__actions > a,
-  .a3s-example-library-header__actions select {
+  .a3s-example-library-header__actions .a3s-flow-select-control > button {
     height: 44px;
   }
 

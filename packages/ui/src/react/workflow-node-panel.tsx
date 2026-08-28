@@ -7,7 +7,12 @@ import {
   useRef,
   useState,
 } from 'react';
-import { compileForm, type FormDocument, type FormHostAdapter, type JsonObject } from '@a3s-lab/ui/form/core';
+import {
+  compileForm,
+  type FormDocument,
+  type FormHostAdapter,
+  type JsonObject,
+} from '@a3s-lab/ui/form/core';
 import {
   type CreateWorkflowNodeFormOptions,
   createWorkflowNodeDefaultValue,
@@ -15,16 +20,21 @@ import {
   isWorkflowNodeFieldVisible,
   resolveWorkflowNodeFields,
   WORKFLOW_CONFIGURATION_WIDGET_KEYS,
+  WORKFLOW_SELECT_WIDGET_ALIASES,
   type WorkflowNodeDefinition,
   type WorkflowNodeFieldDefinition,
 } from '../integrations/workflow-node-form';
 import { DesignerIcon } from './designer-icons';
 import type { FormWidgetRegistry } from '@a3s-lab/ui/form/react';
 import type { FormNodeRegistry } from '@a3s-lab/ui/form/react';
-import { type FormNodeAccessoryContext, FormRenderer } from '@a3s-lab/ui/form/react';
+import {
+  type FormNodeAccessoryContext,
+  FormRenderer,
+} from '@a3s-lab/ui/form/react';
 import {
   createWorkflowConfigurationWidgetRegistry,
   type WorkflowConfigurationWidgetCallbacks,
+  WorkflowSelectWidget,
   WorkflowFieldAccessory,
 } from './workflow-configuration-widgets';
 import { workflowNodeVisual } from './workflow-node-visual';
@@ -111,9 +121,11 @@ function panelCopy(locale: string | undefined) {
         nodeType: 'Node type',
         runtimeBinding: 'Runtime binding',
         compileTitle: 'The node configuration could not be opened.',
-        compileHelp: 'Check the field types and control settings in the node definition.',
+        compileHelp:
+          'Check the field types and control settings in the node definition.',
         noSettingsTitle: 'No configuration required',
-        noSettingsHelp: 'This node has no editable parameters and is ready to connect or run.',
+        noSettingsHelp:
+          'This node has no editable parameters and is ready to connect or run.',
         nodeTitle: 'Node title',
         nodeDescription: 'Node description',
         descriptionPlaceholder: 'Add a node description',
@@ -132,14 +144,21 @@ function panelInputTypes(node: WorkflowNodeDefinition): string[] {
 }
 
 function panelOutputTypes(node: WorkflowNodeDefinition): string[] {
-  return uniqueTypes([...node.output_types, ...node.outputs.flatMap((output) => output.types)]);
+  return uniqueTypes([
+    ...node.output_types,
+    ...node.outputs.flatMap((output) => output.types),
+  ]);
 }
 
-export function WorkflowNodeConfigurationPanel(props: WorkflowNodeConfigurationPanelProps) {
+export function WorkflowNodeConfigurationPanel(
+  props: WorkflowNodeConfigurationPanelProps,
+) {
   const copy = panelCopy(props.locale);
   const taskPresentation = props.presentation === 'task';
   const [resetPending, setResetPending] = useState(false);
-  const [activeTab, setActiveTab] = useState<'settings' | 'last-run'>('settings');
+  const [activeTab, setActiveTab] = useState<'settings' | 'last-run'>(
+    'settings',
+  );
   const [running, setRunning] = useState(false);
   const settingsTabRef = useRef<HTMLButtonElement>(null);
   const lastRunTabRef = useRef<HTMLButtonElement>(null);
@@ -191,7 +210,8 @@ export function WorkflowNodeConfigurationPanel(props: WorkflowNodeConfigurationP
         workflowCallbacksRef.current.onRequestConnection?.(request),
       onRefreshField: (request) =>
         workflowCallbacksRef.current.onRefreshField?.(request),
-      onCopyField: (request) => workflowCallbacksRef.current.onCopyField?.(request),
+      onCopyField: (request) =>
+        workflowCallbacksRef.current.onCopyField?.(request),
       onDataDisplayAction: (request) =>
         workflowCallbacksRef.current.onDataDisplayAction?.(request),
     }),
@@ -201,10 +221,16 @@ export function WorkflowNodeConfigurationPanel(props: WorkflowNodeConfigurationP
     () => createWorkflowConfigurationWidgetRegistry(workflowCallbacks),
     [workflowCallbacks],
   );
-  const widgets = useMemo(
-    () => ({ ...builtInWidgets, ...props.widgetRegistry }),
-    [builtInWidgets, props.widgetRegistry],
-  );
+  const widgets = useMemo(() => {
+    const merged = { ...builtInWidgets, ...props.widgetRegistry };
+    // Select is a Flow-level invariant. A host may extend the registry with
+    // custom controls, but it must not accidentally replace the canonical
+    // runtime-backed selector with the form package's NativeWidget.
+    for (const alias of WORKFLOW_SELECT_WIDGET_ALIASES) {
+      merged[alias] = WorkflowSelectWidget;
+    }
+    return merged;
+  }, [builtInWidgets, props.widgetRegistry]);
   const defaults = useMemo(
     () => createWorkflowNodeDefaultValue(props.node, formOptions),
     [formOptions, props.node],
@@ -218,7 +244,9 @@ export function WorkflowNodeConfigurationPanel(props: WorkflowNodeConfigurationP
   const isVisible = (field: WorkflowNodeFieldDefinition) =>
     isWorkflowNodeFieldVisible(field, undefined, props.fieldVisibility);
   const visibleCount = activeFields.filter(isVisible).length;
-  const advancedCount = activeFields.filter((field) => field.advanced && isVisible(field)).length;
+  const advancedCount = activeFields.filter(
+    (field) => field.advanced && isVisible(field),
+  ).length;
   const conditionalCount = activeFields.length - visibleCount;
   const manifestMetadata = props.node as WorkflowNodeDefinition & {
     manifestVersion?: number;
@@ -231,13 +259,13 @@ export function WorkflowNodeConfigurationPanel(props: WorkflowNodeConfigurationP
       outputs?: readonly unknown[];
     };
   };
-  const portCount =
-    (manifestMetadata.ports
-      ? (manifestMetadata.ports.inputs?.length ?? 0) +
-        (manifestMetadata.ports.outputs?.length ?? 0)
-      : (inputTypes.length > 0 ? 1 : 0) + (outputTypes.length > 0 ? 1 : 0));
+  const portCount = manifestMetadata.ports
+    ? (manifestMetadata.ports.inputs?.length ?? 0) +
+      (manifestMetadata.ports.outputs?.length ?? 0)
+    : (inputTypes.length > 0 ? 1 : 0) + (outputTypes.length > 0 ? 1 : 0);
   const runtimeBinding =
-    'runtimeBinding' in props.node && typeof props.node.runtimeBinding === 'string'
+    'runtimeBinding' in props.node &&
+    typeof props.node.runtimeBinding === 'string'
       ? props.node.runtimeBinding
       : undefined;
   const nodeVisual = workflowNodeVisual(props.node);
@@ -285,7 +313,9 @@ export function WorkflowNodeConfigurationPanel(props: WorkflowNodeConfigurationP
   const compiledDocument = compilation.document;
   return (
     <section
-      className={['a3s-form-workflow-node-panel', props.className].filter(Boolean).join(' ')}
+      className={['a3s-form-workflow-node-panel', props.className]
+        .filter(Boolean)
+        .join(' ')}
       data-node-type={props.node.type}
       data-node-family={nodeVisual.family}
       data-node-tone={nodeVisual.tone}
@@ -316,13 +346,17 @@ export function WorkflowNodeConfigurationPanel(props: WorkflowNodeConfigurationP
             <span className="a3s-form-workflow-node-title-line">
               {taskPresentation && props.onTitleChange ? (
                 <>
-                  <h2 className="a3s-form-workflow-node-title-accessible">{displayTitle}</h2>
+                  <h2 className="a3s-form-workflow-node-title-accessible">
+                    {displayTitle}
+                  </h2>
                   <input
                     className="input a3s-form-workflow-node-title-input"
                     aria-label={copy.nodeTitle}
                     value={displayTitle}
                     disabled={props.readOnly}
-                    onChange={(event) => props.onTitleChange?.(event.target.value)}
+                    onChange={(event) =>
+                      props.onTitleChange?.(event.target.value)
+                    }
                   />
                 </>
               ) : (
@@ -330,12 +364,16 @@ export function WorkflowNodeConfigurationPanel(props: WorkflowNodeConfigurationP
               )}
               {props.node.beta && (
                 <span className="badge" data-variant="secondary">
-                  {props.locale?.toLocaleLowerCase().startsWith('zh') ? '测试版' : 'Beta'}
+                  {props.locale?.toLocaleLowerCase().startsWith('zh')
+                    ? '测试版'
+                    : 'Beta'}
                 </span>
               )}
               {props.node.legacy && (
                 <span className="badge" data-variant="outline">
-                  {props.locale?.toLocaleLowerCase().startsWith('zh') ? '旧版' : 'Legacy'}
+                  {props.locale?.toLocaleLowerCase().startsWith('zh')
+                    ? '旧版'
+                    : 'Legacy'}
                 </span>
               )}
             </span>
@@ -346,7 +384,9 @@ export function WorkflowNodeConfigurationPanel(props: WorkflowNodeConfigurationP
                 placeholder={copy.descriptionPlaceholder}
                 value={displayDescription}
                 disabled={props.readOnly}
-                onChange={(event) => props.onDescriptionChange?.(event.target.value)}
+                onChange={(event) =>
+                  props.onDescriptionChange?.(event.target.value)
+                }
               />
             ) : (
               <p>{displayDescription}</p>
@@ -364,7 +404,9 @@ export function WorkflowNodeConfigurationPanel(props: WorkflowNodeConfigurationP
               disabled={props.readOnly || running}
               onClick={() => {
                 setRunning(true);
-                void Promise.resolve(props.onRun?.(props.value)).finally(() => setRunning(false));
+                void Promise.resolve(props.onRun?.(props.value)).finally(() =>
+                  setRunning(false),
+                );
               }}
             >
               <DesignerIcon name="play" size={14} />
@@ -424,7 +466,11 @@ export function WorkflowNodeConfigurationPanel(props: WorkflowNodeConfigurationP
       </header>
 
       {taskPresentation && (
-        <div className="a3s-form-workflow-node-tabs" role="tablist" aria-label={copy.panelSections}>
+        <div
+          className="a3s-form-workflow-node-tabs"
+          role="tablist"
+          aria-label={copy.panelSections}
+        >
           <button
             type="button"
             ref={settingsTabRef}
@@ -476,30 +522,36 @@ export function WorkflowNodeConfigurationPanel(props: WorkflowNodeConfigurationP
         </div>
       )}
 
-      {!taskPresentation && (inputTypes.length > 0 || outputTypes.length > 0) && (
-        <div className="a3s-form-workflow-node-ports">
-          <div>
-            <span>{copy.accepts}</span>
-            <div className="item-group">
-              {(inputTypes.length > 0 ? inputTypes : ['No typed inputs']).map((type) => (
-                <code className="badge" data-variant="outline" key={type}>
-                  {type}
-                </code>
-              ))}
+      {!taskPresentation &&
+        (inputTypes.length > 0 || outputTypes.length > 0) && (
+          <div className="a3s-form-workflow-node-ports">
+            <div>
+              <span>{copy.accepts}</span>
+              <div className="item-group">
+                {(inputTypes.length > 0 ? inputTypes : ['No typed inputs']).map(
+                  (type) => (
+                    <code className="badge" data-variant="outline" key={type}>
+                      {type}
+                    </code>
+                  ),
+                )}
+              </div>
+            </div>
+            <div>
+              <span>{copy.returns}</span>
+              <div className="item-group">
+                {(outputTypes.length > 0
+                  ? outputTypes
+                  : ['No typed outputs']
+                ).map((type) => (
+                  <code className="badge" data-variant="secondary" key={type}>
+                    {type}
+                  </code>
+                ))}
+              </div>
             </div>
           </div>
-          <div>
-            <span>{copy.returns}</span>
-            <div className="item-group">
-              {(outputTypes.length > 0 ? outputTypes : ['No typed outputs']).map((type) => (
-                <code className="badge" data-variant="secondary" key={type}>
-                  {type}
-                </code>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+        )}
 
       {(!taskPresentation || activeTab === 'settings') && (
         <div
@@ -527,7 +579,8 @@ export function WorkflowNodeConfigurationPanel(props: WorkflowNodeConfigurationP
                 value={props.value}
                 onChange={props.onChange}
                 onAction={async (actionId, value) => {
-                  if (actionId === 'apply') await props.onApply?.(value, compiledDocument);
+                  if (actionId === 'apply')
+                    await props.onApply?.(value, compiledDocument);
                 }}
                 hostAdapter={props.hostAdapter}
                 locale={props.locale}

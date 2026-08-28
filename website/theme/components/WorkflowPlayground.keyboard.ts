@@ -28,6 +28,8 @@ export function useWorkflowPlaygroundKeyboard({
         target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
         target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement &&
+          target.closest('[role="combobox"]') !== null) ||
         (target instanceof HTMLElement && target.isContentEditable)
       ) {
         return;
