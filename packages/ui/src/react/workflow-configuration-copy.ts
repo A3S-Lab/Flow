@@ -11,10 +11,7 @@ export function isChineseWorkflowLocale(locale: string | undefined): boolean {
   return locale?.toLocaleLowerCase().startsWith('zh') === true;
 }
 
-export function workflowDurationUnitLabel(
-  unit: string,
-  locale: string | undefined,
-): string {
+export function workflowDurationUnitLabel(unit: string, locale: string | undefined): string {
   const labels = DURATION_UNIT_LABELS[unit];
   if (!labels) return unit;
   return labels[isChineseWorkflowLocale(locale) ? 0 : 1];
@@ -53,18 +50,26 @@ export function workflowWidgetCopy(locale: string | undefined) {
         addSortableItem: (label: string) => `添加${label}`,
         addOperation: '添加一项…',
         noOperations: '尚未选择任何项目。',
+        noAvailableOperations: '没有可添加的项目。',
         moveUp: (name: string) => `上移${name}`,
         moveDown: (name: string) => `下移${name}`,
         removeItem: (name: string) => `移除${name}`,
-        selectedCount: (selected: number, limit: number) =>
-          `已选择 ${selected}/${limit} 项`,
+        selectedCount: (selected: number, limit: number) => `已选择 ${selected}/${limit} 项`,
         durationValue: (label: string) => `${label}数值`,
         durationUnit: (label: string) => `${label}单位`,
         decisionPlaceholder: '添加一个决策',
         addDecision: '添加',
+        emptyDecision: '请输入要添加的决策。',
+        duplicateDecision: '该决策已添加。',
+        decisionLimit: (limit: number) => `最多添加 ${limit} 个决策。`,
         chooseFiles: '选择文件',
         chooseFile: '选择文件',
         noFileSelected: '尚未选择文件',
+        selectedFiles: '已选择的文件',
+        removeFile: (name: string) => `移除文件${name}`,
+        clearFiles: '清除文件',
+        invalidFileType: (names: string[], types: string[]) =>
+          `不支持${names.join('、')}。允许类型：${types.join(' · ')}。`,
         mcpServer: 'MCP 服务',
         configurationReady: '配置已就绪',
         notConfigured: '尚未配置',
@@ -103,18 +108,26 @@ export function workflowWidgetCopy(locale: string | undefined) {
         addSortableItem: (label: string) => `Add ${label}`,
         addOperation: 'Add an operation…',
         noOperations: 'No operations selected.',
+        noAvailableOperations: 'No more options are available.',
         moveUp: (name: string) => `Move ${name} up`,
         moveDown: (name: string) => `Move ${name} down`,
         removeItem: (name: string) => `Remove ${name}`,
-        selectedCount: (selected: number, limit: number) =>
-          `${selected} of ${limit} selected`,
+        selectedCount: (selected: number, limit: number) => `${selected} of ${limit} selected`,
         durationValue: (label: string) => `${label} value`,
         durationUnit: (label: string) => `${label} unit`,
         decisionPlaceholder: 'Add a decision',
         addDecision: 'Add',
+        emptyDecision: 'Enter a decision to add.',
+        duplicateDecision: 'That decision is already added.',
+        decisionLimit: (limit: number) => `You can add up to ${limit} decisions.`,
         chooseFiles: 'Choose files',
         chooseFile: 'Choose a file',
         noFileSelected: 'No file selected',
+        selectedFiles: 'Selected files',
+        removeFile: (name: string) => `Remove file ${name}`,
+        clearFiles: 'Clear files',
+        invalidFileType: (names: string[], types: string[]) =>
+          `${names.join(', ')} is not supported. Allowed types: ${types.join(', ')}.`,
         mcpServer: 'MCP server',
         configurationReady: 'Configuration ready',
         notConfigured: 'Not configured',

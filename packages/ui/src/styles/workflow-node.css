@@ -931,6 +931,14 @@
   background: color-mix(in srgb, var(--a3s-form-panel-soft) 36%, var(--a3s-form-panel));
 }
 
+.a3s-form-workflow-file-control[data-invalid="true"] {
+  border-color: color-mix(
+    in srgb,
+    var(--a3s-form-danger, #c2410c) 58%,
+    var(--a3s-form-line-strong)
+  );
+}
+
 /* biome-ignore lint/style/noDescendingSpecificity: File-picker labels and boolean-field labels are disjoint widget structures. */
 .a3s-form-workflow-file-control > label {
   display: inline-flex;
@@ -947,10 +955,51 @@
   white-space: nowrap;
 }
 
+.a3s-form-workflow-file-list {
+  display: grid;
+  min-width: 0;
+  grid-column: 2;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.a3s-form-workflow-file-list li {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.a3s-form-workflow-file-list li > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-form-workflow-file-list li .btn {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+}
+
+.a3s-form-workflow-file-clear {
+  grid-column: 2;
+  justify-self: start;
+}
+
 .a3s-form-workflow-file-control > small {
   grid-column: 2;
   color: var(--a3s-form-muted);
   font-size: 11px;
+}
+
+.a3s-form-workflow-file-control > .a3s-form-workflow-file-error {
+  color: var(--a3s-form-danger, #c2410c);
 }
 
 .a3s-form-workflow-mcp-status {
@@ -1638,6 +1687,11 @@
   }
 
   .a3s-form-workflow-file-control > small {
+    grid-column: 1;
+  }
+
+  .a3s-form-workflow-file-list,
+  .a3s-form-workflow-file-clear {
     grid-column: 1;
   }
 

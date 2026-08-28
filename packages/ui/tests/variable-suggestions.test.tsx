@@ -1,31 +1,31 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { useState } from "react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from '@testing-library/react';
+import { useState } from 'react';
+import { describe, expect, it } from 'vitest';
 import {
   filterA3SFlowExpressionVariables,
   VariableReferenceInput,
   VariableTemplateTextarea,
   type A3SFlowExpressionVariable,
-} from "../src/react/a3s-flow-variable-picker";
+} from '../src/react/a3s-flow-variable-picker';
 
 const variables: readonly A3SFlowExpressionVariable[] = [
   {
-    dataType: "object",
-    group: "input",
-    label: "Order input",
-    path: "input.order",
+    dataType: 'object',
+    group: 'input',
+    label: 'Order input',
+    path: 'input.order',
   },
   {
-    dataType: "string",
-    group: "upstream",
-    label: "Customer name",
-    nodeId: "lookup-customer",
-    path: "steps.lookup-customer.customer_name",
+    dataType: 'string',
+    group: 'upstream',
+    label: 'Customer name',
+    nodeId: 'lookup-customer',
+    path: 'steps.lookup-customer.customer_name',
   },
 ];
 
 function ReferenceHarness() {
-  const [path, setPath] = useState("");
+  const [path, setPath] = useState('');
   return (
     <VariableReferenceInput
       aria-label="Source variable"
@@ -38,7 +38,7 @@ function ReferenceHarness() {
 }
 
 function TemplateHarness() {
-  const [value, setValue] = useState("Hello ");
+  const [value, setValue] = useState('Hello ');
   return (
     <VariableTemplateTextarea
       aria-label="Message template"
@@ -50,50 +50,70 @@ function TemplateHarness() {
   );
 }
 
-describe("workflow variable suggestions", () => {
-  it("filters by path, label, type, and node identity", () => {
-    expect(filterA3SFlowExpressionVariables(variables, "$order")).toEqual([
-      variables[0],
-    ]);
-    expect(
-      filterA3SFlowExpressionVariables(variables, "customer string"),
-    ).toEqual([variables[1]]);
-    expect(
-      filterA3SFlowExpressionVariables(variables, "lookup-customer"),
-    ).toEqual([variables[1]]);
+describe('workflow variable suggestions', () => {
+  it('filters by path, label, type, and node identity', () => {
+    expect(filterA3SFlowExpressionVariables(variables, '$order')).toEqual([variables[0]]);
+    expect(filterA3SFlowExpressionVariables(variables, 'customer string')).toEqual([variables[1]]);
+    expect(filterA3SFlowExpressionVariables(variables, 'lookup-customer')).toEqual([variables[1]]);
   });
 
-  it("opens on $, supports keyboard selection, and stores a clean path", () => {
+  it('opens on $, supports keyboard selection, and stores a clean path', () => {
     render(<ReferenceHarness />);
-    const input = screen.getByRole("textbox", { name: "Source variable" });
+    const input = screen.getByRole('textbox', { name: 'Source variable' });
 
     fireEvent.change(input, {
-      target: { selectionStart: 4, value: "$ord" },
+      target: { selectionStart: 4, value: '$ord' },
     });
-    expect(
-      screen.getByRole("listbox", { name: "Variable suggestions" }),
-    ).toBeTruthy();
-    expect(screen.getAllByRole("option")).toHaveLength(1);
+    expect(screen.getByRole('listbox', { name: 'Variable suggestions' })).toBeTruthy();
+    expect(screen.getAllByRole('option')).toHaveLength(1);
 
-    fireEvent.keyDown(input, { key: "Enter" });
-    expect((input as HTMLInputElement).value).toBe("input.order");
-    expect(
-      screen.queryByRole("listbox", { name: "Variable suggestions" }),
-    ).toBeNull();
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect((input as HTMLInputElement).value).toBe('input.order');
+    expect(screen.queryByRole('listbox', { name: 'Variable suggestions' })).toBeNull();
   });
 
-  it("inserts the selected variable into a template", () => {
+  it('inserts the selected variable into a template', () => {
     render(<TemplateHarness />);
-    const textarea = screen.getByRole("textbox", { name: "Message template" });
+    const textarea = screen.getByRole('textbox', { name: 'Message template' });
 
     fireEvent.change(textarea, {
-      target: { selectionStart: 10, value: "Hello $cus" },
+      target: { selectionStart: 10, value: 'Hello $cus' },
     });
-    expect(screen.getAllByRole("option")).toHaveLength(1);
+    expect(screen.getAllByRole('option')).toHaveLength(1);
 
-    fireEvent.keyDown(textarea, { key: "Enter" });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
     expect((textarea as HTMLTextAreaElement).value).toBe(
-      "Hello {{steps.lookup-customer.customer_name}}",
+      'Hello {{steps.lookup-customer.customer_name}}',
     );
+  });
+
+  it('inserts from the toolbar at the last remembered caret', async () => {
+    render(<TemplateHarness />);
+    const textarea = screen.getByRole('textbox', { name: 'Message template' });
+    const trigger = screen.getByRole('button', { name: 'Insert variable' });
+
+    textarea.focus();
+    (textarea as HTMLTextAreaElement).setSelectionRange(3, 3);
+    fireEvent.select(textarea);
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('option', { name: /\$input\.order/ }));
+
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect((textarea as HTMLTextAreaElement).value).toBe('Hel{{input.order}}lo ');
+  });
+
+  it('defaults toolbar insertion to the end when the textarea has not been touched', async () => {
+    render(<TemplateHarness />);
+    fireEvent.click(screen.getByRole('button', { name: 'Insert variable' }));
+    fireEvent.click(screen.getByRole('option', { name: /\$input\.order/ }));
+
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect(
+      (
+        screen.getByRole('textbox', {
+          name: 'Message template',
+        }) as HTMLTextAreaElement
+      ).value,
+    ).toBe('Hello {{input.order}}');
   });
 });

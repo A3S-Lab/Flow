@@ -17,10 +17,7 @@ import {
   NativeWidget,
 } from '@a3s-lab/ui/form/react';
 import { SelectControl } from './select-control';
-import {
-  workflowDurationUnitLabel,
-  workflowWidgetCopy,
-} from './workflow-configuration-copy';
+import { workflowDurationUnitLabel, workflowWidgetCopy } from './workflow-configuration-copy';
 import {
   WorkflowCodeWidget,
   WorkflowDataDisplayWidget,
@@ -59,18 +56,13 @@ export interface WorkflowConfigurationWidgetCallbacks {
   onDataDisplayAction?: (request: WorkflowDataDisplayActionRequest) => void;
 }
 
-type WorkflowFieldActionTarget = Pick<
-  FormWidgetProps,
-  'node' | 'valuePath' | 'disabled'
-> & {
+type WorkflowFieldActionTarget = Pick<FormWidgetProps, 'node' | 'valuePath' | 'disabled'> & {
   value?: FormWidgetProps['value'];
   locale?: string;
 };
 
-export interface WorkflowFieldAccessoryProps extends Pick<
-  FormWidgetProps,
-  'node' | 'valuePath' | 'disabled'
-> {
+export interface WorkflowFieldAccessoryProps
+  extends Pick<FormWidgetProps, 'node' | 'valuePath' | 'disabled'> {
   value?: FormWidgetProps['value'];
   callbacks?: WorkflowConfigurationWidgetCallbacks;
   locale?: string;
@@ -90,6 +82,25 @@ function customStringArray(value: JsonValue | undefined): string[] {
     : [];
 }
 
+function finiteNumber(value: JsonValue | undefined): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function normalizeNumber(value: number, step: number | undefined): number {
+  if (!Number.isFinite(value)) return 0;
+  if (step === undefined) return value;
+  const text = (step ?? 1).toString().toLowerCase();
+  const [coefficient, exponentText] = text.split('e');
+  const precision = Math.max(
+    0,
+    Math.min(
+      15,
+      (coefficient.split('.')[1]?.length ?? 0) - (exponentText ? Number(exponentText) : 0),
+    ),
+  );
+  return Number(value.toFixed(precision));
+}
+
 function sourceOptions(props: FormWidgetProps): JsonValue[] {
   const value = props.node.customProps?.sourceOptions;
   return Array.isArray(value) ? value : [];
@@ -97,29 +108,40 @@ function sourceOptions(props: FormWidgetProps): JsonValue[] {
 
 function optionName(value: JsonValue): string | undefined {
   if (typeof value === 'string') return value;
-  if (!value || typeof value !== 'object' || Array.isArray(value))
-    return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   return typeof value.name === 'string' ? value.name : undefined;
 }
 
 function optionIcon(value: JsonValue): string | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value))
-    return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   return typeof value.icon === 'string' ? value.icon : undefined;
 }
 
 function copyFieldEnabled(props: WorkflowFieldActionTarget): boolean {
-  return (
-    props.node.customProps?.copyField === true ||
-    props.node.customProps?.copy_field === true
-  );
+  return props.node.customProps?.copyField === true || props.node.customProps?.copy_field === true;
 }
 
 function sortableListLimit(props: FormWidgetProps): number | undefined {
-  const value = props.node.customProps?.limit ?? props.schema?.maxItems;
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0
-    ? value
-    : undefined;
+  const candidates = [
+    props.node.customProps?.limit,
+    props.node.customProps?.maxItems,
+    props.node.customProps?.max_items,
+    props.schema?.maxItems,
+  ];
+  const value = candidates.find(
+    (candidate) => typeof candidate === 'number' && Number.isInteger(candidate) && candidate >= 0,
+  );
+  return typeof value === 'number' ? value : undefined;
+}
+
+function namedOptions(values: readonly JsonValue[]): JsonValue[] {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const name = optionName(value);
+    if (!name || seen.has(name)) return false;
+    seen.add(name);
+    return true;
+  });
 }
 
 function inputTypes(props: WorkflowFieldActionTarget): string[] {
@@ -134,10 +156,7 @@ function fieldFlags(props: WorkflowFieldActionTarget) {
   };
 }
 
-function jsonValuesEqual(
-  left: JsonValue | undefined,
-  right: JsonValue | undefined,
-): boolean {
+function jsonValuesEqual(left: JsonValue | undefined, right: JsonValue | undefined): boolean {
   if (left === undefined || right === undefined) return left === right;
   return canonicalize(left) === canonicalize(right);
 }
@@ -167,14 +186,7 @@ function RealTimeRefreshEffect({
       REAL_TIME_REFRESH_DEBOUNCE_MS,
     );
     return () => clearTimeout(timeout);
-  }, [
-    props.disabled,
-    props.node.id,
-    props.value,
-    props.valuePath,
-    realtime,
-    refresh,
-  ]);
+  }, [props.disabled, props.node.id, props.value, props.valuePath, realtime, refresh]);
   return null;
 }
 
@@ -305,21 +317,11 @@ function ParameterActions({
   const flags = fieldFlags(props);
   const connectable = inputTypes(props).length > 0;
   const copyable = copyFieldEnabled(props);
-  const actionCount =
-    Number(connectable) + Number(copyable) + Number(flags.refresh);
-  if (
-    !connectable &&
-    !copyable &&
-    !flags.refresh &&
-    !flags.realtime &&
-    !flags.toolMode
-  )
+  const actionCount = Number(connectable) + Number(copyable) + Number(flags.refresh);
+  if (!connectable && !copyable && !flags.refresh && !flags.realtime && !flags.toolMode)
     return null;
   return (
-    <div
-      className="a3s-form-workflow-parameter-actions"
-      data-action-count={actionCount}
-    >
+    <div className="a3s-form-workflow-parameter-actions" data-action-count={actionCount}>
       <FieldFlags props={props} />
       <div>
         <CopyButton props={props} callbacks={callbacks} />
@@ -330,22 +332,13 @@ function ParameterActions({
   );
 }
 
-export function WorkflowFieldAccessory({
-  callbacks = {},
-  ...props
-}: WorkflowFieldAccessoryProps) {
+export function WorkflowFieldAccessory({ callbacks = {}, ...props }: WorkflowFieldAccessoryProps) {
   const accepted = inputTypes(props);
   const flags = fieldFlags(props);
   const copyable = copyFieldEnabled(props);
   const copy = workflowWidgetCopy(props.locale);
   const label = props.node.label ?? props.node.id;
-  if (
-    accepted.length === 0 &&
-    !copyable &&
-    !flags.refresh &&
-    !flags.realtime &&
-    !flags.toolMode
-  ) {
+  if (accepted.length === 0 && !copyable && !flags.refresh && !flags.realtime && !flags.toolMode) {
     return null;
   }
   return (
@@ -356,19 +349,13 @@ export function WorkflowFieldAccessory({
         data-size="sm"
         data-variant="outline"
       >
-        <legend className="a3s-form-visually-hidden">
-          {copy.workflowInputLegend(label)}
-        </legend>
+        <legend className="a3s-form-visually-hidden">{copy.workflowInputLegend(label)}</legend>
         <span className="a3s-form-workflow-control-icon">
           <DesignerIcon name="link" size={15} />
         </span>
         <span className="a3s-form-workflow-control-copy">
           <strong>{copy.workflowInput}</strong>
-          <small>
-            {accepted.length > 0
-              ? accepted.join(' · ')
-              : copy.runtimeConfigured}
-          </small>
+          <small>{accepted.length > 0 ? accepted.join(' · ') : copy.runtimeConfigured}</small>
         </span>
         <div className="a3s-form-workflow-field-accessory-actions">
           <FieldFlags props={props} />
@@ -381,13 +368,9 @@ export function WorkflowFieldAccessory({
   );
 }
 
-function ConnectionWidget(
-  props: FormWidgetProps,
-  callbacks: WorkflowConfigurationWidgetCallbacks,
-) {
+function ConnectionWidget(props: FormWidgetProps, callbacks: WorkflowConfigurationWidgetCallbacks) {
   const accepted = inputTypes(props);
-  const connected =
-    props.value !== null && props.value !== undefined && props.value !== '';
+  const connected = props.value !== null && props.value !== undefined && props.value !== '';
   const copy = workflowWidgetCopy(props.locale);
   const label = props.node.label ?? props.node.id;
   return (
@@ -401,14 +384,8 @@ function ConnectionWidget(
         <DesignerIcon name="link" size={16} />
       </span>
       <span className="a3s-form-workflow-control-copy">
-        <strong>
-          {connected ? copy.connectionSet : copy.connectFromCanvas}
-        </strong>
-        <small>
-          {accepted.length > 0
-            ? accepted.join(' · ')
-            : copy.anyCompatibleOutput}
-        </small>
+        <strong>{connected ? copy.connectionSet : copy.connectFromCanvas}</strong>
+        <small>{accepted.length > 0 ? accepted.join(' · ') : copy.anyCompatibleOutput}</small>
       </span>
       <button
         id={props.id}
@@ -456,9 +433,7 @@ function ModelControl(props: FormWidgetProps) {
             onBlur={props.onBlur}
             onFocus={props.onFocus}
           >
-            <option value="">
-              {props.node.placeholder ?? copy.selectModel}
-            </option>
+            <option value="">{props.node.placeholder ?? copy.selectModel}</option>
             {props.options.map((option, index) => (
               <option
                 key={`${option.label}-${String(option.value)}-${index}`}
@@ -497,12 +472,8 @@ export function WorkflowSelectWidget(props: FormWidgetProps) {
   const label = props.node.label ?? props.node.id;
   const options = selectOptionsForWidget(props);
   const hasEmptyOption = options.some((option) => String(option.value) === '');
-  const placeholder =
-    props.node.placeholder ?? props.messages.selectPlaceholder;
-  const value =
-    props.value === undefined || props.value === null
-      ? ''
-      : String(props.value);
+  const placeholder = props.node.placeholder ?? props.messages.selectPlaceholder;
+  const value = props.value === undefined || props.value === null ? '' : String(props.value);
   return (
     <SelectControl
       id={props.id}
@@ -519,9 +490,7 @@ export function WorkflowSelectWidget(props: FormWidgetProps) {
       onBlur={props.onBlur}
       onFocus={props.onFocus}
       onChange={(event) => {
-        const selected = options.find(
-          (option) => String(option.value) === event.target.value,
-        );
+        const selected = options.find((option) => String(option.value) === event.target.value);
         props.onChange(selected?.value ?? event.target.value);
       }}
     >
@@ -541,8 +510,7 @@ export function WorkflowSelectWidget(props: FormWidgetProps) {
 
 function selectOptionsForWidget(props: FormWidgetProps): UiOption[] {
   if (props.options.length > 0) return props.options;
-  if (props.node.options && props.node.options.length > 0)
-    return props.node.options;
+  if (props.node.options && props.node.options.length > 0) return props.node.options;
   const customOptions = props.node.customProps?.sourceOptions;
   if (Array.isArray(customOptions)) {
     const normalized = customOptions.flatMap((option) => {
@@ -554,8 +522,7 @@ function selectOptionsForWidget(props: FormWidgetProps): UiOption[] {
       ) {
         return [{ label: String(option ?? ''), value: option }];
       }
-      if (!option || typeof option !== 'object' || Array.isArray(option))
-        return [];
+      if (!option || typeof option !== 'object' || Array.isArray(option)) return [];
       const record = option as Record<string, JsonValue | undefined>;
       const value = Object.hasOwn(record, 'value')
         ? record.value
@@ -576,9 +543,7 @@ function selectOptionsForWidget(props: FormWidgetProps): UiOption[] {
     if (normalized.length > 0) return normalized;
   }
   const schemaValues =
-    props.schema?.type === 'array'
-      ? props.schema.items?.enum
-      : props.schema?.enum;
+    props.schema?.type === 'array' ? props.schema.items?.enum : props.schema?.enum;
   if (!schemaValues || schemaValues.length === 0) return [];
   return schemaValues.flatMap((value) => {
     if (
@@ -598,18 +563,14 @@ function TabsWidget(props: FormWidgetProps) {
     <div
       className="a3s-form-workflow-segments"
       role="radiogroup"
-      aria-label={
-        props.labelledBy ? undefined : (props.node.label ?? props.node.id)
-      }
+      aria-label={props.labelledBy ? undefined : (props.node.label ?? props.node.id)}
       aria-labelledby={props.labelledBy}
     >
       {props.options.map((option, index) => (
         <label
           className="btn"
           data-size="sm"
-          data-variant={
-            Object.is(props.value, option.value) ? 'secondary' : 'ghost'
-          }
+          data-variant={Object.is(props.value, option.value) ? 'secondary' : 'ghost'}
           key={`${option.label}-${String(option.value)}`}
         >
           <input
@@ -632,20 +593,17 @@ function TabsWidget(props: FormWidgetProps) {
 function SortableListWidget(props: FormWidgetProps) {
   const copy = workflowWidgetCopy(props.locale);
   const label = props.node.label ?? props.node.id;
-  const choices = sourceOptions(props);
+  const choices = namedOptions(sourceOptions(props));
   const selected = Array.isArray(props.value) ? props.value : [];
   const limit = sortableListLimit(props);
   const atLimit = limit !== undefined && selected.length >= limit;
   const configuredAddLabel =
-    props.node.customProps?.listAddLabel ??
-    props.node.customProps?.list_add_label;
+    props.node.customProps?.listAddLabel ?? props.node.customProps?.list_add_label;
   const addLabel =
     typeof configuredAddLabel === 'string' && configuredAddLabel.length > 0
       ? configuredAddLabel
       : copy.addOperation;
-  const selectedNames = new Set(
-    selected.flatMap((item) => optionName(item) ?? []),
-  );
+  const selectedNames = new Set(selected.flatMap((item) => optionName(item) ?? []));
   const available = choices.filter((option) => {
     const name = optionName(option);
     return name && !selectedNames.has(name);
@@ -671,7 +629,7 @@ function SortableListWidget(props: FormWidgetProps) {
                 data-size="sm"
                 data-variant="outline"
                 data-reorderable={reorderable || undefined}
-                key={name}
+                key={`${name}-${index}`}
               >
                 {reorderable && (
                   <span className="a3s-form-workflow-drag-mark">
@@ -707,9 +665,7 @@ function SortableListWidget(props: FormWidgetProps) {
                         data-size="icon-sm"
                         data-variant="ghost"
                         aria-label={copy.moveDown(name)}
-                        disabled={
-                          props.disabled || index === selected.length - 1
-                        }
+                        disabled={props.disabled || index === selected.length - 1}
                         onClick={() => move(index, 1)}
                       >
                         <DesignerIcon name="arrow-down" size={13} />
@@ -724,9 +680,7 @@ function SortableListWidget(props: FormWidgetProps) {
                     aria-label={copy.removeItem(name)}
                     disabled={props.disabled}
                     onClick={() =>
-                      props.onChange(
-                        selected.filter((_, itemIndex) => itemIndex !== index),
-                      )
+                      props.onChange(selected.filter((_, itemIndex) => itemIndex !== index))
                     }
                   >
                     <DesignerIcon name="close" size={13} />
@@ -739,7 +693,7 @@ function SortableListWidget(props: FormWidgetProps) {
       ) : (
         <p className="a3s-form-workflow-empty-control">{copy.noOperations}</p>
       )}
-      {available.length > 0 && (
+      {available.length > 0 ? (
         <SelectControl
           id={props.id}
           triggerId={props.id}
@@ -766,11 +720,13 @@ function SortableListWidget(props: FormWidgetProps) {
             ) : null;
           })}
         </SelectControl>
+      ) : (
+        <p className="a3s-form-workflow-empty-control" role="status">
+          {copy.noAvailableOperations}
+        </p>
       )}
       {limit !== undefined && (
-        <small role="status">
-          {copy.selectedCount(selected.length, limit)}
-        </small>
+        <small role="status">{copy.selectedCount(selected.length, limit)}</small>
       )}
     </div>
   );
@@ -780,43 +736,73 @@ function DurationWidget(props: FormWidgetProps) {
   const copy = workflowWidgetCopy(props.locale);
   const label = props.node.label ?? props.node.id;
   const value =
-    props.value &&
-    typeof props.value === 'object' &&
-    !Array.isArray(props.value)
+    props.value && typeof props.value === 'object' && !Array.isArray(props.value)
       ? props.value
       : ({} as JsonObject);
   const amount = typeof value.value === 'number' ? value.value : 0;
-  const units = sourceOptions(props).filter(
-    (unit): unit is string => typeof unit === 'string',
+  const units = sourceOptions(props).filter((unit): unit is string => typeof unit === 'string');
+  const defaultUnits = ['Seconds', 'Minutes', 'Hours', 'Days'];
+  const unit = typeof value.unit === 'string' ? value.unit : (units[0] ?? defaultUnits[0]);
+  const unitOptions = [...new Set(units.length > 0 ? units : defaultUnits)];
+  if (!unitOptions.includes(unit)) unitOptions.unshift(unit);
+  const amountSchema = props.schema?.properties?.value ?? props.schema;
+  const minimum = finiteNumber(amountSchema?.minimum) ?? 0;
+  const rawMaximum = finiteNumber(amountSchema?.maximum);
+  const maximum = rawMaximum === undefined ? undefined : Math.max(minimum, rawMaximum);
+  const schemaStep = finiteNumber(amountSchema?.multipleOf);
+  const customStep = finiteNumber(props.node.customProps?.step);
+  const step =
+    schemaStep !== undefined && schemaStep > 0
+      ? schemaStep
+      : customStep !== undefined && customStep > 0
+        ? customStep
+        : amountSchema?.type === 'integer'
+          ? 1
+          : undefined;
+  const boundedAmount = normalizeNumber(
+    Math.max(minimum, maximum === undefined ? amount : Math.min(maximum, amount)),
+    step,
   );
-  const unit =
-    typeof value.unit === 'string' ? value.unit : (units[0] ?? 'Seconds');
   return (
     <div className="a3s-form-workflow-duration input-group">
       <input
         id={props.id}
         className="input"
         type="number"
-        min={0}
-        value={amount}
+        min={minimum}
+        max={maximum}
+        step={step}
+        value={boundedAmount}
         disabled={props.disabled}
+        required={props.required}
+        aria-invalid={props.invalid || undefined}
+        aria-describedby={props.describedBy}
         aria-label={copy.durationValue(label)}
-        onChange={(event) =>
-          props.onChange({ value: event.target.valueAsNumber || 0, unit })
-        }
+        onChange={(event) => {
+          const next = event.target.value;
+          const parsed = next === '' ? minimum : Number(next);
+          props.onChange({
+            value: normalizeNumber(Number.isFinite(parsed) ? parsed : minimum, step),
+            unit,
+          });
+        }}
+        onBlur={props.onBlur}
+        onFocus={props.onFocus}
       />
       <SelectControl
+        id={`${props.id}-unit`}
+        triggerId={`${props.id}-unit`}
+        name={`${props.id}-unit`}
         aria-label={copy.durationUnit(label)}
         value={unit}
         disabled={props.disabled}
-        onChange={(event) =>
-          props.onChange({ value: amount, unit: event.target.value })
-        }
+        aria-describedby={props.describedBy}
+        aria-invalid={props.invalid || undefined}
+        onBlur={props.onBlur}
+        onFocus={props.onFocus}
+        onChange={(event) => props.onChange({ value: boundedAmount, unit: event.target.value })}
       >
-        {(units.length > 0
-          ? units
-          : ['Seconds', 'Minutes', 'Hours', 'Days']
-        ).map((candidate) => (
+        {unitOptions.map((candidate) => (
           <option value={candidate} key={candidate}>
             {workflowDurationUnitLabel(candidate, props.locale)}
           </option>
@@ -830,17 +816,32 @@ function ActionPickerWidget(props: FormWidgetProps) {
   const copy = workflowWidgetCopy(props.locale);
   const values = stringArray(props.value);
   const [draft, setDraft] = useState('');
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const limit = sortableListLimit(props);
+  const atLimit = limit !== undefined && values.length >= limit;
   const add = () => {
     const value = draft.trim();
-    if (!value || values.includes(value)) return;
+    if (!value) {
+      setFeedback(copy.emptyDecision);
+      return;
+    }
+    if (atLimit) {
+      setFeedback(copy.decisionLimit(limit ?? values.length));
+      return;
+    }
+    if (values.includes(value)) {
+      setFeedback(copy.duplicateDecision);
+      return;
+    }
     props.onChange([...values, value]);
     setDraft('');
+    setFeedback(null);
   };
   return (
     <div className="a3s-form-workflow-actions-editor">
       <div className="item-group">
-        {values.map((value) => (
-          <span className="badge" data-variant="secondary" key={value}>
+        {values.map((value, index) => (
+          <span className="badge" data-variant="secondary" key={`${value}-${index}`}>
             {value}
             <button
               type="button"
@@ -850,9 +851,7 @@ function ActionPickerWidget(props: FormWidgetProps) {
               aria-label={copy.removeItem(value)}
               disabled={props.disabled}
               onClick={() =>
-                props.onChange(
-                  values.filter((candidate) => candidate !== value),
-                )
+                props.onChange(values.filter((_, candidateIndex) => candidateIndex !== index))
               }
             >
               <DesignerIcon name="close" size={11} />
@@ -865,7 +864,8 @@ function ActionPickerWidget(props: FormWidgetProps) {
           id={props.id}
           className="input"
           value={draft}
-          disabled={props.disabled}
+          disabled={props.disabled || atLimit}
+          aria-invalid={feedback ? 'true' : undefined}
           placeholder={copy.decisionPlaceholder}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
@@ -879,12 +879,20 @@ function ActionPickerWidget(props: FormWidgetProps) {
           className="btn"
           data-size="sm"
           data-variant="secondary"
-          disabled={props.disabled || !draft.trim()}
+          disabled={props.disabled || atLimit || !draft.trim()}
           onClick={add}
         >
           {copy.addDecision}
         </button>
       </div>
+      {limit !== undefined && (
+        <small role="status">{copy.selectedCount(values.length, limit)}</small>
+      )}
+      {feedback && (
+        <small role="status" aria-live="polite">
+          {feedback}
+        </small>
+      )}
     </div>
   );
 }
@@ -898,21 +906,15 @@ function configuredControlWidget(props: FormWidgetProps): string {
   const normalizedConfigured = normalizeWorkflowControlWidget(configured);
   if (normalizedConfigured) return normalizedConfigured;
 
-  const normalizedNodeWidget = normalizeWorkflowControlWidget(
-    props.node.widget,
-  );
+  const normalizedNodeWidget = normalizeWorkflowControlWidget(props.node.widget);
   if (normalizedNodeWidget === 'select') return 'select';
 
   // A standalone FormDocument may omit Flow's customProps while still
   // carrying an enum schema or a non-empty option list. Options are the
   // semantic source of truth at this boundary.
-  const nodeOptions = Array.isArray(props.node.options)
-    ? props.node.options
-    : [];
+  const nodeOptions = Array.isArray(props.node.options) ? props.node.options : [];
   const schemaOptions =
-    props.schema?.type === 'array'
-      ? props.schema.items?.enum
-      : props.schema?.enum;
+    props.schema?.type === 'array' ? props.schema.items?.enum : props.schema?.enum;
   const customOptions = Array.isArray(props.node.customProps?.sourceOptions)
     ? props.node.customProps.sourceOptions
     : [];
@@ -922,9 +924,7 @@ function configuredControlWidget(props: FormWidgetProps): string {
     customOptions.length > 0 ||
     props.options.length > 0;
   if (hasOptions || normalizedNodeWidget === 'select') {
-    return props.schema?.type === 'array' || Array.isArray(props.value)
-      ? 'multi-select'
-      : 'select';
+    return props.schema?.type === 'array' || Array.isArray(props.value) ? 'multi-select' : 'select';
   }
   return 'text';
 }
@@ -959,9 +959,7 @@ function isKnownParameterControl(widget: string): boolean {
   return (
     NATIVE_WIDGET_KEYS.has(normalized) ||
     normalized === 'select' ||
-    Object.values(WORKFLOW_CONFIGURATION_WIDGETS).some(
-      (candidate) => candidate === normalized,
-    )
+    Object.values(WORKFLOW_CONFIGURATION_WIDGETS).some((candidate) => candidate === normalized)
   );
 }
 
@@ -1001,12 +999,7 @@ function parameterControl(
     case 'select':
       return <WorkflowSelectWidget {...props} />;
     default:
-      return (
-        <NativeWidget
-          {...props}
-          node={{ ...props.node, widget: normalizedWidget }}
-        />
-      );
+      return <NativeWidget {...props} node={{ ...props.node, widget: normalizedWidget }} />;
   }
 }
 
@@ -1023,9 +1016,7 @@ function ParameterWidget(
   return (
     <div
       className="a3s-form-workflow-parameter-control"
-      data-a3s-flow-widget-fallback={
-        isKnownParameterControl(widget) ? undefined : widget
-      }
+      data-a3s-flow-widget-fallback={isKnownParameterControl(widget) ? undefined : widget}
       data-control-widget={widget}
     >
       <RealTimeRefreshEffect props={props} callbacks={callbacks} />
@@ -1040,15 +1031,10 @@ export function createWorkflowConfigurationWidgetRegistry(
 ): FormWidgetRegistry {
   return {
     ...Object.fromEntries(
-      WORKFLOW_SELECT_WIDGET_ALIASES.map((alias) => [
-        alias,
-        WorkflowSelectWidget,
-      ]),
+      WORKFLOW_SELECT_WIDGET_ALIASES.map((alias) => [alias, WorkflowSelectWidget]),
     ),
-    [WORKFLOW_CONFIGURATION_WIDGETS.connection]: (props) =>
-      ConnectionWidget(props, callbacks),
-    [WORKFLOW_CONFIGURATION_WIDGETS.parameter]: (props) =>
-      ParameterWidget(props, callbacks),
+    [WORKFLOW_CONFIGURATION_WIDGETS.connection]: (props) => ConnectionWidget(props, callbacks),
+    [WORKFLOW_CONFIGURATION_WIDGETS.parameter]: (props) => ParameterWidget(props, callbacks),
     [WORKFLOW_CONFIGURATION_WIDGETS.model]: (props) =>
       ParameterWidget(props, callbacks, WORKFLOW_CONFIGURATION_WIDGETS.model),
     [WORKFLOW_CONFIGURATION_WIDGETS.file]: (props) =>
@@ -1062,33 +1048,16 @@ export function createWorkflowConfigurationWidgetRegistry(
     [WORKFLOW_CONFIGURATION_WIDGETS.tabs]: (props) =>
       ParameterWidget(props, callbacks, WORKFLOW_CONFIGURATION_WIDGETS.tabs),
     [WORKFLOW_CONFIGURATION_WIDGETS.sortableList]: (props) =>
-      ParameterWidget(
-        props,
-        callbacks,
-        WORKFLOW_CONFIGURATION_WIDGETS.sortableList,
-      ),
+      ParameterWidget(props, callbacks, WORKFLOW_CONFIGURATION_WIDGETS.sortableList),
     [WORKFLOW_CONFIGURATION_WIDGETS.duration]: (props) =>
-      ParameterWidget(
-        props,
-        callbacks,
-        WORKFLOW_CONFIGURATION_WIDGETS.duration,
-      ),
+      ParameterWidget(props, callbacks, WORKFLOW_CONFIGURATION_WIDGETS.duration),
     [WORKFLOW_CONFIGURATION_WIDGETS.actionPicker]: (props) =>
-      ParameterWidget(
-        props,
-        callbacks,
-        WORKFLOW_CONFIGURATION_WIDGETS.actionPicker,
-      ),
+      ParameterWidget(props, callbacks, WORKFLOW_CONFIGURATION_WIDGETS.actionPicker),
     [WORKFLOW_CONFIGURATION_WIDGETS.mcp]: (props) =>
       ParameterWidget(props, callbacks, WORKFLOW_CONFIGURATION_WIDGETS.mcp),
     [WORKFLOW_CONFIGURATION_WIDGETS.dataDisplay]: (props) =>
-      ParameterWidget(
-        props,
-        callbacks,
-        WORKFLOW_CONFIGURATION_WIDGETS.dataDisplay,
-      ),
+      ParameterWidget(props, callbacks, WORKFLOW_CONFIGURATION_WIDGETS.dataDisplay),
   };
 }
 
-export const workflowConfigurationWidgetRegistry =
-  createWorkflowConfigurationWidgetRegistry();
+export const workflowConfigurationWidgetRegistry = createWorkflowConfigurationWidgetRegistry();
