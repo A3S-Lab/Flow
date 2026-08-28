@@ -626,6 +626,17 @@
   align-items: end;
 }
 
+.a3s-form-flow-node-panel .a3s-form-workflow-dify {
+  gap: 6px;
+  padding: 7px;
+}
+
+.a3s-form-flow-node-panel .a3s-form-workflow-dify-rows > li,
+.a3s-form-flow-node-panel .a3s-form-workflow-dify-condition-list > li {
+  gap: 6px;
+  padding: 7px;
+}
+
 .a3s-form-workflow-dify-condition-list > li > button {
   width: fit-content;
 }

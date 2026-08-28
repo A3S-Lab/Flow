@@ -303,6 +303,7 @@ export function WorkflowPlaygroundInspector({
           onReset={onNodeChange}
           onRun={() => onRunNode(selectedNode.id)}
           registry={registry}
+          showDocumentation={false}
         />
       )}
 
