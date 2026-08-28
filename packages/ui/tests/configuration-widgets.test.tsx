@@ -1,12 +1,5 @@
 import { createElement, useState } from 'react';
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { resolveFormLocaleCatalog } from '@a3s-lab/ui/form/core';
 import type { FormWidgetProps } from '@a3s-lab/ui/form/react';
 import {
@@ -19,7 +12,12 @@ import {
   WorkflowFieldAccessory,
 } from '../src/react/workflow-configuration-widgets';
 import { WorkflowCodeEditor } from '../src/react/workflow-code-editor';
-import { WorkflowPromptWidget } from '../src/react/workflow-configuration-editors';
+import {
+  WorkflowFileWidget,
+  WorkflowJsonWidget,
+  WorkflowPromptWidget,
+  WorkflowSliderWidget,
+} from '../src/react/workflow-configuration-editors';
 import { SelectControl } from '../src/react/select-control';
 
 const conditionField = {
@@ -29,9 +27,7 @@ const conditionField = {
   customProps: { inputTypes: ['FlowValue'] },
 };
 
-function widgetProps(
-  overrides: Partial<FormWidgetProps> = {},
-): FormWidgetProps {
+function widgetProps(overrides: Partial<FormWidgetProps> = {}): FormWidgetProps {
   return {
     id: 'workflow-control',
     node: conditionField,
@@ -59,18 +55,14 @@ describe('workflow configuration widgets', () => {
     const root = view.container.querySelector('.a3s-flow-select-control');
     const trigger = screen.getByRole('combobox', { name: 'Run mode' });
 
-    await waitFor(() =>
-      expect(root?.getAttribute('data-select-initialized')).toBe('true'),
-    );
+    await waitFor(() => expect(root?.getAttribute('data-select-initialized')).toBe('true'));
     expect(root?.getAttribute('data-a3s-components')).toContain('select');
     expect(root?.querySelector('select')).toBeNull();
     fireEvent.click(trigger);
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
 
     fireEvent.click(screen.getByRole('option', { name: 'Local' }));
-    expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ target: { value: 'local' } }),
-    );
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ target: { value: 'local' } }));
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
     view.unmount();
   });
@@ -99,29 +91,19 @@ describe('workflow configuration widgets', () => {
         </optgroup>
       </SelectControl>,
     );
-    const root = view.container.querySelector<HTMLElement>(
-      "[data-testid='execution-select']",
-    );
-    await waitFor(() =>
-      expect(root?.getAttribute('data-select-initialized')).toBe('true'),
-    );
+    const root = view.container.querySelector<HTMLElement>("[data-testid='execution-select']");
+    await waitFor(() => expect(root?.getAttribute('data-select-initialized')).toBe('true'));
 
     expect(root?.querySelector('select')).toBeNull();
     expect(root?.getAttribute('data-a3s-form-path')).toBe('settings.mode');
-    expect(root?.querySelector("[data-value='safe']")?.textContent).toBe(
-      'Safe mode',
+    expect(root?.querySelector("[data-value='safe']")?.textContent).toBe('Safe mode');
+    expect(root?.querySelector("[data-value='legacy']")?.getAttribute('aria-disabled')).toBe(
+      'true',
     );
-    expect(
-      root
-        ?.querySelector("[data-value='legacy']")
-        ?.getAttribute('aria-disabled'),
-    ).toBe('true');
-    expect(root?.querySelector("[data-value='fallback']")?.textContent).toBe(
-      'Fallback label',
+    expect(root?.querySelector("[data-value='fallback']")?.textContent).toBe('Fallback label');
+    expect((root?.querySelector("input[type='hidden']") as HTMLInputElement)?.name).toBe(
+      'settings.mode',
     );
-    expect(
-      (root?.querySelector("input[type='hidden']") as HTMLInputElement)?.name,
-    ).toBe('settings.mode');
     view.unmount();
   });
 
@@ -137,13 +119,9 @@ describe('workflow configuration widgets', () => {
         <button type="button">Outside</button>
       </div>,
     );
-    const root = view.container.querySelector<HTMLElement>(
-      '.a3s-flow-select-control',
-    );
+    const root = view.container.querySelector<HTMLElement>('.a3s-flow-select-control');
     const trigger = screen.getByRole('combobox', { name: 'Mode' });
-    await waitFor(() =>
-      expect(root?.getAttribute('data-select-initialized')).toBe('true'),
-    );
+    await waitFor(() => expect(root?.getAttribute('data-select-initialized')).toBe('true'));
 
     fireEvent.keyDown(trigger, { key: 'ArrowDown' });
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
@@ -176,18 +154,10 @@ describe('workflow configuration widgets', () => {
         <option value="fast">Fast</option>
       </SelectControl>,
     );
-    const root = view.container.querySelector<HTMLElement>(
-      '.a3s-flow-select-control',
-    );
-    await waitFor(() =>
-      expect(root?.getAttribute('data-select-initialized')).toBe('true'),
-    );
-    expect(
-      screen.getByRole('combobox', { name: 'Policy' }).textContent,
-    ).toContain('Safe');
-    expect(
-      (root?.querySelector("input[type='hidden']") as HTMLInputElement)?.value,
-    ).toBe('safe');
+    const root = view.container.querySelector<HTMLElement>('.a3s-flow-select-control');
+    await waitFor(() => expect(root?.getAttribute('data-select-initialized')).toBe('true'));
+    expect(screen.getByRole('combobox', { name: 'Policy' }).textContent).toContain('Safe');
+    expect((root?.querySelector("input[type='hidden']") as HTMLInputElement)?.value).toBe('safe');
     view.unmount();
   });
 
@@ -198,14 +168,11 @@ describe('workflow configuration widgets', () => {
         <option value="safe">Safe</option>
       </SelectControl>,
     );
-    const placeholderRoot =
-      placeholderView.container.querySelector<HTMLElement>(
-        '.a3s-flow-select-control',
-      );
+    const placeholderRoot = placeholderView.container.querySelector<HTMLElement>(
+      '.a3s-flow-select-control',
+    );
     await waitFor(() =>
-      expect(placeholderRoot?.getAttribute('data-select-initialized')).toBe(
-        'true',
-      ),
+      expect(placeholderRoot?.getAttribute('data-select-initialized')).toBe('true'),
     );
     expect(placeholderRoot?.dataset.valueEmpty).toBe('false');
     expect(placeholderRoot?.hasAttribute('data-placeholder')).toBe(true);
@@ -221,9 +188,7 @@ describe('workflow configuration widgets', () => {
       '.a3s-flow-select-control',
     );
     await waitFor(() =>
-      expect(emptyValueRoot?.getAttribute('data-select-initialized')).toBe(
-        'true',
-      ),
+      expect(emptyValueRoot?.getAttribute('data-select-initialized')).toBe('true'),
     );
     expect(emptyValueRoot?.hasAttribute('data-placeholder')).toBe(false);
     expect(
@@ -231,11 +196,9 @@ describe('workflow configuration widgets', () => {
         name: 'Clear mode',
       }).textContent,
     ).toContain('Clear selection');
-    expect(
-      emptyValueRoot
-        ?.querySelector("[data-value='']")
-        ?.getAttribute('aria-selected'),
-    ).toBe('true');
+    expect(emptyValueRoot?.querySelector("[data-value='']")?.getAttribute('aria-selected')).toBe(
+      'true',
+    );
     emptyValueView.unmount();
   });
 
@@ -243,30 +206,21 @@ describe('workflow configuration widgets', () => {
     const view = render(
       <label htmlFor="field-mode">
         Mode
-        <SelectControl
-          aria-label="Mode"
-          id="field-mode"
-          triggerId="field-mode"
-          value="safe"
-        >
+        <SelectControl aria-label="Mode" id="field-mode" triggerId="field-mode" value="safe">
           <option value="safe">Safe</option>
           <option value="fast">Fast</option>
         </SelectControl>
       </label>,
     );
-    const root = view.container.querySelector<HTMLElement>(
-      '.a3s-flow-select-control',
-    );
+    const root = view.container.querySelector<HTMLElement>('.a3s-flow-select-control');
     const trigger = screen.getByRole('combobox', { name: 'Mode' });
-    await waitFor(() =>
-      expect(root?.getAttribute('data-select-initialized')).toBe('true'),
-    );
+    await waitFor(() => expect(root?.getAttribute('data-select-initialized')).toBe('true'));
     expect(root?.id).toBe('field-mode-root');
     expect(trigger.id).toBe('field-mode');
     expect(view.container.querySelectorAll('#field-mode')).toHaveLength(1);
-    expect(
-      (root?.querySelector("input[type='hidden']") as HTMLInputElement)?.name,
-    ).toBe('field-mode-root-value');
+    expect((root?.querySelector("input[type='hidden']") as HTMLInputElement)?.name).toBe(
+      'field-mode-root-value',
+    );
     trigger.focus();
     expect(document.activeElement).toBe(trigger);
     view.unmount();
@@ -279,11 +233,7 @@ describe('workflow configuration widgets', () => {
         <SelectControl aria-label="Disabled mode" disabled value="safe">
           <option value="safe">Safe</option>
         </SelectControl>
-        <SelectControl
-          aria-label="Keyboard mode"
-          onChange={onChange}
-          value="safe"
-        >
+        <SelectControl aria-label="Keyboard mode" onChange={onChange} value="safe">
           <option disabled value="blocked">
             Blocked
           </option>
@@ -304,20 +254,12 @@ describe('workflow configuration widgets', () => {
     const keyboardTrigger = screen.getByRole('combobox', {
       name: 'Keyboard mode',
     });
-    await waitFor(() =>
-      expect(keyboardRoot?.getAttribute('data-select-initialized')).toBe(
-        'true',
-      ),
-    );
+    await waitFor(() => expect(keyboardRoot?.getAttribute('data-select-initialized')).toBe('true'));
     fireEvent.keyDown(keyboardTrigger, { key: 'ArrowDown' });
     fireEvent.keyDown(keyboardTrigger, { key: 'Home' });
-    expect(keyboardTrigger.getAttribute('aria-activedescendant')).toContain(
-      'option-2',
-    );
+    expect(keyboardTrigger.getAttribute('aria-activedescendant')).toContain('option-2');
     fireEvent.keyDown(keyboardTrigger, { key: 'ArrowUp' });
-    expect(keyboardTrigger.getAttribute('aria-activedescendant')).toContain(
-      'option-2',
-    );
+    expect(keyboardTrigger.getAttribute('aria-activedescendant')).toContain('option-2');
     fireEvent.keyDown(keyboardTrigger, { key: 'Escape' });
     expect(keyboardTrigger.getAttribute('aria-expanded')).toBe('false');
     expect(onChange).not.toHaveBeenCalled();
@@ -343,24 +285,17 @@ describe('workflow configuration widgets', () => {
         }),
       ),
     );
-    const root = view.container.querySelector<HTMLElement>(
-      '.a3s-flow-select-control',
-    );
-    await waitFor(() =>
-      expect(root?.getAttribute('data-select-initialized')).toBe('true'),
-    );
+    const root = view.container.querySelector<HTMLElement>('.a3s-flow-select-control');
+    await waitFor(() => expect(root?.getAttribute('data-select-initialized')).toBe('true'));
     expect(
-      within(view.container).getByRole('combobox', { name: 'Schema mode' })
-        .textContent,
+      within(view.container).getByRole('combobox', { name: 'Schema mode' }).textContent,
     ).toContain('safe');
     expect(view.container.querySelector('select')).toBeNull();
     const trigger = within(view.container).getByRole('combobox', {
       name: 'Schema mode',
     });
     fireEvent.click(trigger);
-    fireEvent.click(
-      within(view.container).getByRole('option', { name: 'fast' }),
-    );
+    fireEvent.click(within(view.container).getByRole('option', { name: 'fast' }));
     expect(onChange).toHaveBeenLastCalledWith('fast');
     view.unmount();
   });
@@ -388,23 +323,14 @@ describe('workflow configuration widgets', () => {
         }),
       ),
     );
-    const root = view.container.querySelector<HTMLElement>(
-      '.a3s-flow-select-control',
-    );
-    await waitFor(() =>
-      expect(root?.getAttribute('data-select-initialized')).toBe('true'),
-    );
+    const root = view.container.querySelector<HTMLElement>('.a3s-flow-select-control');
+    await waitFor(() => expect(root?.getAttribute('data-select-initialized')).toBe('true'));
     expect(root?.hasAttribute('data-placeholder')).toBe(false);
     expect(
-      within(view.container).getByRole('combobox', { name: 'Empty enum' })
-        .textContent,
+      within(view.container).getByRole('combobox', { name: 'Empty enum' }).textContent,
     ).toContain('Empty value');
-    fireEvent.click(
-      within(view.container).getByRole('combobox', { name: 'Empty enum' }),
-    );
-    fireEvent.click(
-      within(view.container).getByRole('option', { name: 'Named value' }),
-    );
+    fireEvent.click(within(view.container).getByRole('combobox', { name: 'Empty enum' }));
+    fireEvent.click(within(view.container).getByRole('option', { name: 'Named value' }));
     expect(onChange).toHaveBeenLastCalledWith('named');
     view.unmount();
   });
@@ -440,9 +366,7 @@ describe('workflow configuration widgets', () => {
       ),
     );
     await waitFor(() =>
-      expect(
-        view.container.querySelector('.a3s-flow-select-control'),
-      ).not.toBeNull(),
+      expect(view.container.querySelector('.a3s-flow-select-control')).not.toBeNull(),
     );
     expect(view.container.querySelector('select')).toBeNull();
     view.unmount();
@@ -465,9 +389,7 @@ describe('workflow configuration widgets', () => {
 
     const view = render(<StatefulSelect />);
     const root = view.container.querySelector('.a3s-flow-select-control');
-    await waitFor(() =>
-      expect(root?.getAttribute('data-select-initialized')).toBe('true'),
-    );
+    await waitFor(() => expect(root?.getAttribute('data-select-initialized')).toBe('true'));
     const trigger = screen.getByRole('combobox', { name: 'Run mode' });
     fireEvent.click(trigger);
     fireEvent.click(screen.getByRole('option', { name: 'Local' }));
@@ -505,17 +427,13 @@ describe('workflow configuration widgets', () => {
     expect(view.container.querySelector('select')).toBeNull();
     const root = view.container.querySelector('.a3s-flow-select-control');
     expect(root).not.toBeNull();
-    await waitFor(() =>
-      expect(root?.getAttribute('data-select-initialized')).toBe('true'),
-    );
+    await waitFor(() => expect(root?.getAttribute('data-select-initialized')).toBe('true'));
 
     const trigger = within(view.container).getByRole('combobox', {
       name: '评分策略',
     });
     fireEvent.click(trigger);
-    fireEvent.click(
-      within(view.container).getByRole('option', { name: '均衡策略 v2' }),
-    );
+    fireEvent.click(within(view.container).getByRole('option', { name: '均衡策略 v2' }));
     expect(onChange).toHaveBeenLastCalledWith('balanced-v2');
     view.unmount();
   });
@@ -532,9 +450,7 @@ describe('workflow configuration widgets', () => {
     );
 
     expect(screen.getByText('工作流输入')).toBeTruthy();
-    expect(
-      screen.getByRole('button', { name: '连接参与判断的值' }).textContent,
-    ).toContain('连接');
+    expect(screen.getByRole('button', { name: '连接参与判断的值' }).textContent).toContain('连接');
   });
 
   it('localizes editor disclosure controls for the Chinese panel', () => {
@@ -555,9 +471,7 @@ describe('workflow configuration widgets', () => {
 
     render(createElement(Widget, props));
 
-    expect(
-      screen.getByRole('button', { name: '展开参与判断的值编辑器' }),
-    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: '展开参与判断的值编辑器' })).toBeTruthy();
   });
 
   it('initializes the shared code editor with Chinese runtime labels', async () => {
@@ -575,20 +489,12 @@ describe('workflow configuration widgets', () => {
     );
     const editor = view.container.querySelector<HTMLElement>('.code-editor');
 
-    await waitFor(() =>
-      expect(editor?.dataset.codeEditorInitialized).toBe('true'),
-    );
+    await waitFor(() => expect(editor?.dataset.codeEditorInitialized).toBe('true'));
     expect(editor?.dataset.labelSaved).toBe('已保存');
     expect(editor?.dataset.labelReadonly).toBe('只读');
-    expect(editor?.querySelector('[data-code-editor-state]')?.textContent).toBe(
-      '已保存',
-    );
-    expect(editor?.querySelector('[data-code-editor-lines]')?.textContent).toBe(
-      '3 行',
-    );
-    expect(
-      editor?.querySelector('[data-code-editor-characters]')?.textContent,
-    ).toBe('14 个字符');
+    expect(editor?.querySelector('[data-code-editor-state]')?.textContent).toBe('已保存');
+    expect(editor?.querySelector('[data-code-editor-lines]')?.textContent).toBe('3 行');
+    expect(editor?.querySelector('[data-code-editor-characters]')?.textContent).toBe('14 个字符');
   });
 
   it('inserts an externally supplied upstream variable from the prompt keyboard menu', async () => {
@@ -626,16 +532,12 @@ describe('workflow configuration widgets', () => {
       },
     });
 
-    expect(
-      await screen.findByRole('listbox', { name: '变量智能感知' }),
-    ).toBeTruthy();
+    expect(await screen.findByRole('listbox', { name: '变量智能感知' })).toBeTruthy();
     expect(screen.getByText('$load-order.order_id')).toBeTruthy();
     fireEvent.keyDown(textarea, { key: 'Enter' });
 
     await waitFor(() =>
-      expect((textarea as HTMLTextAreaElement).value).toBe(
-        'Notify {{load-order.order_id}}',
-      ),
+      expect((textarea as HTMLTextAreaElement).value).toBe('Notify {{load-order.order_id}}'),
     );
     expect(screen.queryByRole('listbox')).toBeNull();
   });
@@ -697,11 +599,7 @@ describe('workflow configuration widgets', () => {
       }).textContent,
     ).toContain('分钟');
     expect(
-      (
-        duration.container.querySelector(
-          'input[type="hidden"]',
-        ) as HTMLInputElement
-      ).value,
+      (duration.container.querySelector('input[type="hidden"]') as HTMLInputElement).value,
     ).toBe('Minutes');
     duration.unmount();
 
@@ -739,10 +637,7 @@ describe('workflow configuration widgets', () => {
     file.unmount();
 
     const mcp = render(
-      createElement(
-        registry[WORKFLOW_CONFIGURATION_WIDGETS.mcp],
-        widgetProps({ value: null }),
-      ),
+      createElement(registry[WORKFLOW_CONFIGURATION_WIDGETS.mcp], widgetProps({ value: null })),
     );
     expect(within(mcp.container).getByText('MCP 服务')).toBeTruthy();
     expect(within(mcp.container).getByText('尚未配置')).toBeTruthy();
@@ -754,17 +649,182 @@ describe('workflow configuration widgets', () => {
         widgetProps({ value: undefined }),
       ),
     );
-    expect(
-      (within(data.container).getByRole('textbox') as HTMLTextAreaElement)
-        .value,
-    ).toBe('暂无数据。');
+    expect((within(data.container).getByRole('textbox') as HTMLTextAreaElement).value).toBe(
+      '暂无数据。',
+    );
     data.unmount();
   });
 
+  it('validates file extensions, preserves valid selections, and exposes removal controls', () => {
+    const onChange = vi.fn();
+    const node = {
+      ...conditionField,
+      label: '申报材料',
+      customProps: { fileTypes: ['PDF', '.png'] },
+    };
+    const view = render(
+      <WorkflowFileWidget
+        {...widgetProps({
+          node,
+          schema: { type: 'array' },
+          value: ['existing.pdf'],
+          onChange,
+        })}
+      />,
+    );
+    const input = view.container.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input.accept).toBe('.pdf,.png');
+
+    const invalid = new File(['toml'], 'Cargo.toml', { type: 'text/plain' });
+    fireEvent.change(input, { target: { files: [invalid] } });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(view.container.querySelector('[role="alert"]')?.textContent).toContain('Cargo.toml');
+
+    const valid = new File(['pdf'], 'new.PDF', { type: 'application/pdf' });
+    fireEvent.change(input, { target: { files: [valid] } });
+    expect(onChange).toHaveBeenLastCalledWith(['new.PDF']);
+
+    view.rerender(
+      <WorkflowFileWidget
+        {...widgetProps({
+          node,
+          schema: { type: 'array' },
+          value: ['new.PDF'],
+          onChange,
+        })}
+      />,
+    );
+    fireEvent.click(view.getByRole('button', { name: '移除文件new.PDF' }));
+    expect(onChange).toHaveBeenLastCalledWith([]);
+    view.unmount();
+  });
+
+  it('normalizes slider values before exposing or storing them', () => {
+    const onChange = vi.fn();
+    const view = render(
+      <WorkflowSliderWidget
+        {...widgetProps({
+          node: { ...conditionField, label: '人工复核阈值', customProps: {} },
+          schema: { type: 'number', minimum: 0, maximum: 1, multipleOf: 0.01 },
+          value: 0.7799999713897705,
+          onChange,
+        })}
+      />,
+    );
+    const slider = view.getByRole('slider', {
+      name: '人工复核阈值',
+    }) as HTMLInputElement;
+    expect(slider.value).toBe('0.78');
+    expect(slider.getAttribute('aria-valuetext')).toContain('0.78');
+    fireEvent.change(slider, { target: { value: '0.7799999713897705' } });
+    expect(onChange).toHaveBeenLastCalledWith(0.78);
+    view.unmount();
+  });
+
+  it('reports action-picker duplicates and enforces a declared limit', () => {
+    const onChange = vi.fn();
+    const registry = createWorkflowConfigurationWidgetRegistry();
+    const Widget = registry[WORKFLOW_CONFIGURATION_WIDGETS.actionPicker];
+    const node = {
+      ...conditionField,
+      label: '审核结论',
+      customProps: { maxItems: 2 },
+    };
+    const view = render(createElement(Widget, widgetProps({ node, value: ['clear'], onChange })));
+    const input = view.container.querySelector('input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'clear' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(
+      view.getAllByRole('status').some((status) => status.textContent?.includes('该决策已添加')),
+    ).toBe(true);
+
+    fireEvent.change(input, { target: { value: 'manual_review' } });
+    fireEvent.click(view.getByRole('button', { name: '添加' }));
+    expect(onChange).toHaveBeenLastCalledWith(['clear', 'manual_review']);
+
+    view.rerender(
+      createElement(Widget, widgetProps({ node, value: ['clear', 'manual_review'], onChange })),
+    );
+    expect((view.container.querySelector('input') as HTMLInputElement).disabled).toBe(true);
+    expect(view.container.querySelector('[role="status"]')?.textContent).toContain('2/2');
+    view.unmount();
+  });
+
+  it('keeps sortable lists stable with duplicate values and empty choices', () => {
+    const registry = createWorkflowConfigurationWidgetRegistry();
+    const Widget = registry[WORKFLOW_CONFIGURATION_WIDGETS.sortableList];
+    const view = render(
+      createElement(
+        Widget,
+        widgetProps({
+          node: {
+            ...conditionField,
+            label: '收件人来源',
+            customProps: { sourceOptions: [] },
+          },
+          value: [],
+        }),
+      ),
+    );
+    expect(view.container.querySelectorAll('.a3s-form-workflow-empty-control')).toHaveLength(2);
+    view.rerender(
+      createElement(
+        Widget,
+        widgetProps({
+          node: {
+            ...conditionField,
+            label: '收件人来源',
+            customProps: {
+              sourceOptions: [{ name: 'email' }, { name: 'email' }],
+            },
+          },
+          value: [{ name: 'email' }, { name: 'email' }],
+        }),
+      ),
+    );
+    expect(view.container.querySelectorAll('ol > li')).toHaveLength(2);
+    expect(view.container.querySelectorAll('ol > li button')).toHaveLength(6);
+    view.unmount();
+  });
+
+  it('exposes duration constraints and treats an empty MCP object as unconfigured', () => {
+    const registry = createWorkflowConfigurationWidgetRegistry();
+    const duration = render(
+      createElement(
+        registry[WORKFLOW_CONFIGURATION_WIDGETS.duration],
+        widgetProps({
+          node: {
+            ...conditionField,
+            label: '保留时长',
+            customProps: { sourceOptions: ['Minutes', 'Hours'] },
+          },
+          schema: {
+            type: 'object',
+            properties: {
+              value: { type: 'number', minimum: 5, maximum: 30, multipleOf: 5 },
+            },
+          },
+          value: { value: 10, unit: 'Minutes' },
+        }),
+      ),
+    );
+    const amount = duration.getByRole('spinbutton', {
+      name: '保留时长数值',
+    }) as HTMLInputElement;
+    expect(amount.min).toBe('5');
+    expect(amount.max).toBe('30');
+    expect(amount.step).toBe('5');
+    duration.unmount();
+
+    const mcp = render(
+      createElement(registry[WORKFLOW_CONFIGURATION_WIDGETS.mcp], widgetProps({ value: {} })),
+    );
+    expect(mcp.getByText('尚未配置')).toBeTruthy();
+    mcp.unmount();
+  });
+
   it('can unmount code editors before their asynchronous runtime settles', async () => {
-    const consoleError = vi
-      .spyOn(console, 'error')
-      .mockImplementation(() => {});
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const unhandled = vi.fn();
     window.addEventListener('unhandledrejection', unhandled);
 

@@ -87,7 +87,13 @@ export function filterA3SFlowExpressionVariables(
   if (!normalized) return [...variables];
   const terms = normalized.split(/\s+/u).filter(Boolean);
   return variables.filter((variable) => {
-    const haystack = [variable.path, variable.label, variable.description, variable.dataType, variable.nodeId]
+    const haystack = [
+      variable.path,
+      variable.label,
+      variable.description,
+      variable.dataType,
+      variable.nodeId,
+    ]
       .filter(Boolean)
       .join(' ')
       .toLocaleLowerCase();
@@ -130,9 +136,15 @@ export function VariableSuggestionList({
   variables: readonly A3SFlowExpressionVariable[];
 }) {
   const chinese = isChinese(locale);
-  const filtered = useMemo(() => filterA3SFlowExpressionVariables(variables, query), [query, variables]);
+  const filtered = useMemo(
+    () => filterA3SFlowExpressionVariables(variables, query),
+    [query, variables],
+  );
   const grouped = useMemo(() => {
-    const groups = new Map<A3SFlowExpressionVariableGroup, { index: number; variable: A3SFlowExpressionVariable }[]>();
+    const groups = new Map<
+      A3SFlowExpressionVariableGroup,
+      { index: number; variable: A3SFlowExpressionVariable }[]
+    >();
     filtered.forEach((variable, index) => {
       const entries = groups.get(variable.group) ?? [];
       entries.push({ index, variable });
@@ -192,7 +204,10 @@ export function useVariableSuggestionState(variables: readonly A3SFlowExpression
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
-  const filtered = useMemo(() => filterA3SFlowExpressionVariables(variables, query), [query, variables]);
+  const filtered = useMemo(
+    () => filterA3SFlowExpressionVariables(variables, query),
+    [query, variables],
+  );
 
   useEffect(() => setActiveIndex(0), [query]);
 
@@ -254,7 +269,8 @@ function useOutsideDismiss(ref: RefObject<HTMLElement | null>, open: boolean, on
   }, [onClose, open, ref]);
 }
 
-export interface VariableReferenceInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'> {
+export interface VariableReferenceInputProps
+  extends Omit<InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'> {
   locale: string;
   onPathChange: (path: string) => void;
   path: string;
@@ -337,10 +353,8 @@ export function VariableReferenceInput({
   );
 }
 
-export interface VariableTemplateTextareaProps extends Omit<
-  TextareaHTMLAttributes<HTMLTextAreaElement>,
-  'onChange' | 'value'
-> {
+export interface VariableTemplateTextareaProps
+  extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'onChange' | 'value'> {
   locale: string;
   onValueChange: (value: string) => void;
   value: string;
@@ -359,20 +373,40 @@ export function VariableTemplateTextarea({
   const rootRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const markerRef = useRef<number | undefined>(undefined);
+  const selectionRef = useRef<{ start: number; end: number } | null>(null);
   const state = useVariableSuggestionState(variables);
   useOutsideDismiss(rootRef, state.open, state.close);
 
+  const rememberSelection = (textarea = textareaRef.current) => {
+    if (!textarea) return;
+    selectionRef.current = {
+      start: textarea.selectionStart,
+      end: textarea.selectionEnd,
+    };
+  };
+
   const choose = (variable: A3SFlowExpressionVariable) => {
     const textarea = textareaRef.current;
-    const caret = textarea?.selectionStart ?? value.length;
-    const end = textarea?.selectionEnd ?? caret;
+    const activeSelection =
+      textarea && document.activeElement === textarea
+        ? {
+            start: textarea.selectionStart,
+            end: textarea.selectionEnd,
+          }
+        : undefined;
+    const selection = selectionRef.current ?? activeSelection;
+    const caret = selection?.start ?? value.length;
+    const end = selection?.end ?? caret;
     const start = markerRef.current ?? caret;
+    const boundedStart = Math.max(0, Math.min(value.length, start));
+    const boundedEnd = Math.max(boundedStart, Math.min(value.length, Math.max(end, boundedStart)));
     const replacement = `{{${variable.path}}}`;
-    onValueChange(`${value.slice(0, start)}${replacement}${value.slice(end)}`);
+    onValueChange(`${value.slice(0, boundedStart)}${replacement}${value.slice(boundedEnd)}`);
     markerRef.current = undefined;
     state.close();
     requestAnimationFrame(() => {
-      const nextCaret = start + replacement.length;
+      const nextCaret = boundedStart + replacement.length;
+      selectionRef.current = { start: nextCaret, end: nextCaret };
       textareaRef.current?.focus();
       textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
     });
@@ -390,6 +424,10 @@ export function VariableTemplateTextarea({
           const next = event.target.value;
           onValueChange(next);
           const caret = event.target.selectionStart ?? next.length;
+          selectionRef.current = {
+            start: caret,
+            end: event.target.selectionEnd ?? caret,
+          };
           const marker = next.lastIndexOf('$', Math.max(0, caret - 1));
           const query = marker >= 0 ? next.slice(marker + 1, caret) : '';
           if (marker >= 0 && /^[\w.-]*$/u.test(query)) {
@@ -401,9 +439,29 @@ export function VariableTemplateTextarea({
             state.close();
           }
         }}
+        onBlur={(event) => {
+          rememberSelection(event.currentTarget);
+          props.onBlur?.(event);
+        }}
+        onClick={(event) => {
+          rememberSelection(event.currentTarget);
+          props.onClick?.(event);
+        }}
+        onFocus={(event) => {
+          rememberSelection(event.currentTarget);
+          props.onFocus?.(event);
+        }}
         onKeyDown={(event) => {
           if (state.handleKeyDown(event, choose)) return;
           props.onKeyDown?.(event);
+        }}
+        onKeyUp={(event) => {
+          rememberSelection(event.currentTarget);
+          props.onKeyUp?.(event);
+        }}
+        onSelect={(event) => {
+          rememberSelection(event.currentTarget);
+          props.onSelect?.(event);
         }}
         ref={textareaRef}
         value={value}
@@ -412,6 +470,13 @@ export function VariableTemplateTextarea({
         aria-label={isChinese(locale) ? '插入变量' : 'Insert variable'}
         className="a3s-flow-variable-textarea__trigger"
         disabled={props.disabled}
+        onMouseDown={(event) => {
+          // Capture the active caret before the trigger moves focus. The
+          // textarea's blur handler also records it for keyboard users.
+          if (document.activeElement === textareaRef.current) {
+            rememberSelection();
+          }
+        }}
         onClick={() => {
           markerRef.current = undefined;
           state.setQuery('');

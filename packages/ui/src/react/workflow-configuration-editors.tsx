@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JsonValue } from '@a3s-lab/ui/form/core';
 import { type FormWidgetProps, NativeWidget } from '@a3s-lab/ui/form/react';
 import { DesignerIcon } from './designer-icons';
@@ -24,6 +24,38 @@ function customStringArray(value: JsonValue | undefined): string[] {
     : [];
 }
 
+function fileTypeToken(value: string): string | undefined {
+  const normalized = value.trim().toLocaleLowerCase();
+  if (!normalized) return undefined;
+  if (normalized.startsWith('*.')) return `.${normalized.slice(2)}`;
+  if (normalized.startsWith('.') || normalized.includes('/')) return normalized;
+  return `.${normalized}`;
+}
+
+function fileMatchesType(file: File, allowedTypes: readonly string[]): boolean {
+  const name = file.name.toLocaleLowerCase();
+  const mime = file.type.toLocaleLowerCase();
+  const extension = name.lastIndexOf('.') >= 0 ? name.slice(name.lastIndexOf('.')) : '';
+  return allowedTypes.some((type) => {
+    const token = fileTypeToken(type);
+    if (!token) return true;
+    if (token.startsWith('.')) return extension === token;
+    if (token.endsWith('/*')) return mime.startsWith(token.slice(0, -1));
+    return mime === token;
+  });
+}
+
+function fileAcceptValue(fileTypes: readonly string[]): string | undefined {
+  const tokens = [...new Set(fileTypes.map(fileTypeToken).filter(Boolean))] as string[];
+  return tokens.length > 0 ? tokens.join(',') : undefined;
+}
+
+function hasMcpConfiguration(value: JsonValue | undefined): boolean {
+  return Boolean(
+    value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0,
+  );
+}
+
 function customString(
   props: FormWidgetProps,
   camelCaseKey: string,
@@ -35,6 +67,32 @@ function customString(
 
 function finiteNumber(value: JsonValue | undefined): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function decimalPlaces(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  const text = value.toString().toLowerCase();
+  const [coefficient, exponentText] = text.split('e');
+  const fractionLength = coefficient.split('.')[1]?.length ?? 0;
+  const exponent = exponentText ? Number(exponentText) : 0;
+  return Math.max(0, Math.min(15, fractionLength - exponent));
+}
+
+function normalizeSliderValue(
+  value: number,
+  step: number | undefined,
+  minimum: number | undefined,
+  maximum: number | undefined,
+): number {
+  const precision = Math.max(
+    decimalPlaces(step ?? 1),
+    decimalPlaces(minimum ?? 0),
+    decimalPlaces(maximum ?? 100),
+  );
+  const normalized = Number(value.toFixed(precision));
+  if (minimum !== undefined && normalized < minimum) return minimum;
+  if (maximum !== undefined && normalized > maximum) return maximum;
+  return normalized;
 }
 
 function EditorExpandButton({
@@ -153,7 +211,7 @@ export function WorkflowJsonWidget(props: FormWidgetProps) {
         onFocus={props.onFocus}
         placeholder={props.node.placeholder}
         size={expanded ? 'lg' : 'sm'}
-        status={invalid ? copy.invalidJson : 'JSON'}
+        status={invalid ? <span role="alert">{copy.invalidJson}</span> : 'JSON'}
         toolbar={
           <EditorExpandButton
             expanded={expanded}
@@ -173,7 +231,9 @@ export function WorkflowCodeWidget(props: FormWidgetProps) {
   const text = typeof props.value === 'string' ? props.value : '';
   const [expanded, setExpanded] = useState(false);
   const language = customString(props, 'language', 'language') ?? 'typescript';
-  const fileName = customString(props, 'filePath', 'file_path') ?? `handler.${language === 'typescript' ? 'ts' : 'txt'}`;
+  const fileName =
+    customString(props, 'filePath', 'file_path') ??
+    `handler.${language === 'typescript' ? 'ts' : 'txt'}`;
   return (
     <div className="a3s-form-workflow-source-editor is-code" data-expanded={expanded || undefined}>
       <WorkflowCodeEditor
@@ -258,15 +318,36 @@ export function WorkflowPromptWidget(
 
 export function WorkflowFileWidget(props: FormWidgetProps) {
   const copy = workflowWidgetCopy(props.locale);
-  const fileTypes = customStringArray(props.node.customProps?.fileTypes);
-  const multiple = props.schema?.type === 'array';
+  const fileTypes = customStringArray(
+    props.node.customProps?.fileTypes ?? props.node.customProps?.file_types,
+  );
+  const allowedTypes = fileTypes.filter((type) => fileTypeToken(type) !== undefined);
+  const multiple = props.schema?.type === 'array' || Array.isArray(props.value);
   const current = multiple
     ? stringArray(props.value)
     : typeof props.value === 'string' && props.value.length > 0
       ? [props.value]
       : [];
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
+  const errorId = `${props.id}-file-error`;
+  const describedBy =
+    [props.describedBy, error ? errorId : undefined].filter(Boolean).join(' ') || undefined;
+  const resetInput = () => {
+    if (inputRef.current) inputRef.current.value = '';
+  };
+  const removeAt = (index: number) => {
+    const next = current.filter((_, currentIndex) => currentIndex !== index);
+    props.onChange(multiple ? next : '');
+    setError(null);
+    resetInput();
+  };
   return (
-    <div className="a3s-form-workflow-file-control" data-empty={current.length === 0 || undefined}>
+    <div
+      className="a3s-form-workflow-file-control"
+      data-empty={current.length === 0 || undefined}
+      data-invalid={error ? 'true' : undefined}
+    >
       <label className="btn" data-variant="secondary" data-size="sm" htmlFor={props.id}>
         <DesignerIcon name="file" size={14} />
         {multiple ? copy.chooseFiles : copy.chooseFile}
@@ -276,21 +357,90 @@ export function WorkflowFileWidget(props: FormWidgetProps) {
         className="a3s-form-visually-hidden"
         type="file"
         multiple={multiple}
-        accept={
-          fileTypes.length > 0
-            ? fileTypes.map((type) => `.${type.replace(/^\./, '')}`).join(',')
-            : undefined
-        }
+        accept={fileAcceptValue(allowedTypes)}
         disabled={props.disabled}
         aria-label={props.labelledBy ? undefined : (props.node.label ?? props.node.id)}
         aria-labelledby={props.labelledBy}
+        aria-describedby={describedBy}
+        aria-invalid={error || props.invalid ? 'true' : undefined}
+        ref={inputRef}
+        required={props.required}
+        onBlur={props.onBlur}
+        onFocus={props.onFocus}
         onChange={(event) => {
-          const names = Array.from(event.target.files ?? []).map((file) => file.name);
-          props.onChange(multiple ? names : (names[0] ?? ''));
+          const files = Array.from(event.target.files ?? []);
+          if (files.length === 0) {
+            setError(null);
+            props.onChange(multiple ? [] : '');
+            resetInput();
+            return;
+          }
+          const invalidFiles =
+            allowedTypes.length > 0
+              ? files.filter((file) => !fileMatchesType(file, allowedTypes))
+              : [];
+          const validNames = files
+            .filter((file) => !invalidFiles.includes(file))
+            .map((file) => file.name);
+          setError(
+            invalidFiles.length > 0
+              ? copy.invalidFileType(
+                  invalidFiles.map((file) => file.name),
+                  allowedTypes,
+                )
+              : null,
+          );
+          if (validNames.length > 0) {
+            props.onChange(multiple ? validNames : validNames[0]);
+          }
+          resetInput();
         }}
       />
-      <span>{current.length > 0 ? current.join(', ') : copy.noFileSelected}</span>
-      {fileTypes.length > 0 && <small>{fileTypes.join(' · ')}</small>}
+      {current.length > 0 ? (
+        <ul className="a3s-form-workflow-file-list" aria-label={copy.selectedFiles}>
+          {current.map((name, index) => (
+            <li key={`${name}-${index}`}>
+              <span>{name}</span>
+              <button
+                type="button"
+                className="btn"
+                data-size="icon-xs"
+                data-variant="ghost"
+                aria-label={copy.removeFile(name)}
+                disabled={props.disabled}
+                onClick={() => removeAt(index)}
+              >
+                <DesignerIcon name="close" size={11} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <span>{copy.noFileSelected}</span>
+      )}
+      {current.length > 0 && (
+        <button
+          type="button"
+          className="btn a3s-form-workflow-file-clear"
+          data-size="xs"
+          data-variant="ghost"
+          aria-label={copy.clearFiles}
+          disabled={props.disabled}
+          onClick={() => {
+            props.onChange(multiple ? [] : '');
+            setError(null);
+            resetInput();
+          }}
+        >
+          {copy.clearFiles}
+        </button>
+      )}
+      {allowedTypes.length > 0 && <small>{allowedTypes.join(' · ')}</small>}
+      {error && (
+        <small id={errorId} className="a3s-form-workflow-file-error" role="alert">
+          {error}
+        </small>
+      )}
     </div>
   );
 }
@@ -306,9 +456,7 @@ export function WorkflowMcpControl(props: FormWidgetProps) {
         <span>
           <strong>{copy.mcpServer}</strong>
           <small>
-            {props.value && typeof props.value === 'object'
-              ? copy.configurationReady
-              : copy.notConfigured}
+            {hasMcpConfiguration(props.value) ? copy.configurationReady : copy.notConfigured}
           </small>
         </span>
       </div>
@@ -378,11 +526,18 @@ export function WorkflowSliderWidget(props: FormWidgetProps) {
   const schemaStep = finiteNumber(props.schema?.multipleOf);
   const customStep = finiteNumber(props.node.customProps?.step);
   const step = schemaStep !== undefined && schemaStep > 0 ? schemaStep : customStep;
+  const currentValue = finiteNumber(props.value);
+  const normalizedValue =
+    currentValue === undefined
+      ? props.value
+      : normalizeSliderValue(currentValue, step, minimum, maximum);
   const metadata: Array<readonly [string, number]> = [];
   if (minimum !== undefined) metadata.push([copy.minimum, minimum]);
   if (maximum !== undefined) metadata.push([copy.maximum, maximum]);
   if (step !== undefined && step > 0) metadata.push([copy.step, step]);
-  const numberFormat = new Intl.NumberFormat(props.locale, { maximumFractionDigits: 20 });
+  const numberFormat = new Intl.NumberFormat(props.locale, {
+    maximumFractionDigits: 20,
+  });
   const sliderNode = {
     ...props.node,
     widget: 'slider',
@@ -395,7 +550,17 @@ export function WorkflowSliderWidget(props: FormWidgetProps) {
   };
   return (
     <div className="a3s-form-workflow-slider">
-      <NativeWidget {...props} node={sliderNode} />
+      <NativeWidget
+        {...props}
+        node={sliderNode}
+        value={normalizedValue}
+        onChange={(next) => {
+          const numeric = finiteNumber(next);
+          props.onChange(
+            numeric === undefined ? next : normalizeSliderValue(numeric, step, minimum, maximum),
+          );
+        }}
+      />
       {metadata.length > 0 && (
         <div className="a3s-form-workflow-field-flags">
           {metadata.map(([label, value]) => (
