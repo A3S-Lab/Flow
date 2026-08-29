@@ -23,6 +23,8 @@
   panes.
 - Kept select and variable suggestion overlays above the node-panel scroll
   boundary, with viewport-aware flipping, clamping, and scroll repositioning.
+- Fixed workflow code-editor viewports so long JSON and expression values keep
+  their text aligned with line numbers while scrolling inside a bounded editor.
 - Fixed indexed batch and child-workflow editors so text, expression, JSON, and
   policy changes update the selected member instead of being silently ignored.
 

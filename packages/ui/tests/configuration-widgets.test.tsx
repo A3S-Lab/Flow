@@ -846,6 +846,36 @@ describe('workflow configuration widgets', () => {
     expect(editor?.querySelector('[data-code-editor-characters]')?.textContent).toBe('14 个字符');
   });
 
+  it('keeps every source line available to the shared editor viewport', async () => {
+    const value = Array.from(
+      { length: 17 },
+      (_, index) => `line ${index + 1}`,
+    ).join('\n');
+    const view = render(
+      <WorkflowCodeEditor
+        ariaLabel="多行表达式"
+        fileName="expression.json"
+        id="multiline-code-editor"
+        language="json"
+        locale="zh-CN"
+        onChange={vi.fn()}
+        value={value}
+      />,
+    );
+    const editor = view.container.querySelector<HTMLElement>('.code-editor');
+
+    await waitFor(() =>
+      expect(editor?.dataset.codeEditorInitialized).toBe('true'),
+    );
+    expect(editor?.querySelector('textarea')?.value).toBe(value);
+    expect(
+      editor?.querySelectorAll('[data-code-editor-gutter] > span'),
+    ).toHaveLength(17);
+    expect(
+      editor?.querySelector('[data-code-editor-lines]')?.textContent,
+    ).toBe('17 行');
+  });
+
   it('keeps invalid schema drafts local and preserves valid editor formatting', async () => {
     const initialSchema = {
       type: 'object',
