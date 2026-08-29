@@ -147,6 +147,20 @@
   overflow-y: auto;
 }
 
+/*
+ * Flow uses native <details> disclosures for optional sections.  Some of the
+ * Flow-specific layout rules set an explicit display mode on their content
+ * wrappers (for example, the batch retry grid).  An author-level display rule
+ * then overrides the browser's closed-details default and leaves those
+ * controls in the layout even while the disclosure is closed.  That inflates
+ * the settings scroll height and can place the next value-source control
+ * outside the reachable viewport.  Restore the native contract for every
+ * Flow disclosure while keeping the summary available as the toggle.
+ */
+.a3s-form-flow-node-panel details:not([open]) > :not(summary) {
+  display: none;
+}
+
 .a3s-form-workflow-node-developer-details {
   border-top: 1px solid var(--a3s-form-line);
   background: color-mix(in srgb, var(--a3s-form-panel-soft) 35%, var(--a3s-form-panel));

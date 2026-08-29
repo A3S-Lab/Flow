@@ -18,6 +18,9 @@
   in embedded workflow configuration panels.
 - Prevented runtime option-selection re-targeting without swallowing an
   immediate intentional trigger click.
+- Restored closed disclosure panels to the native hidden layout contract so
+  deeply nested value-source controls remain reachable in short settings
+  panes.
 - Fixed indexed batch and child-workflow editors so text, expression, JSON, and
   policy changes update the selected member instead of being silently ignored.
 
