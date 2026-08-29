@@ -14,6 +14,7 @@ import {
 } from 'react';
 import { loadA3SUIRuntime } from './a3s-ui-runtime';
 import { DesignerIcon } from './designer-icons';
+import { useFloatingPanelPosition } from './floating-panel';
 import {
   hasSelectRuntime,
   type SelectControlChangeEvent,
@@ -231,6 +232,8 @@ export function SelectControl({
       ? placeholder
       : (selected?.label ?? '');
   const elementRef = useRef<SelectElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
   const valueRef = useRef(effectiveValue);
   const onChangeRef = useRef(onChange);
   const optionsRef = useRef(options);
@@ -316,6 +319,14 @@ export function SelectControl({
     runtimePromiseRef.current = request;
     return request;
   }, [synchronize]);
+
+  useFloatingPanelPosition(triggerRef, popoverRef, true, {
+    gap: 5,
+    maxHeight: 230,
+    minWidth: 168,
+    viewportMargin: 8,
+    width: (anchorRect) => Math.max(anchorRect.width, 168),
+  });
 
   const {
     setFallbackOpen,
@@ -591,6 +602,7 @@ export function SelectControl({
         onFocus={onFocus}
         onKeyDown={handleTriggerKeyDown}
         role="combobox"
+        ref={triggerRef}
         tabIndex={tabIndex}
         title={title}
         type="button"
@@ -598,7 +610,12 @@ export function SelectControl({
         <span>{selectedLabel}</span>
         <DesignerIcon name="chevron-down" size={14} />
       </button>
-      <div aria-hidden="true" data-popover id={`${id}-popover`}>
+      <div
+        aria-hidden="true"
+        data-popover
+        id={`${id}-popover`}
+        ref={popoverRef}
+      >
         <div
           aria-labelledby={triggerId}
           aria-orientation="vertical"

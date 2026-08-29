@@ -744,6 +744,27 @@
   box-shadow: var(--a3s-form-shadow-soft);
 }
 
+/* Keep select menus attached to the A3S UI runtime while escaping the
+ * configuration panel's scroll clipping. The positioning hook supplies the
+ * viewport-safe coordinates and flips the menu when the lower edge is tight. */
+.a3s-flow-select-control > [data-popover][data-floating-positioned="true"] {
+  position: fixed;
+  z-index: 400;
+  inset: auto;
+  top: var(--a3s-floating-top);
+  left: var(--a3s-floating-left);
+  /* Host pages may give their header selects a contextual `width: max(...)`
+   * rule. Once the hook has measured a floating panel, its viewport width is
+   * the source of truth and must win over those local layout rules. */
+  width: var(--a3s-floating-width) !important;
+  max-width: calc(100vw - 16px) !important;
+  max-height: var(--a3s-floating-max-height, 230px);
+}
+
+.a3s-flow-select-control > [data-popover][data-floating-anchor-hidden="true"] {
+  visibility: hidden;
+}
+
 /* The A3S UI runtime owns aria-hidden after initialization. Keep the popup
  * closed during the short async runtime-loading window as well. */
 .a3s-flow-select-control > [data-popover]:not([aria-hidden="false"]) {
@@ -1095,6 +1116,25 @@
   border-radius: 10px;
   background: var(--a3s-form-panel);
   box-shadow: var(--a3s-form-shadow);
+}
+
+/* Variable suggestion menus share the same viewport positioning contract so
+ * typing near the bottom of a long node form remains usable. */
+.a3s-flow-variable-suggestions[data-floating-positioned="true"],
+.a3s-form-flow-expression-advanced
+  > .a3s-flow-variable-suggestions[data-floating-positioned="true"] {
+  position: fixed;
+  z-index: 410;
+  inset: auto;
+  top: var(--a3s-floating-top);
+  left: var(--a3s-floating-left);
+  width: var(--a3s-floating-width);
+  max-width: calc(100vw - 16px);
+  max-height: var(--a3s-floating-max-height, 360px);
+}
+
+.a3s-flow-variable-suggestions[data-floating-anchor-hidden="true"] {
+  visibility: hidden;
 }
 
 .a3s-form-flow-expression-advanced > .a3s-flow-variable-suggestions {

@@ -6,6 +6,7 @@ import {
   useVariableSuggestionState,
   type A3SFlowExpressionVariable,
 } from './a3s-flow-variable-picker';
+import { useFloatingPanelPosition } from './floating-panel';
 import { WorkflowCodeEditor } from './workflow-code-editor';
 
 function isChinese(locale: string): boolean {
@@ -70,11 +71,21 @@ export function AdvancedExpressionEditor({
   const errorId = `${id}-draft-error`;
   const suggestionsId = `${id}-variables`;
   const editorRef = useRef<HTMLDivElement>(null);
+  const toolbarRef = useRef<HTMLButtonElement>(null);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const invocationRef = useRef<number | undefined>(undefined);
   const lastExternalSourceRef = useRef(externalSource);
   const localEditRef = useRef(false);
   const suggestions = useVariableSuggestionState(variables);
+  useFloatingPanelPosition(toolbarRef, suggestionsRef, suggestions.open, {
+    align: 'end',
+    gap: 6,
+    maxHeight: 360,
+    minWidth: 200,
+    viewportMargin: 8,
+    width: 320,
+  });
 
   useEffect(() => {
     if (externalSource !== lastExternalSourceRef.current) {
@@ -204,6 +215,7 @@ export function AdvancedExpressionEditor({
             aria-expanded={suggestions.open}
             aria-label={chinese ? '插入变量' : 'Insert variable'}
             disabled={disabled}
+            ref={toolbarRef}
             onClick={() => {
               invocationRef.current = undefined;
               suggestions.setQuery('');
@@ -225,6 +237,7 @@ export function AdvancedExpressionEditor({
           locale={locale}
           onActiveIndexChange={suggestions.setActiveIndex}
           onSelect={chooseVariable}
+          panelRef={suggestionsRef}
           query={suggestions.query}
           variables={variables}
         />

@@ -21,6 +21,8 @@
 - Restored closed disclosure panels to the native hidden layout contract so
   deeply nested value-source controls remain reachable in short settings
   panes.
+- Kept select and variable suggestion overlays above the node-panel scroll
+  boundary, with viewport-aware flipping, clamping, and scroll repositioning.
 - Fixed indexed batch and child-workflow editors so text, expression, JSON, and
   policy changes update the selected member instead of being silently ignored.
 

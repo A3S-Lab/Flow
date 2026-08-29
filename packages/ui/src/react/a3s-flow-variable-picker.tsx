@@ -13,6 +13,7 @@ import {
   type TextareaHTMLAttributes,
 } from 'react';
 import { DesignerIcon } from './designer-icons';
+import { useFloatingPanelPosition } from './floating-panel';
 
 export type A3SFlowExpressionVariableGroup = 'input' | 'global' | 'upstream' | 'scope';
 
@@ -124,6 +125,7 @@ export function VariableSuggestionList({
   locale,
   onActiveIndexChange,
   onSelect,
+  panelRef,
   query,
   variables,
 }: {
@@ -132,6 +134,7 @@ export function VariableSuggestionList({
   locale: string;
   onActiveIndexChange: (index: number) => void;
   onSelect: (variable: A3SFlowExpressionVariable) => void;
+  panelRef?: RefObject<HTMLDivElement | null>;
   query: string;
   variables: readonly A3SFlowExpressionVariable[];
 }) {
@@ -158,6 +161,7 @@ export function VariableSuggestionList({
       aria-label={chinese ? '变量智能感知' : 'Variable suggestions'}
       className="a3s-flow-variable-suggestions"
       id={id}
+      ref={panelRef}
       role="listbox"
     >
       <header>
@@ -287,8 +291,16 @@ export function VariableReferenceInput({
   const generatedId = useId();
   const suggestionsId = `${props.id ?? generatedId}-variables`;
   const rootRef = useRef<HTMLDivElement>(null);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
   const state = useVariableSuggestionState(variables);
   useOutsideDismiss(rootRef, state.open, state.close);
+  useFloatingPanelPosition(rootRef, suggestionsRef, state.open, {
+    gap: 6,
+    maxHeight: 360,
+    minWidth: 168,
+    viewportMargin: 8,
+    width: (anchorRect) => Math.min(320, Math.max(anchorRect.width, 168)),
+  });
 
   const choose = (variable: A3SFlowExpressionVariable) => {
     onPathChange(variable.path);
@@ -345,6 +357,7 @@ export function VariableReferenceInput({
           locale={locale}
           onActiveIndexChange={state.setActiveIndex}
           onSelect={choose}
+          panelRef={suggestionsRef}
           query={state.query}
           variables={variables}
         />
@@ -371,11 +384,19 @@ export function VariableTemplateTextarea({
   const generatedId = useId();
   const suggestionsId = `${props.id ?? generatedId}-variables`;
   const rootRef = useRef<HTMLDivElement>(null);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const markerRef = useRef<number | undefined>(undefined);
   const selectionRef = useRef<{ start: number; end: number } | null>(null);
   const state = useVariableSuggestionState(variables);
   useOutsideDismiss(rootRef, state.open, state.close);
+  useFloatingPanelPosition(rootRef, suggestionsRef, state.open, {
+    gap: 6,
+    maxHeight: 360,
+    minWidth: 168,
+    viewportMargin: 8,
+    width: (anchorRect) => Math.min(320, Math.max(anchorRect.width, 168)),
+  });
 
   const rememberSelection = (textarea = textareaRef.current) => {
     if (!textarea) return;
@@ -495,6 +516,7 @@ export function VariableTemplateTextarea({
           locale={locale}
           onActiveIndexChange={state.setActiveIndex}
           onSelect={choose}
+          panelRef={suggestionsRef}
           query={state.query}
           variables={variables}
         />
