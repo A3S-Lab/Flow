@@ -246,6 +246,7 @@ export function A3SFlowDagNodeConfigurationPanel({
     { variables: expressionVariables },
     createElement(WorkflowNodeConfigurationPanel, {
       ...props,
+      key: dagNode.id,
       buildConfig: resolvedBuildConfig,
       className: ['a3s-form-flow-node-panel', className].filter(Boolean).join(' '),
       compatibility: A3S_FLOW_V1_COMPATIBILITY,

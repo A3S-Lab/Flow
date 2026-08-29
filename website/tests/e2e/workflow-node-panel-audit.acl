@@ -1,0 +1,190 @@
+suite "workflow-node-panel-audit" {
+    version = 1
+
+    scenario "narrow-secondary-controls" {
+        name = "Keep nested node controls readable in a narrow inspector"
+        surface = "web"
+        timeout_ms = 90000
+
+        viewport "wide-canvas" {
+            width = 2560
+            height = 1200
+        }
+
+        navigate "open-playground" {
+            url = "http://127.0.0.1:4173/Flow/playground?example=cross-border-fulfillment"
+        }
+
+        wait "page-ready" {
+            text = "跨境高价值订单履约"
+        }
+
+        click "fit-canvas-for-child-workflow" {
+            target = css(".react-flow__controls-button[aria-label=\"Fit View\"]")
+        }
+
+        click "open-child-workflow-panel" {
+            target = css(".react-flow__node[data-id=\"regional_fulfillment\"] article")
+        }
+
+        viewport "narrow-child-workflow" {
+            width = 320
+            height = 844
+        }
+
+        expect "child-workflow-title-visible" {
+            visible = css(".a3s-form-flow-children-list summary strong")
+        }
+
+        screenshot "child-workflow-mobile" {
+            path = "screenshots/child-workflow-320.png"
+        }
+
+        viewport "wide-canvas-for-message" {
+            width = 2560
+            height = 1200
+        }
+
+        click "fit-canvas-for-message" {
+            target = css(".react-flow__controls-button[aria-label=\"Fit View\"]")
+        }
+
+        click "open-message-panel" {
+            target = css(".react-flow__node[data-id=\"send_fulfillment_notice\"] article")
+        }
+
+        viewport "narrow-message" {
+            width = 320
+            height = 844
+        }
+
+        expect "recipient-source-visible" {
+            visible = css(".a3s-form-workflow-sortable li:first-child strong")
+        }
+
+        screenshot "message-mobile" {
+            path = "screenshots/message-sortable-320.png"
+        }
+
+        console "secondary-controls-console" {
+            path = "evidence/secondary-controls-console.json"
+            clear = false
+        }
+
+        page_errors "secondary-controls-errors" {
+            path = "evidence/secondary-controls-errors.json"
+            clear = false
+        }
+    }
+
+    scenario "panel-switch-and-nested-escape" {
+        name = "Reset a switched panel and keep Escape inside the variable picker"
+        surface = "web"
+        timeout_ms = 90000
+
+        viewport "wide-canvas" {
+            width = 2560
+            height = 1200
+        }
+
+        navigate "open-playground" {
+            url = "http://127.0.0.1:4173/Flow/playground?example=cross-border-fulfillment"
+        }
+
+        wait "page-ready" {
+            text = "跨境高价值订单履约"
+        }
+
+        click "fit-canvas-for-message" {
+            target = css(".react-flow__controls-button[aria-label=\"Fit View\"]")
+        }
+
+        click "open-message-panel" {
+            target = css(".react-flow__node[data-id=\"send_fulfillment_notice\"] article")
+        }
+
+        viewport "narrow-message" {
+            width = 390
+            height = 844
+        }
+
+        wheel "scroll-message-panel" {
+            target = css(".a3s-form-workflow-node-settings")
+            delta_y = 1400
+        }
+
+        viewport "wide-canvas-for-review" {
+            width = 2560
+            height = 1200
+        }
+
+        click "fit-canvas-for-review" {
+            target = css(".react-flow__controls-button[aria-label=\"Fit View\"]")
+        }
+
+        click "open-review-panel" {
+            target = css(".react-flow__node[data-id=\"review_customs_documents\"] article")
+        }
+
+        viewport "narrow-review" {
+            width = 390
+            height = 844
+        }
+
+        expect "review-first-connection-visible" {
+            visible = css(".a3s-form-flow-node-panel[data-node-type=\"commerce.customs.document-review\"] .a3s-form-workflow-connection")
+        }
+
+        screenshot "switched-panel-top" {
+            path = "screenshots/switched-panel-top-390.png"
+        }
+
+        viewport "wide-canvas-for-condition" {
+            width = 2560
+            height = 1200
+        }
+
+        click "fit-canvas-for-condition" {
+            target = css(".react-flow__controls-button[aria-label=\"Fit View\"]")
+        }
+
+        click "open-condition-panel" {
+            target = css(".react-flow__node[data-id=\"route_serviceability\"] article")
+        }
+
+        viewport "narrow-condition" {
+            width = 390
+            height = 844
+        }
+
+        click "open-variable-picker" {
+            target = css(".a3s-flow-variable-input__trigger")
+        }
+
+        expect "variable-picker-visible" {
+            visible = css(".a3s-flow-variable-suggestions[role=\"listbox\"]")
+        }
+
+        press "close-variable-picker" {
+            key = "Escape"
+        }
+
+        expect "condition-panel-remains-visible" {
+            visible = css(".a3s-form-flow-node-panel[data-node-type=\"flow.condition\"]")
+        }
+
+        screenshot "condition-after-escape" {
+            path = "screenshots/condition-after-escape-390.png"
+        }
+
+        console "panel-interactions-console" {
+            path = "evidence/panel-interactions-console.json"
+            clear = false
+        }
+
+        page_errors "panel-interactions-errors" {
+            path = "evidence/panel-interactions-errors.json"
+            clear = false
+        }
+    }
+}

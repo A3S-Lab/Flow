@@ -17,6 +17,16 @@
   gap: 10px;
 }
 
+/* Keep package buttons self-contained when a host loads Flow alongside a
+   different A3S UI compatibility layer. Some legacy layers only supply the
+   visual button tokens and leave the native inline layout in place. */
+.a3s-form-flow-node-panel .btn {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+}
+
 .a3s-form-flow-node-panel .a3s-form-workflow-node-panel-header {
   min-height: 68px;
   flex-direction: row;
@@ -1343,13 +1353,18 @@
   gap: 5px;
 }
 
-.a3s-form-flow-schema-required {
+.a3s-form-flow-schema-row > .a3s-form-flow-schema-required {
   min-height: 40px;
-  grid-template-columns: auto auto;
+  display: inline-flex;
+  width: max-content;
   align-items: center;
-  align-content: center;
+  justify-self: start;
   gap: 6px;
   cursor: pointer;
+}
+
+.a3s-form-flow-schema-row > .a3s-form-flow-schema-required > .input {
+  flex: 0 0 auto;
 }
 
 .a3s-form-flow-schema-row > button {
@@ -2089,16 +2104,6 @@
     grid-template-columns: auto minmax(0, 1fr);
   }
 
-  .a3s-form-flow-children-list summary {
-    grid-template-columns: 26px minmax(0, 1fr);
-  }
-
-  .a3s-form-flow-children-list summary > svg {
-    grid-column: 2;
-    grid-row: 1;
-    justify-self: end;
-  }
-
   .a3s-form-flow-schema-row > button {
     justify-self: end;
   }
@@ -2145,11 +2150,11 @@
 
   .a3s-form-flow-batch-row-actions {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .a3s-form-flow-batch-row-actions > button:last-child {
-    grid-column: 1 / -1;
+  .a3s-form-flow-batch-row-actions > button {
+    width: 100%;
   }
 
   .a3s-form-flow-node-panel .a3s-form-workflow-node-contract-details > summary {

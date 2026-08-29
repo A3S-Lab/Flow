@@ -228,6 +228,7 @@ export function useVariableSuggestionState(variables: readonly A3SFlowExpression
     if (!open) return false;
     if (event.key === 'Escape') {
       event.preventDefault();
+      event.stopPropagation();
       close();
       return true;
     }
@@ -344,6 +345,9 @@ export function VariableReferenceInput({
         onClick={() => {
           state.setQuery(path);
           state.setOpen((current) => !current);
+        }}
+        onKeyDown={(event) => {
+          state.handleKeyDown(event, choose);
         }}
         title={isChinese(locale) ? '输入 $ 或点击选择变量' : 'Type $ or choose a variable'}
         type="button"
@@ -502,6 +506,9 @@ export function VariableTemplateTextarea({
           markerRef.current = undefined;
           state.setQuery('');
           state.setOpen((current) => !current);
+        }}
+        onKeyDown={(event) => {
+          state.handleKeyDown(event, choose);
         }}
         title={isChinese(locale) ? '输入 $ 或点击插入变量' : 'Type $ or insert a variable'}
         type="button"

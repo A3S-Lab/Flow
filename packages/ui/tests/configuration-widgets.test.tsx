@@ -151,6 +151,43 @@ describe('workflow configuration widgets', () => {
     view.unmount();
   });
 
+  it('resets panel-local scroll state when the DAG node instance changes', () => {
+    const manifest = a3sFlowDagNodeRegistry.require('flow.fail');
+    const first = createA3SFlowDagNode('fail_first', manifest);
+    const second = createA3SFlowDagNode('fail_second', manifest);
+    const onChange = vi.fn();
+    const view = render(
+      <A3SFlowDagNodeConfigurationPanel
+        dagNode={first}
+        locale="en"
+        onChange={onChange}
+        showDocumentation={false}
+      />,
+    );
+    const firstSettings = view.container.querySelector<HTMLElement>(
+      '.a3s-form-workflow-node-settings',
+    );
+    expect(firstSettings).not.toBeNull();
+    if (!firstSettings) return;
+    firstSettings.scrollTop = 180;
+
+    view.rerender(
+      <A3SFlowDagNodeConfigurationPanel
+        dagNode={second}
+        locale="en"
+        onChange={onChange}
+        showDocumentation={false}
+      />,
+    );
+
+    const secondSettings = view.container.querySelector<HTMLElement>(
+      '.a3s-form-workflow-node-settings',
+    );
+    expect(secondSettings).not.toBe(firstSettings);
+    expect(secondSettings?.scrollTop).toBe(0);
+    view.unmount();
+  });
+
   it('updates each batch member instead of comparing member objects to indexes', async () => {
     const onChange = vi.fn();
     const initial = [

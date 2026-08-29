@@ -72,6 +72,40 @@ describe('workflow variable suggestions', () => {
     expect(screen.queryByRole('listbox', { name: 'Variable suggestions' })).toBeNull();
   });
 
+  it('keeps Escape local when suggestions were opened from the input', () => {
+    render(<ReferenceHarness />);
+    const input = screen.getByRole('textbox', { name: 'Source variable' });
+    const parentKeyDown = vi.fn();
+    window.addEventListener('keydown', parentKeyDown);
+
+    fireEvent.change(input, {
+      target: { selectionStart: 4, value: '$ord' },
+    });
+    expect(screen.getByRole('listbox', { name: 'Variable suggestions' })).toBeTruthy();
+
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.queryByRole('listbox', { name: 'Variable suggestions' })).toBeNull();
+    expect(parentKeyDown).not.toHaveBeenCalled();
+
+    window.removeEventListener('keydown', parentKeyDown);
+  });
+
+  it('closes toolbar suggestions before Escape reaches a parent panel', () => {
+    render(<TemplateHarness />);
+    const trigger = screen.getByRole('button', { name: 'Insert variable' });
+    const parentKeyDown = vi.fn();
+    window.addEventListener('keydown', parentKeyDown);
+
+    fireEvent.click(trigger);
+    expect(screen.getByRole('listbox', { name: 'Variable suggestions' })).toBeTruthy();
+
+    fireEvent.keyDown(trigger, { key: 'Escape' });
+    expect(screen.queryByRole('listbox', { name: 'Variable suggestions' })).toBeNull();
+    expect(parentKeyDown).not.toHaveBeenCalled();
+
+    window.removeEventListener('keydown', parentKeyDown);
+  });
+
   it('inserts the selected variable into a template', () => {
     render(<TemplateHarness />);
     const textarea = screen.getByRole('textbox', { name: 'Message template' });

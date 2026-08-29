@@ -728,7 +728,9 @@
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.a3s-form-workflow-sortable li > span:nth-child(2) {
+.a3s-form-workflow-sortable
+  li
+  > span:not(.a3s-form-workflow-drag-mark, .a3s-form-workflow-sort-actions) {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -1770,6 +1772,27 @@
   .a3s-form-workflow-duration.input-group,
   .a3s-form-workflow-actions-editor > .input-group {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .a3s-form-workflow-sortable li {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .a3s-form-workflow-sortable li:not([data-reorderable="true"]) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .a3s-form-workflow-sortable li strong {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .a3s-form-workflow-sortable li > .a3s-form-workflow-sort-actions {
+    grid-column: 1 / -1;
+    justify-self: end;
   }
 
   .a3s-form-workflow-sort-actions button {
