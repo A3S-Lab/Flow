@@ -27,6 +27,9 @@
   their text aligned with line numbers while scrolling inside a bounded editor.
 - Fixed indexed batch and child-workflow editors so text, expression, JSON, and
   policy changes update the selected member instead of being silently ignored.
+- Hardened narrow Flow inspectors so editable descriptions, composite fields,
+  contract metadata, code-editor chrome, and mobile playground actions remain
+  readable and inside the viewport.
 
 ## 1.1.0 - 2026-08-25
 

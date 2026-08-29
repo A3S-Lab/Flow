@@ -19,7 +19,12 @@
 
 .a3s-form-workflow-code-editor.code-editor > header,
 .a3s-form-workflow-code-editor.code-editor > footer {
+  display: flex;
   min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 8px;
   padding-inline: 9px;
   border-color: var(--a3s-form-line, #e2e4e8);
   background: var(--a3s-form-panel-soft, #f2f3f5);
@@ -40,23 +45,35 @@
 .a3s-form-workflow-code-editor [data-code-editor-actions],
 .a3s-form-workflow-code-editor [data-code-editor-info],
 .a3s-form-workflow-code-editor [data-code-editor-meta] {
+  display: flex;
   min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 7px;
 }
 
 .a3s-form-workflow-code-editor [data-code-editor-file] {
+  flex: 1 1 auto;
   overflow: hidden;
   font-family: var(--a3s-ui-font, ui-sans-serif, sans-serif);
   font-size: 10px;
 }
 
+.a3s-form-workflow-code-editor [data-code-editor-actions] {
+  flex: 0 1 auto;
+  justify-content: flex-end;
+}
+
 .a3s-form-workflow-code-editor [data-code-editor-file] strong {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .a3s-form-workflow-code-editor [data-code-editor-language] {
+  flex: 0 0 auto;
   color: var(--a3s-form-faint, #8a8f98);
   font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
   font-size: 9px;
@@ -64,6 +81,7 @@
 }
 
 .a3s-form-workflow-code-editor [data-code-editor-actions] button {
+  flex: 0 0 auto;
   min-height: 28px;
   padding-inline: 8px;
   border: 1px solid var(--a3s-form-line-strong, #d3d6dc);
@@ -103,6 +121,30 @@
 .a3s-form-workflow-code-editor [data-code-editor-gutter] > span {
   padding-inline: 8px;
   font-variant-numeric: tabular-nums;
+}
+
+.a3s-form-workflow-code-editor [data-code-editor-info],
+.a3s-form-workflow-code-editor [data-code-editor-meta] {
+  flex: 1 1 auto;
+  overflow: visible;
+  white-space: normal;
+}
+
+.a3s-form-workflow-code-editor [data-code-editor-meta] {
+  justify-content: flex-end;
+}
+
+.a3s-form-workflow-code-editor > footer :is(output, span) {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.a3s-form-workflow-code-editor > footer [data-code-editor-message] {
+  max-width: min(32rem, 42vw);
 }
 
 .a3s-form-workflow-code-editor.code-editor > section > textarea,
@@ -167,5 +209,47 @@
 @media (prefers-reduced-motion: reduce) {
   .a3s-form-workflow-code-editor * {
     scroll-behavior: auto;
+  }
+}
+
+@container a3s-form-workflow-panel (max-width: 420px) {
+  .a3s-form-workflow-code-editor.code-editor > header,
+  .a3s-form-workflow-code-editor.code-editor > footer {
+    align-items: flex-start;
+    padding-inline: 8px;
+    row-gap: 5px;
+  }
+
+  .a3s-form-workflow-code-editor.code-editor > header {
+    padding-block: 7px;
+  }
+
+  .a3s-form-workflow-code-editor.code-editor > header > [data-code-editor-file],
+  .a3s-form-workflow-code-editor.code-editor > header > [data-code-editor-actions],
+  .a3s-form-workflow-code-editor.code-editor > footer > [data-code-editor-info],
+  .a3s-form-workflow-code-editor.code-editor > footer > [data-code-editor-meta] {
+    width: 100%;
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+
+  .a3s-form-workflow-code-editor.code-editor > header > [data-code-editor-actions] {
+    overflow: visible;
+  }
+
+  .a3s-form-workflow-code-editor.code-editor > header > [data-code-editor-actions] .btn {
+    min-height: 34px;
+  }
+
+  .a3s-form-workflow-code-editor.code-editor > footer {
+    padding-block: 6px;
+  }
+
+  .a3s-form-workflow-code-editor.code-editor > footer > [data-code-editor-meta] {
+    gap: 5px 8px;
+  }
+
+  .a3s-form-workflow-code-editor.code-editor > footer [data-code-editor-message] {
+    max-width: 100%;
   }
 }

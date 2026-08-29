@@ -421,6 +421,7 @@
 
 .a3s-form-workflow-connection {
   display: grid;
+  min-width: 0;
   min-height: 54px;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -457,9 +458,11 @@
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
+  flex-wrap: wrap;
 }
 
 .a3s-form-workflow-field-accessory-actions > .btn {
+  min-width: 0;
   min-height: 36px;
   gap: 5px;
   padding-inline: 8px;
@@ -478,6 +481,11 @@
   display: flex;
   min-width: 0;
   flex-direction: column;
+}
+
+.a3s-form-workflow-connection > .a3s-form-workflow-control-copy,
+.a3s-form-workflow-field-accessory > .a3s-form-workflow-control-copy {
+  overflow-wrap: anywhere;
 }
 
 .a3s-form-workflow-control-copy strong,
@@ -516,10 +524,12 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .a3s-form-workflow-parameter-actions > div:last-child {
   display: flex;
+  min-width: 0;
   margin-left: auto;
   align-items: center;
   gap: 3px;
@@ -662,6 +672,7 @@
   display: flex;
   gap: 5px;
   justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .a3s-form-workflow-segments {
@@ -833,9 +844,11 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .a3s-form-workflow-editor-footer > span {
+  min-width: 0;
   color: var(--a3s-form-faint);
   font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
   font-size: 11px;
@@ -949,6 +962,7 @@
 }
 
 .a3s-form-workflow-file-control > span {
+  min-width: 0;
   overflow: hidden;
   font-size: 11px;
   text-overflow: ellipsis;
@@ -1004,6 +1018,7 @@
 
 .a3s-form-workflow-mcp-status {
   display: grid;
+  min-width: 0;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 9px;
@@ -1647,10 +1662,16 @@
 
   .a3s-form-workflow-connection {
     grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    row-gap: 8px;
+    padding: 8px;
   }
 
   .a3s-form-workflow-field-accessory {
     grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    row-gap: 8px;
+    padding: 8px;
   }
 
   .a3s-form-workflow-connection > button,
@@ -1659,12 +1680,91 @@
   }
 
   .a3s-form-workflow-connection > button {
+    width: 100%;
     min-height: 40px;
+    justify-content: center;
   }
 
   .a3s-form-workflow-field-accessory-actions {
     width: 100%;
-    justify-content: space-between;
+    min-width: 0;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 5px;
+  }
+
+  .a3s-form-workflow-field-accessory-actions > .btn {
+    min-height: 40px;
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .a3s-form-workflow-field-accessory-actions > .btn.a3s-form-workflow-inline-action {
+    flex: 0 0 40px;
+    width: 40px;
+  }
+
+  .a3s-form-workflow-connection > .a3s-form-workflow-control-copy,
+  .a3s-form-workflow-field-accessory > .a3s-form-workflow-control-copy {
+    overflow: visible;
+  }
+
+  .a3s-form-workflow-control-copy strong,
+  .a3s-form-workflow-control-copy small,
+  .a3s-form-workflow-mcp-status strong,
+  .a3s-form-workflow-mcp-status small {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .a3s-form-workflow-parameter-control:is(
+      [data-control-widget="text"],
+      [data-control-widget="password"],
+      [data-control-widget="number"],
+      [data-control-widget="select"],
+      [data-control-widget="slider"],
+      [data-control-widget="a3s.workflow.model"],
+      [data-control-widget="a3s.workflow.duration"]
+    ):has(> .a3s-form-workflow-parameter-actions[data-action-count="1"]) {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .a3s-form-workflow-parameter-actions {
+    width: 100%;
+    align-items: stretch;
+  }
+
+  .a3s-form-workflow-parameter-actions > div:last-child {
+    margin-left: auto;
+  }
+
+  .a3s-form-workflow-mcp-status {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .a3s-form-workflow-mcp-status > :last-child {
+    grid-column: 1 / -1;
+  }
+
+  .a3s-form-workflow-file-control > span,
+  .a3s-form-workflow-file-list li > span {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .a3s-form-workflow-editor-footer {
+    align-items: flex-start;
+  }
+
+  .a3s-form-workflow-editor-footer > span,
+  .a3s-form-workflow-editor-expand {
+    max-width: 100%;
   }
 
   .a3s-form-workflow-duration.input-group,

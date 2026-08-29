@@ -378,10 +378,13 @@ export function WorkflowNodeConfigurationPanel(
               )}
             </span>
             {taskPresentation && props.onDescriptionChange ? (
-              <input
-                className="input a3s-form-workflow-node-description-input"
+              <textarea
+                className="input textarea a3s-form-workflow-node-description-input"
                 aria-label={copy.nodeDescription}
                 placeholder={copy.descriptionPlaceholder}
+                rows={2}
+                wrap="soft"
+                title={displayDescription || copy.descriptionPlaceholder}
                 value={displayDescription}
                 disabled={props.readOnly}
                 onChange={(event) =>

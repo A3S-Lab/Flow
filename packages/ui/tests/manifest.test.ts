@@ -291,6 +291,12 @@ describe("A3S Flow authoring manifests", () => {
       }),
     );
     const contract = panel.getByTestId("workflow-node-contract");
+    const description = panel.getByRole("textbox", {
+      name: "Node description",
+    });
+    expect(description.tagName).toBe("TEXTAREA");
+    expect(description.classList).toContain("textarea");
+    expect(description.getAttribute("rows")).toBe("2");
     expect(contract.getAttribute("data-contract-field-count")).toBe(
       String(manifest.fields.length),
     );

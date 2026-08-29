@@ -388,6 +388,90 @@
   }
 }
 
+/* At phone widths the header has to remain inside the viewport as well as
+ * the inspector. Keep the high-frequency actions available as icon buttons
+ * and let their accessible labels continue to be announced by screen
+ * readers. This avoids the clipped run/menu controls that otherwise appear
+ * at the 320px layout floor. */
+@media (max-width: 400px) {
+  .a3s-workflow-header {
+    padding-inline: 6px;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .a3s-workflow-header__identity {
+    gap: 4px;
+  }
+
+  .a3s-workflow-header__identity > a {
+    width: 32px;
+  }
+
+  .a3s-workflow-header__identity .a3s-workflow-logo {
+    width: 26px;
+    height: 26px;
+  }
+
+  .a3s-workflow-header__identity strong {
+    max-width: 52px;
+    font-size: 10px;
+  }
+
+  .a3s-workflow-header__identity small {
+    display: none;
+  }
+
+  .a3s-workflow-header__actions {
+    gap: 2px;
+  }
+
+  .a3s-workflow-header__actions > a {
+    width: 22px;
+    min-width: 22px;
+    height: 40px;
+    padding: 0;
+    font-size: 8px;
+  }
+
+  .a3s-workflow-header__actions > button.is-extension,
+  .a3s-workflow-header__actions > button.is-primary,
+  .a3s-workflow-header__actions > button.is-stop {
+    width: 42px;
+    min-width: 42px;
+    height: 40px;
+    gap: 0;
+    padding: 0;
+  }
+
+  .a3s-workflow-header__actions > button.is-validate {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    gap: 0;
+  }
+
+  .a3s-workflow-header__actions
+    > button:is(.is-extension, .is-primary, .is-stop)
+    > span,
+  .a3s-workflow-header__actions > button.is-validate > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .a3s-workflow-header__menu > summary {
+    width: 32px;
+    min-width: 32px;
+    height: 40px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .a3s-workflow-playground *,
   .a3s-workflow-playground *::before,

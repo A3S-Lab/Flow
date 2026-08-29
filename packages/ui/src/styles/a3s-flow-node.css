@@ -90,9 +90,43 @@
 .a3s-form-flow-node-panel .a3s-form-workflow-node-description-input {
   height: 19px;
   margin-top: 1px;
+  overflow-x: auto;
   color: var(--a3s-form-muted);
   font-size: 11px;
   line-height: 1.45;
+  scrollbar-width: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.a3s-form-flow-node-panel .a3s-form-workflow-node-description-input::-webkit-scrollbar {
+  display: none;
+}
+
+.a3s-form-flow-node-panel .a3s-form-workflow-node-description-input:focus {
+  overflow-x: auto;
+  text-overflow: clip;
+}
+
+/* Editable task descriptions are intentionally multiline. A single-line
+ * input hides the beginning of a long description while it is being edited,
+ * which is especially disruptive in a narrow inspector. Keep the field
+ * compact for short copy, but expose two readable lines and a vertical scroll
+ * affordance for longer notes. */
+.a3s-form-flow-node-panel
+  .a3s-form-workflow-node-description-input.textarea {
+  display: block;
+  height: auto;
+  min-height: 32px;
+  max-height: 64px;
+  margin-top: 1px;
+  padding: 2px 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  resize: vertical;
+  text-overflow: clip;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .a3s-form-flow-node-panel
@@ -2014,7 +2048,22 @@
 
   .a3s-form-flow-batch-primary-fields,
   .a3s-form-flow-batch-retry-fields,
-  .a3s-form-flow-spec-fields {
+  .a3s-form-flow-spec-fields,
+  .a3s-form-flow-expression-comparison,
+  .a3s-form-flow-schema-row-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .a3s-form-flow-schema-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .a3s-form-flow-schema-row-fields {
+    grid-column: 1 / -1;
+  }
+
+  .a3s-form-flow-expression-mode,
+  .a3s-form-workflow-node-developer-details dl {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -2039,20 +2088,30 @@
   .a3s-form-flow-batch-list > li > details > summary {
     grid-template-columns: auto minmax(0, 1fr);
   }
+
+  .a3s-form-flow-children-list summary {
+    grid-template-columns: 26px minmax(0, 1fr);
+  }
+
+  .a3s-form-flow-children-list summary > svg {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  .a3s-form-flow-schema-row > button {
+    justify-self: end;
+  }
 }
 
-@container a3s-form-workflow-panel (max-width: 340px) {
+@container a3s-form-workflow-panel (max-width: 420px) {
   .a3s-form-workflow-node-contract-details-body {
     padding-inline: 12px;
   }
 
-  .a3s-form-flow-expression-comparison {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .a3s-form-flow-node-panel .a3s-form-workflow-node-panel-header {
     min-height: auto;
-    padding: 13px 12px 10px;
+    padding: 12px 12px 10px;
     flex-direction: column;
     align-items: stretch;
     gap: 8px;
@@ -2091,5 +2150,29 @@
 
   .a3s-form-flow-batch-row-actions > button:last-child {
     grid-column: 1 / -1;
+  }
+
+  .a3s-form-flow-node-panel .a3s-form-workflow-node-contract-details > summary {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .a3s-form-flow-node-panel .a3s-form-workflow-node-contract-details > summary > small {
+    width: 100%;
+    padding-left: 21px;
+  }
+
+  .a3s-form-flow-node-panel .a3s-form-workflow-node-contract-field > header {
+    flex-wrap: wrap;
+  }
+
+  .a3s-form-flow-node-panel .a3s-form-workflow-node-contract-field > header > span {
+    width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .a3s-form-flow-node-panel .a3s-form-workflow-node-contract-field-properties > ul {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
