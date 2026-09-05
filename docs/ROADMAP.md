@@ -121,6 +121,11 @@ available through `FlowWorkerCapabilities`; it fails closed on protocol or
 required task/guarantee mismatches, while Cloud still owns queue admission and
 fleet policy.
 
+The observability bridge now preserves stable step/activity attempt correlation
+for host logs, traces, and audit sinks while keeping those high-cardinality
+identities out of metric labels. OpenTelemetry context propagation and hosted
+visibility projection remain open R5 work.
+
 ## 4. Implementation rules
 
 ### 4.1 Activity protocol

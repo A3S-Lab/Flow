@@ -355,6 +355,10 @@ call `worker.ensure_compatible(&required)` before leasing work; protocol or
 task-capability mismatches fail closed. Cloud remains responsible for queue
 admission, tenant fairness, placement, and processor lifecycle.
 
+The event bridge retains stable Step/Activity attempt correlation for logs,
+traces, and audit sinks while keeping attempt IDs and idempotency keys out of
+`safe_metric_labels()`.
+
 Retention removes only complete eligible continuation/child components and
 leaves checksum tombstones. Flow never compacts part of an event stream;
 workflows use `continue_as_new` to bound replay history without rewriting the

@@ -717,8 +717,11 @@ Observers are for telemetry, audit, and host integration; they are not the
 source of truth for workflow state and cannot roll back a committed event.
 
 `A3sFlowEventBridge` converts committed envelopes into A3S-style records with
-workflow identity, event key, status, subject, audit identity, and
-low-cardinality metric labels. `InMemoryA3sFlowEventSink` keeps those records in
+workflow identity, event key, status, subject, audit identity, and optional
+step/activity attempt correlation (`attempt`, `attempt_id`, and
+`idempotency_key`). These high-cardinality fields are retained for logs,
+traces, and audit sinks but are excluded from low-cardinality metric labels.
+`InMemoryA3sFlowEventSink` keeps those records in
 process for tests and examples. `LocalFileA3sFlowEventSink` appends them to
 JSONL for local audit trails and records write failures in `last_error()`. On
 first append after startup or a write failure, it preserves a complete final

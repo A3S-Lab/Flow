@@ -1103,9 +1103,11 @@ let observer = Arc::new(A3sFlowEventBridge::new(sink.clone()));
 ```
 
 `A3sFlowEvent` carries audit identity (`run_id`, `event_id`, sequence) plus
-workflow identity, status, and step/wait/signal/hook subject when one exists. Use
-`safe_metric_labels()` for metrics and keep high-cardinality identity in logs or
-traces.
+workflow identity, status, and step/wait/signal/hook subject when one exists.
+Step/activity events also retain attempt correlation when available:
+`attempt`, `attempt_id`, and `idempotency_key`. Use `safe_metric_labels()` for
+metrics and keep these high-cardinality identities in logs, traces, or audit
+sinks.
 
 When one host needs several observability outputs, compose observers with
 `FanoutFlowEventObserver`:

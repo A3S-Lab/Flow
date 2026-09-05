@@ -221,6 +221,15 @@ pub struct A3sFlowEvent {
     pub status: Option<String>,
     /// Step, wait, hook, signal, progress, or child touched by the event.
     pub subject: Option<A3sFlowEventSubject>,
+    /// One-based attempt number when the event belongs to a step or activity attempt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempt: Option<u32>,
+    /// Stable activity attempt identity, when the event carries one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempt_id: Option<String>,
+    /// Stable external side-effect idempotency key, when the event carries one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
 }
 
 impl A3sFlowEvent {
@@ -229,6 +238,7 @@ impl A3sFlowEvent {
         envelope: &FlowEventEnvelope,
         workflow: Option<FlowWorkflowIdentity>,
     ) -> Self {
+        let (attempt, attempt_id, idempotency_key) = event_attempt_identity(&envelope.event);
         Self {
             key: envelope.event.event_key().to_string(),
             run_id: envelope.run_id.clone(),
@@ -238,6 +248,9 @@ impl A3sFlowEvent {
             workflow,
             status: event_status(&envelope.event).map(str::to_string),
             subject: event_subject(&envelope.event),
+            attempt,
+            attempt_id,
+            idempotency_key,
         }
     }
 
@@ -340,6 +353,15 @@ impl A3sEventBusFlowEventSink {
         if let Some(subject) = &event.subject {
             metadata.insert("flow.subject_kind".to_string(), subject.kind.clone());
             metadata.insert("flow.subject_id".to_string(), subject.id.clone());
+        }
+        if let Some(attempt) = event.attempt {
+            metadata.insert("flow.attempt".to_string(), attempt.to_string());
+        }
+        if let Some(attempt_id) = &event.attempt_id {
+            metadata.insert("flow.attempt_id".to_string(), attempt_id.clone());
+        }
+        if let Some(idempotency_key) = &event.idempotency_key {
+            metadata.insert("flow.idempotency_key".to_string(), idempotency_key.clone());
         }
 
         Ok(a3s_event::Event {
@@ -498,6 +520,55 @@ impl A3sFlowEventSink for InMemoryA3sFlowEventSink {
 #[cfg(feature = "a3s-event")]
 fn flow_event_topic(key: &str) -> &str {
     key.strip_prefix("flow.").unwrap_or(key)
+}
+
+fn event_attempt_identity(event: &FlowEvent) -> (Option<u32>, Option<String>, Option<String>) {
+    match event {
+        FlowEvent::StepStarted { attempt, .. }
+        | FlowEvent::StepRetrying { attempt, .. }
+        | FlowEvent::StepFailed { attempt, .. }
+        | FlowEvent::StepNonRetryable { attempt, .. }
+        | FlowEvent::StepCancelled { attempt, .. }
+        | FlowEvent::ActivityCancelled { attempt, .. } => (Some(*attempt), None, None),
+        FlowEvent::ActivityStarted {
+            attempt,
+            attempt_id,
+            idempotency_key,
+            ..
+        } => (
+            Some(*attempt),
+            Some(attempt_id.clone()),
+            Some(idempotency_key.clone()),
+        ),
+        FlowEvent::ActivityLeaseAcquired {
+            attempt,
+            attempt_id,
+            ..
+        }
+        | FlowEvent::ActivityHeartbeat {
+            attempt,
+            attempt_id,
+            ..
+        } => (Some(*attempt), Some(attempt_id.clone()), None),
+        FlowEvent::ActivityCompleted { attempt_id, .. }
+        | FlowEvent::ActivityUnknown { attempt_id, .. } => (None, Some(attempt_id.clone()), None),
+        FlowEvent::ActivityRetrying {
+            attempt,
+            attempt_id,
+            ..
+        }
+        | FlowEvent::ActivityFailed {
+            attempt,
+            attempt_id,
+            ..
+        }
+        | FlowEvent::ActivityNonRetryable {
+            attempt,
+            attempt_id,
+            ..
+        } => (Some(*attempt), Some(attempt_id.clone()), None),
+        _ => (None, None, None),
+    }
 }
 
 fn event_status(event: &FlowEvent) -> Option<&'static str> {

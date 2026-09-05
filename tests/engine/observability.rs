@@ -33,6 +33,40 @@ fn audit_event(run_id: &str, sequence: u64) -> A3sFlowEvent {
     )
 }
 
+#[test]
+fn bridged_events_preserve_attempt_correlation_without_metric_cardinality() {
+    let bridged = A3sFlowEvent::from_envelope(
+        &envelope(
+            "attempt-run",
+            4,
+            FlowEvent::ActivityStarted {
+                activity_id: "activity-1".to_string(),
+                attempt: 2,
+                attempt_id: "attempt-2".to_string(),
+                idempotency_key: "activity-1:attempt-2".to_string(),
+                fencing_token: "fence-2".to_string(),
+            },
+        ),
+        None,
+    );
+
+    assert_eq!(bridged.attempt, Some(2));
+    assert_eq!(bridged.attempt_id.as_deref(), Some("attempt-2"));
+    assert_eq!(
+        bridged.idempotency_key.as_deref(),
+        Some("activity-1:attempt-2")
+    );
+    let labels = bridged.safe_metric_labels();
+    assert!(!labels.contains_key("attempt"));
+    assert!(!labels.contains_key("attempt_id"));
+    assert!(!labels.contains_key("idempotency_key"));
+
+    let encoded = serde_json::to_value(bridged).unwrap();
+    assert_eq!(encoded["attempt"], 2);
+    assert_eq!(encoded["attempt_id"], "attempt-2");
+    assert_eq!(encoded["idempotency_key"], "activity-1:attempt-2");
+}
+
 #[tokio::test]
 async fn observer_receives_committed_events_in_store_order() {
     let observer = Arc::new(InMemoryFlowEventObserver::new());

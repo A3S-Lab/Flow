@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Preserved stable Step/Activity attempt, attempt ID, and idempotency-key
+  correlation in `A3sFlowEvent` and A3S Event metadata without increasing metric
+  label cardinality.
+
 - Added `FlowEngine::export_history_pages` for bounded, tip-pinned, contiguous
   history export through a host-owned callback without materializing a full run
   log.
