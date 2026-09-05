@@ -15,6 +15,10 @@
   re-encoding of a growing unterminated line while retaining the same strict
   size and malformed-input checks.
 
+- Applied the NDJSON byte budget to ignored whitespace records as well as JSON
+  operations, with consistent limit diagnostics for complete and unterminated
+  lines.
+
 - Extended the packaged CLI smoke path to create, compile, and clean up a
   container-scoped workflow, covering the same parent placement contract used
   by the Codex Skill.

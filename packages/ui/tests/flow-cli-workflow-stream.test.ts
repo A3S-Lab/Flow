@@ -280,6 +280,29 @@ describe('workflow update streams', () => {
     ).rejects.toThrow(/exceeds 1048576 bytes/);
   });
 
+  it('bounds ignored whitespace lines as well as JSON operations', async () => {
+    const whitespace = ' '.repeat(1024 * 1024 + 1);
+    await expect(
+      (async () => {
+        for await (const _operation of parseFlowCliWorkflowUpdateNdjson(
+          chunks([`${whitespace}\n`]),
+        )) {
+          // Consume the stream.
+        }
+      })(),
+    ).rejects.toThrow(/maximum is 1048576 bytes/);
+
+    await expect(
+      (async () => {
+        for await (const _operation of parseFlowCliWorkflowUpdateNdjson(
+          chunks([whitespace]),
+        )) {
+          // Consume the stream.
+        }
+      })(),
+    ).rejects.toThrow(/maximum is 1048576 bytes/);
+  });
+
   it('bounds the total number of streamed operations', async () => {
     const observed: number[] = [];
     const updates = (async function* (): AsyncGenerator<FlowCliWorkflowUpdate> {

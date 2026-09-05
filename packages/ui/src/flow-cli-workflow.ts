@@ -210,13 +210,13 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
       const line = rawLine.slice(0, -1).replace(/\r$/, '');
       bufferBytes -= encoder.encode(rawLine).byteLength;
       buffer = buffer.slice(newline + 1);
+      const bytes = encoder.encode(line).byteLength;
+      if (bytes > A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES) {
+        throw new Error(
+          `Workflow operation ${index} is ${bytes} bytes; maximum is ${A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES} bytes.`,
+        );
+      }
       if (line.trim()) {
-        const bytes = encoder.encode(line).byteLength;
-        if (bytes > A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES) {
-          throw new Error(
-            `Workflow operation ${index} is ${bytes} bytes; maximum is ${A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES}.`,
-          );
-        }
         let value: unknown;
         try {
           value = JSON.parse(line);
@@ -237,7 +237,7 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
     }
     if (bufferBytes > A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES) {
       throw new Error(
-        `Workflow operation ${index} exceeds ${A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES} bytes before its newline.`,
+        `Workflow operation ${index} exceeds ${A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES} bytes before its newline (maximum is ${A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES} bytes).`,
       );
     }
   }
@@ -251,11 +251,16 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
   }
   buffer += flushed;
   bufferBytes += encoder.encode(flushed).byteLength;
+  if (bufferBytes > A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES) {
+    throw new Error(
+      `Workflow operation ${index} is ${bufferBytes} bytes; maximum is ${A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES} bytes.`,
+    );
+  }
   if (buffer.trim()) {
     const bytes = bufferBytes;
     if (bytes > A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES) {
       throw new Error(
-        `Workflow operation ${index} is ${bytes} bytes; maximum is ${A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES}.`,
+        `Workflow operation ${index} is ${bytes} bytes; maximum is ${A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES} bytes.`,
       );
     }
     let value: unknown;
