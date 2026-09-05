@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed incremental projection to match full replay for multi-event tails and
+  derived suspended states. SQLite and PostgreSQL append transactions now
+  advance an integrity-checked projection checkpoint from the validated event
+  tail, rebuilding once from authoritative history when the cache is stale or
+  missing; checkpoint writes remain best-effort acceleration metadata.
+
 - Added durable `FlowProjectionCheckpoint` support to the memory, local-file,
   SQLite, and PostgreSQL stores plus `FlowEngine::checkpoint`. Checkpoints are
   validated by run identity, sequence, and tip event ID; stale or corrupt

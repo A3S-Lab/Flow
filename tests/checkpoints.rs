@@ -158,3 +158,30 @@ async fn sqlite_checkpoint_survives_store_reopen() {
     assert_eq!(page.len(), 1);
     assert_eq!(page[0].sequence, 1);
 }
+
+#[cfg(feature = "sqlite")]
+#[tokio::test]
+async fn sqlite_append_advances_projection_cache_atomically() {
+    let directory = tempfile::tempdir().unwrap();
+    let database_url = format!("sqlite://{}", directory.path().join("flow.db").display());
+    let store = SqliteEventStore::connect(&database_url).await.unwrap();
+    seed_running_run(&store, "sqlite-append-cache").await;
+    store
+        .append(
+            "sqlite-append-cache",
+            FlowEvent::WaitCreated {
+                wait_id: "pause".to_string(),
+                resume_at: "2030-01-01T00:00:00Z".parse().unwrap(),
+            },
+        )
+        .await
+        .unwrap();
+
+    let checkpoint = store
+        .load_checkpoint("sqlite-append-cache")
+        .await
+        .unwrap()
+        .expect("SQL append should persist the projection cache");
+    assert_eq!(checkpoint.last_sequence, 3);
+    assert!(checkpoint.snapshot.waits.contains_key("pause"));
+}

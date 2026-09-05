@@ -325,7 +325,8 @@ All stores preserve the same event envelope and replay contract.
 SQLite and PostgreSQL use `a3s-orm` for typed access, checksummed migrations,
 projection-validated transactional appends, active-hook routing, scheduled-wakeup indexes,
 durable projection checkpoints, and whole-history retention. `FlowEngine::checkpoint`
-persists only disposable materialized state; reads verify the latest sequence and
+persists only disposable materialized state; SQL append transactions advance that
+cache from the validated event tail, while reads verify the latest sequence and
 event ID and fall back to authoritative history replay when metadata is stale or
 corrupt. `FlowEngine::history_page` exposes an exclusive sequence cursor with a bounded
 page size for archive/export and visibility rebuilds without loading an entire

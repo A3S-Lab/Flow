@@ -10,12 +10,13 @@ use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookSnapshot, HookStatus, ScheduledWakeup,
+    project_run, project_run_from_snapshot, ActiveHookSnapshot, FlowEvent, FlowEventEnvelope,
+    HookSnapshot, HookStatus, ScheduledWakeup,
 };
 
 use super::{
     migrate_postgres_flow, next_event_sequence, scheduled_wakeup_from_row, scheduled_wakeup_key,
-    validate_candidate_event, verify_postgres_flow, FlowEventStore, FlowProjectionCheckpoint,
+    validate_event_payload, verify_postgres_flow, FlowEventStore, FlowProjectionCheckpoint,
     FlowStoreCapabilities, MAX_FLOW_HISTORY_PAGE_SIZE,
 };
 
@@ -121,24 +122,45 @@ impl PostgresEventStore {
                             });
                         }
                     }
-                    let history = load_postgres_history(transaction, &run_id).await?;
-                    validate_candidate_event(&run_id, &history, &event)?;
+                    validate_event_payload(&event)?;
                     if let FlowEvent::HookCreated { hook_id, token, .. } = &event {
                         ensure_postgres_active_hook_available(transaction, &run_id, hook_id, token)
                             .await?;
                     }
                     let sequence = next_event_sequence(actual_sequence, &run_id)?;
 
-                    let envelope = FlowEventEnvelope {
-                        schema_version: crate::model::FLOW_EVENT_ENVELOPE_SCHEMA_VERSION,
-                        run_id,
-                        sequence,
-                        event_id: Uuid::new_v4(),
-                        timestamp: Utc::now(),
-                        event,
-                        schema_version_explicit: true,
+                    let envelope =
+                        FlowEventEnvelope::new(run_id, sequence, Uuid::new_v4(), Utc::now(), event);
+                    let projected = match load_current_postgres_checkpoint(
+                        transaction,
+                        &envelope.run_id,
+                        actual_sequence,
+                    )
+                    .await?
+                    {
+                        Some(checkpoint) => project_run_from_snapshot(
+                            &envelope.run_id,
+                            checkpoint.snapshot,
+                            std::slice::from_ref(&envelope),
+                        )?,
+                        None => {
+                            let mut history =
+                                load_postgres_history(transaction, &envelope.run_id).await?;
+                            history.push(envelope.clone());
+                            project_run(&envelope.run_id, &history)?
+                        }
                     };
                     insert_postgres_envelope(transaction, &envelope).await?;
+                    if let Ok(checkpoint) = FlowProjectionCheckpoint::new(
+                        &envelope.run_id,
+                        envelope.sequence,
+                        envelope.event_id,
+                        projected,
+                    ) {
+                        // The event history is authoritative. A cache write must
+                        // never turn a successful append into a failed append.
+                        let _ = save_postgres_checkpoint(transaction, &checkpoint).await;
+                    }
                     Ok(envelope)
                 })
             })
@@ -665,6 +687,110 @@ async fn load_postgres_history(
     .into_iter()
     .map(row_to_envelope)
     .collect()
+}
+
+/// Load a checkpoint only when it is anchored to the transaction's current
+/// history tip. A stale or corrupt checkpoint is disposable metadata and
+/// therefore causes the caller to rebuild from the authoritative event log.
+async fn load_current_postgres_checkpoint(
+    transaction: &PostgresTransaction,
+    run_id: &str,
+    actual_sequence: u64,
+) -> Result<Option<FlowProjectionCheckpoint>> {
+    if actual_sequence == 0 {
+        return Ok(None);
+    }
+    let row = fetch_optional_postgres(
+        transaction,
+        sql_query::<(String, i64, String, String, String)>(
+            "SELECT run_id, last_sequence, last_event_id, snapshot_sha256, snapshot_json \
+             FROM flow_projection_checkpoints WHERE run_id = ",
+        )
+        .bind(run_id),
+    )
+    .await?;
+    let Some((checkpoint_run_id, last_sequence, last_event_id, snapshot_sha256, snapshot_json)) =
+        row
+    else {
+        return Ok(None);
+    };
+    let checkpoint = match decode_postgres_checkpoint((
+        checkpoint_run_id,
+        last_sequence,
+        last_event_id,
+        snapshot_sha256,
+        snapshot_json,
+    )) {
+        Ok(checkpoint) if checkpoint.last_sequence == actual_sequence => checkpoint,
+        _ => return Ok(None),
+    };
+    let sequence = i64::try_from(checkpoint.last_sequence).map_err(|error| {
+        FlowError::Store(format!(
+            "projection checkpoint sequence {} exceeds PostgreSQL bigint range: {error}",
+            checkpoint.last_sequence
+        ))
+    })?;
+    let event_id = fetch_optional_postgres(
+        transaction,
+        sql_query::<String>("SELECT event_id FROM flow_events WHERE run_id = ")
+            .bind(run_id)
+            .append(" AND sequence = ")
+            .bind(sequence),
+    )
+    .await?;
+    let Some(event_id) = event_id else {
+        return Ok(None);
+    };
+    let event_id: Uuid = event_id.parse().map_err(|error| {
+        FlowError::Store(format!("invalid PostgreSQL event id {event_id}: {error}"))
+    })?;
+    if event_id != checkpoint.last_event_id {
+        return Ok(None);
+    }
+    Ok(Some(checkpoint))
+}
+
+async fn save_postgres_checkpoint(
+    transaction: &PostgresTransaction,
+    checkpoint: &FlowProjectionCheckpoint,
+) -> Result<()> {
+    checkpoint.validate()?;
+    let sequence = i64::try_from(checkpoint.last_sequence).map_err(|error| {
+        FlowError::Store(format!(
+            "projection checkpoint sequence {} exceeds PostgreSQL bigint range: {error}",
+            checkpoint.last_sequence
+        ))
+    })?;
+    let snapshot_json = serde_json::to_string(&checkpoint.snapshot)?;
+    let query = sql_query::<()>(
+        "INSERT INTO flow_projection_checkpoints \
+         (run_id, last_sequence, last_event_id, snapshot_sha256, snapshot_json, updated_at) VALUES (",
+    )
+    .bind(checkpoint.run_id.clone())
+    .append(", ")
+    .bind(sequence)
+    .append(", ")
+    .bind(checkpoint.last_event_id.to_string())
+    .append(", ")
+    .bind(checkpoint.snapshot_sha256.clone())
+    .append(", ")
+    .bind(snapshot_json)
+    .append(", ")
+    .bind(Utc::now().to_rfc3339())
+    .append(") ON CONFLICT (run_id) DO UPDATE SET \
+         last_sequence = EXCLUDED.last_sequence, \
+         last_event_id = EXCLUDED.last_event_id, \
+         snapshot_sha256 = EXCLUDED.snapshot_sha256, \
+         snapshot_json = EXCLUDED.snapshot_json, \
+         updated_at = EXCLUDED.updated_at",
+    )
+    .compile(&PostgresDialect)
+    .map_err(postgres_query_error)?;
+    transaction
+        .execute(&query)
+        .await
+        .map_err(postgres_driver_error)?;
+    Ok(())
 }
 
 async fn ensure_postgres_active_hook_available(

@@ -90,11 +90,15 @@ the validated append boundary; oversized payloads fail closed before mutation.
 built-in store. `FlowEngine::checkpoint` materializes a projection and stores
 the last sequence plus event ID; reads use it only when both anchors still
 match the append-only history, and treat missing, corrupt, or stale metadata as
-an automatic replay fallback. This is an acceleration layer, never a history
-rewrite or an independent source of truth. Checkpointed reads can replay only
-the validated event tail through indexed `list_after` queries, and a SHA-256
-snapshot digest detects cache corruption. Partitioned history, archive/export,
-and published scale SLOs remain open R3 work. `FlowEngine::history_page` and
+an automatic replay fallback. SQLite and PostgreSQL append transactions also
+advance a current checkpoint from the validated single-event tail, so the
+steady-state append path is independent of full-history length; a stale or
+missing cache rebuilds once from authoritative history and then converges.
+This is an acceleration layer, never a history rewrite or an independent source
+of truth. Checkpointed reads can replay only the validated event tail through
+indexed `list_after` queries, and a SHA-256 snapshot digest detects cache
+corruption. Partitioned history, archive/export, and published scale SLOs
+remain open R3 work. `FlowEngine::history_page` and
 `MAX_FLOW_HISTORY_PAGE_SIZE` provide the bounded cursor primitive that Cloud
 can use to build those export/archive projections.
 

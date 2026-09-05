@@ -386,6 +386,19 @@ pub(super) fn validate_candidate_event(
     history: &[FlowEventEnvelope],
     event: &FlowEvent,
 ) -> Result<()> {
+    validate_event_payload(event)?;
+    let sequence = next_event_sequence(
+        history.last().map_or(0, |envelope| envelope.sequence),
+        run_id,
+    )?;
+    let envelope = FlowEventEnvelope::new(run_id, sequence, Uuid::nil(), Utc::now(), event.clone());
+    let mut candidate = history.to_vec();
+    candidate.push(envelope);
+    project_run(run_id, &candidate).map(|_| ())
+}
+
+/// Validate the encoded size of one event before it enters durable history.
+pub(super) fn validate_event_payload(event: &FlowEvent) -> Result<()> {
     let payload_bytes = serde_json::to_vec(event)
         .map_err(|error| FlowError::Store(format!("failed to encode candidate event: {error}")))?
         .len();
@@ -396,14 +409,7 @@ pub(super) fn validate_candidate_event(
             max_bytes: crate::model::MAX_FLOW_EVENT_BYTES,
         });
     }
-    let sequence = next_event_sequence(
-        history.last().map_or(0, |envelope| envelope.sequence),
-        run_id,
-    )?;
-    let envelope = FlowEventEnvelope::new(run_id, sequence, Uuid::nil(), Utc::now(), event.clone());
-    let mut candidate = history.to_vec();
-    candidate.push(envelope);
-    project_run(run_id, &candidate).map(|_| ())
+    Ok(())
 }
 
 /// Advance a per-run event sequence without allowing malformed or hostile
