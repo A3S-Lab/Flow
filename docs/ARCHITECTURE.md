@@ -643,6 +643,13 @@ copy and cleanup steps cannot duplicate a repeated redrive; PostgreSQL performs
 the copy and dead-letter deletion in one transaction. Custom queues fail closed
 until they implement the same durable identity and atomicity contract.
 
+Compatibility hosts can apply an explicit fairness budget with
+`FlowWorker::run_until_idle_bounded(limit)`: the worker leases and acknowledges
+no more than `limit` tasks before returning, so a host scheduler can yield even
+when the queue is continuously replenished. A zero limit is rejected before
+leasing; application-level queue admission and processor lifecycle remain
+owned by A3S Boot.
+
 Lease IDs are fencing tokens. Every successful `heartbeat()` atomically refreshes
 lease age and replaces the token; only the latest token can heartbeat or
 acknowledge the task. `FlowWorker` can heartbeat while handling long-running

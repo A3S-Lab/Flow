@@ -112,6 +112,27 @@ impl FlowWorker {
         }
         Ok(outcomes)
     }
+
+    /// Handles at most `max_tasks` queued tasks and returns their outcomes.
+    ///
+    /// This bounded drain is a host backpressure hook: callers can yield to a
+    /// scheduler or enforce a fairness budget even while more work remains in
+    /// the queue. A zero limit is rejected before leasing any task.
+    pub async fn run_until_idle_bounded(&self, max_tasks: usize) -> Result<Vec<FlowTaskOutcome>> {
+        if max_tasks == 0 {
+            return Err(crate::FlowError::InvalidWorkerConfiguration(
+                "worker batch size must be greater than zero".to_string(),
+            ));
+        }
+        let mut outcomes = Vec::with_capacity(max_tasks.min(16));
+        while outcomes.len() < max_tasks {
+            let Some(outcome) = self.run_once().await? else {
+                break;
+            };
+            outcomes.push(outcome);
+        }
+        Ok(outcomes)
+    }
 }
 
 pub(super) async fn handle_flow_task(

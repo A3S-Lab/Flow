@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added `FlowWorker::run_until_idle_bounded` so compatibility hosts can impose
+  an explicit fairness/backpressure budget; zero limits fail before leasing.
+
 - Added `FlowTaskQueue::redrive_dead_lettered` for administrative recovery of
   poison tasks. Local queues use a stable crash-safe pending identity, while
   PostgreSQL performs the pending copy and dead-letter removal atomically;

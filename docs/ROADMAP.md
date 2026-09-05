@@ -106,9 +106,11 @@ The first `FLOW-R5` queue lifecycle slice is also implemented: built-in local
 and PostgreSQL queues expose an administrative dead-letter redrive operation,
 and custom queues fail closed unless they explicitly provide the same contract.
 Redrive identities are stable across local crash windows, while PostgreSQL
-redrive copies and removes a dead-letter row in one transaction. Worker
-protocol negotiation, backpressure/fairness, and hosted visibility remain
-open R5 work.
+redrive copies and removes a dead-letter row in one transaction. Worker drain
+now has a bounded fairness/backpressure hook through
+`FlowWorker::run_until_idle_bounded(limit)`, while protocol negotiation,
+queue-admission backpressure, processor fairness across tenants, and hosted
+visibility remain open R5 work.
 
 ## 4. Implementation rules
 

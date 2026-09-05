@@ -359,6 +359,11 @@ queue
 let engine = FlowEngine::new(store, runtime);
 let worker = FlowWorker::new(engine.clone(), queue.clone())
     .with_heartbeat_interval(std::time::Duration::from_secs(30))?;
+
+// Embedded hosts can yield after a bounded fairness budget when the queue is
+// continuously replenished. Use run_until_idle() when an unbounded drain is
+// intentional.
+let _outcomes = worker.run_until_idle_bounded(100).await?;
 # Ok(())
 # }
 ```

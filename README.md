@@ -339,6 +339,12 @@ inspection, and an administrative `redrive_dead_lettered` operation. Built-in
 local and PostgreSQL queues make repeated redrive safe; custom queue adapters
 must explicitly implement the redrive contract.
 
+Hosts that own a compatibility `FlowWorker` loop can call
+`run_until_idle_bounded(limit)` to drain at most a fairness/backpressure budget
+before yielding to other work. A zero limit is rejected before any lease is
+acquired; `run_until_idle()` remains available when an unbounded drain is
+intentional.
+
 Retention removes only complete eligible continuation/child components and
 leaves checksum tombstones. Flow never compacts part of an event stream;
 workflows use `continue_as_new` to bound replay history without rewriting the
