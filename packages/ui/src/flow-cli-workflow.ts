@@ -149,11 +149,20 @@ export function applyFlowCliWorkflowUpdate(
           }
         }
       }
+      const removedEdges = graph.edges.filter(
+        (edge) => removed.has(edge.source) || removed.has(edge.target),
+      );
       graph.nodes = graph.nodes.filter((node) => !removed.has(node.id));
       graph.edges = graph.edges.filter(
         (edge) => !removed.has(edge.source) && !removed.has(edge.target),
       );
-      return { document, changed: [...removed].map((id) => `node:${id}`) };
+      return {
+        document,
+        changed: [
+          ...[...removed].map((id) => `node:${id}`),
+          ...removedEdges.map((edge) => `edge:${edge.id}`),
+        ],
+      };
     }
     case 'add-edge': {
       requireNode(document, operation.source);

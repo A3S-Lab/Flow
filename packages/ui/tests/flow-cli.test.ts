@@ -169,6 +169,22 @@ describe('A3S Flow CLI workflow file CRUD', () => {
       ).toBe(0);
       expect((await readJson(output)).changed).toEqual(['edge:start-complete-shortcut']);
 
+      expect(
+        await runFlowCli([
+          'update',
+          workflow,
+          '--remove-node',
+          'run-step',
+          '--output',
+          output,
+        ]),
+      ).toBe(0);
+      expect((await readJson(output)).changed).toEqual([
+        'node:run-step',
+        'edge:start-run-step',
+        'edge:run-step-complete',
+      ]);
+
       expect(await runFlowCli(['delete', workflow, '--force', '--output', output])).toBe(0);
       expect((await readJson(output)).deleted).toBe(true);
       await expect(readFile(workflow, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
