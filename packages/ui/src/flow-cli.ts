@@ -258,6 +258,8 @@ function validateWorkflowDocument(
   };
 }
 
+type InlineWorkflowUpdateKind = FlowCliWorkflowUpdate['kind'];
+
 function parseJsonObject(value: string | undefined, label: string): JsonObject {
   if (!value) throw new CliError('usage', `${label} requires --config <json>.`);
   let parsed: unknown;
@@ -314,7 +316,7 @@ function validateIfDigest(value: string | undefined): void {
 }
 
 function updateOperation(options: CliOptions): FlowCliWorkflowUpdate {
-  const operations = [
+  const operations: InlineWorkflowUpdateKind[] = [
     options.addNodeType ? 'add-node' : undefined,
     options.removeNodeId ? 'remove-node' : undefined,
     options.addEdge ? 'add-edge' : undefined,
@@ -322,7 +324,7 @@ function updateOperation(options: CliOptions): FlowCliWorkflowUpdate {
     options.setEdgeId ? 'set-edge' : undefined,
     options.setNodeId ? 'set-node' : undefined,
     options.setAppName ? 'set-app-name' : undefined,
-  ].filter((value): value is string => value !== undefined);
+  ].filter((value): value is InlineWorkflowUpdateKind => value !== undefined);
   if (operations.length !== 1) {
     throw new CliError(
       'usage',
@@ -332,6 +334,7 @@ function updateOperation(options: CliOptions): FlowCliWorkflowUpdate {
   if (options.parentId !== undefined && operations[0] !== 'add-node') {
     throw new CliError('usage', '--parent is only valid with --add-node.');
   }
+  rejectUnexpectedInlineUpdateOptions(options, operations[0]);
   switch (operations[0]) {
     case 'add-node':
       if (!options.id) throw new CliError('usage', '--add-node requires --id <id>.');
@@ -404,6 +407,66 @@ function updateOperation(options: CliOptions): FlowCliWorkflowUpdate {
       return { kind: 'set-app-name', name: options.setAppName! };
     default:
       throw new CliError('usage', 'Unsupported workflow update operation.');
+  }
+}
+
+function rejectUnexpectedInlineUpdateOptions(
+  options: CliOptions,
+  operation: InlineWorkflowUpdateKind,
+): void {
+  const restrictions: readonly {
+    flag: string;
+    present: boolean;
+    allowed: InlineWorkflowUpdateKind | readonly InlineWorkflowUpdateKind[];
+  }[] = [
+    { flag: '--id', present: options.id !== undefined, allowed: 'add-node' },
+    {
+      flag: '--config',
+      present: options.config !== undefined,
+      allowed: ['add-node', 'set-node'],
+    },
+    { flag: '--parent', present: options.parentId !== undefined, allowed: 'add-node' },
+    { flag: '--edge-id', present: options.edgeId !== undefined, allowed: 'add-edge' },
+    {
+      flag: '--source',
+      present: options.source !== undefined,
+      allowed: ['add-edge', 'set-edge'],
+    },
+    {
+      flag: '--target',
+      present: options.target !== undefined,
+      allowed: ['add-edge', 'set-edge'],
+    },
+    {
+      flag: '--source-handle',
+      present: options.sourceHandle !== undefined,
+      allowed: ['add-edge', 'set-edge'],
+    },
+    {
+      flag: '--target-handle',
+      present: options.targetHandle !== undefined,
+      allowed: ['add-edge', 'set-edge'],
+    },
+    {
+      flag: '--clear-source-handle',
+      present: options.clearSourceHandle,
+      allowed: ['add-edge', 'set-edge'],
+    },
+    {
+      flag: '--clear-target-handle',
+      present: options.clearTargetHandle,
+      allowed: ['add-edge', 'set-edge'],
+    },
+  ];
+  const invalid = restrictions.find(({ present, allowed }) => {
+    if (!present) return false;
+    return Array.isArray(allowed) ? !allowed.includes(operation) : allowed !== operation;
+  });
+  if (invalid) {
+    const allowed = Array.isArray(invalid.allowed)
+      ? invalid.allowed.map((kind) => `--${kind}`).join(' or ')
+      : `--${invalid.allowed}`;
+    throw new CliError('usage', `${invalid.flag} is only valid with ${allowed}.`);
   }
 }
 

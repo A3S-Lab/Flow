@@ -58,6 +58,30 @@ describe('A3S Flow CLI workflow file CRUD', () => {
       await expect(
         runFlowCli(['update', workflow, '--set-app-name', 'wrong-scope', '--parent', 'container']),
       ).rejects.toThrow(/--parent is only valid with --add-node/);
+      await expect(
+        runFlowCli([
+          'update',
+          workflow,
+          '--add-node',
+          'flow.progress',
+          '--id',
+          'progress',
+          '--source',
+          'start',
+        ]),
+      ).rejects.toThrow(/--source is only valid with --add-edge or --set-edge/);
+      await expect(
+        runFlowCli([
+          'update',
+          workflow,
+          '--set-node',
+          'run-step',
+          '--config',
+          '{"step_name":"task.next"}',
+          '--edge-id',
+          'unexpected',
+        ]),
+      ).rejects.toThrow(/--edge-id is only valid with --add-edge/);
       expect((JSON.parse(await readFile(workflow, 'utf8')) as A3SFlowWorkflowDsl).app.name).toBe('0003');
     } finally {
       await rm(root, { recursive: true, force: true });

@@ -19,6 +19,9 @@
   container-scoped workflow, covering the same parent placement contract used
   by the Codex Skill.
 
+- Made inline update flags fail closed when they do not belong to the selected
+  operation, so automation cannot silently lose an edge, node, or scope option.
+
 - Preserved stable Step/Activity attempt, attempt ID, and idempotency-key
   correlation in `A3sFlowEvent` and A3S Event metadata without increasing metric
   label cardinality.

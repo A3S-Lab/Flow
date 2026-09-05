@@ -84,6 +84,8 @@ atomic replace, so a rejected or conflicting edit leaves the original file
 unchanged. Add `--dry-run` to receive the candidate summary without writing it.
 Both transports and direct typed callers share a 10,000-operation bound; each
 NDJSON line is limited to 1 MiB.
+Operation-specific flags are rejected when they do not match the selected
+operation, instead of being silently ignored.
 
 Use `--set-edge <id> --source <id> --target <id>` to redirect an existing edge
 in place. Optional `--source-handle` and `--target-handle` replace only the
