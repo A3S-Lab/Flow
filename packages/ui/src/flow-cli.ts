@@ -276,18 +276,14 @@ function parseJsonObject(value: string | undefined, label: string): JsonObject {
 }
 
 function updateOperations(options: CliOptions): FlowCliWorkflowUpdate[] {
-  if (!options.operations) return [updateOperation(options)];
+  if (options.operations === undefined) return [updateOperation(options)];
   if (options.operations === '-') {
     throw new CliError(
       'usage',
       '--operations - is a streaming NDJSON input; use it without single operation flags.',
     );
   }
-  if (
-    options.addNodeType || options.removeNodeId || options.addEdge ||
-    options.removeEdgeId || options.setEdgeId || options.setNodeId || options.setAppName ||
-    options.clearSourceHandle || options.clearTargetHandle
-  ) {
+  if (hasInlineUpdateOptions(options)) {
     throw new CliError('usage', '--operations cannot be combined with a single update operation.');
   }
   try {
@@ -300,10 +296,14 @@ function updateOperations(options: CliOptions): FlowCliWorkflowUpdate[] {
   }
 }
 
-function hasSingleUpdateOperation(options: CliOptions): boolean {
+function hasInlineUpdateOptions(options: CliOptions): boolean {
   return Boolean(
     options.addNodeType || options.removeNodeId || options.addEdge ||
-      options.removeEdgeId || options.setEdgeId || options.setNodeId || options.setAppName,
+      options.removeEdgeId || options.setEdgeId || options.setNodeId || options.setAppName ||
+      options.parentId !== undefined || options.id !== undefined || options.config !== undefined ||
+      options.edgeId !== undefined || options.source !== undefined || options.target !== undefined ||
+      options.sourceHandle !== undefined || options.targetHandle !== undefined ||
+      options.clearSourceHandle || options.clearTargetHandle,
   );
 }
 
@@ -329,6 +329,9 @@ function updateOperation(options: CliOptions): FlowCliWorkflowUpdate {
       'update requires exactly one operation: --add-node, --remove-node, --add-edge, --remove-edge, --set-edge, --set-node, or --set-app-name.',
     );
   }
+  if (options.parentId !== undefined && operations[0] !== 'add-node') {
+    throw new CliError('usage', '--parent is only valid with --add-node.');
+  }
   switch (operations[0]) {
     case 'add-node':
       if (!options.id) throw new CliError('usage', '--add-node requires --id <id>.');
@@ -337,6 +340,7 @@ function updateOperation(options: CliOptions): FlowCliWorkflowUpdate {
         id: options.id,
         type: options.addNodeType!,
         configuration: options.config ? parseJsonObject(options.config, '--add-node') : {},
+        parentId: options.parentId,
       };
     case 'remove-node':
       return { kind: 'remove-node', id: options.removeNodeId! };
@@ -553,7 +557,7 @@ async function handleUpdate(
   let result;
   try {
     if (options.operations === '-') {
-      if (hasSingleUpdateOperation(options)) {
+      if (hasInlineUpdateOptions(options)) {
         throw new CliError(
           'usage',
           '--operations - cannot be combined with a single update operation.',

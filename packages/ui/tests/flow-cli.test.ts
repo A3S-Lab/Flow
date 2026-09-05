@@ -55,6 +55,9 @@ describe('A3S Flow CLI workflow file CRUD', () => {
       await expect(
         runFlowCli(['update', workflow, '--set-app-name', 'first', '--set-app-name', 'second']),
       ).rejects.toThrow(/cannot be repeated/);
+      await expect(
+        runFlowCli(['update', workflow, '--set-app-name', 'wrong-scope', '--parent', 'container']),
+      ).rejects.toThrow(/--parent is only valid with --add-node/);
       expect((JSON.parse(await readFile(workflow, 'utf8')) as A3SFlowWorkflowDsl).app.name).toBe('0003');
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -66,6 +69,7 @@ describe('A3S Flow CLI workflow file CRUD', () => {
     const workflow = join(root, 'workflow.json');
     const copiedWorkflow = join(root, 'workflow-copy.json');
     const batchWorkflow = join(root, 'workflow-batch.json');
+    const scopedWorkflow = join(root, 'workflow-scoped.json');
     const output = join(root, 'result.json');
     try {
       expect(
@@ -139,6 +143,85 @@ describe('A3S Flow CLI workflow file CRUD', () => {
         'edge:run-step-progress',
         'edge:progress-complete',
       ]);
+
+      expect(await runFlowCli(['create', scopedWorkflow, '--output', output])).toBe(0);
+      const scopedOperations = JSON.stringify([
+        {
+          kind: 'add-node',
+          id: 'each',
+          type: 'iteration',
+          configuration: { start_node_id: 'each-start' },
+        },
+        {
+          kind: 'add-node',
+          id: 'each-start',
+          type: 'iteration-start',
+          parentId: 'each',
+        },
+        {
+          kind: 'add-node',
+          id: 'process',
+          type: 'flow.step',
+          parentId: 'each',
+        },
+        {
+          kind: 'add-edge',
+          id: 'each-start-process',
+          source: 'each-start',
+          target: 'process',
+          sourceHandle: 'next',
+          targetHandle: 'in',
+        },
+      ]);
+      expect(
+        await runFlowCli([
+          'update',
+          scopedWorkflow,
+          '--operations',
+          scopedOperations,
+          '--output',
+          output,
+        ]),
+      ).toBe(0);
+      expect(
+        await runFlowCli([
+          'update',
+          scopedWorkflow,
+          '--add-node',
+          'flow.progress',
+          '--id',
+          'progress',
+          '--parent',
+          'each',
+          '--output',
+          output,
+        ]),
+      ).toBe(0);
+      expect(await runFlowCli(['compile', scopedWorkflow, '--output', output])).toBe(0);
+      expect((await readJson(output)).plan.scopes.each).toEqual([
+        'each-start',
+        'process',
+        'progress',
+      ]);
+      const scoped = JSON.parse(await readFile(scopedWorkflow, 'utf8')) as A3SFlowWorkflowDsl;
+      expect(
+        scoped.workflow.graph.nodes.find((node) => node.id === 'each-start'),
+      ).toMatchObject({ parentId: 'each' });
+      expect(
+        scoped.workflow.graph.nodes.find((node) => node.id === 'progress'),
+      ).toMatchObject({ parentId: 'each' });
+      await expect(
+        runFlowCli([
+          'update',
+          scopedWorkflow,
+          '--add-node',
+          'iteration-start',
+          '--id',
+          'wrong-start',
+          '--parent',
+          'process',
+        ]),
+      ).rejects.toThrow(/must be an iteration or loop container/);
 
       const batchWithEdgeExtension = JSON.parse(
         await readFile(batchWorkflow, 'utf8'),
@@ -389,6 +472,19 @@ describe('A3S Flow CLI workflow file CRUD', () => {
           JSON.stringify([{ kind: 'set-app-name', nam: 'typo' }]),
         ]),
       ).rejects.toThrow(/unknown property nam/);
+      await expect(
+        runFlowCli([
+          'update',
+          workflow,
+          '--operations',
+          JSON.stringify([{ kind: 'set-app-name', name: 'ignored' }]),
+          '--parent',
+          'container',
+        ]),
+      ).rejects.toThrow(/cannot be combined with a single update operation/);
+      await expect(
+        runFlowCli(['update', workflow, '--operations', '']),
+      ).rejects.toThrow(/Invalid --operations/);
       expect(
         await runFlowCli([
           'update',

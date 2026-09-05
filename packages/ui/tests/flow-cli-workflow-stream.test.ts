@@ -133,6 +133,70 @@ describe('workflow update streams', () => {
     expect(edge).not.toHaveProperty('targetHandle');
   });
 
+  it('places container children through streamed add-node operations', async () => {
+    const result = await applyFlowCliWorkflowUpdateStream(
+      workflow(),
+      parseFlowCliWorkflowUpdateNdjson(
+        chunks([
+          '{"kind":"add-node","id":"each","type":"iteration","configuration":{"start_node_id":"each-start"}}\n',
+          '{"kind":"add-node","id":"each-start","type":"iteration-start","parentId":"each"}\n',
+          '{"kind":"add-node","id":"process","type":"flow.step","parentId":"each"}\n',
+        ]),
+      ),
+    );
+
+    expect(result.changed).toEqual(['node:each', 'node:each-start', 'node:process']);
+    expect(result.document.workflow.graph.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'each', data: expect.objectContaining({ type: 'iteration' }) }),
+        expect.objectContaining({ id: 'each-start', parentId: 'each' }),
+        expect.objectContaining({ id: 'process', parentId: 'each' }),
+      ]),
+    );
+  });
+
+  it('derives loop start placement from the registered container contract', async () => {
+    const result = await applyFlowCliWorkflowUpdateStream(
+      workflow(),
+      parseFlowCliWorkflowUpdateNdjson(
+        chunks([
+          '{"kind":"add-node","id":"repeat","type":"loop","configuration":{"start_node_id":"repeat-start","max_iterations":2}}\n',
+          '{"kind":"add-node","id":"repeat-start","type":"loop-start","parentId":"repeat"}\n',
+          '{"kind":"add-node","id":"step","type":"flow.step","parentId":"repeat"}\n',
+        ]),
+      ),
+    );
+
+    expect(result.document.workflow.graph.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'repeat-start', parentId: 'repeat' }),
+        expect.objectContaining({ id: 'step', parentId: 'repeat' }),
+      ]),
+    );
+    await expect(
+      applyFlowCliWorkflowUpdateStream(
+        workflow(),
+        parseFlowCliWorkflowUpdateNdjson(
+          chunks([
+            '{"kind":"add-node","id":"repeat","type":"loop","configuration":{"start_node_id":"repeat-start"}}\n',
+            '{"kind":"add-node","id":"repeat-start","type":"iteration-start","parentId":"repeat"}\n',
+          ]),
+        ),
+      ),
+    ).rejects.toThrow(/matching loop container/);
+  });
+
+  it('rejects internal nodes outside their matching container', async () => {
+    await expect(
+      applyFlowCliWorkflowUpdateStream(
+        workflow(),
+        parseFlowCliWorkflowUpdateNdjson(
+          chunks(['{"kind":"add-node","id":"bad-start","type":"iteration-start"}\n']),
+        ),
+      ),
+    ).rejects.toThrow(/must be placed inside its matching container/);
+  });
+
   it('handles UTF-8 byte boundaries, CRLF, and blank lines', async () => {
     const first = new TextEncoder().encode(
       '{"kind":"set-app-name","name":"流',

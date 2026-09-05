@@ -112,6 +112,15 @@ An iteration contains one `iteration-start` child. A loop contains one `loop-sta
 
 The example omits manifest defaults for readability. Create nodes with the CLI before inserting them into a real document.
 
+For CLI authoring, a public child can be created directly with
+`a3s-flow update workflow.json --add-node <type> --id <id> --parent <container-id>`.
+The parent must already exist. A new container is not executable until its
+matching internal start and at least one executable child are present, so add
+the container and its dependent children in one `--operations '<json-array>'`
+patch or one NDJSON stream. JSON operations use `parentId`; the CLI option is
+`--parent`. The registry's container contract is authoritative: `iteration`
+accepts only `iteration-start`, and `loop` accepts only `loop-start`.
+
 ## Validation sequence
 
 Run the commands in this order after each semantic edit:

@@ -23,7 +23,13 @@ import {
 } from './integrations/a3s-flow-node-manifest';
 
 export type FlowCliWorkflowUpdate =
-  | { kind: 'add-node'; id: string; type: string; configuration: JsonObject }
+  | {
+      kind: 'add-node';
+      id: string;
+      type: string;
+      configuration: JsonObject;
+      parentId?: string;
+    }
   | { kind: 'remove-node'; id: string }
   | {
       kind: 'add-edge';
@@ -107,12 +113,13 @@ function parseFlowCliWorkflowUpdateObject(
   const kind = string('kind');
   switch (kind) {
     case 'add-node':
-      assertKeys('kind', 'id', 'type', 'configuration');
+      assertKeys('kind', 'id', 'type', 'configuration', 'parentId');
       return {
         kind: 'add-node',
         id: string('id'),
         type: string('type'),
         configuration: configuration(false),
+        parentId: optionalString('parentId'),
       };
     case 'remove-node':
       assertKeys('kind', 'id');
@@ -401,6 +408,35 @@ function requireNodeType(type: string) {
   return manifest;
 }
 
+function requireNodePlacement(
+  document: A3SFlowWorkflowDsl,
+  type: string,
+  parentId: string | undefined,
+) {
+  const manifest = a3sFlowDagNodeRegistry.get(type);
+  if (!manifest) throw new Error(`Unknown workflow node type: ${type}`);
+  if (parentId === undefined) {
+    if (manifest.internal) {
+      throw new Error(`Internal node type ${type} must be placed inside its matching container.`);
+    }
+    return manifest;
+  }
+
+  const parent = requireNode(document, parentId);
+  const parentManifest = a3sFlowDagNodeRegistry.get(parent.data.type);
+  if (!parentManifest?.container) {
+    throw new Error(`Workflow node parent must be an iteration or loop container: ${parentId}`);
+  }
+  if (manifest.internal) {
+    if (parentManifest.container.startNodeType !== manifest.type) {
+      throw new Error(
+        `Internal node ${type} must belong to the matching ${parent.data.type} container: ${parentId}`,
+      );
+    }
+  }
+  return manifest;
+}
+
 export function applyFlowCliWorkflowUpdate(
   source: A3SFlowWorkflowDsl,
   operation: FlowCliWorkflowUpdate,
@@ -460,17 +496,13 @@ function applyFlowCliWorkflowUpdateInPlace(
   const graph = document.workflow.graph;
   switch (operation.kind) {
     case 'add-node': {
-      const manifest = requireNodeType(operation.type);
+      const manifest = requireNodePlacement(document, operation.type, operation.parentId);
       if (graph.nodes.some((node) => node.id === operation.id)) {
         throw new Error(`Workflow node already exists: ${operation.id}`);
       }
-      graph.nodes.push(
-        createA3SFlowDagNode(
-          operation.id,
-          manifest,
-          operation.configuration,
-        ),
-      );
+      const node = createA3SFlowDagNode(operation.id, manifest, operation.configuration);
+      if (operation.parentId !== undefined) node.parentId = operation.parentId;
+      graph.nodes.push(node);
       return [`node:${operation.id}`];
     }
     case 'remove-node': {

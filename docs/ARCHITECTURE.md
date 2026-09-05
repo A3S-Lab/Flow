@@ -84,7 +84,11 @@ Workflow authoring uses typed domain operations rather than arbitrary JSON
 pointer writes. `@a3s-lab/flow-ui` exposes a bounded NDJSON decoder and an async
 operation applier, so a CLI, Skill, or host adapter can validate and apply one
 `add-node`, `remove-node`, `set-node`, `add-edge`, `set-edge`, `remove-edge`,
-or app-metadata operation as it arrives. `set-edge` redirects an existing edge
+or app-metadata operation as it arrives. `add-node` may set `parentId` to an
+existing iteration or loop container; the registry contract enforces the
+matching internal start type, while a container plus its incomplete children
+must be submitted as one batch/stream and published only after final
+validation. `set-edge` redirects an existing edge
 without changing its stable ID and preserves omitted handles plus unknown
 semantic/presentation fields; an explicit `null` handle removes that optional
 field. A base document digest can be supplied for optimistic concurrency;

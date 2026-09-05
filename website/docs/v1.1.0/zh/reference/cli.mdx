@@ -72,6 +72,13 @@ a3s-flow read workflow.json --pretty
 
 使用 `--set-edge <id> --source <id> --target <id>` 可以原地重定向已有连线。传入 `--source-handle` 或 `--target-handle` 时只替换对应句柄；省略的句柄、连线 ID 以及未知语义/展示字段都会保留。需要显式删除句柄时使用 `--clear-source-handle` 或 `--clear-target-handle`（JSON operation 中使用 `null`）。这样不需要先删除再新增，也不会破坏对连线 ID 的引用。
 
+使用 `--add-node` 时可通过 `--parent <container-id>` 把公开节点放入已有的
+`iteration` 或 `loop` 作用域。新容器只有在匹配的内部起点和至少一个可执行子节点
+都加入后才能发布，因此应把这些依赖操作放在同一个 JSON operation 数组或 NDJSON
+流中；JSON operation 使用 `parentId`。注册表契约是唯一依据：`iteration` 只能接收
+`iteration-start`，`loop` 只能接收 `loop-start`。不完整的中间容器只存在于候选副本中，
+不会写入磁盘。
+
 ```bash
 a3s-flow update workflow.json --set-app-name invoice.approval.v2 --pretty
 a3s-flow update workflow.json --set-node run-step \
@@ -81,6 +88,8 @@ a3s-flow update workflow.json --add-node flow.progress \
 a3s-flow update workflow.json --set-edge run-step-complete \
   --source run-step --target approval \
   --source-handle success --target-handle in --pretty
+a3s-flow update workflow.json --operations \
+  '[{"kind":"add-node","id":"each","type":"iteration","configuration":{"start_node_id":"each-start"}},{"kind":"add-node","id":"each-start","type":"iteration-start","parentId":"each"},{"kind":"add-node","id":"process","type":"flow.step","parentId":"each"}]' --pretty
 a3s-flow update workflow.json --operations \
   '[{"kind":"set-app-name","name":"invoice.approval.v2"},{"kind":"set-node","id":"run-step","configuration":{"step_name":"payments.charge"}}]' \
   --dry-run --pretty

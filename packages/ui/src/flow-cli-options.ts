@@ -15,6 +15,7 @@ export interface CliOptions {
   setEdgeId?: string;
   setNodeId?: string;
   setAppName?: string;
+  parentId?: string;
   source?: string;
   target?: string;
   edgeId?: string;
@@ -65,6 +66,7 @@ Options:
   --remove-node <id>       Update: remove one node and its scoped children
   --set-node <id>          Update: replace manifest-owned node fields (requires --config)
   --set-app-name <name>    Update: replace the workflow app name
+  --parent <id>            Parent iteration/loop container for --add-node
   --add-edge               Update: add an edge (requires --edge-id, --source, --target)
   --remove-edge <id>       Update: remove one edge
   --set-edge <id>          Update: change an edge's endpoints (requires --source, --target)
@@ -109,6 +111,7 @@ function createCliParser() {
     .option('--remove-node <id>', 'Remove one node')
     .option('--set-node <id>', 'Set one node configuration')
     .option('--set-app-name <name>', 'Set the workflow app name')
+    .option('--parent <id>', 'Parent iteration/loop container for --add-node')
     .option('--add-edge', 'Add one edge')
     .option('--remove-edge <id>', 'Remove one edge')
     .option('--set-edge <id>', 'Set one edge endpoints')
@@ -179,6 +182,7 @@ export function parseFlowCliOptions(
       setEdgeId: stringValue('setEdge'),
       setNodeId: stringValue('setNode'),
       setAppName: stringValue('setAppName'),
+      parentId: stringValue('parent'),
       source: stringValue('source'),
       target: stringValue('target'),
       edgeId: stringValue('edgeId'),

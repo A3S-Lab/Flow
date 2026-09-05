@@ -91,6 +91,15 @@ presentation fields are preserved. Use `--clear-source-handle` or
 operation). This avoids a remove/add cycle that could break references to the
 edge.
 
+Use `--parent <container-id>` with `--add-node` to place a public node inside
+an existing `iteration` or `loop` scope. A new container is publishable only
+after its matching internal start node and at least one executable child have
+been added, so create those dependent nodes in one JSON operation array or
+NDJSON stream. JSON operations use `parentId`; `iteration` accepts only an
+`iteration-start` child and `loop` accepts only a `loop-start` child. The
+intermediate incomplete container is kept in the candidate clone and is never
+written to disk.
+
 ```bash
 a3s-flow update workflow.json --set-app-name invoice.approval.v2 --pretty
 a3s-flow update workflow.json --set-node run-step \
@@ -100,6 +109,8 @@ a3s-flow update workflow.json --add-node flow.progress \
 a3s-flow update workflow.json --set-edge run-step-complete \
   --source run-step --target approval \
   --source-handle success --target-handle in --pretty
+a3s-flow update workflow.json --operations \
+  '[{"kind":"add-node","id":"each","type":"iteration","configuration":{"start_node_id":"each-start"}},{"kind":"add-node","id":"each-start","type":"iteration-start","parentId":"each"},{"kind":"add-node","id":"process","type":"flow.step","parentId":"each"}]' --pretty
 a3s-flow update workflow.json --operations \
   '[{"kind":"set-app-name","name":"invoice.approval.v2"},{"kind":"set-node","id":"run-step","configuration":{"step_name":"payments.charge"}}]' \
   --dry-run --pretty
