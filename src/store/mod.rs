@@ -306,6 +306,16 @@ pub(super) fn validate_candidate_event(
     history: &[FlowEventEnvelope],
     event: &FlowEvent,
 ) -> Result<()> {
+    let payload_bytes = serde_json::to_vec(event)
+        .map_err(|error| FlowError::Store(format!("failed to encode candidate event: {error}")))?
+        .len();
+    if payload_bytes > crate::model::MAX_FLOW_EVENT_BYTES {
+        return Err(FlowError::PayloadTooLarge {
+            event_key: event.event_key().to_string(),
+            bytes: payload_bytes,
+            max_bytes: crate::model::MAX_FLOW_EVENT_BYTES,
+        });
+    }
     let sequence = next_event_sequence(
         history.last().map_or(0, |envelope| envelope.sequence),
         run_id,

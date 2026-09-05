@@ -1,9 +1,10 @@
 use a3s_flow::{
     ChildWorkflowCancellationPolicy, ChildWorkflowCommand, FlowError, FlowEvent, FlowEventEnvelope,
-    NativeRuntimeKind, NativeRuntimeRequest, NativeRuntimeResponse, NativeTsCompilerCapabilities,
-    NativeTsDependencyManifest, RuntimeCommand, StepInvocation, WorkflowRunSummary, WorkflowSignal,
-    WorkflowSpec, WorkflowTerminalOutcome, FLOW_EVENT_ENVELOPE_SCHEMA_VERSION,
-    NATIVE_COMPILER_PROTOCOL, NATIVE_DEPENDENCY_MANIFEST_PROTOCOL, NATIVE_RUNTIME_PROTOCOL,
+    FlowEventStore, NativeRuntimeKind, NativeRuntimeRequest, NativeRuntimeResponse,
+    NativeTsCompilerCapabilities, NativeTsDependencyManifest, RuntimeCommand, StepInvocation,
+    WorkflowRunSummary, WorkflowSignal, WorkflowSpec, WorkflowTerminalOutcome,
+    FLOW_EVENT_ENVELOPE_SCHEMA_VERSION, MAX_FLOW_EVENT_BYTES, NATIVE_COMPILER_PROTOCOL,
+    NATIVE_DEPENDENCY_MANIFEST_PROTOCOL, NATIVE_RUNTIME_PROTOCOL,
 };
 use chrono::Utc;
 use serde_json::json;
@@ -63,6 +64,27 @@ fn activity_protocol_preserves_fencing_and_checkpoint_fields() {
         serde_json::to_value(NativeRuntimeKind::Activity).unwrap(),
         "activity"
     );
+}
+
+#[tokio::test]
+async fn event_payload_budget_rejects_oversized_history_mutations() {
+    let store = a3s_flow::InMemoryEventStore::new();
+    let error = store
+        .append(
+            "oversized-event",
+            FlowEvent::RunCreated {
+                spec: WorkflowSpec::rust_embedded(
+                    "payload.budget",
+                    "1.0.0",
+                    "tests::protocol",
+                    "main",
+                ),
+                input: json!("x".repeat(MAX_FLOW_EVENT_BYTES)),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(error, FlowError::PayloadTooLarge { .. }));
 }
 
 #[test]

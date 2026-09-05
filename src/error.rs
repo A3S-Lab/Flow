@@ -163,6 +163,17 @@ pub enum FlowError {
     #[error("invalid state transition: {0}")]
     InvalidTransition(String),
 
+    /// A serialized event payload exceeds the durable history budget.
+    #[error("flow event {event_key} payload is {bytes} bytes; maximum is {max_bytes}")]
+    PayloadTooLarge {
+        /// Dot-separated event key.
+        event_key: String,
+        /// Encoded JSON payload size.
+        bytes: usize,
+        /// Configured maximum payload size.
+        max_bytes: usize,
+    },
+
     /// Worker settings cannot provide the requested execution guarantees.
     #[error("invalid worker configuration: {0}")]
     InvalidWorkerConfiguration(String),
@@ -328,6 +339,16 @@ impl fmt::Debug for FlowError {
             Self::InvalidTransition(message) => formatter
                 .debug_tuple("InvalidTransition")
                 .field(message)
+                .finish(),
+            Self::PayloadTooLarge {
+                event_key,
+                bytes,
+                max_bytes,
+            } => formatter
+                .debug_struct("PayloadTooLarge")
+                .field("event_key", event_key)
+                .field("bytes", bytes)
+                .field("max_bytes", max_bytes)
                 .finish(),
             Self::InvalidWorkerConfiguration(message) => formatter
                 .debug_tuple("InvalidWorkerConfiguration")

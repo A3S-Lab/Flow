@@ -17,7 +17,9 @@ pub use command::{
     RuntimeKind, RuntimeSpec, StepCommand, StepFailureAction, WorkflowSpec,
     MAX_CHILD_WORKFLOW_BATCH_SIZE,
 };
-pub use event::{FlowEvent, FlowEventEnvelope, FLOW_EVENT_ENVELOPE_SCHEMA_VERSION};
+pub use event::{
+    FlowEvent, FlowEventEnvelope, FLOW_EVENT_ENVELOPE_SCHEMA_VERSION, MAX_FLOW_EVENT_BYTES,
+};
 pub use hook::{HookCallbackRoute, HookMetadata};
 pub use inspection::{WorkflowRunSummary, WorkflowRunSuspension};
 pub use operation::{

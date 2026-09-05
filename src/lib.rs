@@ -38,7 +38,8 @@ pub use model::{
     WaitStatus, WorkflowContinuation, WorkflowPatchId, WorkflowProgress, WorkflowRunSnapshot,
     WorkflowRunStatus, WorkflowRunSummary, WorkflowRunSuspension, WorkflowSignal,
     WorkflowSignalSnapshot, WorkflowSpec, WorkflowTerminalOutcome,
-    FLOW_EVENT_ENVELOPE_SCHEMA_VERSION, MAX_CHILD_WORKFLOW_BATCH_SIZE, MAX_WORKFLOW_PATCH_MARKERS,
+    FLOW_EVENT_ENVELOPE_SCHEMA_VERSION, MAX_CHILD_WORKFLOW_BATCH_SIZE, MAX_FLOW_EVENT_BYTES,
+    MAX_WORKFLOW_PATCH_MARKERS,
 };
 #[cfg(feature = "a3s-event")]
 pub use observe::A3sEventBusFlowEventSink;

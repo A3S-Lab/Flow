@@ -11,6 +11,9 @@
 - Added an explicit `FlowStoreCapabilities` contract so Cloud admission can
   distinguish compatibility stores from stores with atomic append, indexed
   wakeups, and cross-process coordination guarantees.
+- Added a one-megabyte encoded event payload budget with a typed
+  `PayloadTooLarge` rejection; hosts should use content-addressed blob
+  references for larger inputs, outputs, and checkpoints.
 - Added explicit non-retryable step failures and durable `step_non_retryable`
   markers so permanent application errors bypass retry budgets while retaining
   replay and recovery semantics.

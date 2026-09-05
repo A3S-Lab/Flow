@@ -16,6 +16,12 @@ use super::{
 /// version one through the backwards-compatible decoder below.
 pub const FLOW_EVENT_ENVELOPE_SCHEMA_VERSION: u16 = 1;
 
+/// Maximum UTF-8 JSON payload size accepted for one durable event.
+///
+/// Large inputs, outputs, logs, and checkpoints should be stored by a host in
+/// a content-addressed blob store and referenced from the event payload.
+pub const MAX_FLOW_EVENT_BYTES: usize = 1024 * 1024;
+
 /// Event persisted as the single source of truth for a workflow run.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[non_exhaustive]
