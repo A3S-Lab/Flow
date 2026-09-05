@@ -62,7 +62,7 @@ Options:
   --from <file|->          Create from an existing DSL file or stdin
   --overwrite              Allow create to replace an existing file
   --force                  Confirm a destructive delete
-  --add-node <type>        Update: add one public node (requires --id)
+  --add-node <type>        Update: add one node (internal types require --parent)
   --remove-node <id>       Update: remove one node and its scoped children
   --set-node <id>          Update: replace manifest-owned node fields (requires --config)
   --set-app-name <name>    Update: replace the workflow app name
@@ -107,7 +107,7 @@ function createCliParser() {
     .option('--from <file>', 'Create from an existing DSL file or stdin')
     .option('--overwrite', 'Allow create to replace an existing file')
     .option('--force', 'Confirm a destructive delete')
-    .option('--add-node <type>', 'Add one public node')
+    .option('--add-node <type>', 'Add one node (internal types require --parent)')
     .option('--remove-node <id>', 'Remove one node')
     .option('--set-node <id>', 'Set one node configuration')
     .option('--set-app-name <name>', 'Set the workflow app name')
