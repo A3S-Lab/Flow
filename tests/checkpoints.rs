@@ -3,6 +3,7 @@ use a3s_flow::SqliteEventStore;
 use a3s_flow::{
     FlowEngine, FlowError, FlowEvent, FlowEventStore, FlowRuntime, InMemoryEventStore,
     LocalFileEventStore, RuntimeCommand, WorkflowInvocation, WorkflowSpec,
+    MAX_FLOW_HISTORY_PAGE_SIZE,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -69,6 +70,38 @@ async fn checkpoint_is_used_only_for_the_matching_history_tip() {
     let replayed = engine.snapshot("checkpoint-run").await.unwrap();
     assert_eq!(replayed.last_sequence, 3);
     assert!(replayed.waits.contains_key("pause"));
+}
+
+#[tokio::test]
+async fn history_page_uses_an_exclusive_cursor_and_enforces_the_bound() {
+    let store = Arc::new(InMemoryEventStore::new());
+    seed_running_run(store.as_ref(), "history-page").await;
+    store
+        .append(
+            "history-page",
+            FlowEvent::WaitCreated {
+                wait_id: "first".to_string(),
+                resume_at: "2030-01-01T00:00:00Z".parse().unwrap(),
+            },
+        )
+        .await
+        .unwrap();
+    let engine = FlowEngine::new(store, Arc::new(TestRuntime));
+    let first = engine.history_page("history-page", 0, 2).await.unwrap();
+    assert_eq!(first.len(), 2);
+    assert_eq!(first[0].sequence, 1);
+    assert_eq!(first[1].sequence, 2);
+    let second = engine
+        .history_page("history-page", first.last().unwrap().sequence, 2)
+        .await
+        .unwrap();
+    assert_eq!(second.len(), 1);
+    assert_eq!(second[0].sequence, 3);
+    let error = engine
+        .history_page("history-page", 0, MAX_FLOW_HISTORY_PAGE_SIZE + 1)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("history page size"));
 }
 
 #[tokio::test]

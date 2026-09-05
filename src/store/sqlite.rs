@@ -17,6 +17,7 @@ use crate::model::{
 use super::{
     next_event_sequence, scheduled_wakeup_from_row, scheduled_wakeup_key, sqlite_migrations,
     validate_candidate_event, FlowEventStore, FlowProjectionCheckpoint, FlowStoreCapabilities,
+    MAX_FLOW_HISTORY_PAGE_SIZE,
 };
 
 mod retention;
@@ -275,6 +276,60 @@ impl FlowEventStore for SqliteEventStore {
                 .append(" AND sequence > ")
                 .bind(sequence)
                 .append(" ORDER BY sequence ASC"),
+            )
+            .await
+            .map_err(sqlite_orm_error)?
+            .rows;
+        if rows.is_empty() {
+            let exists = database
+                .fetch_all_as(
+                    sql_query::<i64>("SELECT 1 FROM flow_events WHERE run_id = ")
+                        .bind(run_id)
+                        .append(" LIMIT 1"),
+                )
+                .await
+                .map_err(sqlite_orm_error)?
+                .rows;
+            if exists.is_empty() {
+                return Err(FlowError::RunNotFound(run_id.to_string()));
+            }
+        }
+        rows.into_iter().map(row_to_envelope).collect()
+    }
+
+    async fn list_page(
+        &self,
+        run_id: &str,
+        after_sequence: u64,
+        limit: usize,
+    ) -> Result<Vec<FlowEventEnvelope>> {
+        if limit == 0 || limit > MAX_FLOW_HISTORY_PAGE_SIZE {
+            return Err(FlowError::Store(format!(
+                "history page size must be between 1 and {MAX_FLOW_HISTORY_PAGE_SIZE}, got {limit}"
+            )));
+        }
+        let sequence = i64::try_from(after_sequence).map_err(|error| {
+            FlowError::Store(format!(
+                "event sequence {after_sequence} exceeds SQLite integer range: {error}"
+            ))
+        })?;
+        let limit = i64::try_from(limit).map_err(|error| {
+            FlowError::Store(format!(
+                "history page size {limit} exceeds SQLite integer range: {error}"
+            ))
+        })?;
+        let database = Database::new(SqliteDialect, self.executor.clone());
+        let rows = database
+            .fetch_all_as(
+                sql_query::<(String, i64, String, String, i64, String)>(
+                    "SELECT run_id, sequence, event_id, timestamp, schema_version, event_json \
+                 FROM flow_events WHERE run_id = ",
+                )
+                .bind(run_id)
+                .append(" AND sequence > ")
+                .bind(sequence)
+                .append(" ORDER BY sequence ASC LIMIT ")
+                .bind(limit),
             )
             .await
             .map_err(sqlite_orm_error)?

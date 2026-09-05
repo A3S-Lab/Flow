@@ -327,8 +327,10 @@ projection-validated transactional appends, active-hook routing, scheduled-wakeu
 durable projection checkpoints, and whole-history retention. `FlowEngine::checkpoint`
 persists only disposable materialized state; reads verify the latest sequence and
 event ID and fall back to authoritative history replay when metadata is stale or
-corrupt. Production PostgreSQL deployments run migration
-authority separately, then admit serving workers only after verifying the
+corrupt. `FlowEngine::history_page` exposes an exclusive sequence cursor with a bounded
+page size for archive/export and visibility rebuilds without loading an entire
+history into memory. Production PostgreSQL deployments run migration authority
+separately, then admit serving workers only after verifying the
 canonical migration ledger. See [Upgrading to Flow 1.0](docs/UPGRADING_TO_V1.md).
 
 Retention removes only complete eligible continuation/child components and

@@ -12,6 +12,9 @@ use crate::model::{
 use crate::runtime_build::RuntimeBuildId;
 use uuid::Uuid;
 
+/// Maximum number of history envelopes returned by one bounded page.
+pub const MAX_FLOW_HISTORY_PAGE_SIZE: usize = 1_000;
+
 mod checkpoint;
 mod local_file;
 mod memory;
@@ -226,6 +229,30 @@ pub trait FlowEventStore: Send + Sync {
             .await?
             .into_iter()
             .filter(|event| event.sequence > sequence)
+            .collect())
+    }
+
+    /// Read one bounded history page after an exclusive sequence cursor.
+    ///
+    /// The default preserves compatibility for custom stores. SQL stores
+    /// override this with an indexed `LIMIT` query; callers can use the last
+    /// envelope's sequence as the next cursor for export or projection rebuild.
+    async fn list_page(
+        &self,
+        run_id: &str,
+        after_sequence: u64,
+        limit: usize,
+    ) -> Result<Vec<FlowEventEnvelope>> {
+        if limit == 0 || limit > MAX_FLOW_HISTORY_PAGE_SIZE {
+            return Err(FlowError::Store(format!(
+                "history page size must be between 1 and {MAX_FLOW_HISTORY_PAGE_SIZE}, got {limit}"
+            )));
+        }
+        Ok(self
+            .list_after(run_id, after_sequence)
+            .await?
+            .into_iter()
+            .take(limit)
             .collect())
     }
 

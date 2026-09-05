@@ -65,7 +65,7 @@ pub use store::SqliteEventStore;
 pub use store::{migrate_postgres_flow, PostgresEventStore};
 pub use store::{
     FlowEventStore, FlowProjectionCheckpoint, FlowStoreCapabilities, InMemoryEventStore,
-    LocalFileEventStore,
+    LocalFileEventStore, MAX_FLOW_HISTORY_PAGE_SIZE,
 };
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use store::{

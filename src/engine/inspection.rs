@@ -73,6 +73,19 @@ impl FlowEngine {
         self.store.list(run_id).await
     }
 
+    /// Read one bounded page of durable history after an exclusive sequence.
+    ///
+    /// The returned page is ordered by sequence. Use its last sequence as the
+    /// cursor for the next page; the append-only history remains authoritative.
+    pub async fn history_page(
+        &self,
+        run_id: &str,
+        after_sequence: u64,
+        limit: usize,
+    ) -> Result<Vec<crate::model::FlowEventEnvelope>> {
+        self.store.list_page(run_id, after_sequence, limit).await
+    }
+
     /// List all workflow run IDs known to the engine's store.
     pub async fn list_run_ids(&self) -> Result<Vec<String>> {
         self.store.list_run_ids().await
