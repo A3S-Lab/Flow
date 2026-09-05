@@ -221,7 +221,38 @@ describe('workflow update streams', () => {
     expect(result.document.app.name).toBe('完成');
   });
 
-  it('normalizes mixed text and byte chunks without leaking decoder state', async () => {
+  it('counts a split multibyte record at the exact byte boundary', async () => {
+    const encoder = new TextEncoder();
+    const maximum = 1024 * 1024;
+    const prefix = '{"kind":"set-app-name","name":"';
+    const suffix = '"}';
+    const fixedBytes = encoder.encode(prefix + suffix).byteLength;
+    const name = `${'a'.repeat(maximum - fixedBytes - 2)}é`;
+    const line = encoder.encode(JSON.stringify({ kind: 'set-app-name', name }));
+    expect(line.byteLength).toBe(maximum);
+    const split = line.lastIndexOf(0xc3) + 1;
+    const result = await applyFlowCliWorkflowUpdateStream(
+      workflow(),
+      parseFlowCliWorkflowUpdateNdjson(chunks([line.slice(0, split), line.slice(split)])),
+    );
+    expect(result.document.app.name).toBe(name);
+  });
+
+  it('handles mixed complete text and byte chunks', async () => {
+    const encoder = new TextEncoder();
+    const result = await applyFlowCliWorkflowUpdateStream(
+      workflow(),
+      parseFlowCliWorkflowUpdateNdjson(
+        chunks([
+          encoder.encode('{"kind":"set-app-name","name":"bytes"}\n'),
+          '{"kind":"set-app-name","name":"text"}\n',
+        ]),
+      ),
+    );
+    expect(result.document.app.name).toBe('text');
+  });
+
+  it('fails closed when mixed chunks split a UTF-8 sequence', async () => {
     const encoder = new TextEncoder();
     const complete = encoder.encode('{"kind":"set-app-name","name":"café"}\n');
     const split = complete.indexOf(0xc3) + 1;

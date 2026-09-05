@@ -201,13 +201,15 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
       // boundaries fail closed instead of leaving decoder state stranded.
       const encodedChunk = typeof chunk === 'string' ? encoder.encode(chunk) : chunk;
       decoded = decoder.decode(encodedChunk, { stream: true });
-      bufferBytes += encodedChunk.byteLength;
     } catch (error) {
       throw new Error(
         `Workflow operation stream is not valid UTF-8: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
     buffer += decoded;
+    // Decoder-held UTF-8 tail bytes are counted when they become decoded;
+    // counting the raw chunk here would double-count them at the final flush.
+    bufferBytes += encoder.encode(decoded).byteLength;
     let newline = buffer.indexOf('\n');
     while (newline >= 0) {
       const rawLine = buffer.slice(0, newline + 1);
@@ -261,12 +263,6 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
     );
   }
   if (buffer.trim()) {
-    const bytes = bufferBytes;
-    if (bytes > A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES) {
-      throw new Error(
-        `Workflow operation ${index} is ${bytes} bytes; maximum is ${A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES} bytes.`,
-      );
-    }
     let value: unknown;
     try {
       value = JSON.parse(buffer);

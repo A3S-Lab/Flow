@@ -23,6 +23,9 @@
   UTF-8, preventing replacement characters or stranded decoder state from
   being published silently.
 
+- Corrected incremental UTF-8 byte accounting across split multibyte chunks at
+  the exact NDJSON record limit, without double-counting decoder-held tails.
+
 - Extended the packaged CLI smoke path to create, compile, and clean up a
   container-scoped workflow, covering the same parent placement contract used
   by the Codex Skill.
