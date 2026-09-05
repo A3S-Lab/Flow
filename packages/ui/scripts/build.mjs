@@ -59,6 +59,19 @@ await build({
 await build({
   bundle: true,
   entryNames: '[name]',
+  entryPoints: [resolve(sourceRoot, 'flow-cli-workflow.ts')],
+  external,
+  format: 'esm',
+  logLevel: 'info',
+  outfile: resolve(outputRoot, 'workflow-updates.js'),
+  platform: 'node',
+  sourcemap: true,
+  target: ['node22'],
+});
+
+await build({
+  bundle: true,
+  entryNames: '[name]',
   entryPoints: [resolve(sourceRoot, 'styles.css')],
   external: ['*.woff', '*.woff2'],
   logLevel: 'info',

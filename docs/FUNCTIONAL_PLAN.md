@@ -225,13 +225,15 @@ missing core engine features.
 5. **Workflow authoring ergonomics**
    - Keep the 18 public node manifests, six authoring groups, configuration
      forms, React components and hook, Vue composable, CLI JSON output and
-     atomic CRUD/patch behavior, and Skill instructions aligned with the
+     atomic CRUD/patch behavior. The CLI must continue to support bounded
+     NDJSON operation streams (incremental application with one final atomic
+     snapshot), optimistic base-digest checks, and Skill instructions aligned with the
      versioned Flow workflow contract.
    - Keep the per-node valid and invalid configuration matrix, complete
      Playground sample, custom-node search and addition regression, and exact
      capability publication checks aligned with the same registry.
    - Keep package type checking, manifest and hook tests, production builds,
-     CRUD/patch integration tests, and CLI smoke coverage passing before
+     CRUD/patch/stream integration tests, and CLI smoke coverage passing before
      publishing authoring changes.
    - Keep typed input and output decoding helpers aligned with serde examples
      and `sequential_steps`.

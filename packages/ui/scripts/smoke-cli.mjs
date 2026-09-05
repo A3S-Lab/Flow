@@ -14,6 +14,25 @@ async function run(args) {
   return JSON.parse(stdout);
 }
 
+async function runWithInput(args, input) {
+  return new Promise((resolvePromise, reject) => {
+    const child = execFile(process.execPath, [cli, ...args], {
+      maxBuffer: 2 * 1024 * 1024,
+    }, (error, stdout) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      try {
+        resolvePromise(JSON.parse(stdout));
+      } catch (parseError) {
+        reject(parseError);
+      }
+    });
+    child.stdin.end(input);
+  });
+}
+
 const catalog = await run(['nodes']);
 if (!catalog.ok || !Array.isArray(catalog.nodes) || catalog.nodes.length !== 18) {
   throw new Error(`Expected 18 public nodes, received ${catalog.count ?? 'an invalid catalog'}.`);
@@ -43,6 +62,13 @@ try {
   const updated = await run(['update', workflow, '--set-app-name', 'Smoke workflow v2']);
   if (!updated.ok || updated.document?.app?.name !== 'Smoke workflow v2') {
     throw new Error('The update command did not atomically persist the change.');
+  }
+  const streamed = await runWithInput(
+    ['update', workflow, '--operations', '-'],
+    '{"kind":"set-app-name","name":"Smoke workflow streamed"}\n',
+  );
+  if (!streamed.ok || streamed.document?.app?.name !== 'Smoke workflow streamed') {
+    throw new Error('The NDJSON update stream did not persist the change.');
   }
   const deleted = await run(['delete', workflow, '--force']);
   if (!deleted.ok || deleted.deleted !== true) {

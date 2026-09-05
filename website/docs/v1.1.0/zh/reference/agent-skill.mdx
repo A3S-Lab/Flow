@@ -51,7 +51,7 @@ and explain the compiled order before writing the final digest.
 
 ## Skill 的执行顺序
 
-Skill 会先运行 `a3s-flow nodes --pretty`，再用 `a3s-flow node <type> --pretty` 查看候选节点。新文件通过 `a3s-flow create` 生成，已有文件用 `a3s-flow read` 检查。新节点通过 `a3s-flow new` 生成，避免遗漏默认值。文件修改每次使用一个 `a3s-flow update` 操作；CLI 会先校验候选文档，只有仍可执行时才原子替换。遇到问题时应修复 CLI 指出的字段或边，然后重新执行完整序列。只有用户明确要求时才使用 `a3s-flow delete --force`。
+Skill 会先运行 `a3s-flow nodes --pretty`，再用 `a3s-flow node <type> --pretty` 查看候选节点。新文件通过 `a3s-flow create` 生成，已有文件用 `a3s-flow read` 检查。新节点通过 `a3s-flow new` 生成，避免遗漏默认值。文件修改每次使用一个 `a3s-flow update` 操作；生成的较大修改可通过 `--operations -` 以 NDJSON 流式输入，`--if-digest` 用于防止过期 Agent 覆盖新的基线。CLI 会逐条应用 operation，完整校验候选文档后才原子替换。遇到校验问题或基线摘要冲突时，应先修复或重新基于最新文档生成修改，再执行完整序列。只有用户明确要求时才使用 `a3s-flow delete --force`。
 
 这套顺序有两个用途。第一，节点 manifest 与当前安装版本保持一致。第二，语义摘要只在可执行图已经通过校验并得到稳定顺序后产生。Agent 应在最终说明中列出修改过的节点与边、编译顺序、摘要以及仍由宿主负责的任务处理器。
 

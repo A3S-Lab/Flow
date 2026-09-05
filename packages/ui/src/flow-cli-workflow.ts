@@ -1,6 +1,8 @@
 import {
   link,
   mkdir,
+  open,
+  readFile,
   rename,
   stat,
   unlink,
@@ -40,76 +42,204 @@ export interface FlowCliWorkflowUpdateResult {
   changed: string[];
 }
 
+export interface FlowCliWorkflowUpdateEvent {
+  index: number;
+  operation: FlowCliWorkflowUpdate;
+  changed: readonly string[];
+}
+
+export type FlowCliWorkflowUpdateObserver = (
+  event: FlowCliWorkflowUpdateEvent,
+) => void | Promise<void>;
+
+const MAX_STREAM_OPERATION_BYTES = 1024 * 1024;
+const MAX_STREAM_OPERATIONS = 10_000;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function parseFlowCliWorkflowUpdateObject(
+  candidate: unknown,
+  index: number,
+): FlowCliWorkflowUpdate {
+  if (!isRecord(candidate)) {
+    throw new Error(`Workflow operation ${index} must be a JSON object.`);
+  }
+  const operation = candidate;
+  const string = (key: string): string => {
+    const entry = operation[key];
+    if (typeof entry !== 'string' || !entry.trim()) {
+      throw new Error(`Workflow operation ${index}.${key} must be a non-empty string.`);
+    }
+    return entry;
+  };
+  const optionalString = (key: string): string | undefined =>
+    operation[key] === undefined ? undefined : string(key);
+  const assertKeys = (...allowed: readonly string[]): void => {
+    const allowedKeys = new Set(allowed);
+    const unexpected = Object.keys(operation).find((key) => !allowedKeys.has(key));
+    if (unexpected) {
+      throw new Error(`Workflow operation ${index} has unknown property ${unexpected}.`);
+    }
+  };
+  const configuration = (required: boolean): JsonObject => {
+    const entry = operation.configuration;
+    if (entry === undefined && !required) return {};
+    if (!isRecord(entry)) {
+      throw new Error(`Workflow operation ${index}.configuration must be a JSON object.`);
+    }
+    return entry as JsonObject;
+  };
+  const kind = string('kind');
+  switch (kind) {
+    case 'add-node':
+      assertKeys('kind', 'id', 'type', 'configuration');
+      return {
+        kind: 'add-node',
+        id: string('id'),
+        type: string('type'),
+        configuration: configuration(false),
+      };
+    case 'remove-node':
+      assertKeys('kind', 'id');
+      return { kind: 'remove-node', id: string('id') };
+    case 'add-edge':
+      assertKeys('kind', 'id', 'source', 'target', 'sourceHandle', 'targetHandle');
+      return {
+        kind: 'add-edge',
+        id: string('id'),
+        source: string('source'),
+        target: string('target'),
+        sourceHandle: optionalString('sourceHandle'),
+        targetHandle: optionalString('targetHandle'),
+      };
+    case 'remove-edge':
+      assertKeys('kind', 'id');
+      return { kind: 'remove-edge', id: string('id') };
+    case 'set-node':
+      assertKeys('kind', 'id', 'configuration');
+      return { kind: 'set-node', id: string('id'), configuration: configuration(true) };
+    case 'set-app-name':
+      assertKeys('kind', 'name');
+      return { kind: 'set-app-name', name: string('name') };
+    default:
+      throw new Error(`Unsupported workflow operation kind: ${String(operation.kind)}`);
+  }
+}
+
+/** Parse exactly one update object, retaining line/index context for streams. */
+export function parseFlowCliWorkflowUpdate(
+  value: unknown,
+  index = 0,
+): FlowCliWorkflowUpdate {
+  return parseFlowCliWorkflowUpdateObject(value, index);
+}
+
 /** Parse the CLI's JSON patch list without accepting incomplete operations. */
 export function parseFlowCliWorkflowUpdates(value: unknown): FlowCliWorkflowUpdate[] {
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error('Workflow operations must be a non-empty JSON array.');
   }
-  return value.map((candidate, index) => {
-    if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) {
-      throw new Error(`Workflow operation ${index} must be a JSON object.`);
+  return value.map((candidate, index) => parseFlowCliWorkflowUpdateObject(candidate, index));
+}
+
+/**
+ * Parse newline-delimited JSON updates without buffering the complete request.
+ * Blank lines are ignored so shell-generated streams can end with a newline.
+ */
+export async function* parseFlowCliWorkflowUpdateNdjson(
+  chunks: AsyncIterable<string | Uint8Array>,
+): AsyncGenerator<FlowCliWorkflowUpdate> {
+  let buffer = '';
+  let index = 0;
+  const decoder = new TextDecoder();
+  for await (const chunk of chunks) {
+    buffer += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
+    if (!buffer.includes('\n') && new TextEncoder().encode(buffer).byteLength > MAX_STREAM_OPERATION_BYTES) {
+      throw new Error(
+        `Workflow operation ${index} exceeds ${MAX_STREAM_OPERATION_BYTES} bytes before its newline.`,
+      );
     }
-    const operation = candidate as Record<string, unknown>;
-    const string = (key: string): string => {
-      const entry = operation[key];
-      if (typeof entry !== 'string' || !entry.trim()) {
-        throw new Error(`Workflow operation ${index}.${key} must be a non-empty string.`);
+    let newline = buffer.indexOf('\n');
+    while (newline >= 0) {
+      const line = buffer.slice(0, newline).replace(/\r$/, '');
+      buffer = buffer.slice(newline + 1);
+      if (line.trim()) {
+        const bytes = new TextEncoder().encode(line).byteLength;
+        if (bytes > MAX_STREAM_OPERATION_BYTES) {
+          throw new Error(
+            `Workflow operation ${index} is ${bytes} bytes; maximum is ${MAX_STREAM_OPERATION_BYTES}.`,
+          );
+        }
+        let value: unknown;
+        try {
+          value = JSON.parse(line);
+        } catch (error) {
+          throw new Error(
+            `Workflow operation ${index} is invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+        yield parseFlowCliWorkflowUpdateObject(value, index);
+        index += 1;
+        if (index > MAX_STREAM_OPERATIONS) {
+          throw new Error(`Workflow operation stream exceeds ${MAX_STREAM_OPERATIONS} operations.`);
+        }
       }
-      return entry;
-    };
-    const optionalString = (key: string): string | undefined =>
-      operation[key] === undefined ? undefined : string(key);
-    const assertKeys = (...allowed: readonly string[]): void => {
-      const allowedKeys = new Set(allowed);
-      const unexpected = Object.keys(operation).find((key) => !allowedKeys.has(key));
-      if (unexpected) {
-        throw new Error(`Workflow operation ${index} has unknown property ${unexpected}.`);
-      }
-    };
-    const configuration = (required: boolean): JsonObject => {
-      const entry = operation.configuration;
-      if (entry === undefined && !required) return {};
-      if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
-        throw new Error(`Workflow operation ${index}.configuration must be a JSON object.`);
-      }
-      return entry as JsonObject;
-    };
-    const kind = string('kind');
-    switch (kind) {
-      case 'add-node':
-        assertKeys('kind', 'id', 'type', 'configuration');
-        return {
-          kind: 'add-node',
-          id: string('id'),
-          type: string('type'),
-          configuration: configuration(false),
-        };
-      case 'remove-node':
-        assertKeys('kind', 'id');
-        return { kind: 'remove-node', id: string('id') };
-      case 'add-edge':
-        assertKeys('kind', 'id', 'source', 'target', 'sourceHandle', 'targetHandle');
-        return {
-          kind: 'add-edge',
-          id: string('id'),
-          source: string('source'),
-          target: string('target'),
-          sourceHandle: optionalString('sourceHandle'),
-          targetHandle: optionalString('targetHandle'),
-        };
-      case 'remove-edge':
-        assertKeys('kind', 'id');
-        return { kind: 'remove-edge', id: string('id') };
-      case 'set-node':
-        assertKeys('kind', 'id', 'configuration');
-        return { kind: 'set-node', id: string('id'), configuration: configuration(true) };
-      case 'set-app-name':
-        assertKeys('kind', 'name');
-        return { kind: 'set-app-name', name: string('name') };
-      default:
-        throw new Error(`Unsupported workflow operation kind: ${String(operation.kind)}`);
+      newline = buffer.indexOf('\n');
     }
-  });
+  }
+  buffer += decoder.decode();
+  if (buffer.trim()) {
+    const bytes = new TextEncoder().encode(buffer).byteLength;
+    if (bytes > MAX_STREAM_OPERATION_BYTES) {
+      throw new Error(
+        `Workflow operation ${index} is ${bytes} bytes; maximum is ${MAX_STREAM_OPERATION_BYTES}.`,
+      );
+    }
+    let value: unknown;
+    try {
+      value = JSON.parse(buffer);
+    } catch (error) {
+      throw new Error(
+        `Workflow operation ${index} is invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    yield parseFlowCliWorkflowUpdateObject(value, index);
+    index += 1;
+  }
+  if (index === 0) throw new Error('Workflow operation stream must contain at least one JSON object.');
+}
+
+async function acquireWorkflowFileLock(lockPath: string, workflowPath: string) {
+  try {
+    const lock = await open(lockPath, 'wx');
+    await lock.writeFile(JSON.stringify({ pid: process.pid, createdAt: Date.now() }));
+    return lock;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    let owner: unknown;
+    try {
+      owner = JSON.parse(await readFile(lockPath, 'utf8'));
+    } catch {
+      throw new Error(`Workflow file is locked by another writer: ${workflowPath}`);
+    }
+    const pid =
+      owner !== null && typeof owner === 'object' && typeof (owner as { pid?: unknown }).pid === 'number'
+        ? (owner as { pid: number }).pid
+        : undefined;
+    if (pid === undefined) {
+      throw new Error(`Workflow file is locked by another writer: ${workflowPath}`);
+    }
+    try {
+      process.kill(pid, 0);
+      throw new Error(`Workflow file is locked by another writer: ${workflowPath}`);
+    } catch (probeError) {
+      if ((probeError as NodeJS.ErrnoException).code !== 'ESRCH') throw probeError;
+      await unlink(lockPath).catch(() => undefined);
+      return acquireWorkflowFileLock(lockPath, workflowPath);
+    }
+  }
 }
 
 /** Write one workflow document through a same-directory temporary file. */
@@ -117,26 +247,29 @@ export async function writeWorkflowFile(
   path: string,
   document: A3SFlowWorkflowDsl,
   overwrite: boolean,
+  expectedContents?: string,
 ): Promise<void> {
   const target = resolve(path);
-  if (!overwrite) {
-    try {
-      await stat(target);
-      throw new Error(`Workflow file already exists: ${path}`);
-    } catch (error) {
-      if (error instanceof Error && error.message.startsWith('Workflow file already exists:')) {
-        throw error;
-      }
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    }
-  }
-
   await mkdir(dirname(target), { recursive: true });
+  const lockPath = `${target}.lock`;
+  const lock = await acquireWorkflowFileLock(lockPath, path);
   const temporary = resolve(
     dirname(target),
     `.${basename(target)}.${process.pid}.${randomUUID()}.tmp`,
   );
   try {
+    let currentContents: string | undefined;
+    try {
+      currentContents = await readFile(target, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    if (expectedContents !== undefined && currentContents !== expectedContents) {
+      throw new Error(`Workflow file changed since it was read: ${path}`);
+    }
+    if (!overwrite && currentContents !== undefined) {
+      throw new Error(`Workflow file already exists: ${path}`);
+    }
     await writeFile(temporary, `${JSON.stringify(document, null, 2)}\n`, {
       encoding: 'utf8',
       flag: 'wx',
@@ -157,6 +290,8 @@ export async function writeWorkflowFile(
     }
   } finally {
     await unlink(temporary).catch(() => undefined);
+    await lock.close().catch(() => undefined);
+    await unlink(lockPath).catch(() => undefined);
   }
 }
 
@@ -209,6 +344,31 @@ export function applyFlowCliWorkflowUpdates(
   for (const operation of operations) {
     changed.push(...applyFlowCliWorkflowUpdateInPlace(document, operation));
   }
+  return { document, changed };
+}
+
+/**
+ * Apply an async operation stream to one clone. Each operation is applied as
+ * soon as it arrives; callers publish only after the final document validates.
+ */
+export async function applyFlowCliWorkflowUpdateStream(
+  source: A3SFlowWorkflowDsl,
+  operations: AsyncIterable<FlowCliWorkflowUpdate>,
+  observer?: FlowCliWorkflowUpdateObserver,
+): Promise<FlowCliWorkflowUpdateResult> {
+  const document = structuredClone(source);
+  const changed: string[] = [];
+  let index = 0;
+  for await (const operation of operations) {
+    if (index >= MAX_STREAM_OPERATIONS) {
+      throw new Error(`Workflow operation stream exceeds ${MAX_STREAM_OPERATIONS} operations.`);
+    }
+    const operationChanged = applyFlowCliWorkflowUpdateInPlace(document, operation);
+    changed.push(...operationChanged);
+    await observer?.({ index, operation, changed: operationChanged });
+    index += 1;
+  }
+  if (index === 0) throw new Error('Workflow operation stream must contain at least one operation.');
   return { document, changed };
 }
 

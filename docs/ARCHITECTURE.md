@@ -78,6 +78,25 @@ product semantics out of the durable engine. Hosts whose persisted source is a
 different authoritative format construct `WorkflowDag` nodes and edges
 programmatically, then reuse this exact structural compiler.
 
+### Streaming authoring updates
+
+Workflow authoring uses typed domain operations rather than arbitrary JSON
+pointer writes. `@a3s-lab/flow-ui` exposes a bounded NDJSON decoder and an async
+operation applier, so a CLI, Skill, or host adapter can validate and apply one
+`add-node`, `remove-node`, `set-node`, edge, or app-metadata operation as it
+arrives. A base document digest can be supplied for optimistic concurrency;
+the publisher rechecks the exact source contents under a same-directory writer
+lock before replacing the snapshot. A failed operation, invalid final graph, or
+digest conflict therefore publishes nothing.
+
+The local portable JSON DSL remains a snapshot format. Its arrays and nested
+objects cannot be safely edited in place while preserving lossless extensions
+and atomic crash recovery, so the local CLI deliberately writes one validated
+snapshot at commit time even when the operation input is streamed. Hosted
+append-only operation journals, cursors, subscriptions, conflict resolution,
+and snapshot compaction belong to A3S Cloud; Cloud replays the same Flow
+operations and hands Flow only validated snapshots for compilation/execution.
+
 ## Durable Execution Model
 
 Each run starts with `flow.run.created` and `flow.run.started`. The created

@@ -32,8 +32,10 @@ import {
   createWorkflowNodeForm,
 } from './integrations/workflow-node-form';
 import {
+  applyFlowCliWorkflowUpdateStream,
   applyFlowCliWorkflowUpdates,
   deleteWorkflowFile,
+  parseFlowCliWorkflowUpdateNdjson,
   parseFlowCliWorkflowUpdates,
   type FlowCliWorkflowUpdate,
   writeWorkflowFile,
@@ -62,6 +64,7 @@ interface CliOptions {
   name?: string;
   from?: string;
   operations?: string;
+  ifDigest?: string;
   output?: string;
 }
 
@@ -102,7 +105,8 @@ Options:
   --set-app-name <name>    Update: replace the workflow app name
   --add-edge               Update: add an edge (requires --edge-id, --source, --target)
   --remove-edge <id>       Update: remove one edge
-  --operations <json>      Update: apply a JSON array of operations atomically
+  --operations <json|->     Update: apply JSON array or NDJSON stdin stream
+  --if-digest <sha256>      Update: reject if the file's semantic digest changed
   --dry-run                Validate an update and return its result without writing
   --config <json>          JSON object for --add-node or --set-node
   --edge-id <id>           Stable edge ID for --add-edge
@@ -131,7 +135,7 @@ function createCliParser() {
     .option('--include-internal', 'Include internal container nodes')
     .option('--id <id>', 'Stable node ID')
     .option('--name <name>', 'Workflow app name for create')
-    .option('--from <file|->', 'Create from an existing DSL file or stdin')
+    .option('--from <file>', 'Create from an existing DSL file or stdin')
     .option('--overwrite', 'Allow create to replace an existing file')
     .option('--force', 'Confirm a destructive delete')
     .option('--add-node <type>', 'Add one public node')
@@ -140,7 +144,8 @@ function createCliParser() {
     .option('--set-app-name <name>', 'Set the workflow app name')
     .option('--add-edge', 'Add one edge')
     .option('--remove-edge <id>', 'Remove one edge')
-    .option('--operations <json>', 'Apply a JSON array of updates')
+    .option('--operations <json>', 'Apply a JSON array or NDJSON stdin stream')
+    .option('--if-digest <digest>', 'Reject if the semantic document digest changed')
     .option('--dry-run', 'Validate an update without writing')
     .option('--config <json>', 'Node configuration JSON')
     .option('--edge-id <id>', 'Stable edge ID')
@@ -158,7 +163,10 @@ function parseOptions(arguments_: string[]): { positional: string[]; options: Cl
   const parser = createCliParser();
   let parsed: { args: readonly string[]; options: Record<string, unknown> };
   try {
-    parsed = parser.parse([process.execPath, 'a3s-flow', ...arguments_], { run: false });
+    parsed = parser.parse(
+      [process.execPath, 'a3s-flow', ...normalizeDashOptionValues(arguments_)],
+      { run: false },
+    );
     const command = parser.matchedCommand ?? parser.globalCommand;
     command.checkUnknownOptions();
     command.checkOptionValue();
@@ -193,9 +201,41 @@ function parseOptions(arguments_: string[]): { positional: string[]; options: Cl
       name: typeof values.name === 'string' ? values.name : undefined,
       from: typeof values.from === 'string' ? values.from : undefined,
       operations: typeof values.operations === 'string' ? values.operations : undefined,
+      ifDigest:
+        typeof values.ifDigest === 'string'
+          ? values.ifDigest.replace(/^__a3s_digest__/, '')
+          : undefined,
       output: typeof values.output === 'string' ? values.output : undefined,
     },
   };
+}
+
+/** CAC treats a bare dash as another option; preserve `--option -` stream syntax. */
+function normalizeDashOptionValues(arguments_: readonly string[]): string[] {
+  const normalized: string[] = [];
+  for (let index = 0; index < arguments_.length; index += 1) {
+    const argument = arguments_[index];
+    if ((argument === '--operations' || argument === '--from') && arguments_[index + 1] === '-') {
+      normalized.push(`${argument}=-`);
+      index += 1;
+    } else if (
+      argument === '--if-digest' &&
+      arguments_[index + 1] !== undefined &&
+      !arguments_[index + 1].startsWith('-')
+    ) {
+      // mri (used by CAC) converts an all-numeric SHA-256 string to a number;
+      // a sentinel keeps the exact 64-character value and leading zeroes.
+      normalized.push(argument, `__a3s_digest__${arguments_[index + 1]}`);
+      index += 1;
+    } else if (argument.startsWith('--if-digest=')) {
+      normalized.push(
+        `--if-digest=__a3s_digest__${argument.slice('--if-digest='.length)}`,
+      );
+    } else {
+      normalized.push(argument);
+    }
+  }
+  return normalized;
 }
 
 async function readText(path: string): Promise<string> {
@@ -357,12 +397,13 @@ function validateNodeConfigurations(document: A3SFlowWorkflowDsl): A3SFlowDslIss
 }
 
 async function parseWorkflow(path: string): Promise<
-  | { ok: true; document: A3SFlowWorkflowDsl; compatibility: string }
+  | { ok: true; document: A3SFlowWorkflowDsl; compatibility: string; source: string }
   | { ok: false; issues: A3SFlowDslIssue[] }
 > {
-  const parsed = parseA3SFlowWorkflowDslJson(await readText(path));
+  const source = await readText(path);
+  const parsed = parseA3SFlowWorkflowDslJson(source);
   if (!parsed.ok) return parsed;
-  return { ok: true, document: parsed.document, compatibility: parsed.compatibility };
+  return { ok: true, document: parsed.document, compatibility: parsed.compatibility, source };
 }
 
 async function validateWorkflow(path: string) {
@@ -417,6 +458,9 @@ function parseJsonObject(value: string | undefined, label: string): JsonObject {
 
 function updateOperations(options: CliOptions): FlowCliWorkflowUpdate[] {
   if (!options.operations) return [updateOperation(options)];
+  if (options.operations === '-') {
+    throw new CliError('usage', '--operations - is a streaming NDJSON input; use it without single operation flags.');
+  }
   if (
     options.addNodeType || options.removeNodeId || options.addEdge ||
     options.removeEdgeId || options.setNodeId || options.setAppName
@@ -430,6 +474,19 @@ function updateOperations(options: CliOptions): FlowCliWorkflowUpdate[] {
       'usage',
       `Invalid --operations: ${error instanceof Error ? error.message : String(error)}`,
     );
+  }
+}
+
+function hasSingleUpdateOperation(options: CliOptions): boolean {
+  return Boolean(
+    options.addNodeType || options.removeNodeId || options.addEdge ||
+      options.removeEdgeId || options.setNodeId || options.setAppName,
+  );
+}
+
+function validateIfDigest(value: string | undefined): void {
+  if (value !== undefined && !/^[a-f0-9]{64}$/.test(value)) {
+    throw new CliError('usage', '--if-digest must be a lowercase SHA-256 hex digest.');
   }
 }
 
@@ -628,11 +685,33 @@ async function handleUpdate(
     await emit({ path, ...current }, options);
     return 1;
   }
-  const operations = updateOperations(options);
+  validateIfDigest(options.ifDigest);
+  const baseDocumentDigest = digestA3SFlowWorkflowDsl(current.document);
+  if (options.ifDigest !== undefined && options.ifDigest !== baseDocumentDigest) {
+    throw new CliError(
+      'conflict',
+      `Workflow document digest changed: expected ${options.ifDigest}, found ${baseDocumentDigest}.`,
+    );
+  }
   let result;
   try {
-    result = applyFlowCliWorkflowUpdates(current.document, operations);
+    if (options.operations === '-') {
+      if (hasSingleUpdateOperation(options)) {
+        throw new CliError(
+          'usage',
+          '--operations - cannot be combined with a single update operation.',
+        );
+      }
+      process.stdin.setEncoding('utf8');
+      result = await applyFlowCliWorkflowUpdateStream(
+        current.document,
+        parseFlowCliWorkflowUpdateNdjson(process.stdin),
+      );
+    } else {
+      result = applyFlowCliWorkflowUpdates(current.document, updateOperations(options));
+    }
   } catch (error) {
+    if (error instanceof CliError) throw error;
     throw new CliError(
       'update_failed',
       `Cannot update ${path}: ${error instanceof Error ? error.message : String(error)}`,
@@ -645,8 +724,11 @@ async function handleUpdate(
   }
   if (!options.dryRun) {
     try {
-      await writeWorkflowFile(path, updated.document, true);
+      await writeWorkflowFile(path, updated.document, true, parsed.source);
     } catch (error) {
+      if (error instanceof Error && error.message.startsWith('Workflow file changed since it was read:')) {
+        throw new CliError('conflict', error.message);
+      }
       throw new CliError(
         'update_failed',
         `Cannot update ${path}: ${error instanceof Error ? error.message : String(error)}`,
@@ -654,7 +736,12 @@ async function handleUpdate(
     }
   }
   await emit(
-    { ...workflowSummary(path, updated, true), changed: result.changed, dryRun: options.dryRun },
+    {
+      ...workflowSummary(path, updated, true),
+      baseDocumentDigest,
+      changed: result.changed,
+      dryRun: options.dryRun,
+    },
     options,
   );
   return 0;

@@ -73,10 +73,14 @@ a3s-flow read workflow.json --pretty
 ```
 
 `update` accepts one focused edit per invocation, or a JSON array passed through
-`--operations` when several graph changes must be committed together. Node
-configuration is JSON and only manifest-owned fields are changed; unknown
-semantic extensions and presentation fields remain intact. The candidate is
-validated before the atomic replace, so a rejected edit leaves the original file
+`--operations` when several graph changes must be committed together. For a
+generated or large patch set, pass `--operations -` and send one JSON operation
+per line (NDJSON) on stdin; Flow parses and applies each operation as it arrives,
+then validates and publishes one atomic snapshot. Node configuration is JSON and
+only manifest-owned fields are changed; unknown semantic extensions and
+presentation fields remain intact. Use `--if-digest <sha256>` to reject a stale
+writer whose base document has changed. The candidate is validated before the
+atomic replace, so a rejected or conflicting edit leaves the original file
 unchanged. Add `--dry-run` to receive the candidate summary without writing it.
 
 ```bash
@@ -88,6 +92,10 @@ a3s-flow update workflow.json --add-node flow.progress \
 a3s-flow update workflow.json --operations \
   '[{"kind":"set-app-name","name":"invoice.approval.v2"},{"kind":"set-node","id":"run-step","configuration":{"step_name":"payments.charge"}}]' \
   --dry-run --pretty
+printf '%s\n' \
+  '{"kind":"set-app-name","name":"invoice.approval.v2"}' \
+  '{"kind":"set-node","id":"run-step","configuration":{"step_name":"payments.charge"}}' \
+  | a3s-flow update workflow.json --operations - --if-digest <sha256> --pretty
 ```
 
 Remove files only with explicit confirmation. Repeating the command is safe and

@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { Readable } from 'node:stream';
 import { runFlowCli } from '../src/flow-cli';
 import type { A3SFlowWorkflowDsl } from '../src/integrations/a3s-flow-dsl-types';
 
@@ -12,6 +13,7 @@ interface WorkflowCliOutput {
   changed?: string[];
   dryRun?: boolean;
   deleted?: boolean;
+  baseDocumentDigest?: string;
 }
 
 async function readJson(path: string): Promise<WorkflowCliOutput> {
@@ -258,6 +260,7 @@ describe('A3S Flow CLI workflow file CRUD', () => {
     const output = join(root, 'result.json');
     try {
       expect(await runFlowCli(['create', workflow, '--output', output])).toBe(0);
+      const created = await readJson(output);
       const before = await readFile(workflow, 'utf8');
       await expect(
         runFlowCli([
@@ -274,12 +277,24 @@ describe('A3S Flow CLI workflow file CRUD', () => {
           '--set-app-name',
           'Preview only',
           '--dry-run',
+          '--if-digest',
+          created.documentDigest,
           '--output',
           output,
         ]),
       ).toBe(0);
       expect((await readJson(output)).dryRun).toBe(true);
       expect(await readFile(workflow, 'utf8')).toBe(before);
+      await expect(
+        runFlowCli([
+          'update',
+          workflow,
+          '--set-app-name',
+          'Stale writer',
+          '--if-digest',
+          '0000000000000000000000000000000000000000000000000000000000000000',
+        ]),
+      ).rejects.toThrow(/digest changed/);
       await expect(runFlowCli(['read', workflow, '--output', workflow])).rejects.toThrow(
         /different from the workflow input/,
       );
@@ -288,6 +303,32 @@ describe('A3S Flow CLI workflow file CRUD', () => {
       );
       expect(await readFile(workflow, 'utf8')).toBe(before);
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts an NDJSON operation stream on stdin', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'a3s-flow-cli-'));
+    const workflow = join(root, 'workflow.json');
+    const output = join(root, 'result.json');
+    const originalStdin = process.stdin;
+    try {
+      expect(await runFlowCli(['create', workflow, '--output', output])).toBe(0);
+      Object.defineProperty(process, 'stdin', {
+        configurable: true,
+        value: Readable.from([
+          '{"kind":"add-node","id":"progress","type":"flow.progress","configuration":{"progress_id":"progress"}}\n',
+          '{"kind":"set-app-name","name":"Streamed workflow"}\n',
+        ]),
+      });
+      expect(
+        await runFlowCli(['update', workflow, '--operations', '-', '--output', output]),
+      ).toBe(0);
+      const result = await readJson(output);
+      expect(result.changed).toEqual(['node:progress', 'app.name']);
+      expect(result.document.app.name).toBe('Streamed workflow');
+    } finally {
+      Object.defineProperty(process, 'stdin', { configurable: true, value: originalStdin });
       await rm(root, { recursive: true, force: true });
     }
   });
