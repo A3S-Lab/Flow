@@ -115,6 +115,7 @@ export type RuntimeCommand =
       activity_name: string;
       input: Json;
       retry?: RetryPolicy;
+      timeout_ms?: number;
     }
   | {
       type: "wait_until";
@@ -145,6 +146,7 @@ export type ActivityCommand = {
   activity_name: string;
   input: Json;
   retry?: RetryPolicy;
+  timeout_ms?: number;
 };
 
 export type ActivityResolution =
@@ -206,6 +208,7 @@ export type FlowEvent =
       step_name: string;
       input: Json;
       retry: RetryPolicy;
+      timeout_ms?: number;
     }
   | { type: "step_started"; step_id: string; attempt: number }
   | { type: "step_completed"; step_id: string; output: Json }
@@ -347,6 +350,7 @@ export type ActivityInvocation<Input extends Json = Json> = {
   history: FlowEventEnvelope[];
   idempotency_key: string;
   fencing_token: string;
+  deadline?: string | null;
 };
 
 export type ActivityDefinition<Input extends Json = Json, Output extends Json = Json> = (

@@ -6,6 +6,9 @@
   reconciliation through `FlowError::UnknownOutcome`, `ActivityResolution`,
   and `FlowEngine::resolve_unknown_activity`; ambiguous provider responses now
   suspend without an automatic duplicate retry.
+- Added per-attempt Activity `timeout_ms` deadlines. Deadlines are derived from
+  the durable attempt-start timestamp, reused on redelivery, and convert an
+  elapsed attempt into the same explicit unknown state for host reconciliation.
 
 - Added an explicit, persisted event-envelope schema version with a
   backwards-compatible decoder for retained pre-version histories and fail-closed

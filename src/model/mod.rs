@@ -1,3 +1,4 @@
+mod activity_timeout;
 mod child_workflow;
 mod command;
 mod event;
@@ -10,6 +11,7 @@ mod run;
 mod signal;
 mod snapshot;
 
+pub(crate) use activity_timeout::activity_deadline;
 pub(crate) use child_workflow::validate_child_workflow_command;
 pub use child_workflow::{ChildWorkflowCancellationPolicy, ChildWorkflowSnapshot};
 pub use command::{

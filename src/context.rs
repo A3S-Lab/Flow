@@ -545,7 +545,36 @@ impl<'a> WorkflowContext<'a> {
             activity_name: activity_name.into(),
             input,
             retry,
+            timeout_ms: None,
         }
+    }
+
+    /// Schedules one first-class activity with a per-attempt timeout.
+    pub fn schedule_activity_with_timeout(
+        &self,
+        activity_id: impl Into<String>,
+        activity_name: impl Into<String>,
+        input: JsonValue,
+        timeout: std::time::Duration,
+    ) -> RuntimeCommand {
+        ActivityCommand::new(activity_id, activity_name, input)
+            .with_timeout(timeout)
+            .into()
+    }
+
+    /// Schedules one first-class activity with retry and per-attempt timeout.
+    pub fn schedule_activity_with_retry_and_timeout(
+        &self,
+        activity_id: impl Into<String>,
+        activity_name: impl Into<String>,
+        input: JsonValue,
+        retry: RetryPolicy,
+        timeout: std::time::Duration,
+    ) -> RuntimeCommand {
+        ActivityCommand::new(activity_id, activity_name, input)
+            .with_retry(retry)
+            .with_timeout(timeout)
+            .into()
     }
 
     /// Creates an activity definition with the default retry policy.

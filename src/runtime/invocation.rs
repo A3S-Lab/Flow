@@ -101,6 +101,9 @@ pub struct ActivityInvocation {
     /// Fencing token assigned to this attempt.
     #[serde(default)]
     pub fencing_token: String,
+    /// Persisted deadline of this attempt, retained across redelivery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deadline: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl ActivityInvocation {

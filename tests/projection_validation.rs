@@ -185,6 +185,7 @@ async fn rejects_activity_completion_with_a_stale_fencing_token() {
                 activity_name: "activity".to_string(),
                 input: json!({}),
                 retry: RetryPolicy::default(),
+                timeout_ms: None,
             },
         ),
         envelope(

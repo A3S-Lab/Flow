@@ -109,8 +109,12 @@ The runtime returns exactly one command:
 - `schedule_activity`: the engine persists an Activity ledger before invoking
   host code. Each attempt has a stable `attempt_id`/idempotency key and a
   fencing token; worker redelivery acquires a fresh fence, and stale results
-  are rejected by projection. Hosts can append fenced `activity_heartbeat`
-  events carrying an optional checkpoint through `heartbeat_activity()`.
+  are rejected by projection. A configured `timeout_ms` is persisted with the
+  Activity, derives a deadline from the durable `activity_started` timestamp,
+  and turns timeout into `activity_unknown` rather than an automatic duplicate
+  retry. Hosts can append fenced `activity_heartbeat` events carrying an
+  optional checkpoint through `heartbeat_activity()`, then reconcile unknown
+  outcomes with `resolve_unknown_activity()`.
 - `wait_until`: the engine persists `wait_created` and stops driving the run
   until `resume_wait()` records `wait_completed`. Redelivery for an existing
   wait is idempotent after it completed or its run became terminal. Matching

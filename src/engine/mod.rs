@@ -612,12 +612,14 @@ impl FlowEngine {
                     activity_name,
                     input,
                     retry,
+                    timeout_ms,
                 } => {
                     ensure_activity_command_valid(&crate::model::ActivityCommand {
                         activity_id: activity_id.clone(),
                         activity_name: activity_name.clone(),
                         input: input.clone(),
                         retry,
+                        timeout_ms,
                     })?;
                     if let Some(activity) = snapshot.activities.get(&activity_id) {
                         ensure_activity_command_matches(
@@ -626,6 +628,7 @@ impl FlowEngine {
                             &activity_name,
                             &input,
                             retry,
+                            timeout_ms,
                         )?;
                         if activity.status == crate::model::ActivityStatus::Unknown {
                             return self.snapshot(run_id).await;
@@ -651,6 +654,7 @@ impl FlowEngine {
                                 activity_name,
                                 input,
                                 retry,
+                                timeout_ms,
                                 now,
                             },
                         )

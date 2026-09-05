@@ -1,5 +1,7 @@
 use crate::error::{FlowError, Result};
-use crate::model::{ActivitySnapshot, ActivityStatus, FlowEvent, FlowEventEnvelope};
+use crate::model::{
+    activity_deadline, ActivitySnapshot, ActivityStatus, FlowEvent, FlowEventEnvelope,
+};
 
 pub(super) fn project_activity(
     snapshot: &mut crate::model::WorkflowRunSnapshot,
@@ -11,12 +13,14 @@ pub(super) fn project_activity(
             activity_name,
             input,
             retry,
+            timeout_ms,
         } => {
             if snapshot.activities.contains_key(activity_id) {
                 return Err(FlowError::InvalidTransition(format!(
                     "activity_created duplicates activity {activity_id}"
                 )));
             }
+            activity_deadline(envelope.timestamp, *timeout_ms)?;
             retry.retry_after(envelope.timestamp).map(|_| ())?;
             snapshot.activities.insert(
                 activity_id.clone(),
@@ -26,6 +30,7 @@ pub(super) fn project_activity(
                     status: ActivityStatus::Pending,
                     input: input.clone(),
                     retry: *retry,
+                    timeout_ms: *timeout_ms,
                     output: None,
                     error: None,
                     attempt: 0,
@@ -35,6 +40,7 @@ pub(super) fn project_activity(
                     checkpoint: None,
                     retry_after: None,
                     last_heartbeat_at: None,
+                    deadline: None,
                 },
             );
         }
@@ -77,6 +83,7 @@ pub(super) fn project_activity(
             activity.attempt_id = attempt_id.clone();
             activity.idempotency_key = idempotency_key.clone();
             activity.fencing_token = fencing_token.clone();
+            activity.deadline = activity_deadline(envelope.timestamp, activity.timeout_ms)?;
             activity.retry_after = None;
             activity.error = None;
         }
@@ -179,6 +186,7 @@ pub(super) fn project_activity(
             activity.status = ActivityStatus::Pending;
             activity.error = Some(error.clone());
             activity.retry_after = *retry_after;
+            activity.deadline = None;
         }
         FlowEvent::ActivityUnknown {
             activity_id,

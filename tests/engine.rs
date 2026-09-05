@@ -278,6 +278,7 @@ impl FlowRuntime for RetryingActivityRuntime {
                 activity_name: "retryActivity".to_string(),
                 input: json!({}),
                 retry: RetryPolicy::fixed(2, Duration::ZERO),
+                timeout_ms: None,
             })
         }
     }
@@ -319,6 +320,50 @@ async fn activity_retry_reuses_identity_per_attempt_and_recovers() {
 
 struct UnknownOutcomeActivityRuntime {
     calls: AtomicUsize,
+}
+
+struct TimedActivityRuntime {
+    calls: AtomicUsize,
+}
+
+#[async_trait]
+impl FlowRuntime for TimedActivityRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        if invocation.history.iter().any(|event| {
+            matches!(
+                event.event,
+                FlowEvent::ActivityCompleted { ref activity_id, .. } if activity_id == "slow"
+            )
+        }) {
+            Ok(RuntimeCommand::Complete {
+                output: json!(true),
+            })
+        } else {
+            Ok(RuntimeCommand::ScheduleActivity {
+                activity_id: "slow".to_string(),
+                activity_name: "slowTask".to_string(),
+                input: json!({}),
+                retry: RetryPolicy::default(),
+                timeout_ms: Some(10),
+            })
+        }
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        Ok(json!(null))
+    }
+
+    async fn run_activity(
+        &self,
+        _invocation: ActivityInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        Ok(json!("late"))
+    }
 }
 
 #[async_trait]
@@ -413,6 +458,25 @@ async fn unknown_activity_outcome_waits_for_fenced_reconciliation() {
     let completed_snapshot = engine.snapshot(&completed).await.unwrap();
     assert_eq!(completed_snapshot.status, WorkflowRunStatus::Completed);
     assert_eq!(runtime.calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn activity_timeout_persists_deadline_and_enters_unknown_state() {
+    let runtime = Arc::new(TimedActivityRuntime {
+        calls: AtomicUsize::new(0),
+    });
+    let engine = FlowEngine::in_memory(runtime.clone());
+    let run_id = engine
+        .start_with_id("timed-activity-run", spec(), json!({}))
+        .await
+        .unwrap();
+    let snapshot = engine.snapshot(&run_id).await.unwrap();
+    let activity = snapshot.activities.get("slow").unwrap();
+    assert_eq!(activity.status, a3s_flow::ActivityStatus::Unknown);
+    assert_eq!(activity.timeout_ms, Some(10));
+    assert!(activity.deadline.is_some());
+    assert_eq!(runtime.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(snapshot.status, WorkflowRunStatus::Suspended);
 }
 
 struct HeartbeatActivityRuntime {

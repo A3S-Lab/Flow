@@ -330,7 +330,10 @@ Important protocol details:
   carry these identities through Outbox/Inbox or connector receipts and reject
   stale completions. Redelivery retains the attempt/idempotency identity but
   emits `activity_lease_acquired` with a fresh fence. `ActivityHeartbeat`
-  events carry the same fence and an optional checkpoint.
+  events carry the same fence and an optional checkpoint. A scheduled
+  `timeout_ms` is persisted and exposed as `ActivityInvocation.deadline`; Flow
+  converts an elapsed deadline into `activity_unknown`, which the host must
+  reconcile before retrying or completing the side effect.
 - `WorkflowSpec.runtime_build_id`, `WorkflowSpec.patch_markers`, and
   `WorkflowSpec.signal_names` are optional for legacy histories. Marker and
   signal-name sets use sorted string arrays. Workflow code may use

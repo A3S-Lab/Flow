@@ -214,6 +214,9 @@ pub enum FlowEvent {
         /// Retry behavior pinned when the activity is created.
         #[serde(default)]
         retry: RetryPolicy,
+        /// Optional wall-clock budget applied independently to each attempt.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_ms: Option<u64>,
     },
     /// Marks one activity attempt as started and assigns its fencing token.
     ActivityStarted {

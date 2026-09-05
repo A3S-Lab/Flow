@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use std::time::Duration;
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
@@ -16,6 +17,7 @@ pub(super) struct ActivityExecutionContext {
     pub(super) activity_name: String,
     pub(super) input: serde_json::Value,
     pub(super) retry: RetryPolicy,
+    pub(super) timeout_ms: Option<u64>,
     pub(super) now: DateTime<Utc>,
 }
 
@@ -160,11 +162,19 @@ impl FlowEngine {
             activity_name,
             input,
             retry,
+            timeout_ms,
             now,
         } = context;
         let mut expected_sequence = snapshot.last_sequence;
         if let Some(activity) = snapshot.activities.get(&activity_id) {
-            ensure_activity_command_matches(run_id, activity, &activity_name, &input, retry)?;
+            ensure_activity_command_matches(
+                run_id,
+                activity,
+                &activity_name,
+                &input,
+                retry,
+                timeout_ms,
+            )?;
             if matches!(
                 activity.status,
                 ActivityStatus::Completed
@@ -191,6 +201,7 @@ impl FlowEngine {
                         activity_name: activity_name.clone(),
                         input: input.clone(),
                         retry,
+                        timeout_ms,
                     },
                 )
                 .await?;
@@ -258,6 +269,11 @@ impl FlowEngine {
                 .await?;
             }
 
+            let activity_snapshot = self.snapshot(run_id).await?;
+            let deadline = activity_snapshot
+                .activities
+                .get(&activity_id)
+                .and_then(|activity| activity.deadline);
             let history = self.store.list(run_id).await?;
             let invocation = ActivityInvocation {
                 run_id: run_id.to_string(),
@@ -269,9 +285,34 @@ impl FlowEngine {
                 history,
                 idempotency_key: activity_attempt_idempotency_key(run_id, &activity_id, attempt),
                 fencing_token: fencing_token.clone(),
+                deadline,
             };
 
-            match self.runtime.run_activity(invocation).await {
+            let outcome = if let Some(deadline) = deadline {
+                let now = Utc::now();
+                if deadline <= now {
+                    Err(FlowError::UnknownOutcome(format!(
+                        "activity deadline elapsed before attempt {attempt} was dispatched"
+                    )))
+                } else {
+                    let remaining = deadline
+                        .signed_duration_since(now)
+                        .to_std()
+                        .unwrap_or(Duration::ZERO);
+                    match tokio::time::timeout(remaining, self.runtime.run_activity(invocation))
+                        .await
+                    {
+                        Ok(result) => result,
+                        Err(_) => Err(FlowError::UnknownOutcome(format!(
+                            "activity deadline elapsed during attempt {attempt}"
+                        ))),
+                    }
+                }
+            } else {
+                self.runtime.run_activity(invocation).await
+            };
+
+            match outcome {
                 Ok(output) => {
                     let expected_sequence = self.snapshot(run_id).await?.last_sequence;
                     self.record_event_at(

@@ -158,6 +158,9 @@ pub struct ActivitySnapshot {
     pub input: JsonValue,
     /// Retry behavior pinned when the activity was created.
     pub retry: RetryPolicy,
+    /// Optional wall-clock budget applied independently to each attempt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
     /// Durable JSON output, when completed successfully.
     pub output: Option<JsonValue>,
     /// Final or most recent attempt error.
@@ -181,6 +184,9 @@ pub struct ActivitySnapshot {
     /// Last durable heartbeat timestamp, when one has been recorded.
     #[serde(default)]
     pub last_heartbeat_at: Option<DateTime<Utc>>,
+    /// Deadline of the current or most recent attempt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deadline: Option<DateTime<Utc>>,
 }
 
 impl ActivitySnapshot {

@@ -48,6 +48,14 @@ fn activity_protocol_preserves_fencing_and_checkpoint_fields() {
     assert_eq!(encoded["type"], "schedule_activity");
     assert_eq!(encoded["activity_id"], "a1");
 
+    let timed_command = a3s_flow::ActivityCommand::new("a1", "sendEmail", json!({}))
+        .with_timeout(std::time::Duration::from_millis(25));
+    let timed_command = RuntimeCommand::from(timed_command);
+    assert_eq!(
+        serde_json::to_value(timed_command).unwrap()["timeout_ms"],
+        25
+    );
+
     let event = FlowEvent::ActivityHeartbeat {
         activity_id: "a1".to_string(),
         attempt: 1,

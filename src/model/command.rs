@@ -584,6 +584,9 @@ pub enum RuntimeCommand {
         /// Retry behavior pinned when the activity is created.
         #[serde(default)]
         retry: RetryPolicy,
+        /// Optional wall-clock budget for each activity attempt.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_ms: Option<u64>,
     },
     /// Suspends replay until a UTC deadline becomes ready.
     WaitUntil {
@@ -645,6 +648,9 @@ pub struct ActivityCommand {
     /// Retry behavior pinned when the activity is created.
     #[serde(default)]
     pub retry: RetryPolicy,
+    /// Optional wall-clock budget applied independently to each attempt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
 }
 
 impl ActivityCommand {
@@ -659,6 +665,7 @@ impl ActivityCommand {
             activity_name: activity_name.into(),
             input,
             retry: RetryPolicy::default(),
+            timeout_ms: None,
         }
     }
 
@@ -666,6 +673,27 @@ impl ActivityCommand {
     pub fn with_retry(mut self, retry: RetryPolicy) -> Self {
         self.retry = retry;
         self
+    }
+
+    /// Sets a wall-clock budget for each activity attempt, rounding up to
+    /// milliseconds. A zero or unrepresentable timeout fails validation.
+    pub fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
+        let milliseconds =
+            timeout.as_millis() + u128::from(!timeout.subsec_nanos().is_multiple_of(1_000_000));
+        self.timeout_ms = Some(milliseconds.min(u64::MAX as u128) as u64);
+        self
+    }
+}
+
+impl From<ActivityCommand> for RuntimeCommand {
+    fn from(activity: ActivityCommand) -> Self {
+        Self::ScheduleActivity {
+            activity_id: activity.activity_id,
+            activity_name: activity.activity_name,
+            input: activity.input,
+            retry: activity.retry,
+            timeout_ms: activity.timeout_ms,
+        }
     }
 }
 
@@ -718,6 +746,7 @@ impl RuntimeCommand {
             activity_name: activity_name.into(),
             input,
             retry: RetryPolicy::default(),
+            timeout_ms: None,
         }
     }
 

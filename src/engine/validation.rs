@@ -132,6 +132,7 @@ pub(super) fn ensure_activity_command_matches(
     activity_name: &str,
     input: &serde_json::Value,
     retry: RetryPolicy,
+    timeout_ms: Option<u64>,
 ) -> Result<()> {
     if activity.activity_name != activity_name {
         return Err(FlowError::NonDeterministic {
@@ -163,10 +164,17 @@ pub(super) fn ensure_activity_command_matches(
             ),
         });
     }
+    if activity.timeout_ms != timeout_ms {
+        return Err(FlowError::NonDeterministic {
+            run_id: run_id.to_string(),
+            reason: format!("activity {} timeout differs", activity.activity_id),
+        });
+    }
     Ok(())
 }
 
 pub(super) fn ensure_activity_command_valid(command: &ActivityCommand) -> Result<()> {
+    crate::model::activity_deadline(Utc::now(), command.timeout_ms)?;
     if command.activity_id.trim().is_empty() {
         return Err(FlowError::InvalidTransition(
             "scheduled activity id must not be empty".to_string(),
