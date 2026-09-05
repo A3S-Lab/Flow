@@ -170,7 +170,7 @@ pub(crate) fn step_attempt_idempotency_key(run_id: &str, step_id: &str, attempt:
 
 pub(crate) fn activity_attempt_id(run_id: &str, activity_id: &str, attempt: u32) -> String {
     format!(
-        "flow.activity.v1/{}/{}{}:{}/{}",
+        "flow.activity.attempt.v1/{}/{}{}:{}/{}",
         run_id.len(),
         run_id,
         activity_id.len(),
@@ -185,7 +185,7 @@ pub(crate) fn activity_attempt_idempotency_key(
     attempt: u32,
 ) -> String {
     format!(
-        "flow.activity.v1/{}/{}{}:{}/{}",
+        "flow.activity.idempotency.v1/{}/{}{}:{}/{}",
         run_id.len(),
         run_id,
         activity_id.len(),

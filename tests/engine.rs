@@ -227,8 +227,10 @@ impl FlowRuntime for ActivityRuntime {
     ) -> a3s_flow::Result<serde_json::Value> {
         assert_eq!(invocation.activity_id, "fetch");
         assert_eq!(invocation.attempt, 1);
-        assert!(invocation.attempt_id.starts_with("flow.activity.v1/"));
-        assert_eq!(invocation.idempotency_key, invocation.attempt_id);
+        assert!(invocation
+            .attempt_id
+            .starts_with("flow.activity.attempt.v1/"));
+        assert_ne!(invocation.idempotency_key, invocation.attempt_id);
         assert!(!invocation.fencing_token.is_empty());
         Ok(json!({ "user": "alice" }))
     }
@@ -246,7 +248,7 @@ async fn first_class_activity_persists_identity_and_output() {
     assert_eq!(activity.status, a3s_flow::ActivityStatus::Completed);
     assert_eq!(activity.output, Some(json!({ "user": "alice" })));
     assert_eq!(activity.attempt, 1);
-    assert_eq!(activity.idempotency_key, activity.attempt_id);
+    assert_ne!(activity.idempotency_key, activity.attempt_id);
     assert!(!activity.fencing_token.is_empty());
     assert_eq!(snapshot.status, WorkflowRunStatus::Completed);
 }
@@ -267,7 +269,9 @@ impl FlowRuntime for RetryingActivityRuntime {
                 FlowEvent::ActivityCompleted { ref activity_id, .. } if activity_id == "retry"
             )
         }) {
-            Ok(RuntimeCommand::Complete { output: json!("ok") })
+            Ok(RuntimeCommand::Complete {
+                output: json!("ok"),
+            })
         } else {
             Ok(RuntimeCommand::ScheduleActivity {
                 activity_id: "retry".to_string(),
