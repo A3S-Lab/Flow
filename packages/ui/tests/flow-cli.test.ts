@@ -30,6 +30,12 @@ describe('A3S Flow CLI workflow file CRUD', () => {
       await expect(runFlowCli(['nodes', '--not-a-real-option'])).rejects.toThrow(
         /Unknown option/,
       );
+      await expect(runFlowCli(['nodes', '--id', 'not-a-node'])).rejects.toThrow(
+        /--id is not valid with the nodes command/,
+      );
+      await expect(runFlowCli(['new', 'flow.step', '--force'])).rejects.toThrow(
+        /--force is not valid with the new command/,
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }

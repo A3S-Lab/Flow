@@ -22,6 +22,9 @@
 - Made inline update flags fail closed when they do not belong to the selected
   operation, so automation cannot silently lose an edge, node, or scope option.
 
+- Added command-level option allowlists to the framework-backed CLI, rejecting
+  flags that belong to another command before any workflow file is read.
+
 - Preserved stable Step/Activity attempt, attempt ID, and idempotency-key
   correlation in `A3sFlowEvent` and A3S Event metadata without increasing metric
   label cardinality.

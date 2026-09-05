@@ -86,6 +86,8 @@ Both transports and direct typed callers share a 10,000-operation bound; each
 NDJSON line is limited to 1 MiB.
 Operation-specific flags are rejected when they do not match the selected
 operation, instead of being silently ignored.
+Command-specific flags are checked the same way, so a typo cannot turn into a
+successful no-op on another command.
 
 Use `--set-edge <id> --source <id> --target <id>` to redirect an existing edge
 in place. Optional `--source-handle` and `--target-handle` replace only the

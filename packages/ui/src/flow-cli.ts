@@ -492,6 +492,81 @@ function workflowSummary(
 
 type CliHandler = (argumentsForCommand: string[], options: CliOptions) => Promise<number>;
 
+const commandAllowedOptions: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  nodes: ['includeInternal', 'pretty', 'output'],
+  node: ['includeInternal', 'pretty', 'output'],
+  new: ['id', 'pretty', 'output'],
+  sample: ['pretty', 'output'],
+  create: ['name', 'from', 'overwrite', 'pretty', 'output'],
+  read: ['pretty', 'output'],
+  update: [
+    'addNodeType',
+    'removeNodeId',
+    'addEdge',
+    'removeEdgeId',
+    'setEdgeId',
+    'setNodeId',
+    'setAppName',
+    'parentId',
+    'id',
+    'config',
+    'edgeId',
+    'source',
+    'target',
+    'sourceHandle',
+    'targetHandle',
+    'clearSourceHandle',
+    'clearTargetHandle',
+    'operations',
+    'ifDigest',
+    'dryRun',
+    'pretty',
+    'output',
+  ],
+  delete: ['force', 'pretty', 'output'],
+  validate: ['pretty', 'output'],
+  compile: ['pretty', 'output'],
+  digest: ['pretty', 'output'],
+});
+
+function rejectUnexpectedCommandOptions(command: string, options: CliOptions): void {
+  const allowed = commandAllowedOptions[command];
+  if (!allowed) return;
+  const allowedSet = new Set(allowed);
+  const present: readonly [string, boolean][] = [
+    ['includeInternal', options.includeInternal],
+    ['id', options.id !== undefined],
+    ['name', options.name !== undefined],
+    ['from', options.from !== undefined],
+    ['overwrite', options.overwrite],
+    ['force', options.force],
+    ['addNodeType', options.addNodeType !== undefined],
+    ['removeNodeId', options.removeNodeId !== undefined],
+    ['addEdge', options.addEdge],
+    ['removeEdgeId', options.removeEdgeId !== undefined],
+    ['setEdgeId', options.setEdgeId !== undefined],
+    ['setNodeId', options.setNodeId !== undefined],
+    ['setAppName', options.setAppName !== undefined],
+    ['parentId', options.parentId !== undefined],
+    ['config', options.config !== undefined],
+    ['edgeId', options.edgeId !== undefined],
+    ['source', options.source !== undefined],
+    ['target', options.target !== undefined],
+    ['sourceHandle', options.sourceHandle !== undefined],
+    ['targetHandle', options.targetHandle !== undefined],
+    ['clearSourceHandle', options.clearSourceHandle],
+    ['clearTargetHandle', options.clearTargetHandle],
+    ['operations', options.operations !== undefined],
+    ['ifDigest', options.ifDigest !== undefined],
+    ['dryRun', options.dryRun],
+  ];
+  const invalid = present.find(([name, isPresent]) => isPresent && !allowedSet.has(name));
+  if (invalid) {
+    const flag = invalid[0].replace(/[A-Z]/g, (character) => `-${character.toLowerCase()}`);
+    throw new CliError('usage', `--${flag} is not valid with the ${command} command.`);
+  }
+}
+
 async function handleNodes(argumentsForCommand: string[], options: CliOptions): Promise<number> {
   requireArguments('nodes', argumentsForCommand, 0);
   const nodes = a3sFlowDagNodeRegistry.list({ includeInternal: options.includeInternal });
@@ -763,6 +838,7 @@ export async function runFlowCli(arguments_: string[]): Promise<number> {
     await emit({ ok: true, usage }, options);
     return 0;
   }
+  rejectUnexpectedCommandOptions(command, options);
   const handler = Object.hasOwn(commandHandlers, command)
     ? commandHandlers[command]
     : undefined;
