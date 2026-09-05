@@ -319,6 +319,9 @@ Important protocol details:
   `sequence`, `timestamp`, and `event`. Older histories may omit
   `schema_version` and are interpreted as version `1`; a newer version must be
   migrated or upcast before replay. It does not include a derived event key.
+- Durable event payloads are capped at `MAX_FLOW_EVENT_BYTES` (one MiB). Put
+  larger values in a host-owned content-addressed blob and persist only its
+  reference in Flow history.
 - `StepInvocation` includes the one-based `attempt` and an opaque
   `idempotency_key` derived from the run, step, and attempt identities. Hosts
   should use this key when making an external side effect retry-safe.
