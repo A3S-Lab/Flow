@@ -54,6 +54,7 @@ if (step.id !== 'run-step' || step.data?.type !== 'flow.step') {
 
 const root = await mkdtemp(join(tmpdir(), 'a3s-flow-cli-smoke-'));
 const workflow = join(root, 'workflow.json');
+const scopedWorkflow = join(root, 'scoped-workflow.json');
 try {
   const created = await run(['create', workflow, '--name', 'Smoke workflow']);
   if (!created.ok || created.document?.app?.name !== 'Smoke workflow') {
@@ -97,9 +98,53 @@ try {
   if (!streamed.ok || streamed.document?.app?.name !== 'Smoke workflow streamed') {
     throw new Error('The NDJSON update stream did not persist the change.');
   }
+  await run(['create', scopedWorkflow]);
+  const scoped = await run([
+    'update',
+    scopedWorkflow,
+    '--operations',
+    JSON.stringify([
+      {
+        kind: 'add-node',
+        id: 'each',
+        type: 'iteration',
+        configuration: { start_node_id: 'each-start' },
+      },
+      {
+        kind: 'add-node',
+        id: 'each-start',
+        type: 'iteration-start',
+        parentId: 'each',
+      },
+      { kind: 'add-node', id: 'process', type: 'flow.step', parentId: 'each' },
+    ]),
+  ]);
+  if (!scoped.ok) throw new Error('The CLI could not create a scoped workflow in one batch.');
+  const child = await run([
+    'update',
+    scopedWorkflow,
+    '--add-node',
+    'flow.progress',
+    '--id',
+    'progress',
+    '--parent',
+    'each',
+  ]);
+  const plan = await run(['compile', scopedWorkflow]);
+  if (
+    !child.ok ||
+    child.changed?.join(',') !== 'node:progress' ||
+    plan.plan?.scopes?.each?.join(',') !== 'each-start,process,progress'
+  ) {
+    throw new Error('The CLI did not preserve container parent placement and scope order.');
+  }
   const deleted = await run(['delete', workflow, '--force']);
   if (!deleted.ok || deleted.deleted !== true) {
     throw new Error('The delete command did not remove the workflow file.');
+  }
+  const deletedScoped = await run(['delete', scopedWorkflow, '--force']);
+  if (!deletedScoped.ok || deletedScoped.deleted !== true) {
+    throw new Error('The scoped workflow cleanup did not remove the file.');
   }
 } finally {
   await rm(root, { recursive: true, force: true });

@@ -15,6 +15,10 @@
   re-encoding of a growing unterminated line while retaining the same strict
   size and malformed-input checks.
 
+- Extended the packaged CLI smoke path to create, compile, and clean up a
+  container-scoped workflow, covering the same parent placement contract used
+  by the Codex Skill.
+
 - Preserved stable Step/Activity attempt, attempt ID, and idempotency-key
   correlation in `A3sFlowEvent` and A3S Event metadata without increasing metric
   label cardinality.
