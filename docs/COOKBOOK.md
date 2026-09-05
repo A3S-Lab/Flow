@@ -1081,9 +1081,9 @@ until the next useful tick instead of polling at a fixed interval.
 `list_active_hooks()` returns stable `ActiveHookSnapshot` records for callback
 routers and dashboards. `history()` returns the raw committed
 `FlowEventEnvelope` sequence for small audit/debug reads. Use
-`export_history_pages()` for bounded archive/export work: each callback receives
-one contiguous page, so the host can commit pages without loading the complete
-run. See
+`export_history_pages()` for bounded archive/export work: it pins the current
+tip and each callback receives one contiguous page, so the host can commit pages
+without loading the complete run or racing a continuously appended tail. See
 `examples/run_inspection.rs` for a runnable mixed-status inspection flow.
 
 ## Observability

@@ -103,9 +103,10 @@ remain open R3 work. `FlowEngine::history_page` and
 can use to build those export/archive projections.
 
 `FlowEngine::export_history_pages` is the corresponding bounded streaming
-boundary. It validates contiguous cursors while delegating archive storage,
-retention, and destination retries to the host; partitioned history, durable
-archive ownership, and published scale SLOs remain open.
+boundary. It pins an initial history tip, validates contiguous cursors, and
+delegates archive storage, retention, and destination retries to the host;
+partitioned history, durable archive ownership, and published scale SLOs remain
+open.
 
 The first `FLOW-R5` queue lifecycle slice is also implemented: built-in local
 and PostgreSQL queues expose an administrative dead-letter redrive operation,

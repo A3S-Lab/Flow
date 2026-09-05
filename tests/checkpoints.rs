@@ -2,7 +2,7 @@
 use a3s_flow::SqliteEventStore;
 use a3s_flow::{
     FlowEngine, FlowError, FlowEvent, FlowEventStore, FlowRuntime, InMemoryEventStore,
-    LocalFileEventStore, RuntimeCommand, WorkflowInvocation, WorkflowSpec,
+    LocalFileEventStore, RuntimeCommand, WorkflowInvocation, WorkflowProgress, WorkflowSpec,
     MAX_FLOW_HISTORY_PAGE_SIZE,
 };
 use async_trait::async_trait;
@@ -118,12 +118,28 @@ async fn history_export_delivers_bounded_contiguous_pages() {
         )
         .await
         .unwrap();
+    let store_for_callback = Arc::clone(&store);
     let engine = FlowEngine::new(store, Arc::new(TestRuntime));
     let mut pages = Vec::<Vec<u64>>::new();
+    let mut appended_after_start = false;
     let exported = engine
         .export_history_pages("history-export", 2, |page| {
             pages.push(page.into_iter().map(|event| event.sequence).collect());
-            async { Ok(()) }
+            let store = Arc::clone(&store_for_callback);
+            let append_event = if !appended_after_start {
+                appended_after_start = true;
+                Some(FlowEvent::RunProgressRecorded {
+                    progress: WorkflowProgress::new("export-progress", 1),
+                })
+            } else {
+                None
+            };
+            async move {
+                if let Some(event) = append_event {
+                    store.append("history-export", event).await?;
+                }
+                Ok(())
+            }
         })
         .await
         .unwrap();
@@ -133,6 +149,7 @@ async fn history_export_delivers_bounded_contiguous_pages() {
     assert!(pages.iter().all(|page| page.len() <= 2));
     let sequences = pages.into_iter().flatten().collect::<Vec<_>>();
     assert_eq!(sequences, (1..=sequences.len() as u64).collect::<Vec<_>>());
+    assert_eq!(exported, 3);
 }
 
 #[tokio::test]

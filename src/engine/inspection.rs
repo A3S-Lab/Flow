@@ -104,13 +104,24 @@ impl FlowEngine {
         Fut: Future<Output = Result<()>>,
     {
         validate_history_page_size(page_size)?;
+        let (target_sequence, target_event_id) = self
+            .store
+            .latest_event(run_id)
+            .await?
+            .ok_or_else(|| FlowError::RunNotFound(run_id.to_string()))?;
         let mut after_sequence = 0;
         let mut exported = 0usize;
 
         loop {
-            let page = self.history_page(run_id, after_sequence, page_size).await?;
-            if page.is_empty() {
+            if after_sequence == target_sequence {
                 return Ok(exported);
+            }
+            let mut page = self.history_page(run_id, after_sequence, page_size).await?;
+            page.retain(|envelope| envelope.sequence <= target_sequence);
+            if page.is_empty() {
+                return Err(FlowError::Store(format!(
+                    "history export for workflow run {run_id} ended before sequence {target_sequence}"
+                )));
             }
 
             let mut expected_sequence = after_sequence.checked_add(1).ok_or_else(|| {
@@ -140,8 +151,27 @@ impl FlowEngine {
                 ))
             })?;
             after_sequence = expected_sequence - 1;
-            if page_len < page_size {
+            if after_sequence == target_sequence {
+                let exported_tip = self
+                    .store
+                    .event_at(run_id, target_sequence)
+                    .await?
+                    .ok_or_else(|| {
+                        FlowError::Store(format!(
+                            "history export for workflow run {run_id} lost its initial tip"
+                        ))
+                    })?;
+                if exported_tip.event_id != target_event_id {
+                    return Err(FlowError::Store(format!(
+                        "history export tip changed for workflow run {run_id}"
+                    )));
+                }
                 return Ok(exported);
+            }
+            if page_len < page_size {
+                return Err(FlowError::Store(format!(
+                    "history export for workflow run {run_id} returned a short page before sequence {target_sequence}"
+                )));
             }
         }
     }

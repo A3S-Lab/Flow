@@ -100,9 +100,10 @@ Consequently checkpoint loss, corruption, or lag cannot change workflow
 semantics, and checkpoint storage never becomes a second authority.
 
 `FlowEngine::export_history_pages` is the bounded streaming boundary for
-archive workers. It validates contiguous sequence pages before invoking a
-host-owned callback, allowing an archive destination to commit incrementally
-without materializing a complete run. Flow keeps the event log authoritative;
+archive workers. It pins the initial history tip and validates contiguous
+sequence pages before invoking a host-owned callback, allowing an archive
+destination to commit incrementally without materializing a complete run or
+chasing a continuously appended log. Flow keeps the event log authoritative;
 archive format, retention, and destination retry policy remain host-owned.
 
 The runtime returns exactly one command:
