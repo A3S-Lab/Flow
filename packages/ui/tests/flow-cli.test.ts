@@ -295,6 +295,16 @@ describe('A3S Flow CLI workflow file CRUD', () => {
           '0000000000000000000000000000000000000000000000000000000000000000',
         ]),
       ).rejects.toThrow(/digest changed/);
+      await expect(
+        runFlowCli([
+          'update',
+          workflow,
+          '--set-app-name',
+          'Missing digest',
+          '--if-digest',
+          '--dry-run',
+        ]),
+      ).rejects.toThrow(/value is missing/);
       await expect(runFlowCli(['read', workflow, '--output', workflow])).rejects.toThrow(
         /different from the workflow input/,
       );
@@ -327,8 +337,61 @@ describe('A3S Flow CLI workflow file CRUD', () => {
       const result = await readJson(output);
       expect(result.changed).toEqual(['node:progress', 'app.name']);
       expect(result.document.app.name).toBe('Streamed workflow');
+
+      const beforeRejectedStream = await readFile(workflow, 'utf8');
+      Object.defineProperty(process, 'stdin', {
+        configurable: true,
+        value: Readable.from([
+          '{"kind":"set-app-name","name":"transient"}\n',
+          '{"kind":"set-app-name","nam":"invalid"}\n',
+        ]),
+      });
+      await expect(
+        runFlowCli(['update', workflow, '--operations', '-']),
+      ).rejects.toThrow(/unknown property nam/);
+      expect(await readFile(workflow, 'utf8')).toBe(beforeRejectedStream);
+
+      const beforeInvalidFinal = await readFile(workflow, 'utf8');
+      Object.defineProperty(process, 'stdin', {
+        configurable: true,
+        value: Readable.from([
+          '{"kind":"set-node","id":"run-step","configuration":{"step_name":""}}\n',
+        ]),
+      });
+      expect(
+        await runFlowCli(['update', workflow, '--operations', '-', '--output', output]),
+      ).toBe(1);
+      expect(await readFile(workflow, 'utf8')).toBe(beforeInvalidFinal);
     } finally {
       Object.defineProperty(process, 'stdin', { configurable: true, value: originalStdin });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects live writer locks and recovers locks left by dead writers', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'a3s-flow-cli-'));
+    const workflow = join(root, 'workflow.json');
+    try {
+      expect(await runFlowCli(['create', workflow])).toBe(0);
+      await writeFile(`${workflow}.lock`, JSON.stringify({ pid: process.pid }), 'utf8');
+      await expect(
+        runFlowCli(['update', workflow, '--set-app-name', 'blocked']),
+      ).rejects.toThrow(/locked by another writer/);
+
+      await writeFile(`${workflow}.lock`, JSON.stringify({ pid: 99_999_999 }), 'utf8');
+      expect(await runFlowCli(['update', workflow, '--set-app-name', 'recovered'])).toBe(0);
+      await expect(readFile(`${workflow}.lock`, 'utf8')).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+
+      await writeFile(`${workflow}.lock`, JSON.stringify({ pid: process.pid }), 'utf8');
+      await expect(runFlowCli(['delete', workflow, '--force'])).rejects.toThrow(
+        /locked by another writer/,
+      );
+      await writeFile(`${workflow}.lock`, JSON.stringify({ pid: 99_999_999 }), 'utf8');
+      expect(await runFlowCli(['delete', workflow, '--force'])).toBe(0);
+      await expect(readFile(workflow, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
       await rm(root, { recursive: true, force: true });
     }
   });

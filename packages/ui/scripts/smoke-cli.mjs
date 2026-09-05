@@ -6,6 +6,10 @@ import { tmpdir } from 'node:os';
 
 const execFileAsync = promisify(execFile);
 const cli = resolve(import.meta.dirname, '../dist/cli.js');
+const workflowUpdates = await import('../dist/workflow-updates.js');
+if (typeof workflowUpdates.parseFlowCliWorkflowUpdateNdjson !== 'function') {
+  throw new Error('The packaged workflow-updates stream API is missing.');
+}
 
 async function run(args) {
   const { stdout } = await execFileAsync(process.execPath, [cli, ...args], {

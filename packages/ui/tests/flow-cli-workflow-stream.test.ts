@@ -21,7 +21,9 @@ function workflow(): A3SFlowWorkflowDsl {
   };
 }
 
-async function* chunks(lines: readonly string[]): AsyncGenerator<string> {
+async function* chunks(
+  lines: readonly (string | Uint8Array)[],
+): AsyncGenerator<string | Uint8Array> {
   for (const line of lines) yield line;
 }
 
@@ -45,6 +47,27 @@ describe('workflow update streams', () => {
       'start',
       'progress',
     ]);
+  });
+
+  it('handles UTF-8 byte boundaries, CRLF, and blank lines', async () => {
+    const first = new TextEncoder().encode(
+      '{"kind":"set-app-name","name":"流',
+    );
+    const second = new TextEncoder().encode(
+      '式"}\r\n\r\n{"kind":"set-app-name","name":"完成"}',
+    );
+    const split = first.length - 1;
+    const updates = parseFlowCliWorkflowUpdateNdjson(
+      chunks([
+        first.slice(0, split),
+        first.slice(split),
+        second,
+      ]),
+    );
+    const result = await applyFlowCliWorkflowUpdateStream(workflow(), updates);
+
+    expect(result.changed).toEqual(['app.name', 'app.name']);
+    expect(result.document.app.name).toBe('完成');
   });
 
   it('rejects malformed or empty operation streams', async () => {
@@ -77,5 +100,31 @@ describe('workflow update streams', () => {
       /Workflow node not found: missing/,
     );
     expect(source.app.name).toBe('Stream test');
+  });
+
+  it('bounds one streamed operation before parsing it', async () => {
+    const oversized = `${JSON.stringify({ kind: 'set-app-name', name: 'x' })}${' '.repeat(
+      1024 * 1024,
+    )}`;
+    await expect(
+      (async () => {
+        for await (const _operation of parseFlowCliWorkflowUpdateNdjson(
+          chunks([oversized]),
+        )) {
+          // Consume the stream.
+        }
+      })(),
+    ).rejects.toThrow(/exceeds 1048576 bytes/);
+  });
+
+  it('bounds the total number of streamed operations', async () => {
+    const updates = (async function* (): AsyncGenerator<FlowCliWorkflowUpdate> {
+      for (let index = 0; index < 10_001; index += 1) {
+        yield { kind: 'set-app-name', name: `workflow-${index}` };
+      }
+    })();
+    await expect(applyFlowCliWorkflowUpdateStream(workflow(), updates)).rejects.toThrow(
+      /exceeds 10000 operations/,
+    );
   });
 });

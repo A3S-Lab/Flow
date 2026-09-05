@@ -154,11 +154,12 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
   let buffer = '';
   let index = 0;
   const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
   for await (const chunk of chunks) {
     buffer += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
     if (
       !buffer.includes('\n') &&
-      new TextEncoder().encode(buffer).byteLength > MAX_STREAM_OPERATION_BYTES
+      encoder.encode(buffer).byteLength > MAX_STREAM_OPERATION_BYTES
     ) {
       throw new Error(
         `Workflow operation ${index} exceeds ${MAX_STREAM_OPERATION_BYTES} bytes before its newline.`,
@@ -169,7 +170,7 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
       const line = buffer.slice(0, newline).replace(/\r$/, '');
       buffer = buffer.slice(newline + 1);
       if (line.trim()) {
-        const bytes = new TextEncoder().encode(line).byteLength;
+        const bytes = encoder.encode(line).byteLength;
         if (bytes > MAX_STREAM_OPERATION_BYTES) {
           throw new Error(
             `Workflow operation ${index} is ${bytes} bytes; maximum is ${MAX_STREAM_OPERATION_BYTES}.`,
@@ -194,7 +195,7 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
   }
   buffer += decoder.decode();
   if (buffer.trim()) {
-    const bytes = new TextEncoder().encode(buffer).byteLength;
+    const bytes = encoder.encode(buffer).byteLength;
     if (bytes > MAX_STREAM_OPERATION_BYTES) {
       throw new Error(
         `Workflow operation ${index} is ${bytes} bytes; maximum is ${MAX_STREAM_OPERATION_BYTES}.`,
@@ -219,7 +220,13 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
 async function acquireWorkflowFileLock(lockPath: string, workflowPath: string) {
   try {
     const lock = await open(lockPath, 'wx');
-    await lock.writeFile(JSON.stringify({ pid: process.pid, createdAt: Date.now() }));
+    try {
+      await lock.writeFile(JSON.stringify({ pid: process.pid, createdAt: Date.now() }));
+    } catch (error) {
+      await lock.close().catch(() => undefined);
+      await unlink(lockPath).catch(() => undefined);
+      throw error;
+    }
     return lock;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
@@ -232,7 +239,9 @@ async function acquireWorkflowFileLock(lockPath: string, workflowPath: string) {
     const pid =
       owner !== null &&
       typeof owner === 'object' &&
-      typeof (owner as { pid?: unknown }).pid === 'number'
+      typeof (owner as { pid?: unknown }).pid === 'number' &&
+      Number.isInteger((owner as { pid: number }).pid) &&
+      (owner as { pid: number }).pid > 0
         ? (owner as { pid: number }).pid
         : undefined;
     if (pid === undefined) {
@@ -247,6 +256,11 @@ async function acquireWorkflowFileLock(lockPath: string, workflowPath: string) {
       return acquireWorkflowFileLock(lockPath, workflowPath);
     }
   }
+}
+
+async function releaseWorkflowFileLock(lockPath: string, lock: { close(): Promise<void> }) {
+  await lock.close().catch(() => undefined);
+  await unlink(lockPath).catch(() => undefined);
 }
 
 /** Write one workflow document through a same-directory temporary file. */
@@ -297,8 +311,7 @@ export async function writeWorkflowFile(
     }
   } finally {
     await unlink(temporary).catch(() => undefined);
-    await lock.close().catch(() => undefined);
-    await unlink(lockPath).catch(() => undefined);
+    await releaseWorkflowFileLock(lockPath, lock);
   }
 }
 
@@ -313,8 +326,21 @@ export async function deleteWorkflowFile(path: string): Promise<boolean> {
     throw error;
   }
   if (!metadata.isFile()) throw new Error(`Workflow path is not a file: ${path}`);
-  await unlink(target);
-  return true;
+  const lockPath = `${target}.lock`;
+  const lock = await acquireWorkflowFileLock(lockPath, path);
+  try {
+    try {
+      metadata = await stat(target);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw error;
+    }
+    if (!metadata.isFile()) throw new Error(`Workflow path is not a file: ${path}`);
+    await unlink(target);
+    return true;
+  } finally {
+    await releaseWorkflowFileLock(lockPath, lock);
+  }
 }
 
 function requireNode(document: A3SFlowWorkflowDsl, id: string): A3SFlowWorkflowDagNode {
