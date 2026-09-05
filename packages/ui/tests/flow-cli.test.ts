@@ -21,6 +21,7 @@ describe('A3S Flow CLI workflow file CRUD', () => {
   it('creates, reads, updates, and deletes a valid DSL file', async () => {
     const root = await mkdtemp(join(tmpdir(), 'a3s-flow-cli-'));
     const workflow = join(root, 'workflow.json');
+    const copiedWorkflow = join(root, 'workflow-copy.json');
     const output = join(root, 'result.json');
     try {
       expect(
@@ -37,6 +38,20 @@ describe('A3S Flow CLI workflow file CRUD', () => {
       expect(created.ok).toBe(true);
       expect(created.document.app.name).toBe('Order workflow');
       expect(created.documentDigest).toMatch(/^[a-f0-9]{64}$/);
+
+      expect(
+        await runFlowCli([
+          'create',
+          copiedWorkflow,
+          '--from',
+          workflow,
+          '--name',
+          'Copied workflow',
+          '--output',
+          output,
+        ]),
+      ).toBe(0);
+      expect((await readJson(output)).document.app.name).toBe('Copied workflow');
 
       const imported = JSON.parse(await readFile(workflow, 'utf8')) as A3SFlowWorkflowDsl;
       imported.workflow.graph.nodes[1].data['x-extension'] = { owner: 'billing' };

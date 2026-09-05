@@ -56,6 +56,7 @@ interface CliOptions {
   targetHandle?: string;
   config?: string;
   name?: string;
+  from?: string;
   output?: string;
 }
 
@@ -87,6 +88,7 @@ Options:
   --include-internal       Include container start nodes in catalog output
   --id <id>                Stable node ID for the new command
   --name <name>            Workflow app name for create
+  --from <file|->          Create from an existing DSL file or stdin
   --overwrite              Allow create to replace an existing file
   --force                  Confirm a destructive delete
   --add-node <type>        Update: add one public node (requires --id)
@@ -128,6 +130,7 @@ function parseOptions(arguments_: string[]): { positional: string[]; options: Cl
       argument === '--set-node' ||
       argument === '--set-app-name' ||
       argument === '--config' ||
+      argument === '--from' ||
       argument === '--edge-id' ||
       argument === '--source' ||
       argument === '--target' ||
@@ -145,6 +148,7 @@ function parseOptions(arguments_: string[]): { positional: string[]; options: Cl
       else if (argument === '--set-node') options.setNodeId = value;
       else if (argument === '--set-app-name') options.setAppName = value;
       else if (argument === '--config') options.config = value;
+      else if (argument === '--from') options.from = value;
       else if (argument === '--edge-id') options.edgeId = value;
       else if (argument === '--source') options.source = value;
       else if (argument === '--target') options.target = value;
@@ -497,9 +501,21 @@ export async function runFlowCli(arguments_: string[]): Promise<number> {
     requireArguments(command, argumentsForCommand, 1);
     const path = argumentsForCommand[0];
     if (path === '-') throw new CliError('usage', 'create requires a file path, not stdin.');
-    const document = sampleWorkflow();
+    let document: A3SFlowWorkflowDsl;
+    let compatibility = 'compatible';
+    if (options.from) {
+      const source = await parseWorkflow(options.from);
+      if (!source.ok) {
+        await emit({ path, ...source }, options);
+        return 1;
+      }
+      document = source.document;
+      compatibility = source.compatibility;
+    } else {
+      document = sampleWorkflow();
+    }
     if (options.name?.trim()) document.app.name = options.name.trim();
-    const validation = validateWorkflowDocument(document, 'compatible');
+    const validation = validateWorkflowDocument(document, compatibility);
     if (!validation.ok) {
       await emit({ path, ...validation }, options);
       return 1;

@@ -11,7 +11,7 @@ Use `a3s-flow` as the authority for the public node catalog, workflow validation
 
 1. Run `a3s-flow nodes --pretty` and inspect `a3s-flow node <type> --pretty` before choosing or configuring a node.
 2. Read [references/workflow-dsl.md](references/workflow-dsl.md) when creating a workflow document, wiring ports, or adding an iteration or loop scope.
-3. For file-based authoring, run `a3s-flow create workflow.json --name <name> --pretty`. This writes a validated sample atomically and refuses to overwrite an existing file unless `--overwrite` is explicit.
+3. For file-based authoring, run `a3s-flow create workflow.json --name <name> --pretty`. This writes a validated sample atomically and refuses to overwrite an existing file unless `--overwrite` is explicit. Use `--from template.json` (or `--from -` for stdin) to create from an existing DSL instead of the sample.
 4. Create public nodes with `a3s-flow new <type> --id <stable-id> --pretty`. Copy the emitted node into the graph and set only fields described by its manifest.
 5. Keep graph node IDs stable after runs exist. Treat node IDs used by steps, progress records, hooks, child operations, and child workflows as replay-sensitive identities.
 6. Use `a3s-flow read workflow.json --pretty` to obtain one machine-readable summary containing the validated document, counts, deterministic plan, and digests.

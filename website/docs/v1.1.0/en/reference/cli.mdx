@@ -60,13 +60,15 @@ The `node` result is authoritative for field names, option values, and connectio
 
 ## CRUD a workflow file
 
-Use `create` for a safe first file. It refuses to replace an existing path unless
+Use `create` for a safe first file (or pass `--from <file|->` to copy and validate
+an existing DSL). It refuses to replace an existing path unless
 `--overwrite` is supplied, creates parent directories, and writes through a
 same-directory temporary file before rename. `read` returns the validated DSL,
 deterministic plan, and both digests in one response.
 
 ```bash
 a3s-flow create workflow.json --name invoice.approval --pretty
+a3s-flow create workflow.v2.json --from workflow.json --name invoice.approval.v2 --pretty
 a3s-flow read workflow.json --pretty
 ```
 

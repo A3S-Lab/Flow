@@ -60,10 +60,11 @@ a3s-flow new flow.hook --id approval --pretty
 
 ## 工作流文件 CRUD
 
-新建文件时使用 `create`。除非明确传入 `--overwrite`，它不会覆盖已有路径；同时会创建父目录，并通过同目录临时文件加 rename 完成原子写入。`read` 一次返回校验后的 DSL、确定性计划、数量和两个摘要。
+新建文件时使用 `create`（也可以传入 `--from <file|->` 复制并校验已有 DSL）。除非明确传入 `--overwrite`，它不会覆盖已有路径；同时会创建父目录，并通过同目录临时文件加 rename 完成原子写入。`read` 一次返回校验后的 DSL、确定性计划、数量和两个摘要。
 
 ```bash
 a3s-flow create workflow.json --name invoice.approval --pretty
+a3s-flow create workflow.v2.json --from workflow.json --name invoice.approval.v2 --pretty
 a3s-flow read workflow.json --pretty
 ```
 
