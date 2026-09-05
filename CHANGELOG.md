@@ -5,7 +5,8 @@
 - Added durable `FlowProjectionCheckpoint` support to the memory, local-file,
   SQLite, and PostgreSQL stores plus `FlowEngine::checkpoint`. Checkpoints are
   validated by run identity, sequence, and tip event ID; stale or corrupt
-  metadata is ignored and authoritative history replay is used instead.
+  metadata is ignored and authoritative history replay is used instead;
+  custom stores must explicitly implement checkpoint persistence.
 
 - Added explicit Activity unknown-outcome events and fenced host
   reconciliation through `FlowError::UnknownOutcome`, `ActivityResolution`,

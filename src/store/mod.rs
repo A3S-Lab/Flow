@@ -234,11 +234,13 @@ pub trait FlowEventStore: Send + Sync {
 
     /// Persist or replace a disposable projection checkpoint.
     ///
-    /// The default is a compatibility no-op for custom stores. Built-in stores
-    /// persist checkpoints durably; hosts can inspect their concrete store when
-    /// durable checkpoint guarantees are required.
+    /// Custom stores must override this method to claim checkpoint support;
+    /// the default fails closed so callers cannot mistake an unsupported store
+    /// for a durable checkpoint implementation.
     async fn save_checkpoint(&self, _checkpoint: &FlowProjectionCheckpoint) -> Result<()> {
-        Ok(())
+        Err(FlowError::Store(
+            "projection checkpoints are unsupported by this event store".to_string(),
+        ))
     }
 
     /// List all run IDs known to the store in stable order.
