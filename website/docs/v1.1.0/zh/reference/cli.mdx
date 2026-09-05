@@ -1,6 +1,6 @@
 ---
 title: a3s-flow CLI
-description: 使用命令行查询节点清单、创建节点、校验工作流、编译执行顺序并生成语义摘要。
+description: 使用命令行查询节点清单，对工作流 DSL 文件执行 CRUD，校验工作流、编译执行顺序并生成语义摘要。
 ---
 
 # a3s-flow CLI
@@ -14,7 +14,7 @@ npm install @a3s-lab/flow-ui @a3s-lab/ui
 npx a3s-flow help --pretty
 ```
 
-第二条命令应返回 `ok` 为 `true` 的 JSON，并列出 `nodes`、`new`、`validate`、`compile` 和 `digest`。如果终端找不到命令，先确认依赖安装在当前项目，再通过 `npx` 或项目脚本调用本地二进制。
+第二条命令应返回 `ok` 为 `true` 的 JSON，并列出 `nodes`、`new`、`create`、`read`、`update`、`delete`、`validate`、`compile` 和 `digest`。如果终端找不到命令，先确认依赖安装在当前项目，再通过 `npx` 或项目脚本调用本地二进制。
 
 项目脚本可以直接调用本地二进制。
 
@@ -36,6 +36,10 @@ npx a3s-flow help --pretty
 | `node <type>`          | 查询一个节点                | 字段、默认值、端口、运行绑定和持久身份 |
 | `new <type> --id <id>` | 按 manifest 默认值创建节点  | 可直接放入图中的节点 JSON              |
 | `sample`               | 生成最小可执行文档          | 开始、任务、完成三个节点及连线         |
+| `create <file>`        | 原子创建并校验样例文件      | 完整文档、计划、数量和语义摘要         |
+| `read <file>`          | 校验并汇总现有文件          | 完整文档、计划、数量和语义摘要         |
+| `update <file>`        | 原子应用一次图或应用编辑    | 变更 ID 与新的校验摘要                 |
+| `delete <file> --force` | 显式删除一个工作流文件      | `{ deleted: true/false }`              |
 | `validate <file>`      | 校验文档、DAG 和节点配置    | 兼容状态、节点数、边数或详细问题       |
 | `compile <file>`       | 编译确定性顺序              | 顶层与每个容器作用域的执行计划         |
 | `digest <file>`        | 计算语义摘要                | 文档摘要与图摘要                       |
@@ -53,6 +57,31 @@ a3s-flow new flow.hook --id approval --pretty
 ```
 
 `node` 输出是字段和端口的事实来源。编辑器或脚本不应自行拼写字段名、枚举值和连接句柄。`new` 会填入 manifest 默认值，并保留运行所需的数据结构。节点 ID 在运行创建后属于持久身份，修改它可能让历史中的步骤、Hook、进度或子运行无法对应到新图。
+
+## 工作流文件 CRUD
+
+新建文件时使用 `create`。除非明确传入 `--overwrite`，它不会覆盖已有路径；同时会创建父目录，并通过同目录临时文件加 rename 完成原子写入。`read` 一次返回校验后的 DSL、确定性计划、数量和两个摘要。
+
+```bash
+a3s-flow create workflow.json --name invoice.approval --pretty
+a3s-flow read workflow.json --pretty
+```
+
+`update` 每次只接受一个聚焦操作。节点配置使用 JSON，只修改 manifest 拥有的字段，未知语义扩展和展示字段会保留。候选文档通过校验后才会原子替换，因此失败更新不会改动原文件。
+
+```bash
+a3s-flow update workflow.json --set-app-name invoice.approval.v2 --pretty
+a3s-flow update workflow.json --set-node run-step \
+  --config '{"step_name":"payments.charge"}' --pretty
+a3s-flow update workflow.json --add-node flow.progress \
+  --id report-progress --pretty
+```
+
+删除必须显式确认。重复执行是幂等的，文件已不存在时返回 `deleted: false`。
+
+```bash
+a3s-flow delete workflow.json --force --pretty
+```
 
 ## 生成工作流样例
 

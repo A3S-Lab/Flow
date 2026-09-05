@@ -1,6 +1,6 @@
 ---
 title: a3s-flow Skill
-description: 安装并调用随前端包发布的 A3S Flow Skill，让编码 Agent 按真实节点清单创建和校验工作流。
+description: 安装并调用随前端包发布的 A3S Flow Skill，让编码 Agent 按真实节点清单 CRUD 并校验工作流。
 ---
 
 # a3s-flow Skill
@@ -51,7 +51,7 @@ and explain the compiled order before writing the final digest.
 
 ## Skill 的执行顺序
 
-Skill 会先运行 `a3s-flow nodes --pretty`，再用 `a3s-flow node <type> --pretty` 查看候选节点。新节点通过 `a3s-flow new` 生成，避免遗漏默认值。完成字段和连线修改后，它依次运行 `validate`、`compile` 和 `digest`。遇到问题时应修复 CLI 指出的字段或边，然后重新执行完整序列。
+Skill 会先运行 `a3s-flow nodes --pretty`，再用 `a3s-flow node <type> --pretty` 查看候选节点。新文件通过 `a3s-flow create` 生成，已有文件用 `a3s-flow read` 检查。新节点通过 `a3s-flow new` 生成，避免遗漏默认值。文件修改每次使用一个 `a3s-flow update` 操作；CLI 会先校验候选文档，只有仍可执行时才原子替换。遇到问题时应修复 CLI 指出的字段或边，然后重新执行完整序列。只有用户明确要求时才使用 `a3s-flow delete --force`。
 
 这套顺序有两个用途。第一，节点 manifest 与当前安装版本保持一致。第二，语义摘要只在可执行图已经通过校验并得到稳定顺序后产生。Agent 应在最终说明中列出修改过的节点与边、编译顺序、摘要以及仍由宿主负责的任务处理器。
 
@@ -73,8 +73,9 @@ Skill 会先运行 `a3s-flow nodes --pretty`，再用 `a3s-flow node <type> --pr
 
 ```bash
 npx a3s-flow nodes --pretty
-npx a3s-flow sample --output workflow.json --pretty
-npx a3s-flow validate workflow.json --pretty
+npx a3s-flow create workflow.json --name smoke --pretty
+npx a3s-flow read workflow.json --pretty
+npx a3s-flow delete workflow.json --force --pretty
 ```
 
 目录查询应返回 18 个公开节点。样例应包含开始、任务和完成节点。校验通过以后，Skill 才具备完整的本地事实来源。团队更新 `@a3s-lab/flow-ui` 版本时，应重新执行这组检查，并让 Agent 重新读取新的 manifest，不要沿用旧会话记忆中的字段。

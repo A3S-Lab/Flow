@@ -1,6 +1,6 @@
 ---
 name: a3s-flow
-description: Create, inspect, validate, compile, and review A3S Flow workflow DSL documents with the a3s-flow CLI. Use when authoring durable workflow DAGs, choosing one of the supported nodes, configuring container scopes, diagnosing validation issues, or producing semantic execution digests.
+description: CRUD, inspect, validate, compile, and review A3S Flow workflow DSL documents with the a3s-flow CLI. Use when authoring durable workflow DAGs, choosing one of the supported nodes, configuring container scopes, diagnosing validation issues, or producing semantic execution digests.
 ---
 
 # A3S Flow
@@ -11,12 +11,13 @@ Use `a3s-flow` as the authority for the public node catalog, workflow validation
 
 1. Run `a3s-flow nodes --pretty` and inspect `a3s-flow node <type> --pretty` before choosing or configuring a node.
 2. Read [references/workflow-dsl.md](references/workflow-dsl.md) when creating a workflow document, wiring ports, or adding an iteration or loop scope.
-3. Start from an existing valid document or run `a3s-flow sample --output workflow.json --pretty`.
+3. For file-based authoring, run `a3s-flow create workflow.json --name <name> --pretty`. This writes a validated sample atomically and refuses to overwrite an existing file unless `--overwrite` is explicit.
 4. Create public nodes with `a3s-flow new <type> --id <stable-id> --pretty`. Copy the emitted node into the graph and set only fields described by its manifest.
 5. Keep graph node IDs stable after runs exist. Treat node IDs used by steps, progress records, hooks, child operations, and child workflows as replay-sensitive identities.
-6. Run `a3s-flow validate workflow.json --pretty`. Resolve every issue rather than deleting fields or edges to silence it.
-7. Run `a3s-flow compile workflow.json --pretty` and review the top-level and container-scoped execution order.
-8. Run `a3s-flow digest workflow.json --pretty` only after validation and compilation succeed. Record the returned digest outside the workflow document when a host needs an integrity pin.
+6. Use `a3s-flow read workflow.json --pretty` to obtain one machine-readable summary containing the validated document, counts, deterministic plan, and digests.
+7. Apply one focused edit with `a3s-flow update workflow.json --set-app-name <name>`, `--set-node <id> --config '<json>'`, `--add-node <type> --id <id> [--config '<json>']`, `--remove-node <id>`, `--add-edge --edge-id <id> --source <id> --target <id>`, or `--remove-edge <id>`. Every update is cloned, validated, and atomically replaced; a rejected update leaves the original file unchanged.
+8. Run `a3s-flow validate workflow.json --pretty`, then `compile` and `digest`, after semantic edits. Resolve every issue rather than deleting fields or edges to silence it.
+9. Delete only with an explicit confirmation: `a3s-flow delete workflow.json --force --pretty`. Missing files are reported as `{ "deleted": false }` so cleanup is idempotent.
 
 ## Commands
 
@@ -24,10 +25,14 @@ Use `a3s-flow` as the authority for the public node catalog, workflow validation
 a3s-flow nodes --pretty
 a3s-flow node flow.step --pretty
 a3s-flow new flow.step --id charge-card --pretty
+a3s-flow create workflow.json --name order.approval --pretty
+a3s-flow read workflow.json --pretty
+a3s-flow update workflow.json --set-node charge-card --config '{"step_name":"payments.charge"}' --pretty
+a3s-flow update workflow.json --add-node flow.progress --id report-progress --pretty
 a3s-flow validate workflow.json --pretty
 a3s-flow compile workflow.json --output plan.json --pretty
 a3s-flow digest workflow.json --pretty
-a3s-flow sample --output workflow.json --pretty
+a3s-flow delete workflow.json --force --pretty
 ```
 
 ## Designer extension context

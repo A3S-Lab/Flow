@@ -1,4 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   compileForm,
   type FieldError,
@@ -27,11 +30,32 @@ import {
   WORKFLOW_CONFIGURATION_WIDGET_KEYS,
   createWorkflowNodeForm,
 } from './integrations/workflow-node-form';
+import {
+  applyFlowCliWorkflowUpdate,
+  deleteWorkflowFile,
+  type FlowCliWorkflowUpdate,
+  writeWorkflowFile,
+} from './flow-cli-workflow';
 
 interface CliOptions {
   pretty: boolean;
   includeInternal: boolean;
+  overwrite: boolean;
+  force: boolean;
+  addEdge: boolean;
   id?: string;
+  addNodeType?: string;
+  removeNodeId?: string;
+  removeEdgeId?: string;
+  setNodeId?: string;
+  setAppName?: string;
+  source?: string;
+  target?: string;
+  edgeId?: string;
+  sourceHandle?: string;
+  targetHandle?: string;
+  config?: string;
+  name?: string;
   output?: string;
 }
 
@@ -54,28 +78,83 @@ Commands:
   compile <workflow.json>  Emit the deterministic DAG execution plan
   digest <workflow.json>   Emit semantic document and graph digests
   sample                   Emit a minimal executable workflow document
+  create <workflow.json>   Create a new sample workflow file
+  read <workflow.json>     Read, validate, compile, and summarize a workflow
+  update <workflow.json>   Apply one graph/app update atomically and revalidate
+  delete <workflow.json>   Delete a workflow file (requires --force)
 
 Options:
   --include-internal       Include container start nodes in catalog output
   --id <id>                Stable node ID for the new command
+  --name <name>            Workflow app name for create
+  --overwrite              Allow create to replace an existing file
+  --force                  Confirm a destructive delete
+  --add-node <type>        Update: add one public node (requires --id)
+  --remove-node <id>       Update: remove one node and its scoped children
+  --set-node <id>          Update: replace manifest-owned node fields (requires --config)
+  --set-app-name <name>    Update: replace the workflow app name
+  --add-edge               Update: add an edge (requires --edge-id, --source, --target)
+  --remove-edge <id>       Update: remove one edge
+  --config <json>          JSON object for --add-node or --set-node
+  --edge-id <id>           Stable edge ID for --add-edge
+  --source <id>            Source node ID for --add-edge
+  --target <id>            Target node ID for --add-edge
+  --source-handle <id>     Optional source port for --add-edge
+  --target-handle <id>     Optional target port for --add-edge
   --pretty                 Pretty-print JSON
   --output <file>          Write JSON to a file instead of stdout
   -                        Read a workflow document from stdin`;
 
 function parseOptions(arguments_: string[]): { positional: string[]; options: CliOptions } {
   const positional: string[] = [];
-  const options: CliOptions = { pretty: false, includeInternal: false };
+  const options: CliOptions = {
+    pretty: false,
+    includeInternal: false,
+    overwrite: false,
+    force: false,
+    addEdge: false,
+  };
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
     if (argument === '--pretty') options.pretty = true;
     else if (argument === '--include-internal') options.includeInternal = true;
-    else if (argument === '--id' || argument === '--output') {
+    else if (
+      argument === '--id' ||
+      argument === '--output' ||
+      argument === '--name' ||
+      argument === '--add-node' ||
+      argument === '--remove-node' ||
+      argument === '--remove-edge' ||
+      argument === '--set-node' ||
+      argument === '--set-app-name' ||
+      argument === '--config' ||
+      argument === '--edge-id' ||
+      argument === '--source' ||
+      argument === '--target' ||
+      argument === '--source-handle' ||
+      argument === '--target-handle'
+    ) {
       const value = arguments_[index + 1];
       if (!value) throw new CliError('usage', `${argument} requires a value.`);
       if (argument === '--id') options.id = value;
-      else options.output = value;
+      else if (argument === '--output') options.output = value;
+      else if (argument === '--name') options.name = value;
+      else if (argument === '--add-node') options.addNodeType = value;
+      else if (argument === '--remove-node') options.removeNodeId = value;
+      else if (argument === '--remove-edge') options.removeEdgeId = value;
+      else if (argument === '--set-node') options.setNodeId = value;
+      else if (argument === '--set-app-name') options.setAppName = value;
+      else if (argument === '--config') options.config = value;
+      else if (argument === '--edge-id') options.edgeId = value;
+      else if (argument === '--source') options.source = value;
+      else if (argument === '--target') options.target = value;
+      else if (argument === '--source-handle') options.sourceHandle = value;
+      else if (argument === '--target-handle') options.targetHandle = value;
       index += 1;
-    } else if (argument.startsWith('--')) {
+    } else if (argument === '--overwrite') options.overwrite = true;
+    else if (argument === '--force') options.force = true;
+    else if (argument === '--add-edge') options.addEdge = true;
+    else if (argument.startsWith('--')) {
       throw new CliError('usage', `Unknown option: ${argument}`);
     } else positional.push(argument);
   }
@@ -245,18 +324,127 @@ async function parseWorkflow(path: string): Promise<
 async function validateWorkflow(path: string) {
   const parsed = await parseWorkflow(path);
   if (!parsed.ok) return parsed;
-  const dag = compileA3SFlowWorkflowDag(parsed.document.workflow.graph);
+  return validateWorkflowDocument(parsed.document, parsed.compatibility);
+}
+
+type WorkflowValidationResult =
+  | {
+      ok: true;
+      document: A3SFlowWorkflowDsl;
+      compatibility: string;
+      plan: { topLevel: string[]; scopes: Record<string, string[]> };
+    }
+  | { ok: false; compatibility: string; issues: A3SFlowDslIssue[] };
+
+function validateWorkflowDocument(
+  document: A3SFlowWorkflowDsl,
+  compatibility: string,
+): WorkflowValidationResult {
+  const dag = compileA3SFlowWorkflowDag(document.workflow.graph);
   const issues = [
     ...(dag.ok ? [] : dag.issues),
-    ...validateNodeConfigurations(parsed.document),
+    ...validateNodeConfigurations(document),
   ];
-  if (issues.length > 0) return { ok: false as const, compatibility: parsed.compatibility, issues };
+  if (issues.length > 0) return { ok: false as const, compatibility, issues };
   return {
     ok: true as const,
-    document: parsed.document,
-    compatibility: parsed.compatibility,
+    document,
+    compatibility,
     plan: dag.ok ? dag.plan : { topLevel: [], scopes: {} },
   };
+}
+
+function parseJsonObject(value: string | undefined, label: string): JsonObject {
+  if (!value) throw new CliError('usage', `${label} requires --config <json>.`);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch (error) {
+    throw new CliError(
+      'usage',
+      `${label} configuration must be valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new CliError('usage', `${label} configuration must be a JSON object.`);
+  }
+  return parsed as JsonObject;
+}
+
+function updateOperation(options: CliOptions): FlowCliWorkflowUpdate {
+  const operations = [
+    options.addNodeType ? 'add-node' : undefined,
+    options.removeNodeId ? 'remove-node' : undefined,
+    options.addEdge ? 'add-edge' : undefined,
+    options.removeEdgeId ? 'remove-edge' : undefined,
+    options.setNodeId ? 'set-node' : undefined,
+    options.setAppName ? 'set-app-name' : undefined,
+  ].filter((value): value is string => value !== undefined);
+  if (operations.length !== 1) {
+    throw new CliError(
+      'usage',
+      'update requires exactly one operation: --add-node, --remove-node, --add-edge, --remove-edge, --set-node, or --set-app-name.',
+    );
+  }
+  switch (operations[0]) {
+    case 'add-node':
+      if (!options.id) throw new CliError('usage', '--add-node requires --id <id>.');
+      return {
+        kind: 'add-node',
+        id: options.id,
+        type: options.addNodeType!,
+        configuration: options.config ? parseJsonObject(options.config, '--add-node') : {},
+      };
+    case 'remove-node':
+      return { kind: 'remove-node', id: options.removeNodeId! };
+    case 'add-edge':
+      if (!options.edgeId || !options.source || !options.target) {
+        throw new CliError(
+          'usage',
+          '--add-edge requires --edge-id <id>, --source <id>, and --target <id>.',
+        );
+      }
+      return {
+        kind: 'add-edge',
+        id: options.edgeId,
+        source: options.source,
+        target: options.target,
+        sourceHandle: options.sourceHandle,
+        targetHandle: options.targetHandle,
+      };
+    case 'remove-edge':
+      return { kind: 'remove-edge', id: options.removeEdgeId! };
+    case 'set-node':
+      return {
+        kind: 'set-node',
+        id: options.setNodeId!,
+        configuration: parseJsonObject(options.config, '--set-node'),
+      };
+    case 'set-app-name':
+      return { kind: 'set-app-name', name: options.setAppName! };
+    default:
+      throw new CliError('usage', 'Unsupported workflow update operation.');
+  }
+}
+
+function workflowSummary(
+  path: string,
+  validation: Extract<WorkflowValidationResult, { ok: true }>,
+  includeDocument: boolean,
+): JsonObject {
+  return {
+    ok: true,
+    path,
+    engineVersion: A3S_FLOW_ENGINE_VERSION,
+    workflowDslVersion: A3S_FLOW_TESTED_WORKFLOW_DSL_VERSION,
+    compatibility: validation.compatibility,
+    nodes: validation.document.workflow.graph.nodes.length,
+    edges: validation.document.workflow.graph.edges.length,
+    documentDigest: digestA3SFlowWorkflowDsl(validation.document),
+    graphDigest: digestA3SFlowWorkflowDag(validation.document.workflow.graph),
+    plan: validation.plan,
+    ...(includeDocument ? { document: validation.document } : {}),
+  } as JsonObject;
 }
 
 export async function runFlowCli(arguments_: string[]): Promise<number> {
@@ -303,6 +491,98 @@ export async function runFlowCli(arguments_: string[]): Promise<number> {
   if (command === 'sample') {
     requireArguments(command, argumentsForCommand, 0);
     await emit(sampleWorkflow(), options);
+    return 0;
+  }
+  if (command === 'create') {
+    requireArguments(command, argumentsForCommand, 1);
+    const path = argumentsForCommand[0];
+    if (path === '-') throw new CliError('usage', 'create requires a file path, not stdin.');
+    const document = sampleWorkflow();
+    if (options.name?.trim()) document.app.name = options.name.trim();
+    const validation = validateWorkflowDocument(document, 'compatible');
+    if (!validation.ok) {
+      await emit({ path, ...validation }, options);
+      return 1;
+    }
+    try {
+      await writeWorkflowFile(path, validation.document, options.overwrite);
+    } catch (error) {
+      throw new CliError(
+        'create_failed',
+        `Cannot create ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    await emit(workflowSummary(path, validation, true), options);
+    return 0;
+  }
+  if (command === 'read') {
+    requireArguments(command, argumentsForCommand, 1);
+    const path = argumentsForCommand[0];
+    const validation = await validateWorkflow(path);
+    if (!validation.ok) {
+      await emit({ path, ...validation }, options);
+      return 1;
+    }
+    await emit(workflowSummary(path, validation, true), options);
+    return 0;
+  }
+  if (command === 'update') {
+    requireArguments(command, argumentsForCommand, 1);
+    const path = argumentsForCommand[0];
+    if (path === '-') throw new CliError('usage', 'update requires a file path, not stdin.');
+    const parsed = await parseWorkflow(path);
+    if (!parsed.ok) {
+      await emit({ path, ...parsed }, options);
+      return 1;
+    }
+    const current = validateWorkflowDocument(parsed.document, parsed.compatibility);
+    if (!current.ok) {
+      await emit({ path, ...current }, options);
+      return 1;
+    }
+    const operation = updateOperation(options);
+    let result;
+    try {
+      result = applyFlowCliWorkflowUpdate(current.document, operation);
+    } catch (error) {
+      throw new CliError(
+        'update_failed',
+        `Cannot update ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    const updated = validateWorkflowDocument(result.document, parsed.compatibility);
+    if (!updated.ok) {
+      await emit({ path, changed: result.changed, ...updated }, options);
+      return 1;
+    }
+    try {
+      await writeWorkflowFile(path, updated.document, true);
+    } catch (error) {
+      throw new CliError(
+        'update_failed',
+        `Cannot update ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    await emit({ ...workflowSummary(path, updated, true), changed: result.changed }, options);
+    return 0;
+  }
+  if (command === 'delete') {
+    requireArguments(command, argumentsForCommand, 1);
+    const path = argumentsForCommand[0];
+    if (path === '-') throw new CliError('usage', 'delete requires a file path, not stdin.');
+    if (!options.force) {
+      throw new CliError('confirmation_required', 'delete requires --force.');
+    }
+    let deleted: boolean;
+    try {
+      deleted = await deleteWorkflowFile(path);
+    } catch (error) {
+      throw new CliError(
+        'delete_failed',
+        `Cannot delete ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    await emit({ ok: true, path, deleted }, options);
     return 0;
   }
   if (command === 'validate' || command === 'compile' || command === 'digest') {
@@ -360,4 +640,15 @@ async function main(): Promise<void> {
   }
 }
 
-void main();
+function isMainModule(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(resolve(process.argv[1]));
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
+  void main();
+}

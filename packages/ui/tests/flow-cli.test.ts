@@ -1,0 +1,180 @@
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { runFlowCli } from '../src/flow-cli';
+import type { A3SFlowWorkflowDsl } from '../src/integrations/a3s-flow-dsl-types';
+
+interface WorkflowCliOutput {
+  ok: boolean;
+  document: A3SFlowWorkflowDsl;
+  documentDigest: string;
+  plan: { topLevel: string[]; scopes: Record<string, string[]> };
+  changed?: string[];
+  deleted?: boolean;
+}
+
+async function readJson(path: string): Promise<WorkflowCliOutput> {
+  return JSON.parse(await readFile(path, 'utf8')) as WorkflowCliOutput;
+}
+
+describe('A3S Flow CLI workflow file CRUD', () => {
+  it('creates, reads, updates, and deletes a valid DSL file', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'a3s-flow-cli-'));
+    const workflow = join(root, 'workflow.json');
+    const output = join(root, 'result.json');
+    try {
+      expect(
+        await runFlowCli([
+          'create',
+          workflow,
+          '--name',
+          'Order workflow',
+          '--output',
+          output,
+        ]),
+      ).toBe(0);
+      const created = await readJson(output);
+      expect(created.ok).toBe(true);
+      expect(created.document.app.name).toBe('Order workflow');
+      expect(created.documentDigest).toMatch(/^[a-f0-9]{64}$/);
+
+      const imported = JSON.parse(await readFile(workflow, 'utf8')) as A3SFlowWorkflowDsl;
+      imported.workflow.graph.nodes[1].data['x-extension'] = { owner: 'billing' };
+      imported.workflow.graph.nodes[1].title = 'Keep this title';
+      await writeFile(workflow, `${JSON.stringify(imported)}\n`, 'utf8');
+
+      expect(await runFlowCli(['read', workflow, '--output', output])).toBe(0);
+      const read = await readJson(output);
+      expect(read.documentDigest).not.toBe(created.documentDigest);
+      expect(read.document.workflow.graph.nodes[1].data['x-extension']).toEqual({
+        owner: 'billing',
+      });
+      expect(read.plan.topLevel).toEqual(['start', 'run-step', 'complete']);
+
+      expect(
+        await runFlowCli([
+          'update',
+          workflow,
+          '--set-app-name',
+          'Order workflow v2',
+          '--output',
+          output,
+        ]),
+      ).toBe(0);
+      const renamed = await readJson(output);
+      expect(renamed.document.app.name).toBe('Order workflow v2');
+      expect(renamed.changed).toEqual(['app.name']);
+
+      expect(
+        await runFlowCli([
+          'update',
+          workflow,
+          '--set-node',
+          'run-step',
+          '--config',
+          JSON.stringify({ step_name: 'task.charge' }),
+          '--output',
+          output,
+        ]),
+      ).toBe(0);
+      const configured = await readJson(output);
+      expect(configured.document.workflow.graph.nodes[1].data.step_name).toBe(
+        'task.charge',
+      );
+      expect(configured.document.workflow.graph.nodes[1].data['x-extension']).toEqual({
+        owner: 'billing',
+      });
+      expect(configured.document.workflow.graph.nodes[1].title).toBe('Keep this title');
+
+      const beforeRejectedUpdate = await readFile(workflow, 'utf8');
+      expect(
+        await runFlowCli([
+          'update',
+          workflow,
+          '--set-node',
+          'run-step',
+          '--config',
+          JSON.stringify({ step_name: '' }),
+          '--output',
+          output,
+        ]),
+      ).toBe(1);
+      expect(await readFile(workflow, 'utf8')).toBe(beforeRejectedUpdate);
+
+      expect(
+        await runFlowCli([
+          'update',
+          workflow,
+          '--add-node',
+          'flow.progress',
+          '--id',
+          'report-progress',
+          '--config',
+          JSON.stringify({ progress_id: 'report-progress' }),
+          '--output',
+          output,
+        ]),
+      ).toBe(0);
+      const added = await readJson(output);
+      const addedNodes = (added.document as { workflow: { graph: { nodes: Array<{ id: string }> } } }).workflow.graph.nodes;
+      expect(addedNodes.map((node) => node.id)).toContain(
+        'report-progress',
+      );
+
+      expect(
+        await runFlowCli([
+          'update',
+          workflow,
+          '--add-edge',
+          '--edge-id',
+          'start-complete-shortcut',
+          '--source',
+          'start',
+          '--target',
+          'complete',
+          '--source-handle',
+          'next',
+          '--target-handle',
+          'in',
+          '--output',
+          output,
+        ]),
+      ).toBe(0);
+      expect((await readJson(output)).changed).toEqual(['edge:start-complete-shortcut']);
+
+      expect(
+        await runFlowCli([
+          'update',
+          workflow,
+          '--remove-edge',
+          'start-complete-shortcut',
+          '--output',
+          output,
+        ]),
+      ).toBe(0);
+      expect((await readJson(output)).changed).toEqual(['edge:start-complete-shortcut']);
+
+      expect(await runFlowCli(['delete', workflow, '--force', '--output', output])).toBe(0);
+      expect((await readJson(output)).deleted).toBe(true);
+      await expect(readFile(workflow, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not overwrite an existing file unless requested', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'a3s-flow-cli-'));
+    const workflow = join(root, 'workflow.json');
+    const output = join(root, 'result.json');
+    try {
+      expect(await runFlowCli(['create', workflow, '--output', output])).toBe(0);
+      const before = await readFile(workflow, 'utf8');
+      await expect(runFlowCli(['create', workflow, '--output', output])).rejects.toThrow(
+        /already exists/,
+      );
+      expect(await readFile(workflow, 'utf8')).toBe(before);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});

@@ -1,6 +1,6 @@
 ---
 title: a3s-flow Skill
-description: Install and invoke the A3S Flow Skill so coding agents create and validate workflows against the installed node catalog.
+description: Install and invoke the A3S Flow Skill so coding agents CRUD and validate workflows against the installed node catalog.
 ---
 
 # a3s-flow Skill
@@ -51,7 +51,7 @@ and explain the compiled order before writing the final digest.
 
 ## What the Skill does
 
-The workflow begins with `a3s-flow nodes --pretty`, followed by `a3s-flow node <type> --pretty` for each candidate. New nodes come from `a3s-flow new`, preserving manifest defaults. After field and edge edits, the agent runs `validate`, `compile`, and `digest` in order. If validation reports issues, it repairs the named paths or edges and repeats the entire sequence.
+The workflow begins with `a3s-flow nodes --pretty`, followed by `a3s-flow node <type> --pretty` for each candidate. New files come from `a3s-flow create`, and existing files are inspected with `a3s-flow read`. New nodes come from `a3s-flow new`, preserving manifest defaults. File edits use one `a3s-flow update` operation at a time; the CLI validates the candidate and atomically replaces the file only when it remains executable. If validation reports issues, it repairs the named paths or edges and repeats the entire sequence. Use `a3s-flow delete --force` only when the user explicitly requests removal.
 
 That sequence keeps decisions aligned with the installed package and prevents a digest from being reported before the graph is executable. The final response should identify changed nodes and edges, show the compiled top-level and container order, report both digests, and name any task handlers or host integration that still needs implementation.
 
@@ -73,8 +73,9 @@ The packaged Skill knows the official CLI catalog. It does not infer custom node
 
 ```bash
 npx a3s-flow nodes --pretty
-npx a3s-flow sample --output workflow.json --pretty
-npx a3s-flow validate workflow.json --pretty
+npx a3s-flow create workflow.json --name smoke --pretty
+npx a3s-flow read workflow.json --pretty
+npx a3s-flow delete workflow.json --force --pretty
 ```
 
 The catalog should report 18 public nodes. The sample should contain start, task, and completion nodes. Once validation passes, the Skill has a complete local source of truth. Repeat these checks after upgrading `@a3s-lab/flow-ui`, and have the agent read the new manifests instead of relying on field names remembered from an earlier session.

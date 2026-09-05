@@ -1,6 +1,6 @@
 ---
 title: a3s-flow CLI
-description: Query node manifests, create nodes, validate workflows, compile execution order, and produce semantic digests from the command line.
+description: Query node manifests, CRUD workflow DSL files, validate workflows, compile execution order, and produce semantic digests from the command line.
 ---
 
 # a3s-flow CLI
@@ -14,7 +14,7 @@ npm install @a3s-lab/flow-ui @a3s-lab/ui
 npx a3s-flow help --pretty
 ```
 
-The second command should return JSON with `ok` set to `true` and list `nodes`, `new`, `validate`, `compile`, and `digest`. If the shell cannot find the command, confirm that the dependencies are installed in the current project and invoke the local binary through `npx` or a project script.
+The second command should return JSON with `ok` set to `true` and list `nodes`, `new`, `create`, `read`, `update`, `delete`, `validate`, `compile`, and `digest`. If the shell cannot find the command, confirm that the dependencies are installed in the current project and invoke the local binary through `npx` or a project script.
 
 A project script can call the locally installed binary directly.
 
@@ -30,15 +30,19 @@ Every command emits JSON. Exit code `0` means the command succeeded. Exit code `
 
 ## Command reference
 
-| Command                | Purpose                                    | Main output                                                    |
-| ---------------------- | ------------------------------------------ | -------------------------------------------------------------- |
-| `nodes`                | List the 18 public manifests               | Engine version, DSL version, count, and full catalog           |
-| `node <type>`          | Inspect one manifest                       | Fields, defaults, ports, runtime binding, and durable identity |
-| `new <type> --id <id>` | Create a node from manifest defaults       | A node object ready for the graph                              |
-| `sample`               | Create a minimal executable document       | Start, task, and completion nodes with edges                   |
-| `validate <file>`      | Check the document, DAG, and node settings | Compatibility, counts, or path-specific issues                 |
-| `compile <file>`       | Compile deterministic order                | Top-level and container-scoped plans                           |
-| `digest <file>`        | Compute semantic identity                  | Document and graph digests                                     |
+| Command                 | Purpose                                    | Main output                                                    |
+| ----------------------- | ------------------------------------------ | -------------------------------------------------------------- |
+| `nodes`                 | List the 18 public manifests               | Engine version, DSL version, count, and full catalog           |
+| `node <type>`           | Inspect one manifest                       | Fields, defaults, ports, runtime binding, and durable identity |
+| `new <type> --id <id>`  | Create a node from manifest defaults       | A node object ready for the graph                              |
+| `sample`                | Emit a minimal executable document         | Start, task, and completion nodes with edges                   |
+| `create <file>`         | Atomically create a validated sample file  | Full document, plan, counts, and semantic digests              |
+| `read <file>`           | Validate and summarize an existing file    | Full document, plan, counts, and semantic digests              |
+| `update <file>`         | Apply one graph/app edit atomically        | Changed IDs plus the new validated summary                     |
+| `delete <file> --force` | Explicitly remove one workflow file        | `{ deleted: true/false }`                                     |
+| `validate <file>`       | Check the document, DAG, and node settings | Compatibility, counts, or path-specific issues                 |
+| `compile <file>`        | Compile deterministic order                | Top-level and container-scoped plans                           |
+| `digest <file>`         | Compute semantic identity                  | Document and graph digests                                     |
 
 Use `--pretty` for readable output and `--output <file>` to write JSON to a file. Pass `-` as the input path to read standard input. `--include-internal` applies to catalog inspection and exposes `iteration-start` and `loop-start`. Those internal types belong only inside matching containers and cannot be created as public nodes with `new`.
 
@@ -53,6 +57,38 @@ a3s-flow new flow.hook --id approval --pretty
 ```
 
 The `node` result is authoritative for field names, option values, and connection handles. Editors and scripts should not maintain a separate hand-written schema. The `new` command fills every manifest default and preserves the structure expected by validation. Once a run exists, the node ID is durable identity. Changing it can disconnect new graph state from committed steps, hooks, progress records, or child runs.
+
+## CRUD a workflow file
+
+Use `create` for a safe first file. It refuses to replace an existing path unless
+`--overwrite` is supplied, creates parent directories, and writes through a
+same-directory temporary file before rename. `read` returns the validated DSL,
+deterministic plan, and both digests in one response.
+
+```bash
+a3s-flow create workflow.json --name invoice.approval --pretty
+a3s-flow read workflow.json --pretty
+```
+
+`update` accepts exactly one focused edit per invocation. Node configuration is
+JSON and only manifest-owned fields are changed; unknown semantic extensions and
+presentation fields remain intact. The candidate is validated before the atomic
+replace, so a rejected edit leaves the original file unchanged.
+
+```bash
+a3s-flow update workflow.json --set-app-name invoice.approval.v2 --pretty
+a3s-flow update workflow.json --set-node run-step \
+  --config '{"step_name":"payments.charge"}' --pretty
+a3s-flow update workflow.json --add-node flow.progress \
+  --id report-progress --pretty
+```
+
+Remove files only with explicit confirmation. Repeating the command is safe and
+reports `deleted: false` when the file is already absent.
+
+```bash
+a3s-flow delete workflow.json --force --pretty
+```
 
 ## Create the sample document
 
