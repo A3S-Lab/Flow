@@ -259,6 +259,14 @@ describe('A3S Flow CLI workflow file CRUD', () => {
     try {
       expect(await runFlowCli(['create', workflow, '--output', output])).toBe(0);
       const before = await readFile(workflow, 'utf8');
+      await expect(
+        runFlowCli([
+          'update',
+          workflow,
+          '--operations',
+          JSON.stringify([{ kind: 'set-app-name', nam: 'typo' }]),
+        ]),
+      ).rejects.toThrow(/unknown property nam/);
       expect(
         await runFlowCli([
           'update',

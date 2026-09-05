@@ -59,6 +59,13 @@ export function parseFlowCliWorkflowUpdates(value: unknown): FlowCliWorkflowUpda
     };
     const optionalString = (key: string): string | undefined =>
       operation[key] === undefined ? undefined : string(key);
+    const assertKeys = (...allowed: readonly string[]): void => {
+      const allowedKeys = new Set(allowed);
+      const unexpected = Object.keys(operation).find((key) => !allowedKeys.has(key));
+      if (unexpected) {
+        throw new Error(`Workflow operation ${index} has unknown property ${unexpected}.`);
+      }
+    };
     const configuration = (required: boolean): JsonObject => {
       const entry = operation.configuration;
       if (entry === undefined && !required) return {};
@@ -67,8 +74,10 @@ export function parseFlowCliWorkflowUpdates(value: unknown): FlowCliWorkflowUpda
       }
       return entry as JsonObject;
     };
-    switch (string('kind')) {
+    const kind = string('kind');
+    switch (kind) {
       case 'add-node':
+        assertKeys('kind', 'id', 'type', 'configuration');
         return {
           kind: 'add-node',
           id: string('id'),
@@ -76,8 +85,10 @@ export function parseFlowCliWorkflowUpdates(value: unknown): FlowCliWorkflowUpda
           configuration: configuration(false),
         };
       case 'remove-node':
+        assertKeys('kind', 'id');
         return { kind: 'remove-node', id: string('id') };
       case 'add-edge':
+        assertKeys('kind', 'id', 'source', 'target', 'sourceHandle', 'targetHandle');
         return {
           kind: 'add-edge',
           id: string('id'),
@@ -87,10 +98,13 @@ export function parseFlowCliWorkflowUpdates(value: unknown): FlowCliWorkflowUpda
           targetHandle: optionalString('targetHandle'),
         };
       case 'remove-edge':
+        assertKeys('kind', 'id');
         return { kind: 'remove-edge', id: string('id') };
       case 'set-node':
+        assertKeys('kind', 'id', 'configuration');
         return { kind: 'set-node', id: string('id'), configuration: configuration(true) };
       case 'set-app-name':
+        assertKeys('kind', 'name');
         return { kind: 'set-app-name', name: string('name') };
       default:
         throw new Error(`Unsupported workflow operation kind: ${String(operation.kind)}`);
