@@ -240,6 +240,12 @@ async fn prune_postgres_history(
         .await?;
         execute_postgres(
             transaction,
+            sql_query::<()>("DELETE FROM flow_projection_checkpoints WHERE run_id = ")
+                .bind(run_id.clone()),
+        )
+        .await?;
+        execute_postgres(
+            transaction,
             sql_query::<()>("DELETE FROM flow_events WHERE run_id = ").bind(run_id.clone()),
         )
         .await?;

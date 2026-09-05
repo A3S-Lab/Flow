@@ -14,7 +14,7 @@ use crate::model::{project_run, validate_run_id, FlowEvent, FlowEventEnvelope, H
 use super::{
     next_event_sequence,
     retention::{plan_history_retention, required_linked_flow_run_id, FlowHistoryRetentionPolicy},
-    validate_candidate_event, FlowEventStore, FlowStoreCapabilities,
+    validate_candidate_event, FlowEventStore, FlowProjectionCheckpoint, FlowStoreCapabilities,
 };
 
 /// JSONL-backed event store for local durable runs.
@@ -53,6 +53,15 @@ impl LocalFileEventStore {
             )));
         }
         Ok(self.root.join(format!("{run_id}.jsonl")))
+    }
+
+    fn checkpoint_path(&self, run_id: &str) -> Result<PathBuf> {
+        if !is_safe_run_id(run_id) {
+            return Err(FlowError::Store(format!(
+                "run id {run_id:?} is not safe for local file storage"
+            )));
+        }
+        Ok(self.root.join(format!("{run_id}.checkpoint.json")))
     }
 
     async fn load_inner(
@@ -269,6 +278,12 @@ impl LocalFileEventStore {
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
                 Err(err) => return Err(FlowError::Io(err)),
             }
+            let checkpoint = self.checkpoint_path(run_id)?;
+            match tokio::fs::remove_file(checkpoint).await {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => return Err(FlowError::Io(err)),
+            }
         }
 
         plan.report.deleted_run_ids = removed;
@@ -338,6 +353,40 @@ impl FlowEventStore for LocalFileEventStore {
     async fn list_run_ids(&self) -> Result<Vec<String>> {
         let _guard = self.lock.lock().await;
         self.list_run_ids_inner().await
+    }
+
+    async fn latest_event(&self, run_id: &str) -> Result<Option<(u64, Uuid)>> {
+        let _guard = self.lock.lock().await;
+        Ok(self
+            .list_inner(run_id, false)
+            .await?
+            .last()
+            .map(|event| (event.sequence, event.event_id)))
+    }
+
+    async fn load_checkpoint(&self, run_id: &str) -> Result<Option<FlowProjectionCheckpoint>> {
+        let _guard = self.lock.lock().await;
+        let path = self.checkpoint_path(run_id)?;
+        let bytes = match tokio::fs::read(&path).await {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(FlowError::Io(error)),
+        };
+        // Checkpoints are disposable metadata. A torn or incompatible cache
+        // must never make an otherwise valid event history unreadable.
+        Ok(serde_json::from_slice(&bytes).ok())
+    }
+
+    async fn save_checkpoint(&self, checkpoint: &FlowProjectionCheckpoint) -> Result<()> {
+        checkpoint.validate()?;
+        let _guard = self.lock.lock().await;
+        tokio::fs::create_dir_all(&self.root).await?;
+        let path = self.checkpoint_path(&checkpoint.run_id)?;
+        let temporary = path.with_extension("checkpoint.json.tmp");
+        let bytes = serde_json::to_vec(checkpoint)?;
+        tokio::fs::write(&temporary, bytes).await?;
+        tokio::fs::rename(&temporary, &path).await?;
+        Ok(())
     }
 }
 

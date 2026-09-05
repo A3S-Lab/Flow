@@ -33,6 +33,19 @@ ALTER TABLE flow_events
 ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1;
 "#;
 
+/// Durable projection checkpoints are disposable acceleration metadata. They
+/// never replace the append-only event history and are validated against the
+/// latest event ID before use.
+const PROJECTION_CHECKPOINTS_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS flow_projection_checkpoints (
+    run_id TEXT PRIMARY KEY,
+    last_sequence BIGINT NOT NULL CHECK (last_sequence >= 1),
+    last_event_id TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+"#;
+
 #[cfg(feature = "sqlite")]
 const SQLITE_ACTIVE_HOOKS_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS flow_active_hooks (
@@ -459,6 +472,11 @@ pub(crate) fn sqlite_migrations() -> Vec<Migration> {
             "persist the Flow event envelope schema version",
             EVENT_ENVELOPE_SCHEMA_SQL,
         ),
+        Migration::new(
+            "a3s-flow-0008-projection-checkpoints",
+            "persist disposable Flow projection checkpoints",
+            PROJECTION_CHECKPOINTS_SQL,
+        ),
     ]
 }
 
@@ -504,6 +522,11 @@ pub(crate) fn postgres_migrations() -> Vec<Migration> {
             "a3s-flow-0008-event-envelope-schema",
             "persist the Flow event envelope schema version",
             EVENT_ENVELOPE_SCHEMA_SQL,
+        ),
+        Migration::new(
+            "a3s-flow-0009-projection-checkpoints",
+            "persist disposable Flow projection checkpoints",
+            PROJECTION_CHECKPOINTS_SQL,
         ),
     ]
 }

@@ -12,6 +12,7 @@ use crate::model::{
 use crate::runtime_build::RuntimeBuildId;
 use uuid::Uuid;
 
+mod checkpoint;
 mod local_file;
 mod memory;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -24,6 +25,7 @@ mod retention;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
+pub use checkpoint::FlowProjectionCheckpoint;
 pub use local_file::LocalFileEventStore;
 pub use memory::InMemoryEventStore;
 #[cfg(feature = "postgres")]
@@ -212,6 +214,32 @@ pub trait FlowEventStore: Send + Sync {
 
     /// Load the complete event history for `run_id` in sequence order.
     async fn list(&self, run_id: &str) -> Result<Vec<FlowEventEnvelope>>;
+
+    /// Return the latest durable event sequence and ID for `run_id`.
+    ///
+    /// Stores with an index should override this to avoid loading the complete
+    /// history. The default keeps custom stores source-compatible.
+    async fn latest_event(&self, run_id: &str) -> Result<Option<(u64, Uuid)>> {
+        Ok(self
+            .list(run_id)
+            .await?
+            .last()
+            .map(|event| (event.sequence, event.event_id)))
+    }
+
+    /// Load a disposable projection checkpoint, if one exists.
+    async fn load_checkpoint(&self, _run_id: &str) -> Result<Option<FlowProjectionCheckpoint>> {
+        Ok(None)
+    }
+
+    /// Persist or replace a disposable projection checkpoint.
+    ///
+    /// The default is a compatibility no-op for custom stores. Built-in stores
+    /// persist checkpoints durably; hosts can inspect their concrete store when
+    /// durable checkpoint guarantees are required.
+    async fn save_checkpoint(&self, _checkpoint: &FlowProjectionCheckpoint) -> Result<()> {
+        Ok(())
+    }
 
     /// List all run IDs known to the store in stable order.
     async fn list_run_ids(&self) -> Result<Vec<String>>;

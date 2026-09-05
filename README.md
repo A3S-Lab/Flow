@@ -323,8 +323,11 @@ All stores preserve the same event envelope and replay contract.
 | `PostgresEventStore`  | Multi-process workers sharing authoritative history | `postgres` |
 
 SQLite and PostgreSQL use `a3s-orm` for typed access, checksummed migrations,
-projection-validated transactional appends, active-hook routing, scheduled-wakeup indexes, and
-whole-history retention. Production PostgreSQL deployments run migration
+projection-validated transactional appends, active-hook routing, scheduled-wakeup indexes,
+durable projection checkpoints, and whole-history retention. `FlowEngine::checkpoint`
+persists only disposable materialized state; reads verify the latest sequence and
+event ID and fall back to authoritative history replay when metadata is stale or
+corrupt. Production PostgreSQL deployments run migration
 authority separately, then admit serving workers only after verifying the
 canonical migration ledger. See [Upgrading to Flow 1.0](docs/UPGRADING_TO_V1.md).
 

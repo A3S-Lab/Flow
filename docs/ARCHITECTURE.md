@@ -34,7 +34,8 @@ Durable engine layer
           |
           v
 Event store layer
-  append-only FlowEventStore, projections, JSONL or A3S ORM SQL adapters
+  append-only FlowEventStore, validated projections, disposable checkpoints,
+  JSONL or A3S ORM SQL adapters
           |
           v
 Dispatch layer
@@ -86,6 +87,13 @@ replays the workflow runtime with the full event history. An idempotent start
 retry first compares the persisted spec and input. Exact retries of fully
 terminal executions need no runtime code; pending root lifecycle writes and
 active-leaf replay still require the pinned build.
+
+Projection checkpoints are an optional acceleration path for inspection and
+host scheduling. A checkpoint stores a materialized snapshot together with the
+last sequence and event ID. Flow accepts it only when both anchors match the
+current history tip; otherwise it discards the cache and replays the event log.
+Consequently checkpoint loss, corruption, or lag cannot change workflow
+semantics, and checkpoint storage never becomes a second authority.
 
 The runtime returns exactly one command:
 

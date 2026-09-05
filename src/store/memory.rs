@@ -10,13 +10,14 @@ use crate::model::{project_run, FlowEvent, FlowEventEnvelope, HookStatus};
 
 use super::{
     next_event_sequence, retention::required_linked_flow_run_id, validate_candidate_event,
-    FlowEventStore, FlowStoreCapabilities,
+    FlowEventStore, FlowProjectionCheckpoint, FlowStoreCapabilities,
 };
 
 /// In-memory event store for tests, local development, and embedded hosts.
 #[derive(Debug, Default)]
 pub struct InMemoryEventStore {
     runs: Arc<Mutex<HashMap<String, Vec<FlowEventEnvelope>>>>,
+    checkpoints: Arc<Mutex<HashMap<String, FlowProjectionCheckpoint>>>,
 }
 
 impl InMemoryEventStore {
@@ -127,6 +128,30 @@ impl FlowEventStore for InMemoryEventStore {
         let mut ids: Vec<String> = runs.keys().cloned().collect();
         ids.sort();
         Ok(ids)
+    }
+
+    async fn latest_event(&self, run_id: &str) -> Result<Option<(u64, Uuid)>> {
+        let runs = self.runs.lock().await;
+        match runs.get(run_id) {
+            Some(events) => Ok(events.last().map(|event| (event.sequence, event.event_id))),
+            None => Err(FlowError::RunNotFound(run_id.to_string())),
+        }
+    }
+
+    async fn load_checkpoint(&self, run_id: &str) -> Result<Option<FlowProjectionCheckpoint>> {
+        Ok(self.checkpoints.lock().await.get(run_id).cloned())
+    }
+
+    async fn save_checkpoint(&self, checkpoint: &FlowProjectionCheckpoint) -> Result<()> {
+        checkpoint.validate()?;
+        if self.runs.lock().await.get(&checkpoint.run_id).is_none() {
+            return Err(FlowError::RunNotFound(checkpoint.run_id.clone()));
+        }
+        self.checkpoints
+            .lock()
+            .await
+            .insert(checkpoint.run_id.clone(), checkpoint.clone());
+        Ok(())
     }
 }
 

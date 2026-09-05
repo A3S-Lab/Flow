@@ -6,14 +6,42 @@ use crate::model::{
     ScheduledWakeupKind, StepStatus, WaitStatus, WorkflowRunSnapshot, WorkflowRunSummary,
     WorkflowRunSuspension,
 };
+use crate::store::FlowProjectionCheckpoint;
 
 use super::FlowEngine;
 
 impl FlowEngine {
     /// Project the current snapshot for `run_id` from its durable history.
     pub async fn snapshot(&self, run_id: &str) -> Result<WorkflowRunSnapshot> {
+        if let Some(checkpoint) = self.store.load_checkpoint(run_id).await? {
+            if checkpoint.validate().is_ok() {
+                if let Some((sequence, event_id)) = self.store.latest_event(run_id).await? {
+                    if sequence == checkpoint.last_sequence && event_id == checkpoint.last_event_id
+                    {
+                        return Ok(checkpoint.snapshot);
+                    }
+                }
+            }
+        }
         let history = self.store.list(run_id).await?;
         project_run(run_id, &history)
+    }
+
+    /// Replay and persist a projection checkpoint for `run_id`.
+    ///
+    /// Checkpoints are acceleration metadata only. If a checkpoint write fails,
+    /// the append-only history remains fully usable and `snapshot` falls back
+    /// to replay.
+    pub async fn checkpoint(&self, run_id: &str) -> Result<FlowProjectionCheckpoint> {
+        let history = self.store.list(run_id).await?;
+        let snapshot = project_run(run_id, &history)?;
+        let last = history
+            .last()
+            .ok_or_else(|| FlowError::RunNotFound(run_id.to_string()))?;
+        let checkpoint =
+            FlowProjectionCheckpoint::new(run_id, last.sequence, last.event_id, snapshot)?;
+        self.store.save_checkpoint(&checkpoint).await?;
+        Ok(checkpoint)
     }
 
     /// Load the complete durable event history for `run_id`.

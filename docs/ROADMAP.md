@@ -86,6 +86,15 @@ into Flow.
 All built-in stores also enforce `MAX_FLOW_EVENT_BYTES` (currently one MiB) at
 the validated append boundary; oversized payloads fail closed before mutation.
 
+`FLOW-R3` now includes a durable `FlowProjectionCheckpoint` cache in every
+built-in store. `FlowEngine::checkpoint` materializes a projection and stores
+the last sequence plus event ID; reads use it only when both anchors still
+match the append-only history, and treat missing, corrupt, or stale metadata as
+an automatic replay fallback. This is an acceleration layer, never a history
+rewrite or an independent source of truth. Incremental tail replay,
+partitioned history, archive/export, and published scale SLOs remain open R3
+work.
+
 ## 4. Implementation rules
 
 ### 4.1 Activity protocol

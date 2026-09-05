@@ -16,7 +16,7 @@ use crate::model::{
 
 use super::{
     next_event_sequence, scheduled_wakeup_from_row, scheduled_wakeup_key, sqlite_migrations,
-    validate_candidate_event, FlowEventStore, FlowStoreCapabilities,
+    validate_candidate_event, FlowEventStore, FlowProjectionCheckpoint, FlowStoreCapabilities,
 };
 
 mod retention;
@@ -204,6 +204,89 @@ impl FlowEventStore for SqliteEventStore {
             return Err(FlowError::RunNotFound(run_id.to_string()));
         }
         rows.into_iter().map(row_to_envelope).collect()
+    }
+
+    async fn latest_event(&self, run_id: &str) -> Result<Option<(u64, Uuid)>> {
+        let database = Database::new(SqliteDialect, self.executor.clone());
+        let row = database
+            .fetch_all_as(
+                sql_query::<(i64, String)>(
+                    "SELECT sequence, event_id FROM flow_events WHERE run_id = ",
+                )
+                .bind(run_id)
+                .append(" ORDER BY sequence DESC LIMIT 1"),
+            )
+            .await
+            .map_err(sqlite_orm_error)?
+            .rows
+            .into_iter()
+            .next();
+        row.map(|(sequence, event_id)| {
+            let sequence = u64::try_from(sequence).map_err(|error| {
+                FlowError::Store(format!("invalid SQLite sequence {sequence}: {error}"))
+            })?;
+            let event_id = event_id.parse().map_err(|error| {
+                FlowError::Store(format!("invalid SQLite event id {event_id}: {error}"))
+            })?;
+            Ok((sequence, event_id))
+        })
+        .transpose()
+    }
+
+    async fn load_checkpoint(&self, run_id: &str) -> Result<Option<FlowProjectionCheckpoint>> {
+        let database = Database::new(SqliteDialect, self.executor.clone());
+        let row = database
+            .fetch_all_as(
+                sql_query::<(String, i64, String, String)>(
+                    "SELECT run_id, last_sequence, last_event_id, snapshot_json \
+                 FROM flow_projection_checkpoints WHERE run_id = ",
+                )
+                .bind(run_id),
+            )
+            .await
+            .map_err(sqlite_orm_error)?
+            .rows
+            .into_iter()
+            .next();
+        Ok(row.and_then(|row| decode_sqlite_checkpoint(row).ok()))
+    }
+
+    async fn save_checkpoint(&self, checkpoint: &FlowProjectionCheckpoint) -> Result<()> {
+        checkpoint.validate()?;
+        let sequence = i64::try_from(checkpoint.last_sequence).map_err(|error| {
+            FlowError::Store(format!(
+                "projection checkpoint sequence {} exceeds SQLite integer range: {error}",
+                checkpoint.last_sequence
+            ))
+        })?;
+        let snapshot_json = serde_json::to_string(&checkpoint.snapshot)?;
+        let database = Database::new(SqliteDialect, self.executor.clone());
+        database
+            .execute(
+                sql_query::<()>(
+                    "INSERT INTO flow_projection_checkpoints \
+                 (run_id, last_sequence, last_event_id, snapshot_json, updated_at) VALUES (",
+                )
+                .bind(checkpoint.run_id.clone())
+                .append(", ")
+                .bind(sequence)
+                .append(", ")
+                .bind(checkpoint.last_event_id.to_string())
+                .append(", ")
+                .bind(snapshot_json)
+                .append(", ")
+                .bind(Utc::now().to_rfc3339())
+                .append(
+                    ") ON CONFLICT(run_id) DO UPDATE SET \
+                 last_sequence = excluded.last_sequence, \
+                 last_event_id = excluded.last_event_id, \
+                 snapshot_json = excluded.snapshot_json, \
+                 updated_at = excluded.updated_at",
+                ),
+            )
+            .await
+            .map_err(sqlite_orm_error)?;
+        Ok(())
     }
 
     async fn list_run_ids(&self) -> Result<Vec<String>> {
@@ -507,6 +590,23 @@ fn active_hook_from_row(
             payload: None,
         },
     })
+}
+
+fn decode_sqlite_checkpoint(
+    (run_id, last_sequence, last_event_id, snapshot_json): (String, i64, String, String),
+) -> Result<FlowProjectionCheckpoint> {
+    let last_sequence = u64::try_from(last_sequence).map_err(|error| {
+        FlowError::Store(format!(
+            "invalid SQLite checkpoint sequence {last_sequence}: {error}"
+        ))
+    })?;
+    let last_event_id = last_event_id.parse().map_err(|error| {
+        FlowError::Store(format!(
+            "invalid SQLite checkpoint event id {last_event_id}: {error}"
+        ))
+    })?;
+    let snapshot = serde_json::from_str(&snapshot_json)?;
+    FlowProjectionCheckpoint::new(run_id, last_sequence, last_event_id, snapshot)
 }
 
 fn sqlite_path(database_url: &str) -> Result<PathBuf> {

@@ -38,6 +38,8 @@ const SQLITE_SCHEDULED_WAKEUPS_CANCELLATION_CHECKSUM: &str =
     "8d09073d28b842385d22b12720bb3fbfc728935daefd37e6ccf198f34705af5c";
 const EVENT_ENVELOPE_SCHEMA_CHECKSUM: &str =
     "66b66243437158aaed793e75423b8ce8141c09bb5cc8f983bc4bce1a5b70bd09";
+const PROJECTION_CHECKPOINTS_CHECKSUM: &str =
+    "b69612dd86dcc58c2ecae0424d9d19ba36cdd04e80c4727c2b07fac1786c3861";
 #[cfg(feature = "postgres")]
 const POSTGRES_TASKS_CHECKSUM: &str =
     "6e73f57af6f836508a12b66eb8a00130ca0fbc62c99ca1a0bfa8c36f0b9d5b93";
@@ -125,6 +127,10 @@ fn sqlite_migrations_keep_every_published_checksum() {
                 "a3s-flow-0007-event-envelope-schema".into(),
                 EVENT_ENVELOPE_SCHEMA_CHECKSUM.into(),
             ),
+            (
+                "a3s-flow-0008-projection-checkpoints".into(),
+                PROJECTION_CHECKPOINTS_CHECKSUM.into(),
+            ),
         ]
     );
 }
@@ -158,6 +164,10 @@ fn postgres_migrations_keep_every_published_checksum() {
             (
                 "a3s-flow-0008-event-envelope-schema".into(),
                 EVENT_ENVELOPE_SCHEMA_CHECKSUM.into(),
+            ),
+            (
+                "a3s-flow-0009-projection-checkpoints".into(),
+                PROJECTION_CHECKPOINTS_CHECKSUM.into(),
             ),
         ]
     );
