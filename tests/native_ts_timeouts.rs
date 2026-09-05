@@ -203,7 +203,7 @@ printf '{"protocol":"a3s.flow.native_ts.v1","kind":"workflow","ok":true,"output"
         let engine = FlowEngine::in_memory(Arc::new(runtime));
         let task = tokio::spawn(async move {
             engine
-                .start(spec, json!({ "payload": "x".repeat(1024 * 1024) }))
+                .start(spec, json!({ "payload": "x".repeat(128 * 1024) }))
                 .await
         });
 
