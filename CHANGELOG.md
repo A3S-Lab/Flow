@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added registry-driven scoped workflow node creation to the CLI and typed
+  JSON/NDJSON update operations. `--parent`/`parentId` now place public nodes
+  and matching container-start nodes safely, while incomplete container edits
+  remain candidate-only until final validation and atomic publication.
+
 - Preserved stable Step/Activity attempt, attempt ID, and idempotency-key
   correlation in `A3sFlowEvent` and A3S Event metadata without increasing metric
   label cardinality.
