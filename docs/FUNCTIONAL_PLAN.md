@@ -48,8 +48,8 @@ organized by the failure they prevent, not by CLI command count:
 
 | Invariant | Required cases | Evidence |
 | --- | --- | --- |
-| Framing is lossless | UTF-8 split across byte chunks, LF/CRLF, blank lines, final line without newline | `flow-cli-workflow-stream.test.ts` |
-| Input is bounded | Empty stream, malformed UTF-8/JSON, unknown operation fields, one-line byte limit, and the shared 10,000-operation limit across JSON arrays, direct typed calls, and NDJSON before the extra operation is applied | `flow-cli-workflow-stream.test.ts` and CLI error tests |
+| Framing is lossless | Strict UTF-8 split across byte and text chunks, LF/CRLF, blank lines, final line without newline, and no stranded decoder state | `flow-cli-workflow-stream.test.ts` |
+| Input is bounded | Empty stream, malformed UTF-8/JSON, malformed workflow files, unknown operation fields, one-line byte limit (including ignored whitespace), and the shared 10,000-operation limit across JSON arrays, direct typed calls, and NDJSON before the extra operation is applied | `flow-cli-workflow-stream.test.ts` and CLI error tests |
 | Application is ordered and isolated | Dependent operations observe prior changes; observer sees one event per operation; edge redirects preserve IDs/extensions and support explicit handle removal; a later failure never mutates the source or publishes a partial file | `flow-cli-workflow-stream.test.ts`, `flow-cli.test.ts` |
 | Publication is concurrency-safe | Matching base digest succeeds; stale digest and changed source conflict; live lock rejects; dead-writer lock is recovered; delete and update share the lock | `flow-cli.test.ts` |
 | DSL authority is preserved | Final graph/node validation runs after the stream; unknown semantic and presentation fields survive; output reports changed IDs and base digest | `flow-cli.test.ts`, `dsl.test.ts` |

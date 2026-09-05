@@ -83,7 +83,9 @@ writer whose base document has changed. The candidate is validated before the
 atomic replace, so a rejected or conflicting edit leaves the original file
 unchanged. Add `--dry-run` to receive the candidate summary without writing it.
 Both transports and direct typed callers share a 10,000-operation bound; each
-NDJSON line is limited to 1 MiB.
+NDJSON record—including an ignored whitespace record—is limited to 1 MiB.
+Workflow files and byte/text stream chunks use fatal UTF-8 decoding, so
+malformed input is rejected before a candidate can be published.
 Operation-specific flags are rejected when they do not match the selected
 operation, instead of being silently ignored.
 Command-specific flags are checked the same way, so a typo cannot turn into a
