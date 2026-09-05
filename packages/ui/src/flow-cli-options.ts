@@ -114,7 +114,7 @@ function createCliParser() {
     .option('--remove-node <id>', 'Remove one node')
     .option('--set-node <id>', 'Set one node configuration')
     .option('--set-app-name <name>', 'Set the workflow app name')
-    .option('--parent <id>', 'Parent iteration/loop container for --add-node')
+    .option('--parent <id>', 'Parent iteration/loop container for --add-node/--move-node')
     .option('--add-edge', 'Add one edge')
     .option('--remove-edge <id>', 'Remove one edge')
     .option('--set-edge <id>', 'Set one edge endpoints')
