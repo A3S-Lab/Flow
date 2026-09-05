@@ -25,6 +25,14 @@ CREATE INDEX IF NOT EXISTS idx_flow_events_run_id_sequence
 ON flow_events (run_id, sequence);
 "#;
 
+/// Adds the explicit envelope schema version to databases created before the
+/// versioned history contract was introduced. The default keeps retained
+/// pre-version histories readable as schema version one.
+const EVENT_ENVELOPE_SCHEMA_SQL: &str = r#"
+ALTER TABLE flow_events
+ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1;
+"#;
+
 #[cfg(feature = "sqlite")]
 const SQLITE_ACTIVE_HOOKS_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS flow_active_hooks (
@@ -446,6 +454,11 @@ pub(crate) fn sqlite_migrations() -> Vec<Migration> {
             "remove delayed retry wakeups when a batch step is cancelled",
             SQLITE_SCHEDULED_WAKEUPS_CANCELLATION_SQL,
         ),
+        Migration::new(
+            "a3s-flow-0007-event-envelope-schema",
+            "persist the Flow event envelope schema version",
+            EVENT_ENVELOPE_SCHEMA_SQL,
+        ),
     ]
 }
 
@@ -486,6 +499,11 @@ pub(crate) fn postgres_migrations() -> Vec<Migration> {
             "a3s-flow-0007-step-cancellation-wakeup",
             "remove delayed retry wakeups when a batch step is cancelled",
             POSTGRES_SCHEDULED_WAKEUPS_CANCELLATION_SQL,
+        ),
+        Migration::new(
+            "a3s-flow-0008-event-envelope-schema",
+            "persist the Flow event envelope schema version",
+            EVENT_ENVELOPE_SCHEMA_SQL,
         ),
     ]
 }

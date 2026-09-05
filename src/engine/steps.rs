@@ -201,9 +201,13 @@ impl FlowEngine {
             let invocation = StepInvocation {
                 run_id: run_id.to_string(),
                 step_id: step_id.clone(),
+                attempt,
                 step_name: step_name.clone(),
                 input: input.clone(),
                 history,
+                idempotency_key: crate::runtime::step_attempt_idempotency_key(
+                    run_id, &step_id, attempt,
+                ),
             };
 
             match self.runtime.run_step(invocation).await {
@@ -375,9 +379,15 @@ impl FlowEngine {
                 let invocation = StepInvocation {
                     run_id: run_id.to_string(),
                     step_id: step.step_id.clone(),
+                    attempt: active[index].1,
                     step_name: step.step_name.clone(),
                     input: step.input.clone(),
                     history: history.clone(),
+                    idempotency_key: crate::runtime::step_attempt_idempotency_key(
+                        run_id,
+                        &step.step_id,
+                        active[index].1,
+                    ),
                 };
                 let task_id =
                     tasks.spawn(async move { (index, runtime.run_step(invocation).await) });

@@ -396,6 +396,7 @@ Start with one executable path, then move to the concern you need.
 | [Documentation website](https://a3s-lab.github.io/Flow/) | Guided setup, execution concepts, production operations, runtimes, examples, and API map |
 | [Architecture](docs/ARCHITECTURE.md)                     | Event sourcing, replay, store, scheduler, and native-runtime boundaries                  |
 | [Cookbook](docs/COOKBOOK.md)                             | Stable IDs, retries, batches, timers, hooks, signals, cancellation, and compensation     |
+| [Execution-kernel roadmap](docs/ROADMAP.md)              | Ordered kernel work, Flow/Cloud ownership, compatibility, scale, and release gates       |
 | [Functional plan](docs/FUNCTIONAL_PLAN.md)               | Capability-level evidence, completion gates, maintenance work, and non-goals             |
 | [API stability](docs/API_STABILITY.md)                   | SemVer, durable compatibility, MSRV, and the `1.0.0` release contract                    |
 | [Upgrading to Flow 1.0](docs/UPGRADING_TO_V1.md)         | Supported pre-v1 histories/schemas, rollout, verification, and rollback                  |

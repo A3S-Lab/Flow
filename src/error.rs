@@ -98,6 +98,18 @@ pub enum FlowError {
         actual_sequence: u64,
     },
 
+    /// A persisted event envelope uses a schema version this crate cannot
+    /// safely replay. Hosts should migrate or upcast the history first.
+    #[error(
+        "unsupported flow event envelope schema version {version}; supported version is {supported}"
+    )]
+    UnsupportedEventSchemaVersion {
+        /// Version encoded by the persisted envelope.
+        version: u16,
+        /// Highest version understood by this crate.
+        supported: u16,
+    },
+
     /// The original token remains available for programmatic routing, while
     /// `Display` and `Debug` deliberately redact it.
     #[error("active hook token not found (value redacted)")]
@@ -252,6 +264,11 @@ impl fmt::Debug for FlowError {
                 .field("run_id", run_id)
                 .field("expected_sequence", expected_sequence)
                 .field("actual_sequence", actual_sequence)
+                .finish(),
+            Self::UnsupportedEventSchemaVersion { version, supported } => formatter
+                .debug_struct("UnsupportedEventSchemaVersion")
+                .field("version", version)
+                .field("supported", supported)
                 .finish(),
             Self::HookTokenNotFound(_) => formatter
                 .debug_tuple("HookTokenNotFound")

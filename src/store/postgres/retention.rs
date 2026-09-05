@@ -179,8 +179,8 @@ async fn prune_postgres_history(
 
     let rows = fetch_all_postgres(
         transaction,
-        sql_query::<(String, i64, String, String, String)>(
-            "SELECT run_id, sequence, event_id, timestamp, event_json FROM flow_events ORDER BY run_id ASC, sequence ASC",
+        sql_query::<(String, i64, String, String, i64, String)>(
+            "SELECT run_id, sequence, event_id, timestamp, schema_version, event_json FROM flow_events ORDER BY run_id ASC, sequence ASC",
         ),
     )
     .await?;

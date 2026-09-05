@@ -129,11 +129,13 @@ impl PostgresEventStore {
                     let sequence = next_event_sequence(actual_sequence, &run_id)?;
 
                     let envelope = FlowEventEnvelope {
+                        schema_version: crate::model::FLOW_EVENT_ENVELOPE_SCHEMA_VERSION,
                         run_id,
                         sequence,
                         event_id: Uuid::new_v4(),
                         timestamp: Utc::now(),
                         event,
+                        schema_version_explicit: true,
                     };
                     insert_postgres_envelope(transaction, &envelope).await?;
                     Ok(envelope)
@@ -195,8 +197,8 @@ impl FlowEventStore for PostgresEventStore {
         let database = Database::new(PostgresDialect, self.executor.clone());
         let rows = database
             .fetch_all_as(
-                sql_query::<(String, i64, String, String, String)>(
-                    "SELECT run_id, sequence, event_id, timestamp, event_json \
+                sql_query::<(String, i64, String, String, i64, String)>(
+                    "SELECT run_id, sequence, event_id, timestamp, schema_version, event_json \
                      FROM flow_events WHERE run_id = ",
                 )
                 .bind(run_id)
@@ -443,10 +445,10 @@ async fn load_postgres_history(
     transaction: &PostgresTransaction,
     run_id: &str,
 ) -> Result<Vec<FlowEventEnvelope>> {
-    fetch_all_postgres::<(String, i64, String, String, String), _>(
+    fetch_all_postgres::<(String, i64, String, String, i64, String), _>(
         transaction,
-        sql_query::<(String, i64, String, String, String)>(
-            "SELECT run_id, sequence, event_id, timestamp, event_json FROM flow_events WHERE run_id = ",
+        sql_query::<(String, i64, String, String, i64, String)>(
+            "SELECT run_id, sequence, event_id, timestamp, schema_version, event_json FROM flow_events WHERE run_id = ",
         )
         .bind(run_id)
         .append(" ORDER BY sequence ASC"),
@@ -513,7 +515,7 @@ async fn insert_postgres_envelope(
         ))
     })?;
     let query = sql_query::<()>(
-        "INSERT INTO flow_events (run_id, sequence, event_id, timestamp, event_json) VALUES (",
+        "INSERT INTO flow_events (run_id, sequence, event_id, timestamp, schema_version, event_json) VALUES (",
     )
     .bind(envelope.run_id.clone())
     .append(", ")
@@ -522,6 +524,8 @@ async fn insert_postgres_envelope(
     .bind(envelope.event_id.to_string())
     .append(", ")
     .bind(envelope.timestamp.to_rfc3339())
+    .append(", ")
+    .bind(i64::from(envelope.schema_version))
     .append(", ")
     .bind(serde_json::to_string(&envelope.event)?)
     .append(")")
@@ -535,9 +539,21 @@ async fn insert_postgres_envelope(
 }
 
 fn row_to_envelope(
-    (run_id, sequence, event_id, timestamp, event_json): (String, i64, String, String, String),
+    (run_id, sequence, event_id, timestamp, schema_version, event_json): (
+        String,
+        i64,
+        String,
+        String,
+        i64,
+        String,
+    ),
 ) -> Result<FlowEventEnvelope> {
-    Ok(FlowEventEnvelope {
+    let envelope = FlowEventEnvelope {
+        schema_version: u16::try_from(schema_version).map_err(|error| {
+            FlowError::Store(format!(
+                "invalid PostgreSQL event envelope schema version {schema_version}: {error}"
+            ))
+        })?,
         run_id,
         sequence: u64::try_from(sequence).map_err(|error| {
             FlowError::Store(format!(
@@ -553,7 +569,10 @@ fn row_to_envelope(
             ))
         })?,
         event: serde_json::from_str(&event_json)?,
-    })
+        schema_version_explicit: true,
+    };
+    envelope.validate_schema_version()?;
+    Ok(envelope)
 }
 
 fn active_hook_from_row(

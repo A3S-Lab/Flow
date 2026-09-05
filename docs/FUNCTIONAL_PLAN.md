@@ -5,6 +5,10 @@ reusable authoring package already do, how users can learn each capability, and
 which extensions should come next. It separates repository-owned authoring
 surfaces from a future hosted Workflow as a Service control plane.
 
+The ordered execution-kernel roadmap lives in [ROADMAP.md](ROADMAP.md). This
+functional plan remains the evidence ledger for capabilities that are already
+implemented; the roadmap owns dependency order for future kernel work.
+
 ## Current Capability Map
 
 | Capability | Current API | Current examples or tests | Notes |

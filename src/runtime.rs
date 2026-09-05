@@ -84,12 +84,23 @@ pub struct StepInvocation {
     pub run_id: String,
     /// Replay-stable identifier of this step invocation.
     pub step_id: String,
+    /// One-based attempt number being executed. A redelivery after an
+    /// ambiguous host boundary keeps the same attempt number.
+    #[serde(default)]
+    pub attempt: u32,
     /// Host-defined step handler name.
     pub step_name: String,
     /// Input supplied by the workflow command.
     pub input: JsonValue,
     /// Complete persisted workflow history in sequence order.
     pub history: Vec<FlowEventEnvelope>,
+    /// Opaque, stable key for the external side effect of this attempt.
+    ///
+    /// The key is derived only from the run, step, and attempt identities, so
+    /// retries and crash redelivery can safely use it for host-side
+    /// idempotency and reconciliation.
+    #[serde(default)]
+    pub idempotency_key: String,
 }
 
 impl StepInvocation {
@@ -101,12 +112,27 @@ impl StepInvocation {
         input: JsonValue,
         history: Vec<FlowEventEnvelope>,
     ) -> Self {
+        let run_id = run_id.into();
+        let step_id = step_id.into();
+        let attempt = history
+            .iter()
+            .rev()
+            .find_map(|envelope| match &envelope.event {
+                crate::model::FlowEvent::StepStarted {
+                    step_id: started_step_id,
+                    attempt,
+                } if started_step_id == &step_id => Some(*attempt),
+                _ => None,
+            })
+            .unwrap_or(0);
         Self {
-            run_id: run_id.into(),
-            step_id: step_id.into(),
+            run_id: run_id.clone(),
+            step_id: step_id.clone(),
+            attempt,
             step_name: step_name.into(),
             input,
             history,
+            idempotency_key: step_attempt_idempotency_key(&run_id, &step_id, attempt),
         }
     }
 
@@ -117,6 +143,19 @@ impl StepInvocation {
     {
         serde_json::from_value(self.input.clone()).map_err(FlowError::from)
     }
+}
+
+pub(crate) fn step_attempt_idempotency_key(run_id: &str, step_id: &str, attempt: u32) -> String {
+    // Length prefixes keep the key unambiguous even when host-defined IDs
+    // contain separators. Callers should treat the result as opaque.
+    format!(
+        "flow.step.v1/{}/{}{}:{}/{}",
+        run_id.len(),
+        run_id,
+        step_id.len(),
+        step_id,
+        attempt
+    )
 }
 
 /// Runtime boundary for workflow code and side-effecting steps.

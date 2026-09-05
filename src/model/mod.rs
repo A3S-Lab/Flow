@@ -16,7 +16,7 @@ pub use command::{
     ChildWorkflowCommand, JsonValue, RetryBackoff, RetryPolicy, RuntimeCommand, RuntimeKind,
     RuntimeSpec, StepCommand, StepFailureAction, WorkflowSpec, MAX_CHILD_WORKFLOW_BATCH_SIZE,
 };
-pub use event::{FlowEvent, FlowEventEnvelope};
+pub use event::{FlowEvent, FlowEventEnvelope, FLOW_EVENT_ENVELOPE_SCHEMA_VERSION};
 pub use hook::{HookCallbackRoute, HookMetadata};
 pub use inspection::{WorkflowRunSummary, WorkflowRunSuspension};
 pub use operation::{

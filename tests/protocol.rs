@@ -1,9 +1,9 @@
 use a3s_flow::{
-    ChildWorkflowCancellationPolicy, ChildWorkflowCommand, FlowEvent, FlowEventEnvelope,
+    ChildWorkflowCancellationPolicy, ChildWorkflowCommand, FlowError, FlowEvent, FlowEventEnvelope,
     NativeRuntimeKind, NativeRuntimeRequest, NativeRuntimeResponse, NativeTsCompilerCapabilities,
-    NativeTsDependencyManifest, RuntimeCommand, WorkflowRunSummary, WorkflowSignal, WorkflowSpec,
-    WorkflowTerminalOutcome, NATIVE_COMPILER_PROTOCOL, NATIVE_DEPENDENCY_MANIFEST_PROTOCOL,
-    NATIVE_RUNTIME_PROTOCOL,
+    NativeTsDependencyManifest, RuntimeCommand, StepInvocation, WorkflowRunSummary, WorkflowSignal,
+    WorkflowSpec, WorkflowTerminalOutcome, FLOW_EVENT_ENVELOPE_SCHEMA_VERSION,
+    NATIVE_COMPILER_PROTOCOL, NATIVE_DEPENDENCY_MANIFEST_PROTOCOL, NATIVE_RUNTIME_PROTOCOL,
 };
 use chrono::Utc;
 use serde_json::json;
@@ -217,6 +217,10 @@ fn flow_event_envelope_uses_stable_native_history_field_names() {
 
     let encoded = serde_json::to_value(envelope).unwrap();
     assert_eq!(encoded["run_id"], "run-1");
+    assert_eq!(
+        encoded["schema_version"],
+        FLOW_EVENT_ENVELOPE_SCHEMA_VERSION
+    );
     assert_eq!(encoded["sequence"], 7);
     assert!(encoded["event_id"].as_str().is_some());
     assert!(encoded["timestamp"].as_str().is_some());
@@ -226,6 +230,75 @@ fn flow_event_envelope_uses_stable_native_history_field_names() {
         encoded.get("key").is_none(),
         "native runtime history envelopes should not include derived event keys"
     );
+}
+
+#[test]
+fn flow_event_envelope_defaults_legacy_schema_version_and_rejects_future_versions() {
+    let envelope = FlowEventEnvelope::new(
+        "run-legacy",
+        1,
+        Uuid::new_v4(),
+        Utc::now(),
+        FlowEvent::RunStarted,
+    );
+    let mut legacy = serde_json::to_value(&envelope).unwrap();
+    legacy
+        .as_object_mut()
+        .expect("envelope is an object")
+        .remove("schema_version");
+    let decoded: FlowEventEnvelope = serde_json::from_value(legacy).unwrap();
+    assert_eq!(decoded.schema_version, FLOW_EVENT_ENVELOPE_SCHEMA_VERSION);
+    decoded.validate_schema_version().unwrap();
+
+    let mut future = envelope;
+    future.schema_version = FLOW_EVENT_ENVELOPE_SCHEMA_VERSION + 1;
+    let error = future.validate_schema_version().unwrap_err();
+    assert!(matches!(
+        error,
+        FlowError::UnsupportedEventSchemaVersion {
+            version,
+            supported
+        } if version == FLOW_EVENT_ENVELOPE_SCHEMA_VERSION + 1
+            && supported == FLOW_EVENT_ENVELOPE_SCHEMA_VERSION
+    ));
+}
+
+#[test]
+fn step_invocation_exposes_a_stable_attempt_idempotency_key() {
+    let history = vec![
+        FlowEventEnvelope::new(
+            "run/1",
+            1,
+            Uuid::new_v4(),
+            Utc::now(),
+            FlowEvent::RunCreated {
+                spec: WorkflowSpec::rust_embedded("example", "1", "tests::example", "main"),
+                input: json!({}),
+            },
+        ),
+        FlowEventEnvelope::new(
+            "run/1",
+            2,
+            Uuid::new_v4(),
+            Utc::now(),
+            FlowEvent::StepStarted {
+                step_id: "step/1".to_string(),
+                attempt: 3,
+            },
+        ),
+    ];
+    let invocation = StepInvocation::new(
+        "run/1",
+        "step/1",
+        "sendEmail",
+        json!({ "to": "user@example.com" }),
+        history,
+    );
+    assert_eq!(invocation.attempt, 3);
+    assert_eq!(invocation.idempotency_key, "flow.step.v1/5/run/16:step/1/3");
+    let encoded = serde_json::to_value(invocation).unwrap();
+    assert_eq!(encoded["attempt"], 3);
+    assert_eq!(encoded["idempotency_key"], "flow.step.v1/5/run/16:step/1/3");
 }
 
 #[test]
@@ -415,7 +488,7 @@ fn native_ts_authoring_types_track_runtime_protocol_shape() {
     }
 
     assert!(types.contains("event_id: string;"));
-    assert!(!types.contains("key: string;"));
+    assert!(!types.contains("\n  key: string;"));
     assert!(types.contains("runtime_build_id?: string;"));
     assert!(types.contains("patch_markers?: string[];"));
     assert!(types.contains("signal_names?: string[];"));
@@ -424,6 +497,8 @@ fn native_ts_authoring_types_track_runtime_protocol_shape() {
     assert!(types.contains("backoff?: \"fixed\" | \"exponential\";"));
     assert!(types.contains("max_delay_ms?: number;"));
     assert!(types.contains("retry_after: string | null;"));
+    assert!(types.contains("attempt: number;"));
+    assert!(types.contains("idempotency_key: string;"));
     assert!(types.contains("type: \"record_progress\"; progress: WorkflowProgress"));
     assert!(types.contains("type: \"link_child_operation\"; child: ChildOperationReference"));
     assert!(types.contains("type: \"start_child_workflow\";"));

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added an explicit, persisted event-envelope schema version with a
+  backwards-compatible decoder for retained pre-version histories and fail-closed
+  rejection of unsupported future versions across projection and SQL stores.
 - Unified Rust and TypeScript workflow execution digests under format `v2`,
   including JavaScript number rendering, UTF-16 key ordering, safe-integer and
   nesting guards, and cross-language golden vectors.

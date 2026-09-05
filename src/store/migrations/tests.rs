@@ -36,6 +36,8 @@ const SQLITE_CONTINUE_AS_NEW_CHECKSUM: &str =
 #[cfg(feature = "sqlite")]
 const SQLITE_SCHEDULED_WAKEUPS_CANCELLATION_CHECKSUM: &str =
     "8d09073d28b842385d22b12720bb3fbfc728935daefd37e6ccf198f34705af5c";
+const EVENT_ENVELOPE_SCHEMA_CHECKSUM: &str =
+    "66b66243437158aaed793e75423b8ce8141c09bb5cc8f983bc4bce1a5b70bd09";
 #[cfg(feature = "postgres")]
 const POSTGRES_TASKS_CHECKSUM: &str =
     "6e73f57af6f836508a12b66eb8a00130ca0fbc62c99ca1a0bfa8c36f0b9d5b93";
@@ -119,6 +121,10 @@ fn sqlite_migrations_keep_every_published_checksum() {
                 "a3s-flow-0006-step-cancellation-wakeup".into(),
                 SQLITE_SCHEDULED_WAKEUPS_CANCELLATION_CHECKSUM.into(),
             ),
+            (
+                "a3s-flow-0007-event-envelope-schema".into(),
+                EVENT_ENVELOPE_SCHEMA_CHECKSUM.into(),
+            ),
         ]
     );
 }
@@ -148,6 +154,10 @@ fn postgres_migrations_keep_every_published_checksum() {
             (
                 "a3s-flow-0007-step-cancellation-wakeup".into(),
                 POSTGRES_SCHEDULED_WAKEUPS_CANCELLATION_CHECKSUM.into(),
+            ),
+            (
+                "a3s-flow-0008-event-envelope-schema".into(),
+                EVENT_ENVELOPE_SCHEMA_CHECKSUM.into(),
             ),
         ]
     );

@@ -1,11 +1,20 @@
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::ser::SerializeStruct;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use uuid::Uuid;
 
 use super::{
     CancellationRequest, ChildOperationReference, ChildWorkflowCancellationPolicy, JsonValue,
     RetryPolicy, WorkflowProgress, WorkflowSignal, WorkflowSpec, WorkflowTerminalOutcome,
 };
+
+/// Schema version of the durable [`FlowEventEnvelope`] wire representation.
+///
+/// The version is intentionally attached to the envelope rather than to each
+/// event variant so stores and runtimes can reject or upcast a history before
+/// projecting it. Older histories omitted this field and are interpreted as
+/// version one through the backwards-compatible decoder below.
+pub const FLOW_EVENT_ENVELOPE_SCHEMA_VERSION: u16 = 1;
 
 /// Event persisted as the single source of truth for a workflow run.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -251,9 +260,11 @@ impl FlowEvent {
 }
 
 /// Stored event with per-run sequence and timestamp.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct FlowEventEnvelope {
+    /// Version of the durable envelope schema used to encode this event.
+    pub schema_version: u16,
     /// Run whose history owns this event.
     pub run_id: String,
     /// Monotonically increasing per-run sequence number.
@@ -264,6 +275,73 @@ pub struct FlowEventEnvelope {
     pub timestamp: DateTime<Utc>,
     /// Durable event payload.
     pub event: FlowEvent,
+    /// Whether the schema version was explicitly present on the wire.
+    ///
+    /// This lets legacy histories round-trip byte-for-byte without synthesizing
+    /// a field they never contained, while all newly created envelopes emit
+    /// the version explicitly.
+    pub(crate) schema_version_explicit: bool,
+}
+
+impl PartialEq for FlowEventEnvelope {
+    fn eq(&self, other: &Self) -> bool {
+        self.schema_version == other.schema_version
+            && self.run_id == other.run_id
+            && self.sequence == other.sequence
+            && self.event_id == other.event_id
+            && self.timestamp == other.timestamp
+            && self.event == other.event
+    }
+}
+
+impl Serialize for FlowEventEnvelope {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let field_count = if self.schema_version_explicit { 6 } else { 5 };
+        let mut state = serializer.serialize_struct("FlowEventEnvelope", field_count)?;
+        if self.schema_version_explicit {
+            state.serialize_field("schema_version", &self.schema_version)?;
+        }
+        state.serialize_field("run_id", &self.run_id)?;
+        state.serialize_field("sequence", &self.sequence)?;
+        state.serialize_field("event_id", &self.event_id)?;
+        state.serialize_field("timestamp", &self.timestamp)?;
+        state.serialize_field("event", &self.event)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for FlowEventEnvelope {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Wire {
+            #[serde(default)]
+            schema_version: Option<u16>,
+            run_id: String,
+            sequence: u64,
+            event_id: Uuid,
+            timestamp: DateTime<Utc>,
+            event: FlowEvent,
+        }
+
+        let wire = Wire::deserialize(deserializer)?;
+        Ok(Self {
+            schema_version: wire
+                .schema_version
+                .unwrap_or(FLOW_EVENT_ENVELOPE_SCHEMA_VERSION),
+            schema_version_explicit: wire.schema_version.is_some(),
+            run_id: wire.run_id,
+            sequence: wire.sequence,
+            event_id: wire.event_id,
+            timestamp: wire.timestamp,
+            event: wire.event,
+        })
+    }
 }
 
 impl FlowEventEnvelope {
@@ -276,11 +354,28 @@ impl FlowEventEnvelope {
         event: FlowEvent,
     ) -> Self {
         Self {
+            schema_version: FLOW_EVENT_ENVELOPE_SCHEMA_VERSION,
             run_id: run_id.into(),
             sequence,
             event_id,
             timestamp,
             event,
+            schema_version_explicit: true,
         }
+    }
+
+    /// Validate that this envelope can be interpreted by the current crate.
+    ///
+    /// A future version must not be silently replayed as if it were version
+    /// one. A host can inspect [`Self::schema_version`] and perform an
+    /// explicit migration/upcast before handing the history to the engine.
+    pub fn validate_schema_version(&self) -> crate::Result<()> {
+        if self.schema_version > FLOW_EVENT_ENVELOPE_SCHEMA_VERSION || self.schema_version == 0 {
+            return Err(crate::FlowError::UnsupportedEventSchemaVersion {
+                version: self.schema_version,
+                supported: FLOW_EVENT_ENVELOPE_SCHEMA_VERSION,
+            });
+        }
+        Ok(())
     }
 }

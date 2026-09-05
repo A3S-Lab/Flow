@@ -49,6 +49,7 @@ pub(crate) fn project_run(
     };
 
     for (index, envelope) in events.iter().enumerate() {
+        envelope.validate_schema_version()?;
         let expected_sequence = index as u64 + 1;
         if envelope.sequence != expected_sequence {
             return Err(FlowError::InvalidTransition(format!(

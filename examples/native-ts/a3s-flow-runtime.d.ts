@@ -209,6 +209,7 @@ export type FlowEvent =
   | { type: "hook_disposed"; hook_id: string };
 
 export type FlowEventEnvelope = {
+  schema_version?: number;
   event_id: string;
   run_id: string;
   sequence: number;
@@ -226,9 +227,11 @@ export type WorkflowInvocation<Input extends Json = Json> = {
 export type StepInvocation<Input extends Json = Json> = {
   run_id: string;
   step_id: string;
+  attempt: number;
   step_name: string;
   input: Input;
   history: FlowEventEnvelope[];
+  idempotency_key: string;
 };
 
 export type StepDefinition<Input extends Json = Json, Output extends Json = Json> = (

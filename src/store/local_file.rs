@@ -115,11 +115,13 @@ impl LocalFileEventStore {
         let sequence =
             next_event_sequence(events.last().map_or(0, |event| event.sequence), run_id)?;
         let envelope = FlowEventEnvelope {
+            schema_version: crate::model::FLOW_EVENT_ENVELOPE_SCHEMA_VERSION,
             run_id: run_id.to_string(),
             sequence,
             event_id: Uuid::new_v4(),
             timestamp: Utc::now(),
             event,
+            schema_version_explicit: true,
         };
 
         let path = self.run_path(run_id)?;
@@ -155,11 +157,13 @@ impl LocalFileEventStore {
         let sequence = next_event_sequence(actual_sequence, run_id)?;
 
         let envelope = FlowEventEnvelope {
+            schema_version: crate::model::FLOW_EVENT_ENVELOPE_SCHEMA_VERSION,
             run_id: run_id.to_string(),
             sequence,
             event_id: Uuid::new_v4(),
             timestamp: Utc::now(),
             event,
+            schema_version_explicit: true,
         };
 
         let path = self.run_path(run_id)?;

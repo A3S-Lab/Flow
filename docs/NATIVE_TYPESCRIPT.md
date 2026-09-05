@@ -311,8 +311,13 @@ The contract defines:
 
 Important protocol details:
 
-- `FlowEventEnvelope` includes `event_id`, `run_id`, `sequence`, `timestamp`,
-  and `event`. It does not include a derived event key.
+- `FlowEventEnvelope` includes `schema_version`, `event_id`, `run_id`,
+  `sequence`, `timestamp`, and `event`. Older histories may omit
+  `schema_version` and are interpreted as version `1`; a newer version must be
+  migrated or upcast before replay. It does not include a derived event key.
+- `StepInvocation` includes the one-based `attempt` and an opaque
+  `idempotency_key` derived from the run, step, and attempt identities. Hosts
+  should use this key when making an external side effect retry-safe.
 - `WorkflowSpec.runtime_build_id`, `WorkflowSpec.patch_markers`, and
   `WorkflowSpec.signal_names` are optional for legacy histories. Marker and
   signal-name sets use sorted string arrays. Workflow code may use

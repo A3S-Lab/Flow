@@ -1,7 +1,7 @@
 #![cfg(feature = "sqlite")]
 
 use a3s_flow::{
-    CancellationRequest, FlowEvent, FlowEventStore, RetryPolicy, RuntimeBuildId,
+    CancellationRequest, FlowError, FlowEvent, FlowEventStore, RetryPolicy, RuntimeBuildId,
     ScheduledWakeupKind, SqliteEventStore, WorkflowSpec,
 };
 use a3s_orm::{sql_query, Database, Migration, Migrator, SqliteDialect, SqliteExecutor};
@@ -97,6 +97,44 @@ async fn sqlite_continue_as_new_closes_indexed_hooks_and_wakeups() {
         .await
         .unwrap()
         .is_empty());
+}
+
+#[tokio::test]
+async fn sqlite_persists_and_rejects_an_unsupported_event_schema_version() {
+    let store = SqliteEventStore::connect("sqlite::memory:").await.unwrap();
+    let run_id = "sqlite-event-schema-version";
+    create_run(&store, run_id).await;
+
+    let database = Database::new(SqliteDialect, store.executor().clone());
+    let version = database
+        .fetch_all_as(
+            sql_query::<i64>("SELECT schema_version FROM flow_events WHERE run_id = ")
+                .bind(run_id)
+                .append(" ORDER BY sequence ASC LIMIT 1"),
+        )
+        .await
+        .unwrap()
+        .rows
+        .into_iter()
+        .next()
+        .expect("the first event has a persisted schema version");
+    assert_eq!(version, 1);
+
+    database
+        .execute(
+            sql_query::<()>("UPDATE flow_events SET schema_version = 2 WHERE run_id = ")
+                .bind(run_id),
+        )
+        .await
+        .unwrap();
+    let error = store.list(run_id).await.unwrap_err();
+    assert!(matches!(
+        error,
+        FlowError::UnsupportedEventSchemaVersion {
+            version: 2,
+            supported: 1
+        }
+    ));
 }
 
 #[tokio::test]
