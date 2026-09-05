@@ -71,6 +71,7 @@ impl FlowProjectionCheckpoint {
         Ok(())
     }
 
+    #[cfg(any(feature = "sqlite", feature = "postgres"))]
     pub(crate) fn from_stored(
         run_id: String,
         last_sequence: u64,
