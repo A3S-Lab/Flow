@@ -224,7 +224,11 @@ function normalizeGraph(graphValue: unknown): Record<string, unknown> {
   return graph;
 }
 
-function assertCanonicalDigestNumbers(value: unknown, path = '$'): void {
+function assertCanonicalDigestNumbers(
+  value: unknown,
+  path = '$',
+  ancestors = new Set<object>(),
+): void {
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) {
       throw new TypeError(`Canonical execution digest does not support non-finite number at ${path}.`);
@@ -237,13 +241,33 @@ function assertCanonicalDigestNumbers(value: unknown, path = '$'): void {
     return;
   }
   if (Array.isArray(value)) {
-    value.forEach((item, index) => assertCanonicalDigestNumbers(item, `${path}[${index}]`));
+    if (ancestors.has(value)) {
+      throw new TypeError(`Canonical execution digest does not support cyclic values at ${path}.`);
+    }
+    ancestors.add(value);
+    try {
+      value.forEach((item, index) =>
+        assertCanonicalDigestNumbers(item, `${path}[${index}]`, ancestors),
+      );
+    } finally {
+      ancestors.delete(value);
+    }
     return;
   }
   if (isRecord(value)) {
-    Object.entries(value).forEach(([key, child]) => {
-      if (child !== undefined) assertCanonicalDigestNumbers(child, `${path}.${key}`);
-    });
+    if (ancestors.has(value)) {
+      throw new TypeError(`Canonical execution digest does not support cyclic values at ${path}.`);
+    }
+    ancestors.add(value);
+    try {
+      Object.entries(value).forEach(([key, child]) => {
+        if (child !== undefined) {
+          assertCanonicalDigestNumbers(child, `${path}.${key}`, ancestors);
+        }
+      });
+    } finally {
+      ancestors.delete(value);
+    }
   }
 }
 

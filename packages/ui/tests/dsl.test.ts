@@ -10,6 +10,7 @@ import {
   a3sFlowDagNodeRegistry,
   type A3SFlowWorkflowDsl,
 } from "../src";
+import type { JsonValue } from "@a3s-lab/ui/form/core";
 import digestVectors from "./fixtures/workflow-digest-vectors.json";
 
 function fixture(): A3SFlowWorkflowDsl {
@@ -79,6 +80,15 @@ describe("A3S Flow workflow document helpers", () => {
     document.workflow.graph.nodes[1].data.unsafe = Number.MAX_SAFE_INTEGER + 1;
 
     expect(() => digestA3SFlowWorkflowDsl(document)).toThrow(/unsafe integer/);
+  });
+
+  it("rejects cyclic values without overflowing the digest walk", () => {
+    const document = fixture();
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    document.workflow.graph.nodes[1].data.cyclic = cyclic as unknown as JsonValue;
+
+    expect(() => digestA3SFlowWorkflowDsl(document)).toThrow(/cyclic values/);
   });
 
   it("rejects application modes outside the workflow contract", () => {
