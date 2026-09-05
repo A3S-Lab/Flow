@@ -396,6 +396,16 @@ async fn unknown_activity_outcome_waits_for_fenced_reconciliation() {
         )
         .await
         .unwrap();
+    engine
+        .resolve_unknown_activity(
+            &run_id,
+            "charge",
+            ActivityResolution::Completed {
+                output: json!({ "receipt": "r-1" }),
+            },
+        )
+        .await
+        .unwrap();
     let completed = engine
         .start_with_id("unknown-activity-run", spec(), json!({}))
         .await

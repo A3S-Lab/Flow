@@ -40,6 +40,9 @@ impl FlowEngine {
                 ))
             })?;
             if activity.status != ActivityStatus::Unknown {
+                if activity_resolution_matches_snapshot(activity, &resolution) {
+                    return Ok(());
+                }
                 return Err(FlowError::InvalidTransition(format!(
                     "activity {activity_id} is not awaiting unknown-outcome reconciliation"
                 )));
@@ -386,6 +389,30 @@ impl FlowEngine {
                     return Ok(());
                 }
             }
+        }
+    }
+}
+
+fn activity_resolution_matches_snapshot(
+    activity: &crate::model::ActivitySnapshot,
+    resolution: &ActivityResolution,
+) -> bool {
+    match resolution {
+        ActivityResolution::Completed { output } => {
+            activity.status == ActivityStatus::Completed && activity.output.as_ref() == Some(output)
+        }
+        ActivityResolution::Retry { error, retry_after } => {
+            activity.status == ActivityStatus::Pending
+                && activity.error.as_deref() == Some(error.as_str())
+                && activity.retry_after == *retry_after
+        }
+        ActivityResolution::Failed { error } | ActivityResolution::NonRetryable { error } => {
+            activity.status == ActivityStatus::Failed
+                && activity.error.as_deref() == Some(error.as_str())
+        }
+        ActivityResolution::Cancelled { reason } => {
+            activity.status == ActivityStatus::Cancelled
+                && activity.error.as_deref() == Some(reason.as_str())
         }
     }
 }
