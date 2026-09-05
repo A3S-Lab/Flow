@@ -156,7 +156,10 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
   const decoder = new TextDecoder();
   for await (const chunk of chunks) {
     buffer += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
-    if (!buffer.includes('\n') && new TextEncoder().encode(buffer).byteLength > MAX_STREAM_OPERATION_BYTES) {
+    if (
+      !buffer.includes('\n') &&
+      new TextEncoder().encode(buffer).byteLength > MAX_STREAM_OPERATION_BYTES
+    ) {
       throw new Error(
         `Workflow operation ${index} exceeds ${MAX_STREAM_OPERATION_BYTES} bytes before its newline.`,
       );
@@ -208,7 +211,9 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
     yield parseFlowCliWorkflowUpdateObject(value, index);
     index += 1;
   }
-  if (index === 0) throw new Error('Workflow operation stream must contain at least one JSON object.');
+  if (index === 0) {
+    throw new Error('Workflow operation stream must contain at least one JSON object.');
+  }
 }
 
 async function acquireWorkflowFileLock(lockPath: string, workflowPath: string) {
@@ -225,7 +230,9 @@ async function acquireWorkflowFileLock(lockPath: string, workflowPath: string) {
       throw new Error(`Workflow file is locked by another writer: ${workflowPath}`);
     }
     const pid =
-      owner !== null && typeof owner === 'object' && typeof (owner as { pid?: unknown }).pid === 'number'
+      owner !== null &&
+      typeof owner === 'object' &&
+      typeof (owner as { pid?: unknown }).pid === 'number'
         ? (owner as { pid: number }).pid
         : undefined;
     if (pid === undefined) {
@@ -368,7 +375,9 @@ export async function applyFlowCliWorkflowUpdateStream(
     await observer?.({ index, operation, changed: operationChanged });
     index += 1;
   }
-  if (index === 0) throw new Error('Workflow operation stream must contain at least one operation.');
+  if (index === 0) {
+    throw new Error('Workflow operation stream must contain at least one operation.');
+  }
   return { document, changed };
 }
 

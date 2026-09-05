@@ -459,7 +459,10 @@ function parseJsonObject(value: string | undefined, label: string): JsonObject {
 function updateOperations(options: CliOptions): FlowCliWorkflowUpdate[] {
   if (!options.operations) return [updateOperation(options)];
   if (options.operations === '-') {
-    throw new CliError('usage', '--operations - is a streaming NDJSON input; use it without single operation flags.');
+    throw new CliError(
+      'usage',
+      '--operations - is a streaming NDJSON input; use it without single operation flags.',
+    );
   }
   if (
     options.addNodeType || options.removeNodeId || options.addEdge ||
@@ -726,7 +729,10 @@ async function handleUpdate(
     try {
       await writeWorkflowFile(path, updated.document, true, parsed.source);
     } catch (error) {
-      if (error instanceof Error && error.message.startsWith('Workflow file changed since it was read:')) {
+      if (
+        error instanceof Error &&
+        error.message.startsWith('Workflow file changed since it was read:')
+      ) {
         throw new CliError('conflict', error.message);
       }
       throw new CliError(
