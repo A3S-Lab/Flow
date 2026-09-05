@@ -40,6 +40,64 @@ export interface FlowCliWorkflowUpdateResult {
   changed: string[];
 }
 
+/** Parse the CLI's JSON patch list without accepting incomplete operations. */
+export function parseFlowCliWorkflowUpdates(value: unknown): FlowCliWorkflowUpdate[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error('Workflow operations must be a non-empty JSON array.');
+  }
+  return value.map((candidate, index) => {
+    if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) {
+      throw new Error(`Workflow operation ${index} must be a JSON object.`);
+    }
+    const operation = candidate as Record<string, unknown>;
+    const string = (key: string): string => {
+      const entry = operation[key];
+      if (typeof entry !== 'string' || !entry.trim()) {
+        throw new Error(`Workflow operation ${index}.${key} must be a non-empty string.`);
+      }
+      return entry;
+    };
+    const optionalString = (key: string): string | undefined =>
+      operation[key] === undefined ? undefined : string(key);
+    const configuration = (required: boolean): JsonObject => {
+      const entry = operation.configuration;
+      if (entry === undefined && !required) return {};
+      if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+        throw new Error(`Workflow operation ${index}.configuration must be a JSON object.`);
+      }
+      return entry as JsonObject;
+    };
+    switch (string('kind')) {
+      case 'add-node':
+        return {
+          kind: 'add-node',
+          id: string('id'),
+          type: string('type'),
+          configuration: configuration(false),
+        };
+      case 'remove-node':
+        return { kind: 'remove-node', id: string('id') };
+      case 'add-edge':
+        return {
+          kind: 'add-edge',
+          id: string('id'),
+          source: string('source'),
+          target: string('target'),
+          sourceHandle: optionalString('sourceHandle'),
+          targetHandle: optionalString('targetHandle'),
+        };
+      case 'remove-edge':
+        return { kind: 'remove-edge', id: string('id') };
+      case 'set-node':
+        return { kind: 'set-node', id: string('id'), configuration: configuration(true) };
+      case 'set-app-name':
+        return { kind: 'set-app-name', name: string('name') };
+      default:
+        throw new Error(`Unsupported workflow operation kind: ${String(operation.kind)}`);
+    }
+  });
+}
+
 /** Write one workflow document through a same-directory temporary file. */
 export async function writeWorkflowFile(
   path: string,
@@ -120,6 +178,30 @@ export function applyFlowCliWorkflowUpdate(
   operation: FlowCliWorkflowUpdate,
 ): FlowCliWorkflowUpdateResult {
   const document = structuredClone(source);
+  return {
+    document,
+    changed: applyFlowCliWorkflowUpdateInPlace(document, operation),
+  };
+}
+
+/** Apply a patch list to one clone so callers can validate and publish once. */
+export function applyFlowCliWorkflowUpdates(
+  source: A3SFlowWorkflowDsl,
+  operations: readonly FlowCliWorkflowUpdate[],
+): FlowCliWorkflowUpdateResult {
+  if (operations.length === 0) throw new Error('Workflow update list must not be empty.');
+  const document = structuredClone(source);
+  const changed: string[] = [];
+  for (const operation of operations) {
+    changed.push(...applyFlowCliWorkflowUpdateInPlace(document, operation));
+  }
+  return { document, changed };
+}
+
+function applyFlowCliWorkflowUpdateInPlace(
+  document: A3SFlowWorkflowDsl,
+  operation: FlowCliWorkflowUpdate,
+): string[] {
   const graph = document.workflow.graph;
   switch (operation.kind) {
     case 'add-node': {
@@ -134,7 +216,7 @@ export function applyFlowCliWorkflowUpdate(
           operation.configuration,
         ),
       );
-      return { document, changed: [`node:${operation.id}`] };
+      return [`node:${operation.id}`];
     }
     case 'remove-node': {
       requireNode(document, operation.id);
@@ -156,13 +238,10 @@ export function applyFlowCliWorkflowUpdate(
       graph.edges = graph.edges.filter(
         (edge) => !removed.has(edge.source) && !removed.has(edge.target),
       );
-      return {
-        document,
-        changed: [
-          ...[...removed].map((id) => `node:${id}`),
-          ...removedEdges.map((edge) => `edge:${edge.id}`),
-        ],
-      };
+      return [
+        ...[...removed].map((id) => `node:${id}`),
+        ...removedEdges.map((edge) => `edge:${edge.id}`),
+      ];
     }
     case 'add-edge': {
       requireNode(document, operation.source);
@@ -178,13 +257,13 @@ export function applyFlowCliWorkflowUpdate(
       if (operation.sourceHandle) edge.sourceHandle = operation.sourceHandle;
       if (operation.targetHandle) edge.targetHandle = operation.targetHandle;
       graph.edges.push(edge);
-      return { document, changed: [`edge:${operation.id}`] };
+      return [`edge:${operation.id}`];
     }
     case 'remove-edge': {
       const index = graph.edges.findIndex((edge) => edge.id === operation.id);
       if (index < 0) throw new Error(`Workflow edge not found: ${operation.id}`);
       graph.edges.splice(index, 1);
-      return { document, changed: [`edge:${operation.id}`] };
+      return [`edge:${operation.id}`];
     }
     case 'set-node': {
       const node = requireNode(document, operation.id);
@@ -194,11 +273,11 @@ export function applyFlowCliWorkflowUpdate(
           ? mergeA3SFlowDagNodeConfiguration(candidate, manifest, operation.configuration)
           : candidate,
       );
-      return { document, changed: [`node:${operation.id}`] };
+      return [`node:${operation.id}`];
     }
     case 'set-app-name':
       if (!operation.name.trim()) throw new Error('Workflow app name must not be empty.');
       document.app.name = operation.name;
-      return { document, changed: ['app.name'] };
+      return ['app.name'];
   }
 }

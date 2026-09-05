@@ -68,7 +68,7 @@ a3s-flow create workflow.v2.json --from workflow.json --name invoice.approval.v2
 a3s-flow read workflow.json --pretty
 ```
 
-`update` 每次只接受一个聚焦操作。节点配置使用 JSON，只修改 manifest 拥有的字段，未知语义扩展和展示字段会保留。候选文档通过校验后才会原子替换，因此失败更新不会改动原文件。
+`update` 每次可接受一个聚焦操作；需要多次图修改一起提交时，使用 `--operations '<json-array>'`。节点配置使用 JSON，只修改 manifest 拥有的字段，未知语义扩展和展示字段会保留。候选文档通过校验后才会原子替换，因此失败更新不会改动原文件。加上 `--dry-run` 可以只查看候选摘要而不写盘。
 
 ```bash
 a3s-flow update workflow.json --set-app-name invoice.approval.v2 --pretty
@@ -76,6 +76,9 @@ a3s-flow update workflow.json --set-node run-step \
   --config '{"step_name":"payments.charge"}' --pretty
 a3s-flow update workflow.json --add-node flow.progress \
   --id report-progress --pretty
+a3s-flow update workflow.json --operations \
+  '[{"kind":"set-app-name","name":"invoice.approval.v2"},{"kind":"set-node","id":"run-step","configuration":{"step_name":"payments.charge"}}]' \
+  --dry-run --pretty
 ```
 
 删除必须显式确认。重复执行是幂等的，文件已不存在时返回 `deleted: false`。

@@ -10,6 +10,7 @@ interface WorkflowCliOutput {
   documentDigest: string;
   plan: { topLevel: string[]; scopes: Record<string, string[]> };
   changed?: string[];
+  dryRun?: boolean;
   deleted?: boolean;
 }
 
@@ -18,10 +19,25 @@ async function readJson(path: string): Promise<WorkflowCliOutput> {
 }
 
 describe('A3S Flow CLI workflow file CRUD', () => {
+  it('uses framework parsing for help and unknown-option diagnostics', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'a3s-flow-cli-'));
+    const helpOutput = join(root, 'help.json');
+    try {
+      expect(await runFlowCli(['--help', '--output', helpOutput])).toBe(0);
+      expect((await readJson(helpOutput)).ok).toBe(true);
+      await expect(runFlowCli(['nodes', '--not-a-real-option'])).rejects.toThrow(
+        /Unknown option/,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('creates, reads, updates, and deletes a valid DSL file', async () => {
     const root = await mkdtemp(join(tmpdir(), 'a3s-flow-cli-'));
     const workflow = join(root, 'workflow.json');
     const copiedWorkflow = join(root, 'workflow-copy.json');
+    const batchWorkflow = join(root, 'workflow-batch.json');
     const output = join(root, 'result.json');
     try {
       expect(
@@ -52,6 +68,49 @@ describe('A3S Flow CLI workflow file CRUD', () => {
         ]),
       ).toBe(0);
       expect((await readJson(output)).document.app.name).toBe('Copied workflow');
+
+      expect(await runFlowCli(['create', batchWorkflow, '--output', output])).toBe(0);
+      const batchOperations = JSON.stringify([
+        { kind: 'remove-edge', id: 'run-step-complete' },
+        {
+          kind: 'add-node',
+          id: 'report-progress',
+          type: 'flow.progress',
+          configuration: { progress_id: 'report-progress' },
+        },
+        {
+          kind: 'add-edge',
+          id: 'run-step-progress',
+          source: 'run-step',
+          target: 'report-progress',
+          sourceHandle: 'success',
+          targetHandle: 'in',
+        },
+        {
+          kind: 'add-edge',
+          id: 'progress-complete',
+          source: 'report-progress',
+          target: 'complete',
+          sourceHandle: 'recorded',
+          targetHandle: 'in',
+        },
+      ]);
+      expect(
+        await runFlowCli([
+          'update',
+          batchWorkflow,
+          '--operations',
+          batchOperations,
+          '--output',
+          output,
+        ]),
+      ).toBe(0);
+      expect((await readJson(output)).changed).toEqual([
+        'edge:run-step-complete',
+        'node:report-progress',
+        'edge:run-step-progress',
+        'edge:progress-complete',
+      ]);
 
       const imported = JSON.parse(await readFile(workflow, 'utf8')) as A3SFlowWorkflowDsl;
       imported.workflow.graph.nodes[1].data['x-extension'] = { owner: 'billing' };
@@ -200,6 +259,19 @@ describe('A3S Flow CLI workflow file CRUD', () => {
     try {
       expect(await runFlowCli(['create', workflow, '--output', output])).toBe(0);
       const before = await readFile(workflow, 'utf8');
+      expect(
+        await runFlowCli([
+          'update',
+          workflow,
+          '--set-app-name',
+          'Preview only',
+          '--dry-run',
+          '--output',
+          output,
+        ]),
+      ).toBe(0);
+      expect((await readJson(output)).dryRun).toBe(true);
+      expect(await readFile(workflow, 'utf8')).toBe(before);
       await expect(runFlowCli(['read', workflow, '--output', workflow])).rejects.toThrow(
         /different from the workflow input/,
       );

@@ -15,7 +15,7 @@ Use `a3s-flow` as the authority for the public node catalog, workflow validation
 4. Create public nodes with `a3s-flow new <type> --id <stable-id> --pretty`. Copy the emitted node into the graph and set only fields described by its manifest.
 5. Keep graph node IDs stable after runs exist. Treat node IDs used by steps, progress records, hooks, child operations, and child workflows as replay-sensitive identities.
 6. Use `a3s-flow read workflow.json --pretty` to obtain one machine-readable summary containing the validated document, counts, deterministic plan, and digests.
-7. Apply one focused edit with `a3s-flow update workflow.json --set-app-name <name>`, `--set-node <id> --config '<json>'`, `--add-node <type> --id <id> [--config '<json>']`, `--remove-node <id>`, `--add-edge --edge-id <id> --source <id> --target <id>`, or `--remove-edge <id>`. Every update is cloned, validated, and atomically replaced; a rejected update leaves the original file unchanged.
+7. Apply one focused edit with `a3s-flow update workflow.json --set-app-name <name>`, `--set-node <id> --config '<json>'`, `--add-node <type> --id <id> [--config '<json>']`, `--remove-node <id>`, `--add-edge --edge-id <id> --source <id> --target <id>`, or `--remove-edge <id>`. For a graph edit that needs several intermediate changes, pass `--operations '<json-array>'` so the whole patch is cloned, validated, and atomically replaced once. Add `--dry-run` to inspect the result without writing; rejected or preview-only updates leave the original file unchanged.
 8. Run `a3s-flow validate workflow.json --pretty`, then `compile` and `digest`, after semantic edits. Resolve every issue rather than deleting fields or edges to silence it.
 9. Delete only with an explicit confirmation: `a3s-flow delete workflow.json --force --pretty`. Missing files are reported as `{ "deleted": false }` so cleanup is idempotent.
 
@@ -29,6 +29,7 @@ a3s-flow create workflow.json --name order.approval --pretty
 a3s-flow read workflow.json --pretty
 a3s-flow update workflow.json --set-node charge-card --config '{"step_name":"payments.charge"}' --pretty
 a3s-flow update workflow.json --add-node flow.progress --id report-progress --pretty
+a3s-flow update workflow.json --operations '[{"kind":"set-app-name","name":"order.approval.v2"},{"kind":"set-node","id":"charge-card","configuration":{"step_name":"payments.charge"}}]' --dry-run --pretty
 a3s-flow validate workflow.json --pretty
 a3s-flow compile workflow.json --output plan.json --pretty
 a3s-flow digest workflow.json --pretty

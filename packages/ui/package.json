@@ -53,6 +53,7 @@
     "@types/node": "^22.8.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "cac": "^6.7.14",
     "esbuild": "^0.25.12",
     "jsdom": "^26.1.0",
     "react": "^19.2.8",

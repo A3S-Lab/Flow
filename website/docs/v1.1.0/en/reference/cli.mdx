@@ -38,7 +38,7 @@ Every command emits JSON. Exit code `0` means the command succeeded. Exit code `
 | `sample`                | Emit a minimal executable document         | Start, task, and completion nodes with edges                   |
 | `create <file>`         | Atomically create a validated sample file  | Full document, plan, counts, and semantic digests              |
 | `read <file>`           | Validate and summarize an existing file    | Full document, plan, counts, and semantic digests              |
-| `update <file>`         | Apply one graph/app edit atomically        | Changed IDs plus the new validated summary                     |
+| `update <file>`         | Apply one or more graph/app edits atomically | Changed IDs plus the new validated summary                    |
 | `delete <file> --force` | Explicitly remove one workflow file        | `{ deleted: true/false }`                                     |
 | `validate <file>`       | Check the document, DAG, and node settings | Compatibility, counts, or path-specific issues                 |
 | `compile <file>`        | Compile deterministic order                | Top-level and container-scoped plans                           |
@@ -72,10 +72,12 @@ a3s-flow create workflow.v2.json --from workflow.json --name invoice.approval.v2
 a3s-flow read workflow.json --pretty
 ```
 
-`update` accepts exactly one focused edit per invocation. Node configuration is
-JSON and only manifest-owned fields are changed; unknown semantic extensions and
-presentation fields remain intact. The candidate is validated before the atomic
-replace, so a rejected edit leaves the original file unchanged.
+`update` accepts one focused edit per invocation, or a JSON array passed through
+`--operations` when several graph changes must be committed together. Node
+configuration is JSON and only manifest-owned fields are changed; unknown
+semantic extensions and presentation fields remain intact. The candidate is
+validated before the atomic replace, so a rejected edit leaves the original file
+unchanged. Add `--dry-run` to receive the candidate summary without writing it.
 
 ```bash
 a3s-flow update workflow.json --set-app-name invoice.approval.v2 --pretty
@@ -83,6 +85,9 @@ a3s-flow update workflow.json --set-node run-step \
   --config '{"step_name":"payments.charge"}' --pretty
 a3s-flow update workflow.json --add-node flow.progress \
   --id report-progress --pretty
+a3s-flow update workflow.json --operations \
+  '[{"kind":"set-app-name","name":"invoice.approval.v2"},{"kind":"set-node","id":"run-step","configuration":{"step_name":"payments.charge"}}]' \
+  --dry-run --pretty
 ```
 
 Remove files only with explicit confirmation. Repeating the command is safe and
