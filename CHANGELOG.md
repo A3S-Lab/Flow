@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added `FlowTaskQueue::redrive_dead_lettered` for administrative recovery of
+  poison tasks. Local queues use a stable crash-safe pending identity, while
+  PostgreSQL performs the pending copy and dead-letter removal atomically;
+  custom queues fail closed until they implement the contract.
+
 - Fixed incremental projection to match full replay for multi-event tails and
   derived suspended states. SQLite and PostgreSQL append transactions now
   advance an integrity-checked projection checkpoint from the validated event

@@ -154,6 +154,72 @@ impl PostgresFlowTaskQueue {
         rows.into_iter().map(dead_letter_row).collect()
     }
 
+    /// Redrive one dead-lettered task into pending dispatch atomically.
+    ///
+    /// The dead-letter row is locked, copied under a deterministic task ID,
+    /// and removed in one transaction. Repeating the call after a client-side
+    /// timeout is therefore safe and cannot create a duplicate pending task.
+    pub async fn redrive_dead_lettered(&self, lease_id: &str) -> Result<bool> {
+        let queue_name = self.queue_name.clone();
+        let lease_id = lease_id.to_string();
+        let result = self
+            .executor
+            .transaction(|transaction| {
+                Box::pin(async move {
+                    let row = fetch_optional_query(
+                        transaction,
+                        sql_query::<(String, String)>(
+                            "SELECT dead_letter_id, task_json \
+                             FROM flow_task_dead_letters WHERE queue_name = ",
+                        )
+                        .bind(queue_name.clone())
+                        .append(" AND lease_id = ")
+                        .bind(lease_id)
+                        .append(
+                            " ORDER BY dead_lettered_at_nanos ASC, dead_letter_id ASC \
+                             FOR UPDATE SKIP LOCKED LIMIT 1",
+                        ),
+                    )
+                    .await?;
+                    let Some((dead_letter_id, task_json)) = row else {
+                        return Ok(false);
+                    };
+                    let _: FlowTask = serde_json::from_str(&task_json)?;
+                    let task_id = format!("redrive-{dead_letter_id}");
+                    let now = timestamp_nanos_saturating(Utc::now());
+                    execute_query(
+                        transaction,
+                        sql_query::<()>(
+                            "INSERT INTO flow_tasks (queue_name, task_id, task_json, status, \
+                             enqueued_at_nanos, updated_at_nanos) VALUES (",
+                        )
+                        .bind(queue_name.clone())
+                        .append(", ")
+                        .bind(task_id)
+                        .append(", ")
+                        .bind(task_json)
+                        .append(", 'pending', ")
+                        .bind(now)
+                        .append(", ")
+                        .bind(now)
+                        .append(") ON CONFLICT (queue_name, task_id) DO NOTHING"),
+                    )
+                    .await?;
+                    execute_query(
+                        transaction,
+                        sql_query::<()>("DELETE FROM flow_task_dead_letters WHERE queue_name = ")
+                            .bind(queue_name)
+                            .append(" AND dead_letter_id = ")
+                            .bind(dead_letter_id),
+                    )
+                    .await?;
+                    Ok(true)
+                })
+            })
+            .await;
+        map_postgres_queue_transaction(result)
+    }
+
     /// Returns leases at or before `cutoff` to pending dispatch.
     pub async fn requeue_inflight_older_than(&self, cutoff: DateTime<Utc>) -> Result<usize> {
         let rows = execute_query(
@@ -374,6 +440,10 @@ impl FlowTaskQueue for PostgresFlowTaskQueue {
         )
         .await?;
         postgres_rows_affected_to_usize(rows)
+    }
+
+    async fn redrive_dead_lettered(&self, lease_id: &str) -> Result<bool> {
+        PostgresFlowTaskQueue::redrive_dead_lettered(self, lease_id).await
     }
 
     async fn len(&self) -> Result<usize> {

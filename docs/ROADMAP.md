@@ -102,6 +102,14 @@ remain open R3 work. `FlowEngine::history_page` and
 `MAX_FLOW_HISTORY_PAGE_SIZE` provide the bounded cursor primitive that Cloud
 can use to build those export/archive projections.
 
+The first `FLOW-R5` queue lifecycle slice is also implemented: built-in local
+and PostgreSQL queues expose an administrative dead-letter redrive operation,
+and custom queues fail closed unless they explicitly provide the same contract.
+Redrive identities are stable across local crash windows, while PostgreSQL
+redrive copies and removes a dead-letter row in one transaction. Worker
+protocol negotiation, backpressure/fairness, and hosted visibility remain
+open R5 work.
+
 ## 4. Implementation rules
 
 ### 4.1 Activity protocol

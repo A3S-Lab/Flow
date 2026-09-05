@@ -387,7 +387,17 @@ let moved = queue
     )
     .await?;
 let dead = queue.dead_lettered_tasks().await?;
+if let Some(record) = dead.first() {
+    let redriven = queue.redrive_dead_lettered(&record.lease_id).await?;
+    assert!(redriven);
+}
 ```
+
+Redrive is an administrative action: local queues use a crash-safe stable
+pending identity, while PostgreSQL copies and removes the dead-letter row in
+one transaction. Repeating the same lease ID is idempotent; a custom queue
+must explicitly implement `FlowTaskQueue::redrive_dead_lettered` before a host
+can rely on it.
 
 The local backends serialize access inside one process. They are useful for
 developer tools, desktop apps, existing FlowWorker integrations, and embedded

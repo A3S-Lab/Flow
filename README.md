@@ -334,6 +334,11 @@ history into memory. Production PostgreSQL deployments run migration authority
 separately, then admit serving workers only after verifying the
 canonical migration ledger. See [Upgrading to Flow 1.0](docs/UPGRADING_TO_V1.md).
 
+Flow task queues expose lease fencing, stale-task requeue, dead-letter
+inspection, and an administrative `redrive_dead_lettered` operation. Built-in
+local and PostgreSQL queues make repeated redrive safe; custom queue adapters
+must explicitly implement the redrive contract.
+
 Retention removes only complete eligible continuation/child components and
 leaves checksum tombstones. Flow never compacts part of an event stream;
 workflows use `continue_as_new` to bound replay history without rewriting the

@@ -69,6 +69,17 @@ pub trait FlowTaskQueue: Send + Sync {
         Ok(0)
     }
 
+    /// Redrive one dead-lettered task into pending dispatch.
+    ///
+    /// The default fails closed because a custom queue must define its own
+    /// durable dead-letter identity and redrive transaction before exposing
+    /// this administrative operation.
+    async fn redrive_dead_lettered(&self, _lease_id: &str) -> Result<bool> {
+        Err(crate::FlowError::Store(
+            "dead-letter redrive is unsupported by this task queue".to_string(),
+        ))
+    }
+
     /// Leases and immediately acknowledges the next pending task.
     async fn dequeue(&self) -> Result<Option<FlowTask>> {
         let Some(lease) = self.lease().await? else {

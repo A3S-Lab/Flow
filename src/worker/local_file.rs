@@ -219,6 +219,43 @@ impl LocalFileFlowTaskQueue {
         Ok(records)
     }
 
+    /// Redrive one dead-lettered task into pending dispatch.
+    ///
+    /// The pending file name is derived from the original lease identity. If
+    /// a host crashes after writing the pending copy but before removing the
+    /// dead-letter record, repeating the same call observes that copy and
+    /// completes the handoff without creating a duplicate task.
+    pub async fn redrive_dead_lettered(&self, lease_id: &str) -> Result<bool> {
+        let _guard = self.lock.lock().await;
+        tokio::fs::create_dir_all(self.pending_dir()).await?;
+        for path in self.dead_letter_files().await? {
+            let bytes = tokio::fs::read(&path).await?;
+            let record: LocalFileDeadLetteredTask =
+                serde_json::from_slice(&bytes).map_err(|err| {
+                    FlowError::Store(format!(
+                        "failed to decode dead-lettered task from {}: {err}",
+                        path.display()
+                    ))
+                })?;
+            if record.lease_id != lease_id {
+                continue;
+            }
+            let stable_id = Uuid::new_v5(
+                &Uuid::NAMESPACE_URL,
+                format!("a3s-flow-redrive:{lease_id}").as_bytes(),
+            );
+            let pending_path = self.pending_path(&format!("redrive-{stable_id}.json"));
+            if tokio::fs::try_exists(&pending_path).await? {
+                tokio::fs::remove_file(&path).await?;
+                return Ok(true);
+            }
+            self.write_json_file(&pending_path, &record.task).await?;
+            tokio::fs::remove_file(&path).await?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
     /// Returns leases at or before `cutoff` to pending dispatch.
     pub async fn requeue_inflight_older_than(&self, cutoff: DateTime<Utc>) -> Result<usize> {
         let _guard = self.lock.lock().await;
@@ -336,6 +373,10 @@ impl FlowTaskQueue for LocalFileFlowTaskQueue {
         let _guard = self.lock.lock().await;
         let paths = self.inflight_files().await?;
         self.requeue_inflight_paths(paths).await
+    }
+
+    async fn redrive_dead_lettered(&self, lease_id: &str) -> Result<bool> {
+        LocalFileFlowTaskQueue::redrive_dead_lettered(self, lease_id).await
     }
 
     async fn len(&self) -> Result<usize> {

@@ -112,8 +112,8 @@ test helpers.
 | `sqlite_retention` | Present, `sqlite` feature-gated | Hold an audit-sensitive run, prune an eligible terminal run, preserve a suspended run, inspect the tombstone, then release and prune the held history. |
 | `sqlite_worker` | Present, `sqlite` feature-gated | Pair `SqliteEventStore` with `LocalFileFlowTaskQueue`, scheduler due-work enqueueing, restart-safe queued work, and worker drain. |
 | `postgres_durability` | Present, `postgres` feature and `A3S_FLOW_POSTGRES_URL` gated | Restart an engine over the same `PostgresEventStore` and inspect preserved history in a shared database. |
-| `task_queue_durability` | Present | Persist queued work, recover an unacked inflight lease, dead-letter a stale lease, and drain work with a worker. |
-| `postgres_task_queue_durability` | Present, `postgres` feature and `A3S_FLOW_POSTGRES_URL` gated | Pair `PostgresEventStore` and `PostgresFlowTaskQueue`, recover an inflight lease, drain work with a worker, and dead-letter a stale task. |
+| `task_queue_durability` | Present | Persist queued work, recover an unacked inflight lease, dead-letter a stale lease, idempotently redrive it, and drain work with a worker. |
+| `postgres_task_queue_durability` | Present, `postgres` feature and `A3S_FLOW_POSTGRES_URL` gated | Pair `PostgresEventStore` and `PostgresFlowTaskQueue`, recover an inflight lease, drain work with a worker, and atomically redrive a dead-lettered task. |
 | `observer_bridge` | Present | Map committed events into A3S-style records and safe metric labels for host sinks. |
 | `observer_fanout` | Present | Forward one committed event stream into both raw envelope and A3S-shaped observers. |
 | `local_audit_log` | Present | Persist bridged A3S-style events as JSONL audit records and read them back through the file sink. |
@@ -158,8 +158,8 @@ missing core engine features.
    - Keep `local_retention` and `LocalFileEventStore` cleanup guidance aligned
      with shared linked-component eligibility and fail-closed reference
      integrity.
-   - Keep local queue lease timeout and dead-letter examples aligned with
-     `task_queue_durability`.
+   - Keep local queue lease timeout, dead-letter, and idempotent redrive
+     examples aligned with `task_queue_durability`.
 
 3. **Production storage and task management**
    - Keep the SQLite single-node event store covered by replay, inspection, and

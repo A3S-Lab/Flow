@@ -637,6 +637,12 @@ outcomes report the active continuation leaf reached by handling in `run_ids`;
 the embedded task preserves the originally submitted root or predecessor ID for
 correlation, while event-specific fields remain commit-ownership reports.
 
+Dead-lettered tasks can be redriven through the queue administrative contract.
+Built-in local queues derive a stable pending identity so a crash between the
+copy and cleanup steps cannot duplicate a repeated redrive; PostgreSQL performs
+the copy and dead-letter deletion in one transaction. Custom queues fail closed
+until they implement the same durable identity and atomicity contract.
+
 Lease IDs are fencing tokens. Every successful `heartbeat()` atomically refreshes
 lease age and replaces the token; only the latest token can heartbeat or
 acknowledge the task. `FlowWorker` can heartbeat while handling long-running
