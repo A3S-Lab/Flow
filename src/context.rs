@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::de::DeserializeOwned;
+use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
@@ -60,6 +61,32 @@ impl<'a> WorkflowContext<'a> {
     /// Returns committed history in ascending event-sequence order.
     pub fn history(&self) -> &[FlowEventEnvelope] {
         &self.invocation.history
+    }
+
+    /// Return the latest committed event time as the workflow's logical clock.
+    ///
+    /// This value is replay-stable: it comes from durable history rather than
+    /// the host wall clock. Workflow code that needs the current time should
+    /// use this helper and persist a wait or event before observing a later
+    /// logical time. `None` is returned only for an invalid empty invocation.
+    pub fn logical_time(&self) -> Option<DateTime<Utc>> {
+        self.history().last().map(|envelope| envelope.timestamp)
+    }
+
+    /// Derive a replay-stable UUID for a workflow-local identity.
+    ///
+    /// The caller-owned `name` is length-delimited with the run ID so values
+    /// containing separators cannot collide. The same run and name always
+    /// produce the same UUID across hosts and language runtimes that implement
+    /// UUID version five.
+    pub fn deterministic_id(&self, name: &str) -> Uuid {
+        let value = format!(
+            "a3s.flow.workflow.v1/{}/{}{}",
+            self.run_id().len(),
+            self.run_id(),
+            name.len(),
+        );
+        Uuid::new_v5(&Uuid::NAMESPACE_OID, format!("{value}{name}").as_bytes())
     }
 
     /// Return the durable cleanup-aware cancellation request, when present.

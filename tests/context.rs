@@ -1,15 +1,47 @@
 use a3s_flow::{
-    FlowEngine, FlowError, FlowRuntime, HookCallbackRoute, HookMetadata, RuntimeCommand,
-    StepInvocation, WorkflowInvocation, WorkflowRunStatus, WorkflowSpec,
+    FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowRuntime, HookCallbackRoute,
+    HookMetadata, RuntimeCommand, StepInvocation, WorkflowInvocation, WorkflowRunStatus,
+    WorkflowSpec,
 };
 use async_trait::async_trait;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
+use uuid::Uuid;
 
 fn spec() -> WorkflowSpec {
     WorkflowSpec::rust_embedded("context.workflow", "0.1.0", "tests::context", "main")
+}
+
+#[test]
+fn context_clock_and_ids_are_replay_stable() {
+    let timestamp = "2026-09-05T00:00:01Z".parse().unwrap();
+    let invocation = WorkflowInvocation::new(
+        "context-deterministic",
+        spec(),
+        json!({}),
+        vec![FlowEventEnvelope::new(
+            "context-deterministic",
+            1,
+            Uuid::new_v4(),
+            timestamp,
+            FlowEvent::RunCreated {
+                spec: spec(),
+                input: json!({}),
+            },
+        )],
+    );
+    let context = invocation.context();
+    assert_eq!(context.logical_time(), Some(timestamp));
+    assert_eq!(
+        context.deterministic_id("email"),
+        context.deterministic_id("email")
+    );
+    assert_ne!(
+        context.deterministic_id("email"),
+        context.deterministic_id("sms")
+    );
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
