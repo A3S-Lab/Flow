@@ -151,4 +151,10 @@ async fn sqlite_checkpoint_survives_store_reopen() {
         reopened_engine.snapshot("sqlite-checkpoint").await.unwrap(),
         expected
     );
+    let page = reopened_engine
+        .history_page("sqlite-checkpoint", 0, 1)
+        .await
+        .unwrap();
+    assert_eq!(page.len(), 1);
+    assert_eq!(page[0].sequence, 1);
 }
