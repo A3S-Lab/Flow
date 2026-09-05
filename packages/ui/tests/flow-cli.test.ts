@@ -35,6 +35,32 @@ describe('A3S Flow CLI workflow file CRUD', () => {
     }
   });
 
+  it('preserves numeric option values and rejects repeated scalar options', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'a3s-flow-cli-'));
+    const workflow = join(root, 'workflow.json');
+    const output = join(root, 'result.json');
+    try {
+      expect(
+        await runFlowCli(['new', 'flow.step', '--id', '0001', '--output', output]),
+      ).toBe(0);
+      expect(JSON.parse(await readFile(output, 'utf8'))).toHaveProperty('id', '0001');
+      expect(
+        await runFlowCli(['create', workflow, '--name', '0002', '--output', output]),
+      ).toBe(0);
+      expect((await readJson(output)).document.app.name).toBe('0002');
+      expect(
+        await runFlowCli(['update', workflow, '--set-app-name=0003', '--output', output]),
+      ).toBe(0);
+      expect((await readJson(output)).document.app.name).toBe('0003');
+      await expect(
+        runFlowCli(['update', workflow, '--set-app-name', 'first', '--set-app-name', 'second']),
+      ).rejects.toThrow(/cannot be repeated/);
+      expect((JSON.parse(await readFile(workflow, 'utf8')) as A3SFlowWorkflowDsl).app.name).toBe('0003');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('creates, reads, updates, and deletes a valid DSL file', async () => {
     const root = await mkdtemp(join(tmpdir(), 'a3s-flow-cli-'));
     const workflow = join(root, 'workflow.json');

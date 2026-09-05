@@ -118,6 +118,8 @@ Options:
   --output <file>          Write JSON to a file instead of stdout
   -                        Read a workflow document from stdin`;
 
+const CLI_STRING_SENTINEL = '__a3s_cli_string__';
+
 function createCliParser() {
   const cli = cac('a3s-flow');
   cli.command('nodes', 'List public node manifests');
@@ -164,18 +166,32 @@ function parseOptions(arguments_: string[]): { positional: string[]; options: Cl
   let parsed: { args: readonly string[]; options: Record<string, unknown> };
   try {
     parsed = parser.parse(
-      [process.execPath, 'a3s-flow', ...normalizeDashOptionValues(arguments_)],
+      [process.execPath, 'a3s-flow', ...normalizeStringOptionValues(arguments_, parser)],
       { run: false },
     );
     const command = parser.matchedCommand ?? parser.globalCommand;
     command.checkUnknownOptions();
     command.checkOptionValue();
+    const repeated = Object.entries(parsed.options).find(
+      ([key, value]) => key !== '_' && key !== '--' && Array.isArray(value),
+    );
+    if (repeated) {
+      throw new Error(`Option --${kebabCase(repeated[0])} cannot be repeated.`);
+    }
   } catch (error) {
     throw new CliError('usage', error instanceof Error ? error.message : String(error));
   }
   const command = parser.matchedCommandName;
   const positional = command ? [command, ...parsed.args] : [...parsed.args];
   const values = parsed.options;
+  const stringValue = (name: string): string | undefined => {
+    const value = values[name];
+    if (typeof value !== 'string') return undefined;
+    if (!value.startsWith(CLI_STRING_SENTINEL)) return value;
+    return value
+      .slice(CLI_STRING_SENTINEL.length)
+      .replaceAll(`${CLI_STRING_SENTINEL}${CLI_STRING_SENTINEL}`, CLI_STRING_SENTINEL);
+  };
   return {
     positional,
     options: {
@@ -186,53 +202,81 @@ function parseOptions(arguments_: string[]): { positional: string[]; options: Cl
       addEdge: values.addEdge === true,
       dryRun: values.dryRun === true,
       help: values.help === true,
-      id: typeof values.id === 'string' ? values.id : undefined,
-      addNodeType: typeof values.addNode === 'string' ? values.addNode : undefined,
-      removeNodeId: typeof values.removeNode === 'string' ? values.removeNode : undefined,
-      removeEdgeId: typeof values.removeEdge === 'string' ? values.removeEdge : undefined,
-      setNodeId: typeof values.setNode === 'string' ? values.setNode : undefined,
-      setAppName: typeof values.setAppName === 'string' ? values.setAppName : undefined,
-      source: typeof values.source === 'string' ? values.source : undefined,
-      target: typeof values.target === 'string' ? values.target : undefined,
-      edgeId: typeof values.edgeId === 'string' ? values.edgeId : undefined,
-      sourceHandle: typeof values.sourceHandle === 'string' ? values.sourceHandle : undefined,
-      targetHandle: typeof values.targetHandle === 'string' ? values.targetHandle : undefined,
-      config: typeof values.config === 'string' ? values.config : undefined,
-      name: typeof values.name === 'string' ? values.name : undefined,
-      from: typeof values.from === 'string' ? values.from : undefined,
-      operations: typeof values.operations === 'string' ? values.operations : undefined,
-      ifDigest:
-        typeof values.ifDigest === 'string'
-          ? values.ifDigest.replace(/^__a3s_digest__/, '')
-          : undefined,
-      output: typeof values.output === 'string' ? values.output : undefined,
+      id: stringValue('id'),
+      addNodeType: stringValue('addNode'),
+      removeNodeId: stringValue('removeNode'),
+      removeEdgeId: stringValue('removeEdge'),
+      setNodeId: stringValue('setNode'),
+      setAppName: stringValue('setAppName'),
+      source: stringValue('source'),
+      target: stringValue('target'),
+      edgeId: stringValue('edgeId'),
+      sourceHandle: stringValue('sourceHandle'),
+      targetHandle: stringValue('targetHandle'),
+      config: stringValue('config'),
+      name: stringValue('name'),
+      from: stringValue('from'),
+      operations: stringValue('operations'),
+      ifDigest: stringValue('ifDigest'),
+      output: stringValue('output'),
     },
   };
 }
 
-/** CAC treats a bare dash as another option; preserve `--option -` stream syntax. */
-function normalizeDashOptionValues(arguments_: readonly string[]): string[] {
+function kebabCase(value: string): string {
+  return value.replace(/[A-Z]/g, (character) => `-${character.toLowerCase()}`);
+}
+
+/**
+ * CAC delegates value parsing to mri, which coerces numeric-looking values.
+ * Use the framework's required-value option metadata to preserve exact strings
+ * without maintaining a second list of CLI options.
+ */
+function normalizeStringOptionValues(
+  arguments_: readonly string[],
+  parser: ReturnType<typeof createCliParser>,
+): string[] {
+  const stringOptions = new Set(
+    [parser.globalCommand, ...parser.commands]
+      .flatMap((command) => command.options)
+      .filter((option) => option.required)
+      .flatMap((option) => option.names),
+  );
+  const encode = (value: string): string =>
+    `${CLI_STRING_SENTINEL}${value.replaceAll(CLI_STRING_SENTINEL, `${CLI_STRING_SENTINEL}${CLI_STRING_SENTINEL}`)}`;
   const normalized: string[] = [];
+  let optionsEnded = false;
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
-    if ((argument === '--operations' || argument === '--from') && arguments_[index + 1] === '-') {
-      normalized.push(`${argument}=-`);
-      index += 1;
-    } else if (
-      argument === '--if-digest' &&
-      arguments_[index + 1] !== undefined &&
-      !arguments_[index + 1].startsWith('-')
-    ) {
-      // mri (used by CAC) converts an all-numeric SHA-256 string to a number;
-      // a sentinel keeps the exact 64-character value and leading zeroes.
-      normalized.push(argument, `__a3s_digest__${arguments_[index + 1]}`);
-      index += 1;
-    } else if (argument.startsWith('--if-digest=')) {
-      normalized.push(
-        `--if-digest=__a3s_digest__${argument.slice('--if-digest='.length)}`,
-      );
-    } else {
+    if (argument === '--') {
+      optionsEnded = true;
       normalized.push(argument);
+    } else if (optionsEnded || !argument.startsWith('-')) {
+      normalized.push(argument);
+    } else {
+      const match = /^--?([A-Za-z][A-Za-z0-9-]*)(?:=(.*))?$/.exec(argument);
+      if (!match) {
+        normalized.push(argument);
+        continue;
+      }
+      const optionName = match[1].replace(/-([a-z])/g, (_match, character: string) =>
+        character.toUpperCase(),
+      );
+      if (!stringOptions.has(optionName)) {
+        normalized.push(argument);
+        continue;
+      }
+      if (match[2] !== undefined) {
+        normalized.push(`${argument.slice(0, argument.indexOf('='))}=${encode(match[2])}`);
+      } else if (
+        arguments_[index + 1] !== undefined &&
+        (arguments_[index + 1] === '-' || !arguments_[index + 1].startsWith('-'))
+      ) {
+        normalized.push(argument, encode(arguments_[index + 1]));
+        index += 1;
+      } else {
+        normalized.push(argument);
+      }
     }
   }
   return normalized;
