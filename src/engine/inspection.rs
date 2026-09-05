@@ -2,9 +2,9 @@ use chrono::{DateTime, Utc};
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    project_run, ActiveHookSnapshot, ActivityStatus, HookStatus, ScheduledWakeup,
-    ScheduledWakeupKind, StepStatus, WaitStatus, WorkflowRunSnapshot, WorkflowRunSummary,
-    WorkflowRunSuspension,
+    project_run, project_run_from_snapshot, ActiveHookSnapshot, ActivityStatus, HookStatus,
+    ScheduledWakeup, ScheduledWakeupKind, StepStatus, WaitStatus, WorkflowRunSnapshot,
+    WorkflowRunSummary, WorkflowRunSuspension,
 };
 use crate::store::FlowProjectionCheckpoint;
 
@@ -16,9 +16,33 @@ impl FlowEngine {
         if let Some(checkpoint) = self.store.load_checkpoint(run_id).await? {
             if checkpoint.validate().is_ok() {
                 if let Some((sequence, event_id)) = self.store.latest_event(run_id).await? {
-                    if sequence == checkpoint.last_sequence && event_id == checkpoint.last_event_id
+                    if event_id == checkpoint.last_event_id && sequence == checkpoint.last_sequence
                     {
                         return Ok(checkpoint.snapshot);
+                    }
+                    if sequence > checkpoint.last_sequence {
+                        if let Ok(Some(anchor)) =
+                            self.store.event_at(run_id, checkpoint.last_sequence).await
+                        {
+                            if anchor.event_id == checkpoint.last_event_id {
+                                if let Ok(tail) = self
+                                    .store
+                                    .list_after(run_id, checkpoint.last_sequence)
+                                    .await
+                                {
+                                    if let Ok(snapshot) = project_run_from_snapshot(
+                                        run_id,
+                                        checkpoint.snapshot.clone(),
+                                        &tail,
+                                        false,
+                                    ) {
+                                        if snapshot.last_sequence == sequence {
+                                            return Ok(snapshot);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

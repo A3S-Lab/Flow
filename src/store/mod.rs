@@ -215,6 +215,20 @@ pub trait FlowEventStore: Send + Sync {
     /// Load the complete event history for `run_id` in sequence order.
     async fn list(&self, run_id: &str) -> Result<Vec<FlowEventEnvelope>>;
 
+    /// List events strictly after `sequence` in ascending order.
+    ///
+    /// SQL stores override this with an indexed range query. The default keeps
+    /// custom stores source-compatible and preserves correctness by filtering
+    /// their complete history in memory.
+    async fn list_after(&self, run_id: &str, sequence: u64) -> Result<Vec<FlowEventEnvelope>> {
+        Ok(self
+            .list(run_id)
+            .await?
+            .into_iter()
+            .filter(|event| event.sequence > sequence)
+            .collect())
+    }
+
     /// Return the latest durable event sequence and ID for `run_id`.
     ///
     /// Stores with an index should override this to avoid loading the complete
@@ -225,6 +239,15 @@ pub trait FlowEventStore: Send + Sync {
             .await?
             .last()
             .map(|event| (event.sequence, event.event_id)))
+    }
+
+    /// Load one durable event by sequence for checkpoint anchor validation.
+    async fn event_at(&self, run_id: &str, sequence: u64) -> Result<Option<FlowEventEnvelope>> {
+        Ok(self
+            .list_after(run_id, sequence.saturating_sub(1))
+            .await?
+            .into_iter()
+            .find(|event| event.sequence == sequence))
     }
 
     /// Load a disposable projection checkpoint, if one exists.

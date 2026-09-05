@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use crate::error::{FlowError, Result};
 
 use super::{
@@ -29,31 +27,50 @@ pub(crate) fn project_run(
     };
     spec.validate()?;
 
-    let mut snapshot = WorkflowRunSnapshot {
-        run_id: run_id.to_string(),
-        spec,
-        input,
-        status: WorkflowRunStatus::Pending,
-        steps: BTreeMap::new(),
-        activities: BTreeMap::new(),
-        waits: BTreeMap::new(),
-        hooks: BTreeMap::new(),
-        cancellation: None,
-        progress: Vec::new(),
-        child_operations: BTreeMap::new(),
-        child_workflows: BTreeMap::new(),
-        signals: Vec::new(),
-        signal_waits: BTreeMap::new(),
-        output: None,
-        error: None,
-        terminal_outcome: None,
-        continuation: None,
-        last_sequence: first.sequence,
-    };
+    project_run_from_snapshot(
+        run_id,
+        WorkflowRunSnapshot::new(run_id, spec, input),
+        events,
+        true,
+    )
+}
 
+/// Continue projecting a run from a previously validated materialized state.
+///
+/// The caller must provide only the contiguous tail immediately after
+/// `snapshot.last_sequence`. The same reducer and transition checks used for a
+/// complete replay are applied, so an incremental projection cannot weaken
+/// history validation.
+pub(crate) fn project_run_from_snapshot(
+    run_id: &str,
+    mut snapshot: WorkflowRunSnapshot,
+    events: &[FlowEventEnvelope],
+    starts_at_one: bool,
+) -> Result<WorkflowRunSnapshot> {
     for (index, envelope) in events.iter().enumerate() {
         envelope.validate_schema_version()?;
-        let expected_sequence = index as u64 + 1;
+        let offset = u64::try_from(index).map_err(|error| {
+            FlowError::InvalidTransition(format!(
+                "event index cannot be represented for run {run_id}: {error}"
+            ))
+        })?;
+        let expected_sequence = if starts_at_one {
+            offset.checked_add(1).ok_or_else(|| {
+                FlowError::InvalidTransition(format!(
+                    "event sequence overflowed while projecting run {run_id}"
+                ))
+            })?
+        } else {
+            snapshot
+                .last_sequence
+                .checked_add(offset)
+                .and_then(|sequence| sequence.checked_add(1))
+                .ok_or_else(|| {
+                    FlowError::InvalidTransition(format!(
+                        "event sequence overflowed while projecting run {run_id}"
+                    ))
+                })?
+        };
         if envelope.sequence != expected_sequence {
             return Err(FlowError::InvalidTransition(format!(
                 "event sequence must be contiguous for run {run_id}: expected {expected_sequence}, got {}",
@@ -66,7 +83,7 @@ pub(crate) fn project_run(
                 envelope.event_id, envelope.run_id, run_id
             )));
         }
-        if index > 0 && snapshot.status.is_terminal() {
+        if (!starts_at_one || index > 0) && snapshot.status.is_terminal() {
             return Err(FlowError::InvalidTransition(format!(
                 "event {} appears after terminal run state",
                 envelope.event.event_key()
@@ -75,7 +92,7 @@ pub(crate) fn project_run(
         snapshot.last_sequence = envelope.sequence;
         match &envelope.event {
             FlowEvent::RunCreated { .. } => {
-                if index > 0 {
+                if !starts_at_one || index > 0 {
                     return Err(FlowError::InvalidTransition(
                         "run_created must only appear as the first event".to_string(),
                     ));

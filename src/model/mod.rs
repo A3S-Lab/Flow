@@ -29,7 +29,7 @@ pub use operation::{
     WorkflowContinuation, WorkflowProgress, WorkflowTerminalOutcome,
 };
 pub use patch::{WorkflowPatchId, MAX_WORKFLOW_PATCH_MARKERS};
-pub(crate) use projection::project_run;
+pub(crate) use projection::{project_run, project_run_from_snapshot};
 pub(crate) use run::validate_run_id;
 pub(crate) use signal::validate_signal_wait;
 pub use signal::{SignalWaitSnapshot, SignalWaitStatus, WorkflowSignal, WorkflowSignalSnapshot};

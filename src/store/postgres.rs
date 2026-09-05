@@ -245,6 +245,69 @@ impl FlowEventStore for PostgresEventStore {
         .transpose()
     }
 
+    async fn event_at(&self, run_id: &str, sequence: u64) -> Result<Option<FlowEventEnvelope>> {
+        let sequence = i64::try_from(sequence).map_err(|error| {
+            FlowError::Store(format!(
+                "event sequence {sequence} exceeds PostgreSQL bigint range: {error}"
+            ))
+        })?;
+        let database = Database::new(PostgresDialect, self.executor.clone());
+        let row = database
+            .fetch_all_as(
+                sql_query::<(String, i64, String, String, i64, String)>(
+                    "SELECT run_id, sequence, event_id, timestamp, schema_version, event_json \
+                 FROM flow_events WHERE run_id = ",
+                )
+                .bind(run_id)
+                .append(" AND sequence = ")
+                .bind(sequence),
+            )
+            .await
+            .map_err(postgres_orm_error)?
+            .rows
+            .into_iter()
+            .next();
+        row.map(row_to_envelope).transpose()
+    }
+
+    async fn list_after(&self, run_id: &str, sequence: u64) -> Result<Vec<FlowEventEnvelope>> {
+        let sequence = i64::try_from(sequence).map_err(|error| {
+            FlowError::Store(format!(
+                "event sequence {sequence} exceeds PostgreSQL bigint range: {error}"
+            ))
+        })?;
+        let database = Database::new(PostgresDialect, self.executor.clone());
+        let rows = database
+            .fetch_all_as(
+                sql_query::<(String, i64, String, String, i64, String)>(
+                    "SELECT run_id, sequence, event_id, timestamp, schema_version, event_json \
+                 FROM flow_events WHERE run_id = ",
+                )
+                .bind(run_id)
+                .append(" AND sequence > ")
+                .bind(sequence)
+                .append(" ORDER BY sequence ASC"),
+            )
+            .await
+            .map_err(postgres_orm_error)?
+            .rows;
+        if rows.is_empty() {
+            let exists = database
+                .fetch_all_as(
+                    sql_query::<i64>("SELECT 1 FROM flow_events WHERE run_id = ")
+                        .bind(run_id)
+                        .append(" LIMIT 1"),
+                )
+                .await
+                .map_err(postgres_orm_error)?
+                .rows;
+            if exists.is_empty() {
+                return Err(FlowError::RunNotFound(run_id.to_string()));
+            }
+        }
+        rows.into_iter().map(row_to_envelope).collect()
+    }
+
     async fn load_checkpoint(&self, run_id: &str) -> Result<Option<FlowProjectionCheckpoint>> {
         let database = Database::new(PostgresDialect, self.executor.clone());
         let row = database
