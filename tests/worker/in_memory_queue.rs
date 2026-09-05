@@ -68,6 +68,13 @@ async fn worker_bounded_drain_preserves_fairness_budget() {
             .unwrap();
     }
     let worker = FlowWorker::new(engine, queue.clone());
+    let mut incompatible = worker.capabilities();
+    incompatible.protocol = "a3s.flow.worker.v0".to_string();
+    assert!(matches!(
+        worker.ensure_compatible(&incompatible),
+        Err(FlowError::UnsupportedWorkerProtocol { .. })
+    ));
+    assert_eq!(queue.len().await.unwrap(), 3);
     let outcomes = worker.run_until_idle_bounded(2).await.unwrap();
     assert_eq!(outcomes.len(), 2);
     assert_eq!(queue.len().await.unwrap(), 1);

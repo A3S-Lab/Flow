@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added the versioned `FlowWorkerCapabilities` handshake and stable task-kind
+  identifiers. Hosts can reject protocol or capability mismatches before a
+  worker leases work; Cloud-owned admission and fleet policy remain outside
+  Flow.
+
 - Added `FlowWorker::run_until_idle_bounded` so compatibility hosts can impose
   an explicit fairness/backpressure budget; zero limits fail before leasing.
 

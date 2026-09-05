@@ -345,6 +345,11 @@ before yielding to other work. A zero limit is rejected before any lease is
 acquired; `run_until_idle()` remains available when an unbounded drain is
 intentional.
 
+Workers advertise the versioned `FlowWorkerCapabilities` contract. Hosts should
+call `worker.ensure_compatible(&required)` before leasing work; protocol or
+task-capability mismatches fail closed. Cloud remains responsible for queue
+admission, tenant fairness, placement, and processor lifecycle.
+
 Retention removes only complete eligible continuation/child components and
 leaves checksum tombstones. Flow never compacts part of an event stream;
 workflows use `continue_as_new` to bound replay history without rewriting the
