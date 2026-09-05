@@ -147,6 +147,13 @@ export type ActivityCommand = {
   retry?: RetryPolicy;
 };
 
+export type ActivityResolution =
+  | { type: "completed"; output: Json }
+  | { type: "retry"; error: string; retry_after?: string | null }
+  | { type: "failed"; error: string }
+  | { type: "non_retryable"; error: string }
+  | { type: "cancelled"; reason: string };
+
 export type FlowEvent =
   | {
       type: "run_created";
@@ -275,6 +282,14 @@ export type FlowEvent =
       attempt_id: string;
       fencing_token: string;
       error: string;
+    }
+  | {
+      type: "activity_unknown";
+      activity_id: string;
+      attempt: number;
+      attempt_id: string;
+      fencing_token: string;
+      reason: string;
     }
   | {
       type: "activity_heartbeat";

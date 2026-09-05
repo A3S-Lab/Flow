@@ -135,7 +135,7 @@ pub(crate) fn project_run(
                 for activity in snapshot.activities.values_mut() {
                     if matches!(
                         activity.status,
-                        ActivityStatus::Pending | ActivityStatus::Running
+                        ActivityStatus::Pending | ActivityStatus::Running | ActivityStatus::Unknown
                     ) {
                         activity.status = ActivityStatus::Cancelled;
                         activity.retry_after = None;
@@ -671,6 +671,7 @@ pub(crate) fn project_run(
             | FlowEvent::ActivityRetrying { .. }
             | FlowEvent::ActivityFailed { .. }
             | FlowEvent::ActivityNonRetryable { .. }
+            | FlowEvent::ActivityUnknown { .. }
             | FlowEvent::ActivityHeartbeat { .. }
             | FlowEvent::ActivityCancelled { .. } => {
                 activity::project_activity(&mut snapshot, envelope)?;

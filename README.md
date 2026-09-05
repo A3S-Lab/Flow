@@ -180,7 +180,9 @@ That boundary produces concrete guarantees:
 - First-class activities persist a created/started/result ledger before and
   after host side effects. Every attempt carries an idempotency key and
   fencing token; hosts can append fenced heartbeats with checkpoints through
-  `heartbeat_activity`.
+  `heartbeat_activity`. If the provider response is lost, return
+  `FlowError::UnknownOutcome` and reconcile the suspended attempt with
+  `resolve_unknown_activity` before allowing a retry or completion.
 - Reusing an ID with different input, retry policy, deadline, signal name,
   callback token, or metadata fails as non-deterministic replay.
 - Timers, delayed retries, signals, and hooks release compute while the run is
@@ -205,7 +207,7 @@ by runnable examples or integration tests.
 | Area              | Current contract                                                                                                                                               | Evidence                                                                                                                                                                     |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Durable steps     | Sequential steps, concurrent step batches, typed input/output helpers, stable IDs, progress, and child-operation references                                    | [`sequential_steps`](examples/sequential_steps.rs), [`batch_steps`](examples/batch_steps.rs)                                                                                 |
-| Durable activities | First-class activity ledger with attempt IDs, idempotency keys, fencing tokens, retries, non-retryable failures, and heartbeat checkpoints; existing step runtimes remain compatible | `first_class_activity_persists_identity_and_output`, `activity_heartbeat_persists_checkpoint_and_rejects_stale_fence` |
+| Durable activities | First-class activity ledger with attempt IDs, idempotency keys, fencing tokens, retries, non-retryable failures, heartbeat checkpoints, and explicit unknown-outcome reconciliation; existing step runtimes remain compatible | `first_class_activity_persists_identity_and_output`, `activity_heartbeat_persists_checkpoint_and_rejects_stale_fence`, `unknown_activity_outcome_waits_for_fenced_reconciliation` |
 | Retry policy      | Immediate retry, fixed delay, and capped exponential backoff with deterministic full jitter; deadlines anchor at failure time and exhaustion can fail or return to workflow fallback logic | [`retry_backoff`](examples/retry_backoff.rs), [`recoverable_step_failure`](examples/recoverable_step_failure.rs)                                                             |
 | Suspension        | Durable timers, declared named signals, and token-routed hooks/callbacks resume without holding a worker                                                       | [`scheduler_worker`](examples/scheduler_worker.rs), [`workflow_signals`](examples/workflow_signals.rs), [`hook_approval`](examples/hook_approval.rs)                         |
 | Cancellation      | Cleanup-aware cancellation enters `Cancelling`, replays stable cleanup steps, and records one typed terminal outcome; force cancellation remains explicit      | [`cancellation`](examples/cancellation.rs)                                                                                                                                   |

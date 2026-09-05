@@ -99,8 +99,49 @@ pub enum ActivityStatus {
     Completed,
     /// The activity exhausted its retry policy or failed permanently.
     Failed,
+    /// The host cannot determine whether the external side effect committed.
+    ///
+    /// An unknown activity is intentionally non-actionable until its owner
+    /// reconciles the stable attempt and idempotency identities.
+    Unknown,
     /// The owning run cancelled the activity before completion.
     Cancelled,
+}
+
+/// Host decision that reconciles an activity with an unknown external outcome.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ActivityResolution {
+    /// The external side effect is confirmed and returned this output.
+    Completed {
+        /// Durable JSON output to commit.
+        output: JsonValue,
+    },
+    /// The external side effect is confirmed absent and the attempt may retry.
+    Retry {
+        /// Reconciliation or provider error recorded for the attempt.
+        error: String,
+        /// Earliest UTC time at which a replacement attempt may run.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        retry_after: Option<DateTime<Utc>>,
+    },
+    /// The external side effect is confirmed failed permanently.
+    Failed {
+        /// Final failure description.
+        error: String,
+    },
+    /// The external side effect failed with an application error that must not
+    /// be retried.
+    NonRetryable {
+        /// Failure description.
+        error: String,
+    },
+    /// The host explicitly abandons the ambiguous attempt.
+    Cancelled {
+        /// Cancellation or reconciliation reason.
+        reason: String,
+    },
 }
 
 /// Materialized state of one durable activity invocation.
@@ -579,10 +620,9 @@ impl WorkflowRunSnapshot {
                 .values()
                 .any(|hook| hook.status == HookStatus::Active)
             || self.steps.values().any(|step| step.retry_after.is_some())
-            || self
-                .activities
-                .values()
-                .any(|activity| activity.retry_after.is_some())
+            || self.activities.values().any(|activity| {
+                activity.retry_after.is_some() || activity.status == ActivityStatus::Unknown
+            })
             || self
                 .child_workflows
                 .values()

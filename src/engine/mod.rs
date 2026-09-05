@@ -627,6 +627,9 @@ impl FlowEngine {
                             &input,
                             retry,
                         )?;
+                        if activity.status == crate::model::ActivityStatus::Unknown {
+                            return self.snapshot(run_id).await;
+                        }
                         if matches!(
                             activity.status,
                             crate::model::ActivityStatus::Completed

@@ -96,6 +96,11 @@ impl FlowEngine {
                             due: retry_after <= now,
                         });
                     }
+                } else if activity.status == ActivityStatus::Unknown {
+                    suspensions.push(WorkflowRunSuspension::ActivityUnknown {
+                        run_id: run_id.clone(),
+                        activity: activity.clone(),
+                    });
                 }
             }
             for child in snapshot.child_workflows.values() {

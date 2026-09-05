@@ -32,7 +32,7 @@ pub(crate) use run::validate_run_id;
 pub(crate) use signal::validate_signal_wait;
 pub use signal::{SignalWaitSnapshot, SignalWaitStatus, WorkflowSignal, WorkflowSignalSnapshot};
 pub use snapshot::{
-    ActiveHookSnapshot, ActivitySnapshot, ActivityStatus, HookSnapshot, HookStatus,
-    ScheduledWakeup, ScheduledWakeupKind, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus,
-    WorkflowRunSnapshot, WorkflowRunStatus,
+    ActiveHookSnapshot, ActivityResolution, ActivitySnapshot, ActivityStatus, HookSnapshot,
+    HookStatus, ScheduledWakeup, ScheduledWakeupKind, StepSnapshot, StepStatus, WaitSnapshot,
+    WaitStatus, WorkflowRunSnapshot, WorkflowRunStatus,
 };

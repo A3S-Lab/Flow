@@ -2,7 +2,9 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
-use crate::model::{ActivityStatus, FlowEvent, RetryPolicy, WorkflowRunSnapshot};
+use crate::model::{
+    ActivityResolution, ActivityStatus, FlowEvent, RetryPolicy, WorkflowRunSnapshot,
+};
 use crate::runtime::{activity_attempt_id, activity_attempt_idempotency_key, ActivityInvocation};
 
 use super::validation::ensure_activity_command_matches;
@@ -18,6 +20,79 @@ pub(super) struct ActivityExecutionContext {
 }
 
 impl FlowEngine {
+    /// Reconcile an activity whose external side-effect outcome is unknown.
+    ///
+    /// The caller must use the attempt and idempotency identities exposed in
+    /// [`ActivitySnapshot`](crate::ActivitySnapshot) to query the provider.
+    /// Resolution is fenced by the current attempt token and is safe to retry
+    /// after an event-sequence conflict.
+    pub async fn resolve_unknown_activity(
+        &self,
+        run_id: &str,
+        activity_id: &str,
+        resolution: ActivityResolution,
+    ) -> Result<()> {
+        for _ in 0..self.max_replay_iterations {
+            let snapshot = self.snapshot(run_id).await?;
+            let activity = snapshot.activities.get(activity_id).ok_or_else(|| {
+                FlowError::InvalidTransition(format!(
+                    "activity {activity_id} does not exist for run {run_id}"
+                ))
+            })?;
+            if activity.status != ActivityStatus::Unknown {
+                return Err(FlowError::InvalidTransition(format!(
+                    "activity {activity_id} is not awaiting unknown-outcome reconciliation"
+                )));
+            }
+
+            let event = match &resolution {
+                ActivityResolution::Completed { output } => FlowEvent::ActivityCompleted {
+                    activity_id: activity_id.to_string(),
+                    attempt_id: activity.attempt_id.clone(),
+                    fencing_token: activity.fencing_token.clone(),
+                    output: output.clone(),
+                },
+                ActivityResolution::Retry { error, retry_after } => FlowEvent::ActivityRetrying {
+                    activity_id: activity_id.to_string(),
+                    attempt: activity.attempt,
+                    attempt_id: activity.attempt_id.clone(),
+                    fencing_token: activity.fencing_token.clone(),
+                    error: error.clone(),
+                    retry_after: *retry_after,
+                },
+                ActivityResolution::Failed { error } => FlowEvent::ActivityFailed {
+                    activity_id: activity_id.to_string(),
+                    attempt: activity.attempt,
+                    attempt_id: activity.attempt_id.clone(),
+                    fencing_token: activity.fencing_token.clone(),
+                    error: error.clone(),
+                },
+                ActivityResolution::NonRetryable { error } => FlowEvent::ActivityNonRetryable {
+                    activity_id: activity_id.to_string(),
+                    attempt: activity.attempt,
+                    attempt_id: activity.attempt_id.clone(),
+                    fencing_token: activity.fencing_token.clone(),
+                    error: error.clone(),
+                },
+                ActivityResolution::Cancelled { reason } => FlowEvent::ActivityCancelled {
+                    activity_id: activity_id.to_string(),
+                    attempt: activity.attempt,
+                    reason: reason.clone(),
+                },
+            };
+
+            match self
+                .record_event_at(run_id, snapshot.last_sequence, event)
+                .await
+            {
+                Ok(_) => return Ok(()),
+                Err(error) if super::validation::is_event_conflict(&error) => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        Err(FlowError::ReplayLimitExceeded(self.max_replay_iterations))
+    }
+
     /// Durably records an activity heartbeat and optional checkpoint.
     ///
     /// The attempt and fencing identities are checked against the current
@@ -89,7 +164,10 @@ impl FlowEngine {
             ensure_activity_command_matches(run_id, activity, &activity_name, &input, retry)?;
             if matches!(
                 activity.status,
-                ActivityStatus::Completed | ActivityStatus::Failed | ActivityStatus::Cancelled
+                ActivityStatus::Completed
+                    | ActivityStatus::Failed
+                    | ActivityStatus::Cancelled
+                    | ActivityStatus::Unknown
             ) {
                 return Ok(());
             }
@@ -201,6 +279,22 @@ impl FlowEngine {
                             attempt_id,
                             fencing_token,
                             output,
+                        },
+                    )
+                    .await?;
+                    return Ok(());
+                }
+                Err(FlowError::UnknownOutcome(reason)) => {
+                    let expected_sequence = self.snapshot(run_id).await?.last_sequence;
+                    self.record_event_at(
+                        run_id,
+                        expected_sequence,
+                        FlowEvent::ActivityUnknown {
+                            activity_id: activity_id.clone(),
+                            attempt,
+                            attempt_id: attempt_id.clone(),
+                            fencing_token: fencing_token.clone(),
+                            reason,
                         },
                     )
                     .await?;

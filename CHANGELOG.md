@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added explicit Activity unknown-outcome events and fenced host
+  reconciliation through `FlowError::UnknownOutcome`, `ActivityResolution`,
+  and `FlowEngine::resolve_unknown_activity`; ambiguous provider responses now
+  suspend without an automatic duplicate retry.
+
 - Added an explicit, persisted event-envelope schema version with a
   backwards-compatible decoder for retained pre-version histories and fail-closed
   rejection of unsupported future versions across projection and SQL stores.

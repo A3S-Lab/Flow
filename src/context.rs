@@ -286,6 +286,43 @@ impl<'a> WorkflowContext<'a> {
             })
     }
 
+    /// Returns the reconciliation reason of an activity with an unknown
+    /// external outcome.
+    pub fn activity_unknown(&self, activity_id: &str) -> Option<&str> {
+        self.history()
+            .iter()
+            .rev()
+            .find_map(|envelope| match &envelope.event {
+                FlowEvent::ActivityUnknown {
+                    activity_id: id,
+                    reason,
+                    ..
+                } if id == activity_id => Some(Some(reason.as_str())),
+                FlowEvent::ActivityCompleted {
+                    activity_id: id, ..
+                }
+                | FlowEvent::ActivityRetrying {
+                    activity_id: id, ..
+                }
+                | FlowEvent::ActivityFailed {
+                    activity_id: id, ..
+                }
+                | FlowEvent::ActivityNonRetryable {
+                    activity_id: id, ..
+                }
+                | FlowEvent::ActivityCancelled {
+                    activity_id: id, ..
+                } if id == activity_id => Some(None),
+                _ => None,
+            })
+            .flatten()
+    }
+
+    /// Returns whether an activity is waiting for host reconciliation.
+    pub fn activity_outcome_unknown(&self, activity_id: &str) -> bool {
+        self.activity_unknown(activity_id).is_some()
+    }
+
     /// Returns whether a durable timer wait has completed.
     pub fn wait_completed(&self, wait_id: &str) -> bool {
         self.history().iter().any(|envelope| {

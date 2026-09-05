@@ -117,7 +117,10 @@ pub(super) fn project_activity(
                     "activity_completed references unknown activity {activity_id}"
                 ))
             })?;
-            if activity.status != ActivityStatus::Running {
+            if !matches!(
+                activity.status,
+                ActivityStatus::Running | ActivityStatus::Unknown
+            ) {
                 return Err(FlowError::InvalidTransition(format!(
                     "activity_completed cannot follow {:?} for activity {activity_id}",
                     activity.status
@@ -146,8 +149,10 @@ pub(super) fn project_activity(
                     "activity_retrying references unknown activity {activity_id}"
                 ))
             })?;
-            if activity.status != ActivityStatus::Running
-                || activity.attempt != *attempt
+            if !matches!(
+                activity.status,
+                ActivityStatus::Running | ActivityStatus::Unknown
+            ) || activity.attempt != *attempt
                 || activity.attempt_id != *attempt_id
                 || activity.fencing_token != *fencing_token
             {
@@ -175,6 +180,36 @@ pub(super) fn project_activity(
             activity.error = Some(error.clone());
             activity.retry_after = *retry_after;
         }
+        FlowEvent::ActivityUnknown {
+            activity_id,
+            attempt,
+            attempt_id,
+            fencing_token,
+            reason,
+        } => {
+            let activity = snapshot.activities.get_mut(activity_id).ok_or_else(|| {
+                FlowError::InvalidTransition(format!(
+                    "activity_unknown references unknown activity {activity_id}"
+                ))
+            })?;
+            if activity.status != ActivityStatus::Running
+                || activity.attempt != *attempt
+                || activity.attempt_id != *attempt_id
+                || activity.fencing_token != *fencing_token
+            {
+                return Err(FlowError::InvalidTransition(format!(
+                    "activity_unknown identity does not match running activity {activity_id}"
+                )));
+            }
+            if reason.trim().is_empty() {
+                return Err(FlowError::InvalidTransition(format!(
+                    "activity_unknown requires a reason for {activity_id}"
+                )));
+            }
+            activity.status = ActivityStatus::Unknown;
+            activity.error = Some(reason.clone());
+            activity.retry_after = None;
+        }
         FlowEvent::ActivityFailed {
             activity_id,
             attempt,
@@ -194,8 +229,10 @@ pub(super) fn project_activity(
                     "activity failure references unknown activity {activity_id}"
                 ))
             })?;
-            if activity.status != ActivityStatus::Running
-                || activity.attempt != *attempt
+            if !matches!(
+                activity.status,
+                ActivityStatus::Running | ActivityStatus::Unknown
+            ) || activity.attempt != *attempt
                 || activity.attempt_id != *attempt_id
                 || activity.fencing_token != *fencing_token
             {
@@ -250,7 +287,7 @@ pub(super) fn project_activity(
             })?;
             if !matches!(
                 activity.status,
-                ActivityStatus::Pending | ActivityStatus::Running
+                ActivityStatus::Pending | ActivityStatus::Running | ActivityStatus::Unknown
             ) || activity.attempt != *attempt
             {
                 return Err(FlowError::InvalidTransition(format!(

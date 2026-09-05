@@ -533,6 +533,7 @@ fn event_status(event: &FlowEvent) -> Option<&'static str> {
         FlowEvent::ActivityRetrying { .. } => Some("retrying"),
         FlowEvent::ActivityFailed { .. } => Some("failed"),
         FlowEvent::ActivityNonRetryable { .. } => Some("non_retryable"),
+        FlowEvent::ActivityUnknown { .. } => Some("unknown"),
         FlowEvent::ActivityHeartbeat { .. } => Some("heartbeat"),
         FlowEvent::ActivityCancelled { .. } => Some("cancelled"),
         FlowEvent::WaitCreated { .. } => Some("waiting"),
@@ -576,6 +577,7 @@ fn event_subject(event: &FlowEvent) -> Option<A3sFlowEventSubject> {
         | FlowEvent::ActivityRetrying { activity_id, .. }
         | FlowEvent::ActivityFailed { activity_id, .. }
         | FlowEvent::ActivityNonRetryable { activity_id, .. }
+        | FlowEvent::ActivityUnknown { activity_id, .. }
         | FlowEvent::ActivityHeartbeat { activity_id, .. }
         | FlowEvent::ActivityCancelled { activity_id, .. } => Some(A3sFlowEventSubject {
             kind: "activity".to_string(),

@@ -40,6 +40,8 @@ pub struct WorkflowRunSummary {
     pub active_hooks: usize,
     /// Pending steps and activities with delayed retry deadlines.
     pub pending_retries: usize,
+    /// Activities whose external outcome requires host reconciliation.
+    pub unknown_activities: usize,
     /// Child workflows without a terminal outcome.
     pub open_child_workflows: usize,
     /// Signal waits not yet paired with a signal.
@@ -90,6 +92,11 @@ impl WorkflowRunSummary {
             .steps
             .values()
             .filter(|step| step.status == StepStatus::Pending && step.retry_after.is_some())
+            .count();
+        self.unknown_activities += snapshot
+            .activities
+            .values()
+            .filter(|activity| activity.status == super::ActivityStatus::Unknown)
             .count();
         self.pending_retries += snapshot
             .activities
@@ -150,6 +157,13 @@ pub enum WorkflowRunSuspension {
         /// Whether the retry is ready at the inspection time.
         due: bool,
     },
+    /// An activity whose external outcome requires host reconciliation.
+    ActivityUnknown {
+        /// Run that owns the activity.
+        run_id: String,
+        /// Materialized unknown activity state and stable identities.
+        activity: ActivitySnapshot,
+    },
     /// A first-class child workflow awaiting a terminal outcome.
     ChildWorkflow {
         /// Run that owns the child request.
@@ -174,6 +188,7 @@ impl WorkflowRunSuspension {
             | Self::Hook { run_id, .. }
             | Self::Retry { run_id, .. }
             | Self::ActivityRetry { run_id, .. }
+            | Self::ActivityUnknown { run_id, .. }
             | Self::ChildWorkflow { run_id, .. }
             | Self::Signal { run_id, .. } => run_id,
         }
@@ -186,6 +201,7 @@ impl WorkflowRunSuspension {
             Self::Hook { hook, .. } => &hook.hook_id,
             Self::Retry { step, .. } => &step.step_id,
             Self::ActivityRetry { activity, .. } => &activity.activity_id,
+            Self::ActivityUnknown { activity, .. } => &activity.activity_id,
             Self::ChildWorkflow { child, .. } => &child.child_id,
             Self::Signal { wait, .. } => &wait.wait_id,
         }
@@ -197,6 +213,7 @@ impl WorkflowRunSuspension {
             Self::Hook { .. } => 1,
             Self::Retry { .. } => 2,
             Self::ActivityRetry { .. } => 2,
+            Self::ActivityUnknown { .. } => 2,
             Self::ChildWorkflow { .. } => 3,
             Self::Signal { .. } => 4,
         }
@@ -208,7 +225,10 @@ impl WorkflowRunSuspension {
             Self::Wait { due, .. } | Self::Retry { due, .. } | Self::ActivityRetry { due, .. } => {
                 *due
             }
-            Self::Hook { .. } | Self::ChildWorkflow { .. } | Self::Signal { .. } => false,
+            Self::Hook { .. }
+            | Self::ActivityUnknown { .. }
+            | Self::ChildWorkflow { .. }
+            | Self::Signal { .. } => false,
         }
     }
 
@@ -218,7 +238,10 @@ impl WorkflowRunSuspension {
             Self::Wait { wait, .. } => Some(wait.resume_at),
             Self::Retry { step, .. } => step.retry_after,
             Self::ActivityRetry { activity, .. } => activity.retry_after,
-            Self::Hook { .. } | Self::ChildWorkflow { .. } | Self::Signal { .. } => None,
+            Self::Hook { .. }
+            | Self::ActivityUnknown { .. }
+            | Self::ChildWorkflow { .. }
+            | Self::Signal { .. } => None,
         }
     }
 }

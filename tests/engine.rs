@@ -5,7 +5,7 @@ use a3s_flow::PostgresEventStore;
 #[cfg(feature = "sqlite")]
 use a3s_flow::SqliteEventStore;
 use a3s_flow::{
-    A3sFlowEvent, A3sFlowEventBridge, A3sFlowEventSink, ActivityInvocation,
+    A3sFlowEvent, A3sFlowEventBridge, A3sFlowEventSink, ActivityInvocation, ActivityResolution,
     FanoutFlowEventObserver, FlowEngine, FlowError, FlowEvent, FlowEventEnvelope,
     FlowEventObserver, FlowEventStore, FlowRuntime, HookMetadata, HookStatus,
     InMemoryA3sFlowEventSink, InMemoryEventStore, InMemoryFlowEventObserver,
@@ -315,6 +315,94 @@ async fn activity_retry_reuses_identity_per_attempt_and_recovers() {
     assert_eq!(activity.status, a3s_flow::ActivityStatus::Completed);
     assert_eq!(activity.attempt, 2);
     assert_eq!(runtime.calls.load(Ordering::SeqCst), 2);
+}
+
+struct UnknownOutcomeActivityRuntime {
+    calls: AtomicUsize,
+}
+
+#[async_trait]
+impl FlowRuntime for UnknownOutcomeActivityRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        if invocation.history.iter().any(|event| {
+            matches!(
+                event.event,
+                FlowEvent::ActivityCompleted { ref activity_id, .. } if activity_id == "charge"
+            )
+        }) {
+            Ok(RuntimeCommand::Complete {
+                output: json!("paid"),
+            })
+        } else {
+            Ok(RuntimeCommand::schedule_activity(
+                "charge",
+                "chargeCard",
+                json!({ "amount": 10 }),
+            ))
+        }
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        Ok(json!(null))
+    }
+
+    async fn run_activity(
+        &self,
+        _invocation: ActivityInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Err(FlowError::UnknownOutcome(
+            "provider connection lost after request".to_string(),
+        ))
+    }
+}
+
+#[tokio::test]
+async fn unknown_activity_outcome_waits_for_fenced_reconciliation() {
+    let runtime = Arc::new(UnknownOutcomeActivityRuntime {
+        calls: AtomicUsize::new(0),
+    });
+    let engine = FlowEngine::in_memory(runtime.clone());
+    let run_id = engine
+        .start_with_id("unknown-activity-run", spec(), json!({}))
+        .await
+        .unwrap();
+    let suspended = engine.snapshot(&run_id).await.unwrap();
+    let activity = suspended.activities.get("charge").unwrap();
+    assert_eq!(activity.status, a3s_flow::ActivityStatus::Unknown);
+    assert_eq!(suspended.status, WorkflowRunStatus::Suspended);
+    assert_eq!(runtime.calls.load(Ordering::SeqCst), 1);
+    assert!(engine
+        .list_open_suspensions(Utc::now())
+        .await
+        .unwrap()
+        .iter()
+        .any(|suspension| matches!(
+            suspension,
+            WorkflowRunSuspension::ActivityUnknown { activity, .. }
+                if activity.activity_id == "charge"
+        )));
+
+    engine
+        .resolve_unknown_activity(
+            &run_id,
+            "charge",
+            ActivityResolution::Completed {
+                output: json!({ "receipt": "r-1" }),
+            },
+        )
+        .await
+        .unwrap();
+    let completed = engine
+        .start_with_id("unknown-activity-run", spec(), json!({}))
+        .await
+        .unwrap();
+    let completed_snapshot = engine.snapshot(&completed).await.unwrap();
+    assert_eq!(completed_snapshot.status, WorkflowRunStatus::Completed);
+    assert_eq!(runtime.calls.load(Ordering::SeqCst), 1);
 }
 
 struct HeartbeatActivityRuntime {

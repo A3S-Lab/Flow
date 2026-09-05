@@ -1,10 +1,10 @@
 use a3s_flow::{
-    ChildWorkflowCancellationPolicy, ChildWorkflowCommand, FlowError, FlowEvent, FlowEventEnvelope,
-    FlowEventStore, NativeRuntimeKind, NativeRuntimeRequest, NativeRuntimeResponse,
-    NativeTsCompilerCapabilities, NativeTsDependencyManifest, RuntimeCommand, StepInvocation,
-    WorkflowRunSummary, WorkflowSignal, WorkflowSpec, WorkflowTerminalOutcome,
-    FLOW_EVENT_ENVELOPE_SCHEMA_VERSION, MAX_FLOW_EVENT_BYTES, NATIVE_COMPILER_PROTOCOL,
-    NATIVE_DEPENDENCY_MANIFEST_PROTOCOL, NATIVE_RUNTIME_PROTOCOL,
+    ActivityResolution, ChildWorkflowCancellationPolicy, ChildWorkflowCommand, FlowError,
+    FlowEvent, FlowEventEnvelope, FlowEventStore, NativeRuntimeKind, NativeRuntimeRequest,
+    NativeRuntimeResponse, NativeTsCompilerCapabilities, NativeTsDependencyManifest,
+    RuntimeCommand, StepInvocation, WorkflowRunSummary, WorkflowSignal, WorkflowSpec,
+    WorkflowTerminalOutcome, FLOW_EVENT_ENVELOPE_SCHEMA_VERSION, MAX_FLOW_EVENT_BYTES,
+    NATIVE_COMPILER_PROTOCOL, NATIVE_DEPENDENCY_MANIFEST_PROTOCOL, NATIVE_RUNTIME_PROTOCOL,
 };
 use chrono::Utc;
 use serde_json::json;
@@ -64,6 +64,23 @@ fn activity_protocol_preserves_fencing_and_checkpoint_fields() {
         serde_json::to_value(NativeRuntimeKind::Activity).unwrap(),
         "activity"
     );
+
+    let unknown = FlowEvent::ActivityUnknown {
+        activity_id: "a1".to_string(),
+        attempt: 1,
+        attempt_id: "attempt-1".to_string(),
+        fencing_token: "fence-1".to_string(),
+        reason: "response lost".to_string(),
+    };
+    let encoded = serde_json::to_value(unknown).unwrap();
+    assert_eq!(encoded["type"], "activity_unknown");
+    assert_eq!(encoded["reason"], "response lost");
+
+    let resolution = serde_json::to_value(ActivityResolution::Completed {
+        output: json!({ "receipt": "r-1" }),
+    })
+    .unwrap();
+    assert_eq!(resolution["type"], "completed");
 }
 
 #[tokio::test]

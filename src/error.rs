@@ -194,6 +194,14 @@ pub enum FlowError {
     #[error("non-retryable step error: {0}")]
     NonRetryable(String),
 
+    /// The host cannot determine whether an activity side effect committed.
+    ///
+    /// This error is intentionally not retryable: the engine records an
+    /// explicit unknown activity outcome and waits for host reconciliation
+    /// rather than risking a duplicate external side effect.
+    #[error("activity outcome is unknown: {0}")]
+    UnknownOutcome(String),
+
     /// JSON serialization or deserialization failed.
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
@@ -208,12 +216,13 @@ pub enum FlowError {
 }
 
 impl FlowError {
-    /// Return whether a failed step may be retried by its configured policy.
+    /// Return whether an execution error may be retried by its configured
+    /// policy.
     ///
     /// Runtime failures remain retryable for backwards compatibility; step
     /// handlers opt out explicitly with [`FlowError::NonRetryable`].
     pub fn is_retryable(&self) -> bool {
-        !matches!(self, Self::NonRetryable(_))
+        !matches!(self, Self::NonRetryable(_) | Self::UnknownOutcome(_))
     }
 }
 
@@ -362,6 +371,10 @@ impl fmt::Debug for FlowError {
             Self::Runtime(message) => formatter.debug_tuple("Runtime").field(message).finish(),
             Self::NonRetryable(message) => formatter
                 .debug_tuple("NonRetryable")
+                .field(message)
+                .finish(),
+            Self::UnknownOutcome(message) => formatter
+                .debug_tuple("UnknownOutcome")
                 .field(message)
                 .finish(),
             Self::Serialization(error) => {

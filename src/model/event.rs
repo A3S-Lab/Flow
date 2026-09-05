@@ -291,6 +291,22 @@ pub enum FlowEvent {
         /// Error returned by the attempt.
         error: String,
     },
+    /// Records that an activity's external side effect has an unknown outcome.
+    ///
+    /// Hosts must reconcile this attempt using its stable idempotency key
+    /// before appending a completion, retry, or terminal failure event.
+    ActivityUnknown {
+        /// Stable identity of the activity.
+        activity_id: String,
+        /// Attempt number whose result is ambiguous.
+        attempt: u32,
+        /// Attempt identity that may have committed externally.
+        attempt_id: String,
+        /// Fencing token of the ambiguous attempt.
+        fencing_token: String,
+        /// Human-readable reason for the unknown outcome.
+        reason: String,
+    },
     /// Records a durable heartbeat and optional activity checkpoint.
     ActivityHeartbeat {
         /// Stable identity of the activity.
@@ -384,6 +400,7 @@ impl FlowEvent {
             Self::ActivityRetrying { .. } => "flow.activity.retrying",
             Self::ActivityFailed { .. } => "flow.activity.failed",
             Self::ActivityNonRetryable { .. } => "flow.activity.non_retryable",
+            Self::ActivityUnknown { .. } => "flow.activity.unknown",
             Self::ActivityHeartbeat { .. } => "flow.activity.heartbeat",
             Self::ActivityCancelled { .. } => "flow.activity.cancelled",
             Self::WaitCreated { .. } => "flow.wait.created",
