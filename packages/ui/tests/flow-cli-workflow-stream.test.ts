@@ -221,6 +221,24 @@ describe('workflow update streams', () => {
     expect(result.document.app.name).toBe('完成');
   });
 
+  it('normalizes mixed text and byte chunks without leaking decoder state', async () => {
+    const encoder = new TextEncoder();
+    const complete = encoder.encode('{"kind":"set-app-name","name":"café"}\n');
+    const split = complete.indexOf(0xc3) + 1;
+    const first = complete.slice(0, split);
+    const observed: FlowCliWorkflowUpdate[] = [];
+    await expect(
+      (async () => {
+        for await (const operation of parseFlowCliWorkflowUpdateNdjson(
+          chunks([first, '©"}\n']),
+        )) {
+          observed.push(operation);
+        }
+      })(),
+    ).rejects.toThrow(/not valid UTF-8/);
+    expect(observed).toEqual([]);
+  });
+
   it('rejects malformed or empty operation streams', async () => {
     await expect(
       (async () => {

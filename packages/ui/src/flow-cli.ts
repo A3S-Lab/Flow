@@ -65,7 +65,16 @@ async function readText(path: string): Promise<string> {
         );
       }
     }
-    return await readFile(path, 'utf8');
+    const bytes = await readFile(path);
+    try {
+      // Do not let Node silently replace malformed bytes in a workflow
+      // document: the source text is also used for optimistic CAS writes.
+      return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+    } catch (error) {
+      throw new Error(
+        `${path} is not valid UTF-8: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   } catch (error) {
     throw new CliError(
       'read_failed',

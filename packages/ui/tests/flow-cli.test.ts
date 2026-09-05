@@ -629,6 +629,10 @@ describe('A3S Flow CLI workflow file CRUD', () => {
       await expect(readFile(invalidFromPath, 'utf8')).rejects.toMatchObject({
         code: 'ENOENT',
       });
+
+      const invalidFile = join(root, 'invalid-file.json');
+      await writeFile(invalidFile, new Uint8Array([0xff, 0xfe]));
+      await expect(runFlowCli(['read', invalidFile])).rejects.toThrow(/not valid UTF-8/);
     } finally {
       Object.defineProperty(process, 'stdin', { configurable: true, value: originalStdin });
       await rm(root, { recursive: true, force: true });

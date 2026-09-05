@@ -196,14 +196,18 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
   for await (const chunk of chunks) {
     let decoded: string;
     try {
-      decoded = typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
+      // Normalize text chunks to the same UTF-8 byte stream as binary chunks.
+      // This keeps mixed Node stream modes ordered and makes malformed
+      // boundaries fail closed instead of leaving decoder state stranded.
+      const encodedChunk = typeof chunk === 'string' ? encoder.encode(chunk) : chunk;
+      decoded = decoder.decode(encodedChunk, { stream: true });
+      bufferBytes += encodedChunk.byteLength;
     } catch (error) {
       throw new Error(
         `Workflow operation stream is not valid UTF-8: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
     buffer += decoded;
-    bufferBytes += encoder.encode(decoded).byteLength;
     let newline = buffer.indexOf('\n');
     while (newline >= 0) {
       const rawLine = buffer.slice(0, newline + 1);

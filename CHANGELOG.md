@@ -19,6 +19,10 @@
   operations, with consistent limit diagnostics for complete and unterminated
   lines.
 
+- Made workflow sources and mixed text/byte authoring streams decode as strict
+  UTF-8, preventing replacement characters or stranded decoder state from
+  being published silently.
+
 - Extended the packaged CLI smoke path to create, compile, and clean up a
   container-scoped workflow, covering the same parent placement contract used
   by the Codex Skill.
