@@ -75,8 +75,8 @@ pub use store::{
 pub use worker::{BootFlowTaskDeduplication, BootFlowTaskManager, BootFlowTaskPolicy};
 pub use worker::{
     FlowTask, FlowTaskDispatcher, FlowTaskLease, FlowTaskOutcome, FlowTaskQueue, FlowWorker,
-    InMemoryFlowTaskQueue, LocalFileDeadLetteredTask, LocalFileFlowTaskQueue,
-    RuntimeBuildTaskRouter,
+    FlowWorkerCapabilities, InMemoryFlowTaskQueue, LocalFileDeadLetteredTask,
+    LocalFileFlowTaskQueue, RuntimeBuildTaskRouter, FLOW_WORKER_PROTOCOL,
 };
 #[cfg(feature = "postgres")]
 pub use worker::{PostgresDeadLetteredTask, PostgresFlowTaskQueue};

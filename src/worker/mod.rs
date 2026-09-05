@@ -4,6 +4,7 @@ mod local_file;
 mod memory;
 #[cfg(feature = "postgres")]
 mod postgres;
+mod protocol;
 mod queue;
 mod routing;
 mod runner;
@@ -15,6 +16,7 @@ pub use local_file::{LocalFileDeadLetteredTask, LocalFileFlowTaskQueue};
 pub use memory::InMemoryFlowTaskQueue;
 #[cfg(feature = "postgres")]
 pub use postgres::{PostgresDeadLetteredTask, PostgresFlowTaskQueue};
+pub use protocol::{FlowWorkerCapabilities, FLOW_WORKER_PROTOCOL};
 pub use queue::{FlowTaskDispatcher, FlowTaskQueue};
 pub use routing::RuntimeBuildTaskRouter;
 pub use runner::FlowWorker;

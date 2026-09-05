@@ -4,7 +4,10 @@ use std::time::Duration;
 use crate::engine::FlowEngine;
 use crate::error::Result;
 
-use super::{FlowTask, FlowTaskLease, FlowTaskOutcome, FlowTaskQueue, InMemoryFlowTaskQueue};
+use super::{
+    FlowTask, FlowTaskLease, FlowTaskOutcome, FlowTaskQueue, FlowWorkerCapabilities,
+    InMemoryFlowTaskQueue,
+};
 
 /// Worker that handles queued workflow tasks against a [`FlowEngine`].
 #[derive(Clone)]
@@ -57,6 +60,16 @@ impl FlowWorker {
     /// Returns the configured periodic heartbeat interval.
     pub fn heartbeat_interval(&self) -> Option<Duration> {
         self.heartbeat_interval
+    }
+
+    /// Advertise the worker's versioned kernel execution capabilities.
+    pub fn capabilities(&self) -> FlowWorkerCapabilities {
+        FlowWorkerCapabilities::current()
+    }
+
+    /// Fail before leasing work when a host requires unsupported capabilities.
+    pub fn ensure_compatible(&self, required: &FlowWorkerCapabilities) -> Result<()> {
+        FlowWorkerCapabilities::negotiate(required, &self.capabilities())
     }
 
     /// Enqueues one task on the worker's queue.

@@ -650,6 +650,12 @@ when the queue is continuously replenished. A zero limit is rejected before
 leasing; application-level queue admission and processor lifecycle remain
 owned by A3S Boot.
 
+Worker replacement uses the versioned `a3s.flow.worker.v1` capability contract.
+Hosts negotiate the required task kinds and kernel guarantees before leasing;
+protocol mismatches and missing capabilities are typed failures. The handshake
+does not negotiate Cloud-owned tenant policy, placement, queue admission, or
+processor lifecycle.
+
 Lease IDs are fencing tokens. Every successful `heartbeat()` atomically refreshes
 lease age and replaces the token; only the latest token can heartbeat or
 acknowledge the task. `FlowWorker` can heartbeat while handling long-running

@@ -76,6 +76,19 @@ pub enum FlowError {
         required_build_id: Option<RuntimeBuildId>,
     },
 
+    /// A worker and host do not speak the same versioned worker protocol.
+    #[error("unsupported Flow worker protocol: required {required}, offered {offered}")]
+    UnsupportedWorkerProtocol {
+        /// Protocol required by the host.
+        required: String,
+        /// Protocol offered by the worker.
+        offered: String,
+    },
+
+    /// A worker is missing a capability required by the host.
+    #[error("Flow worker is missing required capabilities: {0}")]
+    WorkerCapabilityUnavailable(String),
+
     /// Runtime replay emitted a command that conflicts with durable history.
     #[error("non-deterministic workflow replay for run {run_id}: {reason}")]
     NonDeterministic {
@@ -283,6 +296,15 @@ impl fmt::Debug for FlowError {
             Self::RuntimeBuildRouteNotFound { required_build_id } => formatter
                 .debug_struct("RuntimeBuildRouteNotFound")
                 .field("required_build_id", required_build_id)
+                .finish(),
+            Self::UnsupportedWorkerProtocol { required, offered } => formatter
+                .debug_struct("UnsupportedWorkerProtocol")
+                .field("required", required)
+                .field("offered", offered)
+                .finish(),
+            Self::WorkerCapabilityUnavailable(capabilities) => formatter
+                .debug_tuple("WorkerCapabilityUnavailable")
+                .field(capabilities)
                 .finish(),
             Self::NonDeterministic { run_id, reason } => formatter
                 .debug_struct("NonDeterministic")

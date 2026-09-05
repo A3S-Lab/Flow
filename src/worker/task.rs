@@ -75,6 +75,38 @@ pub enum FlowTask {
 }
 
 impl FlowTask {
+    /// Return the stable wire kind used by external task queues.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::DriveRun { .. } => "drive_run",
+            Self::ResumeWait { .. } => "resume_wait",
+            Self::ResumeHook { .. } => "resume_hook",
+            Self::ResumeHookByToken { .. } => "resume_hook_by_token",
+            Self::SendSignal { .. } => "send_signal",
+            Self::DisposeHook { .. } => "dispose_hook",
+            Self::DisposeHookByToken { .. } => "dispose_hook_by_token",
+            Self::ResumeScheduledRun { .. } => "resume_scheduled_run",
+            Self::ResumeDueWaits { .. } => "resume_due_waits",
+            Self::ResumeDueRetries { .. } => "resume_due_retries",
+        }
+    }
+
+    /// Return every task kind implemented by this Flow release in wire order.
+    pub(crate) fn supported_kinds() -> &'static [&'static str] {
+        &[
+            "drive_run",
+            "resume_wait",
+            "resume_hook",
+            "resume_hook_by_token",
+            "send_signal",
+            "dispose_hook",
+            "dispose_hook_by_token",
+            "resume_scheduled_run",
+            "resume_due_waits",
+            "resume_due_retries",
+        ]
+    }
+
     /// Return the single run targeted by this task, when one is explicit.
     ///
     /// Public-token callbacks and compatibility-wide due scans require host

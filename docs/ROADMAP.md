@@ -110,7 +110,10 @@ redrive copies and removes a dead-letter row in one transaction. Worker drain
 now has a bounded fairness/backpressure hook through
 `FlowWorker::run_until_idle_bounded(limit)`, while protocol negotiation,
 queue-admission backpressure, processor fairness across tenants, and hosted
-visibility remain open R5 work.
+visibility remain open R5 work. The first versioned worker handshake is now
+available through `FlowWorkerCapabilities`; it fails closed on protocol or
+required task/guarantee mismatches, while Cloud still owns queue admission and
+fleet policy.
 
 ## 4. Implementation rules
 

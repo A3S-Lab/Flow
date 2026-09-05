@@ -2,8 +2,9 @@
 use a3s_flow::PostgresFlowTaskQueue;
 use a3s_flow::{
     FlowEngine, FlowError, FlowRuntime, FlowTask, FlowTaskLease, FlowTaskQueue, FlowWorker,
-    HookStatus, InMemoryFlowTaskQueue, LocalFileFlowTaskQueue, RetryPolicy, RuntimeCommand,
-    StepInvocation, WaitStatus, WorkflowInvocation, WorkflowRunStatus, WorkflowSpec,
+    FlowWorkerCapabilities, HookStatus, InMemoryFlowTaskQueue, LocalFileFlowTaskQueue, RetryPolicy,
+    RuntimeCommand, StepInvocation, WaitStatus, WorkflowInvocation, WorkflowRunStatus,
+    WorkflowSpec, FLOW_WORKER_PROTOCOL,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
