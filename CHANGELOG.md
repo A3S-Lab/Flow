@@ -7,6 +7,10 @@
   and matching container-start nodes safely, while incomplete container edits
   remain candidate-only until final validation and atomic publication.
 
+- Unified the 10,000-operation authoring bound across JSON-array parsing,
+  direct typed update calls, and NDJSON streams, with the limits exported for
+  host adapters that need to preflight a request.
+
 - Preserved stable Step/Activity attempt, attempt ID, and idempotency-key
   correlation in `A3sFlowEvent` and A3S Event metadata without increasing metric
   label cardinality.

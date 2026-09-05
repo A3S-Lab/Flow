@@ -82,6 +82,8 @@ presentation fields remain intact. Use `--if-digest <sha256>` to reject a stale
 writer whose base document has changed. The candidate is validated before the
 atomic replace, so a rejected or conflicting edit leaves the original file
 unchanged. Add `--dry-run` to receive the candidate summary without writing it.
+Both transports and direct typed callers share a 10,000-operation bound; each
+NDJSON line is limited to 1 MiB.
 
 Use `--set-edge <id> --source <id> --target <id>` to redirect an existing edge
 in place. Optional `--source-handle` and `--target-handle` replace only the

@@ -66,8 +66,10 @@ export type FlowCliWorkflowUpdateObserver = (
   event: FlowCliWorkflowUpdateEvent,
 ) => void | Promise<void>;
 
-const MAX_STREAM_OPERATION_BYTES = 1024 * 1024;
-const MAX_STREAM_OPERATIONS = 10_000;
+/** Maximum encoded size of one streamed authoring operation. */
+export const A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES = 1024 * 1024;
+/** Maximum number of operations accepted by either array or stream transport. */
+export const A3S_FLOW_CLI_MAX_UPDATE_OPERATIONS = 10_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -171,6 +173,11 @@ export function parseFlowCliWorkflowUpdates(value: unknown): FlowCliWorkflowUpda
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error('Workflow operations must be a non-empty JSON array.');
   }
+  if (value.length > A3S_FLOW_CLI_MAX_UPDATE_OPERATIONS) {
+    throw new Error(
+      `Workflow update list exceeds ${A3S_FLOW_CLI_MAX_UPDATE_OPERATIONS} operations.`,
+    );
+  }
   return value.map((candidate, index) => parseFlowCliWorkflowUpdateObject(candidate, index));
 }
 
@@ -195,10 +202,10 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
     }
     if (
       !buffer.includes('\n') &&
-      encoder.encode(buffer).byteLength > MAX_STREAM_OPERATION_BYTES
+      encoder.encode(buffer).byteLength > A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES
     ) {
       throw new Error(
-        `Workflow operation ${index} exceeds ${MAX_STREAM_OPERATION_BYTES} bytes before its newline.`,
+        `Workflow operation ${index} exceeds ${A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES} bytes before its newline.`,
       );
     }
     let newline = buffer.indexOf('\n');
@@ -207,9 +214,9 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
       buffer = buffer.slice(newline + 1);
       if (line.trim()) {
         const bytes = encoder.encode(line).byteLength;
-        if (bytes > MAX_STREAM_OPERATION_BYTES) {
+        if (bytes > A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES) {
           throw new Error(
-            `Workflow operation ${index} is ${bytes} bytes; maximum is ${MAX_STREAM_OPERATION_BYTES}.`,
+            `Workflow operation ${index} is ${bytes} bytes; maximum is ${A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES}.`,
           );
         }
         let value: unknown;
@@ -220,8 +227,10 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
             `Workflow operation ${index} is invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
           );
         }
-        if (index >= MAX_STREAM_OPERATIONS) {
-          throw new Error(`Workflow operation stream exceeds ${MAX_STREAM_OPERATIONS} operations.`);
+        if (index >= A3S_FLOW_CLI_MAX_UPDATE_OPERATIONS) {
+          throw new Error(
+            `Workflow operation stream exceeds ${A3S_FLOW_CLI_MAX_UPDATE_OPERATIONS} operations.`,
+          );
         }
         yield parseFlowCliWorkflowUpdateObject(value, index);
         index += 1;
@@ -230,10 +239,10 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
     }
     if (
       !buffer.includes('\n') &&
-      encoder.encode(buffer).byteLength > MAX_STREAM_OPERATION_BYTES
+      encoder.encode(buffer).byteLength > A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES
     ) {
       throw new Error(
-        `Workflow operation ${index} exceeds ${MAX_STREAM_OPERATION_BYTES} bytes before its newline.`,
+        `Workflow operation ${index} exceeds ${A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES} bytes before its newline.`,
       );
     }
   }
@@ -246,9 +255,9 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
   }
   if (buffer.trim()) {
     const bytes = encoder.encode(buffer).byteLength;
-    if (bytes > MAX_STREAM_OPERATION_BYTES) {
+    if (bytes > A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES) {
       throw new Error(
-        `Workflow operation ${index} is ${bytes} bytes; maximum is ${MAX_STREAM_OPERATION_BYTES}.`,
+        `Workflow operation ${index} is ${bytes} bytes; maximum is ${A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES}.`,
       );
     }
     let value: unknown;
@@ -259,8 +268,10 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
         `Workflow operation ${index} is invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    if (index >= MAX_STREAM_OPERATIONS) {
-      throw new Error(`Workflow operation stream exceeds ${MAX_STREAM_OPERATIONS} operations.`);
+    if (index >= A3S_FLOW_CLI_MAX_UPDATE_OPERATIONS) {
+      throw new Error(
+        `Workflow operation stream exceeds ${A3S_FLOW_CLI_MAX_UPDATE_OPERATIONS} operations.`,
+      );
     }
     yield parseFlowCliWorkflowUpdateObject(value, index);
     index += 1;
@@ -454,6 +465,11 @@ export function applyFlowCliWorkflowUpdates(
   operations: readonly FlowCliWorkflowUpdate[],
 ): FlowCliWorkflowUpdateResult {
   if (operations.length === 0) throw new Error('Workflow update list must not be empty.');
+  if (operations.length > A3S_FLOW_CLI_MAX_UPDATE_OPERATIONS) {
+    throw new Error(
+      `Workflow update list exceeds ${A3S_FLOW_CLI_MAX_UPDATE_OPERATIONS} operations.`,
+    );
+  }
   const document = structuredClone(source);
   const changed: string[] = [];
   for (const operation of operations) {
@@ -475,8 +491,10 @@ export async function applyFlowCliWorkflowUpdateStream(
   const changed: string[] = [];
   let index = 0;
   for await (const operation of operations) {
-    if (index >= MAX_STREAM_OPERATIONS) {
-      throw new Error(`Workflow operation stream exceeds ${MAX_STREAM_OPERATIONS} operations.`);
+    if (index >= A3S_FLOW_CLI_MAX_UPDATE_OPERATIONS) {
+      throw new Error(
+        `Workflow operation stream exceeds ${A3S_FLOW_CLI_MAX_UPDATE_OPERATIONS} operations.`,
+      );
     }
     const operationChanged = applyFlowCliWorkflowUpdateInPlace(document, operation);
     changed.push(...operationChanged);

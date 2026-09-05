@@ -1,6 +1,9 @@
 import {
+  A3S_FLOW_CLI_MAX_UPDATE_OPERATIONS,
   applyFlowCliWorkflowUpdateStream,
+  applyFlowCliWorkflowUpdates,
   parseFlowCliWorkflowUpdateNdjson,
+  parseFlowCliWorkflowUpdates,
 } from '../src/flow-cli-workflow';
 import type { FlowCliWorkflowUpdate } from '../src/flow-cli-workflow';
 import type { A3SFlowWorkflowDsl } from '../src/integrations/a3s-flow-dsl-types';
@@ -291,5 +294,16 @@ describe('workflow update streams', () => {
     ).rejects.toThrow(/exceeds 10000 operations/);
     expect(observed).toHaveLength(10_000);
     expect(observed.at(-1)).toBe(9_999);
+  });
+
+  it('applies the same operation-count bound to array and direct transports', () => {
+    const operations = Array.from(
+      { length: A3S_FLOW_CLI_MAX_UPDATE_OPERATIONS + 1 },
+      (_value, index) => ({ kind: 'set-app-name' as const, name: `workflow-${index}` }),
+    );
+    expect(() => parseFlowCliWorkflowUpdates(operations)).toThrow(/exceeds 10000 operations/);
+    expect(() => applyFlowCliWorkflowUpdates(workflow(), operations)).toThrow(
+      /exceeds 10000 operations/,
+    );
   });
 });
