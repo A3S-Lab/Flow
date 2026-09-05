@@ -34,7 +34,6 @@ impl FlowEngine {
                                         run_id,
                                         checkpoint.snapshot.clone(),
                                         &tail,
-                                        false,
                                     ) {
                                         if snapshot.last_sequence == sequence {
                                             return Ok(snapshot);

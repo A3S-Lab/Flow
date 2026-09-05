@@ -31,7 +31,6 @@ pub(crate) fn project_run(
         run_id,
         WorkflowRunSnapshot::new(run_id, spec, input),
         events,
-        true,
     )
 }
 
@@ -45,32 +44,21 @@ pub(crate) fn project_run_from_snapshot(
     run_id: &str,
     mut snapshot: WorkflowRunSnapshot,
     events: &[FlowEventEnvelope],
-    starts_at_one: bool,
 ) -> Result<WorkflowRunSnapshot> {
-    for (index, envelope) in events.iter().enumerate() {
+    // Suspended is a derived state: it is recomputed after reducing the tail.
+    // Treat a checkpoint in that state as running while applying new events so
+    // the incremental path has the same transition semantics as a full replay.
+    if snapshot.status == WorkflowRunStatus::Suspended {
+        snapshot.status = WorkflowRunStatus::Running;
+    }
+
+    for envelope in events {
         envelope.validate_schema_version()?;
-        let offset = u64::try_from(index).map_err(|error| {
+        let expected_sequence = snapshot.last_sequence.checked_add(1).ok_or_else(|| {
             FlowError::InvalidTransition(format!(
-                "event index cannot be represented for run {run_id}: {error}"
+                "event sequence overflowed while projecting run {run_id}"
             ))
         })?;
-        let expected_sequence = if starts_at_one {
-            offset.checked_add(1).ok_or_else(|| {
-                FlowError::InvalidTransition(format!(
-                    "event sequence overflowed while projecting run {run_id}"
-                ))
-            })?
-        } else {
-            snapshot
-                .last_sequence
-                .checked_add(offset)
-                .and_then(|sequence| sequence.checked_add(1))
-                .ok_or_else(|| {
-                    FlowError::InvalidTransition(format!(
-                        "event sequence overflowed while projecting run {run_id}"
-                    ))
-                })?
-        };
         if envelope.sequence != expected_sequence {
             return Err(FlowError::InvalidTransition(format!(
                 "event sequence must be contiguous for run {run_id}: expected {expected_sequence}, got {}",
@@ -83,16 +71,22 @@ pub(crate) fn project_run_from_snapshot(
                 envelope.event_id, envelope.run_id, run_id
             )));
         }
-        if (!starts_at_one || index > 0) && snapshot.status.is_terminal() {
+        if snapshot.status.is_terminal() {
             return Err(FlowError::InvalidTransition(format!(
                 "event {} appears after terminal run state",
                 envelope.event.event_key()
             )));
         }
+        let is_first_event = snapshot.last_sequence == 0;
+        if is_first_event && !matches!(&envelope.event, FlowEvent::RunCreated { .. }) {
+            return Err(FlowError::InvalidTransition(
+                "first run event must be run_created".to_string(),
+            ));
+        }
         snapshot.last_sequence = envelope.sequence;
         match &envelope.event {
             FlowEvent::RunCreated { .. } => {
-                if !starts_at_one || index > 0 {
+                if !is_first_event {
                     return Err(FlowError::InvalidTransition(
                         "run_created must only appear as the first event".to_string(),
                     ));
@@ -829,4 +823,77 @@ fn ensure_no_blocking_child_workflows(snapshot: &WorkflowRunSnapshot) -> Result<
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use serde_json::json;
+    use uuid::Uuid;
+
+    fn envelope(run_id: &str, sequence: u64, event: FlowEvent) -> FlowEventEnvelope {
+        FlowEventEnvelope::new(
+            run_id,
+            sequence,
+            Uuid::from_u128(u128::from(sequence)),
+            Utc::now(),
+            event,
+        )
+    }
+
+    fn history(run_id: &str) -> Vec<FlowEventEnvelope> {
+        vec![
+            envelope(
+                run_id,
+                1,
+                FlowEvent::RunCreated {
+                    spec: super::super::WorkflowSpec::rust_embedded(
+                        "projection.test",
+                        "1",
+                        "tests::projection",
+                        "main",
+                    ),
+                    input: json!({"source": "projection-test"}),
+                },
+            ),
+            envelope(run_id, 2, FlowEvent::RunStarted),
+            envelope(
+                run_id,
+                3,
+                FlowEvent::WaitCreated {
+                    wait_id: "pause".to_string(),
+                    resume_at: "2030-01-01T00:00:00Z".parse().unwrap(),
+                },
+            ),
+            envelope(
+                run_id,
+                4,
+                FlowEvent::WaitCompleted {
+                    wait_id: "pause".to_string(),
+                },
+            ),
+        ]
+    }
+
+    #[test]
+    fn incremental_projection_matches_full_replay_for_multiple_events() {
+        let run_id = "projection-tail";
+        let events = history(run_id);
+        let full = project_run(run_id, &events).unwrap();
+        let checkpoint = project_run(run_id, &events[..2]).unwrap();
+        let incremental = project_run_from_snapshot(run_id, checkpoint, &events[2..]).unwrap();
+        assert_eq!(incremental, full);
+    }
+
+    #[test]
+    fn incremental_projection_recomputes_derived_suspension_state() {
+        let run_id = "projection-suspension";
+        let events = history(run_id);
+        let full = project_run(run_id, &events).unwrap();
+        let checkpoint = project_run(run_id, &events[..3]).unwrap();
+        assert_eq!(checkpoint.status, WorkflowRunStatus::Suspended);
+        let incremental = project_run_from_snapshot(run_id, checkpoint, &events[3..]).unwrap();
+        assert_eq!(incremental, full);
+    }
 }
