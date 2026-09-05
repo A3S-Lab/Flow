@@ -592,6 +592,11 @@ name, input, and retry policy for that ID. If workflow code changes the
 definition, A3S Flow reports non-deterministic replay instead of silently doing
 new work under an old ID.
 
+Every step invocation also carries a one-based `attempt` and an opaque
+`idempotency_key` derived from the run, step, and attempt IDs. Use that key for
+an external write so a crash between the side effect and `step_completed` can
+be reconciled without creating a duplicate business result.
+
 Replay mismatch errors include compact `history=...; replay=...` command diffs
 for step definitions, wait deadlines, and hook metadata. Hook token mismatches
 are reported without printing token values.
@@ -710,6 +715,11 @@ therefore bounded, spread across workers, and stable across restart. Use
 contract. Flow anchors a newly computed retry deadline at the actual failure
 clock (while retaining a scheduler-provided future cutoff), so a long-running
 step cannot make its next retry immediately overdue.
+
+For permanent application failures, return `FlowError::NonRetryable` from the
+step. Flow records a `step_non_retryable` marker and bypasses the retry budget;
+the configured `continue_workflow_on_failure()` policy still lets replay choose
+a fallback, while the default policy emits a typed run failure.
 
 Host loop:
 

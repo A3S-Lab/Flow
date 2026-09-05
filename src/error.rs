@@ -179,6 +179,10 @@ pub enum FlowError {
     #[error("runtime error: {0}")]
     Runtime(String),
 
+    /// A step returned an application error that must not be retried.
+    #[error("non-retryable step error: {0}")]
+    NonRetryable(String),
+
     /// JSON serialization or deserialization failed.
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
@@ -190,6 +194,16 @@ pub enum FlowError {
     /// Replay emitted more commands than the configured safety bound.
     #[error("workflow replay exceeded {0} iterations")]
     ReplayLimitExceeded(usize),
+}
+
+impl FlowError {
+    /// Return whether a failed step may be retried by its configured policy.
+    ///
+    /// Runtime failures remain retryable for backwards compatibility; step
+    /// handlers opt out explicitly with [`FlowError::NonRetryable`].
+    pub fn is_retryable(&self) -> bool {
+        !matches!(self, Self::NonRetryable(_))
+    }
 }
 
 // Error values can retain callback tokens for programmatic recovery, but
@@ -325,6 +339,10 @@ impl fmt::Debug for FlowError {
                 .finish(),
             Self::Store(message) => formatter.debug_tuple("Store").field(message).finish(),
             Self::Runtime(message) => formatter.debug_tuple("Runtime").field(message).finish(),
+            Self::NonRetryable(message) => formatter
+                .debug_tuple("NonRetryable")
+                .field(message)
+                .finish(),
             Self::Serialization(error) => {
                 formatter.debug_tuple("Serialization").field(error).finish()
             }

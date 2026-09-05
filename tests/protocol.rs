@@ -474,6 +474,7 @@ fn native_ts_authoring_types_track_runtime_protocol_shape() {
         "step_completed",
         "step_retrying",
         "step_failed",
+        "step_non_retryable",
         "step_cancelled",
         "wait_created",
         "wait_completed",

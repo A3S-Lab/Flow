@@ -524,6 +524,7 @@ fn event_status(event: &FlowEvent) -> Option<&'static str> {
         FlowEvent::StepCompleted { .. } => Some("completed"),
         FlowEvent::StepRetrying { .. } => Some("retrying"),
         FlowEvent::StepFailed { .. } => Some("failed"),
+        FlowEvent::StepNonRetryable { .. } => Some("non_retryable"),
         FlowEvent::StepCancelled { .. } => Some("cancelled"),
         FlowEvent::WaitCreated { .. } => Some("waiting"),
         FlowEvent::WaitCompleted { .. } => Some("completed"),
@@ -553,6 +554,7 @@ fn event_subject(event: &FlowEvent) -> Option<A3sFlowEventSubject> {
         | FlowEvent::StepCompleted { step_id, .. }
         | FlowEvent::StepRetrying { step_id, .. }
         | FlowEvent::StepFailed { step_id, .. }
+        | FlowEvent::StepNonRetryable { step_id, .. }
         | FlowEvent::StepCancelled { step_id, .. }
         | FlowEvent::RunRetryExhausted { step_id, .. } => Some(A3sFlowEventSubject {
             kind: "step".to_string(),

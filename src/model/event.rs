@@ -174,6 +174,15 @@ pub enum FlowEvent {
         /// Error returned by the final attempt.
         error: String,
     },
+    /// Records an application failure that must not be retried.
+    StepNonRetryable {
+        /// Stable identity of the step.
+        step_id: String,
+        /// Attempt number that failed.
+        attempt: u32,
+        /// Error returned by the attempt.
+        error: String,
+    },
     /// Marks a step as no longer actionable after a terminal batch or explicit
     /// host abort.
     ///
@@ -249,6 +258,7 @@ impl FlowEvent {
             Self::StepCompleted { .. } => "flow.step.completed",
             Self::StepRetrying { .. } => "flow.step.retrying",
             Self::StepFailed { .. } => "flow.step.failed",
+            Self::StepNonRetryable { .. } => "flow.step.non_retryable",
             Self::StepCancelled { .. } => "flow.step.cancelled",
             Self::WaitCreated { .. } => "flow.wait.created",
             Self::WaitCompleted { .. } => "flow.wait.completed",

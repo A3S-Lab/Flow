@@ -197,6 +197,12 @@ export type FlowEvent =
     }
   | { type: "step_failed"; step_id: string; attempt: number; error: string }
   | {
+      type: "step_non_retryable";
+      step_id: string;
+      attempt: number;
+      error: string;
+    }
+  | {
       type: "step_cancelled";
       step_id: string;
       attempt: number;

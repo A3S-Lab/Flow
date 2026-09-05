@@ -96,6 +96,56 @@ async fn exhausted_step_failure_fails_run_by_default() {
         .any(|envelope| matches!(envelope.event, FlowEvent::RunRetryExhausted { .. })));
 }
 
+#[derive(Default)]
+struct NonRetryableFailureRuntime {
+    attempts: AtomicUsize,
+}
+
+#[async_trait]
+impl FlowRuntime for NonRetryableFailureRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        Ok(invocation.context().schedule_step_with_retry(
+            "permanent",
+            "permanentStep",
+            json!({}),
+            RetryPolicy::fixed(4, Duration::from_millis(0)),
+        ))
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        self.attempts.fetch_add(1, Ordering::SeqCst);
+        Err(FlowError::NonRetryable("permission denied".to_string()))
+    }
+}
+
+#[tokio::test]
+async fn non_retryable_step_failure_skips_retry_budget() {
+    let runtime = Arc::new(NonRetryableFailureRuntime::default());
+    let engine = FlowEngine::in_memory(runtime.clone());
+    let run_id = engine.start(spec(), json!({})).await.unwrap();
+    let snapshot = engine.snapshot(&run_id).await.unwrap();
+    let history = engine.history(&run_id).await.unwrap();
+
+    assert_eq!(runtime.attempts.load(Ordering::SeqCst), 1);
+    assert_eq!(snapshot.status, WorkflowRunStatus::Failed);
+    assert_eq!(
+        snapshot.terminal_outcome,
+        Some(WorkflowTerminalOutcome::Failed {
+            error: "non-retryable step error: permission denied".to_string(),
+        })
+    );
+    assert!(history.iter().any(|envelope| matches!(
+        envelope.event,
+        FlowEvent::StepNonRetryable { attempt: 1, .. }
+    )));
+    assert!(!history
+        .iter()
+        .any(|envelope| matches!(envelope.event, FlowEvent::StepRetrying { .. })));
+}
+
 #[async_trait]
 impl FlowRuntime for RecoverableStepFailureRuntime {
     async fn run_workflow(

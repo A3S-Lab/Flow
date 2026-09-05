@@ -91,6 +91,26 @@ pub(super) fn interrupted_terminal_event(
         });
     }
 
+    if let Some((failed_step_id, error)) = history.iter().find_map(|envelope| {
+        let FlowEvent::StepNonRetryable { step_id, error, .. } = &envelope.event else {
+            return None;
+        };
+        let step = snapshot.steps.get(step_id)?;
+        (step.status == StepStatus::Failed
+            && step.retry.on_exhausted == StepFailureAction::FailRun
+            && step.error.as_deref() == Some(error.as_str()))
+        .then(|| (step_id.clone(), error.clone()))
+    }) {
+        if let Some((open_step_id, open_attempt)) = next_open_step(snapshot) {
+            return Some(FlowEvent::StepCancelled {
+                step_id: open_step_id.to_string(),
+                attempt: open_attempt,
+                reason: batch_abort_reason(&failed_step_id),
+            });
+        }
+        return Some(FlowEvent::RunFailed { error });
+    }
+
     // A task panic/cancellation has no `StepFailed` event to anchor recovery.
     // Its first durable marker carries a reserved reason prefix; use that
     // marker as the intent record and finish cancelling any remaining peers.
@@ -218,6 +238,26 @@ impl FlowEngine {
                         FlowEvent::StepCompleted { step_id, output },
                     )
                     .await?;
+                    return Ok(());
+                }
+                Err(err) if !err.is_retryable() => {
+                    let error = err.to_string();
+                    let failed = self
+                        .record_event_at(
+                            run_id,
+                            expected_sequence,
+                            FlowEvent::StepNonRetryable {
+                                step_id: step_id.clone(),
+                                attempt,
+                                error: error.clone(),
+                            },
+                        )
+                        .await?;
+                    if retry.on_exhausted == StepFailureAction::ContinueWorkflow {
+                        return Ok(());
+                    }
+                    self.record_event_at(run_id, failed.sequence, FlowEvent::RunFailed { error })
+                        .await?;
                     return Ok(());
                 }
                 Err(err) if attempt < max_attempts => {
@@ -463,6 +503,30 @@ impl FlowEngine {
                             )
                             .await?;
                         expected_sequence = completed.sequence;
+                    }
+                    Err(error) if !error.is_retryable() => {
+                        let error = error.to_string();
+                        let failed = self
+                            .record_event_at(
+                                run_id,
+                                expected_sequence,
+                                FlowEvent::StepNonRetryable {
+                                    step_id: step.step_id.clone(),
+                                    attempt: *attempt,
+                                    error: error.clone(),
+                                },
+                            )
+                            .await?;
+                        expected_sequence = failed.sequence;
+                        if step.retry.on_exhausted == StepFailureAction::FailRun {
+                            terminal_failure = Some(BatchTerminalFailure {
+                                step_index: index,
+                                attempt: *attempt,
+                                error,
+                                retry_exhausted: false,
+                            });
+                            break;
+                        }
                     }
                     Err(error) if *attempt < step.retry.max_attempts.max(1) => {
                         let error = error.to_string();

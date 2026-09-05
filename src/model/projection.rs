@@ -599,6 +599,33 @@ pub(crate) fn project_run(
                 step.error = Some(error.clone());
                 step.retry_after = None;
             }
+            FlowEvent::StepNonRetryable {
+                step_id,
+                attempt,
+                error,
+            } => {
+                let step = snapshot.steps.get_mut(step_id).ok_or_else(|| {
+                    FlowError::InvalidTransition(format!(
+                        "step_non_retryable references unknown step {step_id}"
+                    ))
+                })?;
+                if step.status != StepStatus::Running {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "step_non_retryable cannot follow {:?} for step {step_id}",
+                        step.status
+                    )));
+                }
+                if *attempt != step.attempt {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "step_non_retryable attempt {attempt} does not match running attempt {} for step {step_id}",
+                        step.attempt
+                    )));
+                }
+                step.status = StepStatus::Failed;
+                step.attempt = *attempt;
+                step.error = Some(error.clone());
+                step.retry_after = None;
+            }
             FlowEvent::StepCancelled {
                 step_id,
                 attempt,
