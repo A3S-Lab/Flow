@@ -106,6 +106,11 @@ The runtime returns exactly one command:
   committed. The cancellation reason is deliberately explicit when an
   external side-effect outcome is unknown; hosts must reconcile that attempt
   with its stable idempotency key before retrying it elsewhere.
+- `schedule_activity`: the engine persists an Activity ledger before invoking
+  host code. Each attempt has a stable `attempt_id`/idempotency key and a
+  fencing token; worker redelivery acquires a fresh fence, and stale results
+  are rejected by projection. Hosts can append fenced `activity_heartbeat`
+  events carrying an optional checkpoint through `heartbeat_activity()`.
 - `wait_until`: the engine persists `wait_created` and stops driving the run
   until `resume_wait()` records `wait_completed`. Redelivery for an existing
   wait is idempotent after it completed or its run became terminal. Matching
@@ -333,8 +338,9 @@ transactionally remove active-hook and scheduled-wakeup rows when a segment
 closes.
 
 The workflow function is deterministic because it derives its next decision from
-the input and event history. Side effects are isolated to steps and are only
-observed by the workflow after their outputs have been persisted.
+the input and event history. Side effects are isolated to Steps or first-class
+Activities and are only observed by the workflow after their outputs have been
+persisted.
 
 Replay also validates durable command definitions. If workflow code reuses an
 existing step, wait, hook, signal-wait, or child ID with a different step input,
@@ -622,7 +628,7 @@ tasks. A lost heartbeat drops the handling future, while a stale acknowledgement
 returns `FlowError::LeaseLost` instead of being mistaken for completion.
 Local-file queues accept only their canonical timestamp-and-UUID lease file
 names, so caller-provided tokens cannot escape the inflight queue directory.
-Workflow steps still have documented at-least-once side-effect semantics:
+Workflow Steps and Activities still have documented at-least-once side-effect semantics:
 fencing guards queue ownership, while committed event history and idempotency
 keys remain the authority for replay.
 

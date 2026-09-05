@@ -197,6 +197,117 @@ pub enum FlowEvent {
         /// Human-readable cancellation or reconciliation reason.
         reason: String,
     },
+    /// Creates a first-class durable activity invocation.
+    ActivityCreated {
+        /// Replay-stable identity of the activity.
+        activity_id: String,
+        /// Registered activity implementation name.
+        activity_name: String,
+        /// JSON input supplied to the activity.
+        input: JsonValue,
+        /// Retry behavior pinned when the activity is created.
+        #[serde(default)]
+        retry: RetryPolicy,
+    },
+    /// Marks one activity attempt as started and assigns its fencing token.
+    ActivityStarted {
+        /// Stable identity of the activity.
+        activity_id: String,
+        /// One-based attempt number.
+        attempt: u32,
+        /// Stable identity for this attempt.
+        attempt_id: String,
+        /// Idempotency key for external side effects.
+        idempotency_key: String,
+        /// Fencing token used to reject stale completions.
+        fencing_token: String,
+    },
+    /// Reassigns a running attempt after worker redelivery with a new fence.
+    ActivityLeaseAcquired {
+        /// Stable identity of the activity.
+        activity_id: String,
+        /// Current attempt number.
+        attempt: u32,
+        /// Attempt identity retained across redelivery.
+        attempt_id: String,
+        /// New fencing token for the replacement worker.
+        fencing_token: String,
+    },
+    /// Records the successful output of an activity.
+    ActivityCompleted {
+        /// Stable identity of the activity.
+        activity_id: String,
+        /// Attempt identity that produced the output.
+        attempt_id: String,
+        /// Fencing token of the completing attempt.
+        fencing_token: String,
+        /// JSON output returned by the activity.
+        output: JsonValue,
+    },
+    /// Records a failed activity attempt that will be retried.
+    ActivityRetrying {
+        /// Stable identity of the activity.
+        activity_id: String,
+        /// Attempt number that failed.
+        attempt: u32,
+        /// Attempt identity that failed.
+        attempt_id: String,
+        /// Fencing token of the failed attempt.
+        fencing_token: String,
+        /// Error returned by the attempt.
+        error: String,
+        /// Earliest UTC time for the next attempt, if delayed.
+        retry_after: Option<DateTime<Utc>>,
+    },
+    /// Records an activity that exhausted its retry policy.
+    ActivityFailed {
+        /// Stable identity of the activity.
+        activity_id: String,
+        /// Final attempt number that failed.
+        attempt: u32,
+        /// Attempt identity that failed.
+        attempt_id: String,
+        /// Fencing token of the failed attempt.
+        fencing_token: String,
+        /// Error returned by the final attempt.
+        error: String,
+    },
+    /// Records an application failure that must not be retried.
+    ActivityNonRetryable {
+        /// Stable identity of the activity.
+        activity_id: String,
+        /// Attempt number that failed.
+        attempt: u32,
+        /// Attempt identity that failed.
+        attempt_id: String,
+        /// Fencing token of the failed attempt.
+        fencing_token: String,
+        /// Error returned by the attempt.
+        error: String,
+    },
+    /// Records a durable heartbeat and optional activity checkpoint.
+    ActivityHeartbeat {
+        /// Stable identity of the activity.
+        activity_id: String,
+        /// Current attempt number.
+        attempt: u32,
+        /// Attempt identity submitting the heartbeat.
+        attempt_id: String,
+        /// Fencing token submitting the heartbeat.
+        fencing_token: String,
+        /// Optional checkpoint for recovery or operator inspection.
+        #[serde(default)]
+        checkpoint: Option<JsonValue>,
+    },
+    /// Marks an activity as no longer actionable after cancellation.
+    ActivityCancelled {
+        /// Stable identity of the activity.
+        activity_id: String,
+        /// Attempt that was active when the activity was cancelled.
+        attempt: u32,
+        /// Human-readable cancellation or reconciliation reason.
+        reason: String,
+    },
     /// Creates a durable timer wait.
     WaitCreated {
         /// Replay-stable identity of the wait.
@@ -260,6 +371,15 @@ impl FlowEvent {
             Self::StepFailed { .. } => "flow.step.failed",
             Self::StepNonRetryable { .. } => "flow.step.non_retryable",
             Self::StepCancelled { .. } => "flow.step.cancelled",
+            Self::ActivityCreated { .. } => "flow.activity.created",
+            Self::ActivityStarted { .. } => "flow.activity.started",
+            Self::ActivityLeaseAcquired { .. } => "flow.activity.lease_acquired",
+            Self::ActivityCompleted { .. } => "flow.activity.completed",
+            Self::ActivityRetrying { .. } => "flow.activity.retrying",
+            Self::ActivityFailed { .. } => "flow.activity.failed",
+            Self::ActivityNonRetryable { .. } => "flow.activity.non_retryable",
+            Self::ActivityHeartbeat { .. } => "flow.activity.heartbeat",
+            Self::ActivityCancelled { .. } => "flow.activity.cancelled",
             Self::WaitCreated { .. } => "flow.wait.created",
             Self::WaitCompleted { .. } => "flow.wait.completed",
             Self::HookCreated { .. } => "flow.hook.created",

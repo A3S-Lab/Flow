@@ -3,11 +3,13 @@ use std::collections::BTreeMap;
 use crate::error::{FlowError, Result};
 
 use super::{
-    validate_run_id, CancellationRequestSnapshot, ChildWorkflowSnapshot, FlowEvent,
+    validate_run_id, ActivityStatus, CancellationRequestSnapshot, ChildWorkflowSnapshot, FlowEvent,
     FlowEventEnvelope, HookSnapshot, HookStatus, SignalWaitSnapshot, SignalWaitStatus,
     StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowContinuation,
     WorkflowRunSnapshot, WorkflowRunStatus, WorkflowSignalSnapshot, WorkflowTerminalOutcome,
 };
+
+mod activity;
 
 pub(crate) fn project_run(
     run_id: &str,
@@ -33,6 +35,7 @@ pub(crate) fn project_run(
         input,
         status: WorkflowRunStatus::Pending,
         steps: BTreeMap::new(),
+        activities: BTreeMap::new(),
         waits: BTreeMap::new(),
         hooks: BTreeMap::new(),
         cancellation: None,
@@ -127,6 +130,15 @@ pub(crate) fn project_run(
                     if matches!(step.status, StepStatus::Pending | StepStatus::Running) {
                         step.status = StepStatus::Cancelled;
                         step.retry_after = None;
+                    }
+                }
+                for activity in snapshot.activities.values_mut() {
+                    if matches!(
+                        activity.status,
+                        ActivityStatus::Pending | ActivityStatus::Running
+                    ) {
+                        activity.status = ActivityStatus::Cancelled;
+                        activity.retry_after = None;
                     }
                 }
                 for wait in snapshot.waits.values_mut() {
@@ -651,6 +663,17 @@ pub(crate) fn project_run(
                 step.status = StepStatus::Cancelled;
                 step.error = Some(reason.clone());
                 step.retry_after = None;
+            }
+            FlowEvent::ActivityCreated { .. }
+            | FlowEvent::ActivityStarted { .. }
+            | FlowEvent::ActivityLeaseAcquired { .. }
+            | FlowEvent::ActivityCompleted { .. }
+            | FlowEvent::ActivityRetrying { .. }
+            | FlowEvent::ActivityFailed { .. }
+            | FlowEvent::ActivityNonRetryable { .. }
+            | FlowEvent::ActivityHeartbeat { .. }
+            | FlowEvent::ActivityCancelled { .. } => {
+                activity::project_activity(&mut snapshot, envelope)?;
             }
             FlowEvent::WaitCreated { wait_id, resume_at } => {
                 if snapshot.waits.contains_key(wait_id) {

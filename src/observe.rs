@@ -526,6 +526,15 @@ fn event_status(event: &FlowEvent) -> Option<&'static str> {
         FlowEvent::StepFailed { .. } => Some("failed"),
         FlowEvent::StepNonRetryable { .. } => Some("non_retryable"),
         FlowEvent::StepCancelled { .. } => Some("cancelled"),
+        FlowEvent::ActivityCreated { .. } => Some("pending"),
+        FlowEvent::ActivityStarted { .. } => Some("running"),
+        FlowEvent::ActivityLeaseAcquired { .. } => Some("lease_acquired"),
+        FlowEvent::ActivityCompleted { .. } => Some("completed"),
+        FlowEvent::ActivityRetrying { .. } => Some("retrying"),
+        FlowEvent::ActivityFailed { .. } => Some("failed"),
+        FlowEvent::ActivityNonRetryable { .. } => Some("non_retryable"),
+        FlowEvent::ActivityHeartbeat { .. } => Some("heartbeat"),
+        FlowEvent::ActivityCancelled { .. } => Some("cancelled"),
         FlowEvent::WaitCreated { .. } => Some("waiting"),
         FlowEvent::WaitCompleted { .. } => Some("completed"),
         FlowEvent::HookCreated { .. } => Some("active"),
@@ -559,6 +568,18 @@ fn event_subject(event: &FlowEvent) -> Option<A3sFlowEventSubject> {
         | FlowEvent::RunRetryExhausted { step_id, .. } => Some(A3sFlowEventSubject {
             kind: "step".to_string(),
             id: step_id.clone(),
+        }),
+        FlowEvent::ActivityCreated { activity_id, .. }
+        | FlowEvent::ActivityStarted { activity_id, .. }
+        | FlowEvent::ActivityLeaseAcquired { activity_id, .. }
+        | FlowEvent::ActivityCompleted { activity_id, .. }
+        | FlowEvent::ActivityRetrying { activity_id, .. }
+        | FlowEvent::ActivityFailed { activity_id, .. }
+        | FlowEvent::ActivityNonRetryable { activity_id, .. }
+        | FlowEvent::ActivityHeartbeat { activity_id, .. }
+        | FlowEvent::ActivityCancelled { activity_id, .. } => Some(A3sFlowEventSubject {
+            kind: "activity".to_string(),
+            id: activity_id.clone(),
         }),
         FlowEvent::RunProgressRecorded { progress } => Some(A3sFlowEventSubject {
             kind: "progress".to_string(),

@@ -14,6 +14,11 @@
 - Added explicit non-retryable step failures and durable `step_non_retryable`
   markers so permanent application errors bypass retry budgets while retaining
   replay and recovery semantics.
+- Added a first-class Activity ledger with durable attempt, idempotency, and
+  fencing identities, retry/non-retryable lifecycle events, cancellation
+  projection, lease reacquisition, and an engine heartbeat/checkpoint API.
+  Existing Step runtimes remain source-compatible through the default
+  `run_activity` adapter.
 - Unified Rust and TypeScript workflow execution digests under format `v2`,
   including JavaScript number rendering, UTF-16 key ordering, safe-integer and
   nesting guards, and cross-language golden vectors.

@@ -6,7 +6,7 @@ export type Json =
   | Json[]
   | { [key: string]: Json };
 
-export type NativeRuntimeKind = "workflow" | "step";
+export type NativeRuntimeKind = "workflow" | "step" | "activity";
 
 export type RuntimeFamily = "native_ts" | "rust_embedded";
 
@@ -110,6 +110,13 @@ export type RuntimeCommand =
       steps: StepCommand[];
     }
   | {
+      type: "schedule_activity";
+      activity_id: string;
+      activity_name: string;
+      input: Json;
+      retry?: RetryPolicy;
+    }
+  | {
       type: "wait_until";
       wait_id: string;
       resume_at: string;
@@ -129,6 +136,13 @@ export type RuntimeCommand =
 export type StepCommand = {
   step_id: string;
   step_name: string;
+  input: Json;
+  retry?: RetryPolicy;
+};
+
+export type ActivityCommand = {
+  activity_id: string;
+  activity_name: string;
   input: Json;
   retry?: RetryPolicy;
 };
@@ -208,6 +222,74 @@ export type FlowEvent =
       attempt: number;
       reason: string;
     }
+  | {
+      type: "activity_created";
+      activity_id: string;
+      activity_name: string;
+      input: Json;
+      retry: RetryPolicy;
+    }
+  | {
+      type: "activity_started";
+      activity_id: string;
+      attempt: number;
+      attempt_id: string;
+      idempotency_key: string;
+      fencing_token: string;
+    }
+  | {
+      type: "activity_lease_acquired";
+      activity_id: string;
+      attempt: number;
+      attempt_id: string;
+      fencing_token: string;
+    }
+  | {
+      type: "activity_completed";
+      activity_id: string;
+      attempt_id: string;
+      fencing_token: string;
+      output: Json;
+    }
+  | {
+      type: "activity_retrying";
+      activity_id: string;
+      attempt: number;
+      attempt_id: string;
+      fencing_token: string;
+      error: string;
+      retry_after: string | null;
+    }
+  | {
+      type: "activity_failed";
+      activity_id: string;
+      attempt: number;
+      attempt_id: string;
+      fencing_token: string;
+      error: string;
+    }
+  | {
+      type: "activity_non_retryable";
+      activity_id: string;
+      attempt: number;
+      attempt_id: string;
+      fencing_token: string;
+      error: string;
+    }
+  | {
+      type: "activity_heartbeat";
+      activity_id: string;
+      attempt: number;
+      attempt_id: string;
+      fencing_token: string;
+      checkpoint?: Json | null;
+    }
+  | {
+      type: "activity_cancelled";
+      activity_id: string;
+      attempt: number;
+      reason: string;
+    }
   | { type: "wait_created"; wait_id: string; resume_at: string }
   | { type: "wait_completed"; wait_id: string }
   | { type: "hook_created"; hook_id: string; token: string; metadata: Json }
@@ -239,6 +321,22 @@ export type StepInvocation<Input extends Json = Json> = {
   history: FlowEventEnvelope[];
   idempotency_key: string;
 };
+
+export type ActivityInvocation<Input extends Json = Json> = {
+  run_id: string;
+  activity_id: string;
+  attempt: number;
+  attempt_id: string;
+  activity_name: string;
+  input: Input;
+  history: FlowEventEnvelope[];
+  idempotency_key: string;
+  fencing_token: string;
+};
+
+export type ActivityDefinition<Input extends Json = Json, Output extends Json = Json> = (
+  invocation: ActivityInvocation<Input>,
+) => Output | Promise<Output>;
 
 export type StepDefinition<Input extends Json = Json, Output extends Json = Json> = (
   invocation: StepInvocation<Input>,

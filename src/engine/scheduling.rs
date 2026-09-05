@@ -133,7 +133,7 @@ impl FlowEngine {
         Ok(resumed)
     }
 
-    /// List pending step retries whose `retry_after` is at or before `now`.
+    /// List pending step or activity retries whose `retry_after` is at or before `now`.
     pub async fn list_due_retries(&self, now: DateTime<Utc>) -> Result<Vec<(String, String)>> {
         let mut due = self
             .list_due_wakeups(now)
@@ -159,7 +159,7 @@ impl FlowEngine {
         Ok(wakeups)
     }
 
-    /// Drive every run with a due step retry.
+    /// Drive every run with a due step or activity retry.
     pub async fn resume_due_retries(&self, now: DateTime<Utc>) -> Result<Vec<(String, String)>> {
         let due = self.list_due_retries(now).await?;
         let mut run_ids = Vec::new();

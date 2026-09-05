@@ -41,6 +41,31 @@ fn native_runtime_response_decodes_kind_and_error_envelope() {
 }
 
 #[test]
+fn activity_protocol_preserves_fencing_and_checkpoint_fields() {
+    let command = RuntimeCommand::schedule_activity("a1", "sendEmail", json!({ "to": "x" }));
+    let encoded = serde_json::to_value(command).unwrap();
+    assert_eq!(encoded["type"], "schedule_activity");
+    assert_eq!(encoded["activity_id"], "a1");
+
+    let event = FlowEvent::ActivityHeartbeat {
+        activity_id: "a1".to_string(),
+        attempt: 1,
+        attempt_id: "attempt-1".to_string(),
+        fencing_token: "fence-1".to_string(),
+        checkpoint: Some(json!({ "cursor": 9 })),
+    };
+    let encoded = serde_json::to_value(event).unwrap();
+    assert_eq!(encoded["type"], "activity_heartbeat");
+    assert_eq!(encoded["fencing_token"], "fence-1");
+    assert_eq!(encoded["checkpoint"]["cursor"], 9);
+
+    assert_eq!(
+        serde_json::to_value(NativeRuntimeKind::Activity).unwrap(),
+        "activity"
+    );
+}
+
+#[test]
 fn native_compiler_protocol_has_stable_capability_and_manifest_fields() {
     let capabilities = serde_json::to_value(NativeTsCompilerCapabilities::current()).unwrap();
     assert_eq!(capabilities["protocol"], NATIVE_COMPILER_PROTOCOL);

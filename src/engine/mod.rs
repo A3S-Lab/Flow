@@ -15,6 +15,7 @@ use crate::runtime::{FlowRuntime, WorkflowInvocation};
 use crate::runtime_build::{RuntimeBuildCompatibility, RuntimeBuildId};
 use crate::store::{FlowEventStore, FlowStoreCapabilities, InMemoryEventStore};
 
+mod activities;
 mod child_workflows;
 mod continuation;
 mod hooks;
@@ -25,12 +26,14 @@ mod scheduling;
 mod signals;
 mod steps;
 mod validation;
+use activities::ActivityExecutionContext;
 use signals::SignalWaitCommandOutcome;
 use steps::{interrupted_terminal_event, StepExecutionContext};
 use validation::{
-    ensure_child_operation_matches, ensure_child_workflow_batch_valid, ensure_hook_command_matches,
-    ensure_progress_matches, ensure_retry_policy_valid, ensure_step_batch_valid,
-    ensure_step_command_matches, ensure_wait_command_matches, is_event_conflict,
+    ensure_activity_command_matches, ensure_activity_command_valid, ensure_child_operation_matches,
+    ensure_child_workflow_batch_valid, ensure_hook_command_matches, ensure_progress_matches,
+    ensure_retry_policy_valid, ensure_step_batch_valid, ensure_step_command_matches,
+    ensure_wait_command_matches, is_event_conflict,
 };
 
 const DEFAULT_MAX_CONTINUE_AS_NEW_HOPS: usize = 64;
@@ -601,6 +604,57 @@ impl FlowEngine {
                     match self.execute_step_batch(run_id, &snapshot, steps, now).await {
                         Ok(()) => {}
                         Err(err) if is_event_conflict(&err) => continue 'replay,
+                        Err(err) => return Err(err),
+                    }
+                }
+                RuntimeCommand::ScheduleActivity {
+                    activity_id,
+                    activity_name,
+                    input,
+                    retry,
+                } => {
+                    ensure_activity_command_valid(&crate::model::ActivityCommand {
+                        activity_id: activity_id.clone(),
+                        activity_name: activity_name.clone(),
+                        input: input.clone(),
+                        retry,
+                    })?;
+                    if let Some(activity) = snapshot.activities.get(&activity_id) {
+                        ensure_activity_command_matches(
+                            run_id,
+                            activity,
+                            &activity_name,
+                            &input,
+                            retry,
+                        )?;
+                        if matches!(
+                            activity.status,
+                            crate::model::ActivityStatus::Completed
+                                | crate::model::ActivityStatus::Failed
+                                | crate::model::ActivityStatus::Cancelled
+                        ) {
+                            return Err(FlowError::InvalidTransition(format!(
+                                "workflow rescheduled terminal activity {activity_id} without progress"
+                            )));
+                        }
+                    }
+                    ensure_retry_policy_valid(retry)?;
+                    match self
+                        .execute_activity(
+                            run_id,
+                            &snapshot,
+                            ActivityExecutionContext {
+                                activity_id,
+                                activity_name,
+                                input,
+                                retry,
+                                now,
+                            },
+                        )
+                        .await
+                    {
+                        Ok(()) => {}
+                        Err(err) if is_event_conflict(&err) => continue,
                         Err(err) => return Err(err),
                     }
                 }

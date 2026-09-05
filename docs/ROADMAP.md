@@ -69,6 +69,18 @@ but a later wave cannot claim completion while an earlier exit gate is open.
 | `FLOW-R5` Worker and observability protocol | Make workers replaceable and executions diagnosable | Versioned worker wire protocol; capability negotiation; queue backpressure/fairness hooks; drain and dead-letter redrive; runtime-build reachability; OpenTelemetry trace context; stable run/attempt correlation; visibility projection contract | Mixed-version workers, lease expiry, queue loss, and replacement pass conformance; Cloud can rebuild visibility without replaying every history |
 | `FLOW-R6` Certification and ecosystem | Turn the kernel into a dependable platform dependency | Cross-language protocol fixtures; Rust/TypeScript parity; optional SDKs; crash/partition/chaos suite; load benchmarks; migration tooling; release and security automation; operator cookbook | Exact-revision release bundle passes real-provider, fault, upgrade, compatibility, and package gates |
 
+### Current implementation checkpoint (2026-09-05)
+
+`FLOW-R1` is implemented for envelope versioning, deterministic helpers,
+store capability admission, and retry/error classification. `FLOW-R2` now has
+the first-class Activity ledger: durable create/start/result transitions,
+attempt and idempotency identities, per-redelivery fencing, non-retryable
+classification, cancellation projection, and a fenced heartbeat/checkpoint
+API. The remaining R2 work is host-owned Outbox/Inbox transaction wiring and
+fault-injection coverage across every external connector boundary; those must
+be delivered by Cloud integrations without moving tenant or product policy
+into Flow.
+
 ## 4. Implementation rules
 
 ### 4.1 Activity protocol

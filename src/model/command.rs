@@ -573,6 +573,18 @@ pub enum RuntimeCommand {
         /// Step definitions in deterministic scheduling order.
         steps: Vec<StepCommand>,
     },
+    /// Schedules one first-class activity or awaits its recorded outcome.
+    ScheduleActivity {
+        /// Replay-stable identity of the activity.
+        activity_id: String,
+        /// Registered activity implementation name.
+        activity_name: String,
+        /// JSON input supplied to the activity.
+        input: JsonValue,
+        /// Retry behavior pinned when the activity is created.
+        #[serde(default)]
+        retry: RetryPolicy,
+    },
     /// Suspends replay until a UTC deadline becomes ready.
     WaitUntil {
         /// Replay-stable identity of the timer wait.
@@ -620,6 +632,43 @@ pub struct StepCommand {
     pub retry: RetryPolicy,
 }
 
+/// Activity definition returned by workflow replay.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
+pub struct ActivityCommand {
+    /// Replay-stable identity of the activity.
+    pub activity_id: String,
+    /// Registered activity implementation name.
+    pub activity_name: String,
+    /// JSON input supplied to the activity.
+    pub input: JsonValue,
+    /// Retry behavior pinned when the activity is created.
+    #[serde(default)]
+    pub retry: RetryPolicy,
+}
+
+impl ActivityCommand {
+    /// Creates an activity definition with the default retry policy.
+    pub fn new(
+        activity_id: impl Into<String>,
+        activity_name: impl Into<String>,
+        input: JsonValue,
+    ) -> Self {
+        Self {
+            activity_id: activity_id.into(),
+            activity_name: activity_name.into(),
+            input,
+            retry: RetryPolicy::default(),
+        }
+    }
+
+    /// Replaces the activity's retry policy.
+    pub fn with_retry(mut self, retry: RetryPolicy) -> Self {
+        self.retry = retry;
+        self
+    }
+}
+
 impl StepCommand {
     /// Creates a step definition with the default retry policy.
     pub fn new(step_id: impl Into<String>, step_name: impl Into<String>, input: JsonValue) -> Self {
@@ -656,6 +705,20 @@ impl RuntimeCommand {
     /// Creates an atomic batch scheduling command.
     pub fn schedule_steps(steps: Vec<StepCommand>) -> Self {
         Self::ScheduleSteps { steps }
+    }
+
+    /// Creates a single-activity schedule command with the default retry policy.
+    pub fn schedule_activity(
+        activity_id: impl Into<String>,
+        activity_name: impl Into<String>,
+        input: JsonValue,
+    ) -> Self {
+        Self::ScheduleActivity {
+            activity_id: activity_id.into(),
+            activity_name: activity_name.into(),
+            input,
+            retry: RetryPolicy::default(),
+        }
     }
 
     /// Create a bounded batch child-workflow command.

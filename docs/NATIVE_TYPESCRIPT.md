@@ -57,6 +57,9 @@ The produced artifact must:
 - write one `NativeRuntimeResponse` JSON object to stdout,
 - dispatch workflow requests to the `exportName` function from the request,
 - dispatch step requests by `payload.step_name`.
+- dispatch activity requests by `payload.activity_name`; activity payloads also
+  include `attempt_id`, `idempotency_key`, and `fencing_token` for safe
+  redelivery and stale-worker rejection.
 
 Set a custom compiler path in Rust:
 
@@ -306,6 +309,7 @@ The contract defines:
 - `FlowEvent`
 - `FlowEventEnvelope`
 - `StepDefinition<Input, Output>`
+- `ActivityInvocation<Input>` and `ActivityDefinition<Input, Output>`
 - `NativeRuntimeRequest<Payload>`
 - `NativeRuntimeResponse<Output>`
 
@@ -318,6 +322,12 @@ Important protocol details:
 - `StepInvocation` includes the one-based `attempt` and an opaque
   `idempotency_key` derived from the run, step, and attempt identities. Hosts
   should use this key when making an external side effect retry-safe.
+- `ActivityInvocation` is the first-class side-effect contract. It includes
+  `attempt_id`, `idempotency_key`, and a per-attempt `fencing_token`; hosts must
+  carry these identities through Outbox/Inbox or connector receipts and reject
+  stale completions. Redelivery retains the attempt/idempotency identity but
+  emits `activity_lease_acquired` with a fresh fence. `ActivityHeartbeat`
+  events carry the same fence and an optional checkpoint.
 - `WorkflowSpec.runtime_build_id`, `WorkflowSpec.patch_markers`, and
   `WorkflowSpec.signal_names` are optional for legacy histories. Marker and
   signal-name sets use sorted string arrays. Workflow code may use

@@ -163,6 +163,63 @@ async fn assert_invalid(events: Vec<FlowEventEnvelope>, expected_message: &str) 
 }
 
 #[tokio::test]
+async fn rejects_activity_completion_with_a_stale_fencing_token() {
+    let events = vec![
+        envelope(
+            1,
+            FlowEvent::RunCreated {
+                spec: WorkflowSpec::rust_embedded(
+                    "projection.activity",
+                    "0.1.0",
+                    "tests::projection_validation",
+                    "main",
+                ),
+                input: json!({}),
+            },
+        ),
+        envelope(2, FlowEvent::RunStarted),
+        envelope(
+            3,
+            FlowEvent::ActivityCreated {
+                activity_id: "activity".to_string(),
+                activity_name: "activity".to_string(),
+                input: json!({}),
+                retry: RetryPolicy::default(),
+            },
+        ),
+        envelope(
+            4,
+            FlowEvent::ActivityStarted {
+                activity_id: "activity".to_string(),
+                attempt: 1,
+                attempt_id: "attempt-1".to_string(),
+                idempotency_key: "key-1".to_string(),
+                fencing_token: "fence-1".to_string(),
+            },
+        ),
+        envelope(
+            5,
+            FlowEvent::ActivityLeaseAcquired {
+                activity_id: "activity".to_string(),
+                attempt: 1,
+                attempt_id: "attempt-1".to_string(),
+                fencing_token: "fence-2".to_string(),
+            },
+        ),
+        envelope(
+            6,
+            FlowEvent::ActivityCompleted {
+                activity_id: "activity".to_string(),
+                attempt_id: "attempt-1".to_string(),
+                fencing_token: "fence-1".to_string(),
+                output: json!(true),
+            },
+        ),
+    ];
+    assert_invalid(events, "fencing identity does not match").await;
+}
+
+#[tokio::test]
 async fn accepts_a_consistent_exhausted_retry_history() {
     let engine = FlowEngine::new(
         Arc::new(StaticHistoryStore {

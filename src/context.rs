@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    CancellationRequest, ChildOperationReference, ChildWorkflowCancellationPolicy,
+    ActivityCommand, CancellationRequest, ChildOperationReference, ChildWorkflowCancellationPolicy,
     ChildWorkflowCommand, FlowEvent, FlowEventEnvelope, HookMetadata, JsonValue, RetryPolicy,
     RuntimeCommand, StepCommand, WorkflowProgress, WorkflowSignal, WorkflowSpec,
     WorkflowTerminalOutcome,
@@ -222,6 +222,37 @@ impl<'a> WorkflowContext<'a> {
         self.step_output(step_id).is_some()
     }
 
+    /// Returns the durable JSON output of a completed activity.
+    pub fn activity_output(&self, activity_id: &str) -> Option<&JsonValue> {
+        self.history()
+            .iter()
+            .find_map(|envelope| match &envelope.event {
+                FlowEvent::ActivityCompleted {
+                    activity_id: id,
+                    output,
+                    ..
+                } if id == activity_id => Some(output),
+                _ => None,
+            })
+    }
+
+    /// Decodes a completed activity output into a host-defined serde type.
+    pub fn activity_output_as<T>(&self, activity_id: &str) -> Result<Option<T>>
+    where
+        T: DeserializeOwned,
+    {
+        self.activity_output(activity_id)
+            .cloned()
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(FlowError::from)
+    }
+
+    /// Returns whether the activity has a durable successful output.
+    pub fn activity_completed(&self, activity_id: &str) -> bool {
+        self.activity_output(activity_id).is_some()
+    }
+
     /// Returns the terminal error of a step that exhausted its retries.
     pub fn step_failed(&self, step_id: &str) -> Option<&str> {
         self.history()
@@ -231,6 +262,26 @@ impl<'a> WorkflowContext<'a> {
                 FlowEvent::StepFailed {
                     step_id: id, error, ..
                 } if id == step_id => Some(error.as_str()),
+                _ => None,
+            })
+    }
+
+    /// Returns the terminal error of an activity that failed permanently.
+    pub fn activity_failed(&self, activity_id: &str) -> Option<&str> {
+        self.history()
+            .iter()
+            .rev()
+            .find_map(|envelope| match &envelope.event {
+                FlowEvent::ActivityFailed {
+                    activity_id: id,
+                    error,
+                    ..
+                }
+                | FlowEvent::ActivityNonRetryable {
+                    activity_id: id,
+                    error,
+                    ..
+                } if id == activity_id => Some(error.as_str()),
                 _ => None,
             })
     }
@@ -432,6 +483,53 @@ impl<'a> WorkflowContext<'a> {
     /// Atomically schedules a deterministic batch of durable steps.
     pub fn schedule_steps(&self, steps: Vec<StepCommand>) -> RuntimeCommand {
         RuntimeCommand::schedule_steps(steps)
+    }
+
+    /// Schedules one first-class activity with the default retry policy.
+    pub fn schedule_activity(
+        &self,
+        activity_id: impl Into<String>,
+        activity_name: impl Into<String>,
+        input: JsonValue,
+    ) -> RuntimeCommand {
+        RuntimeCommand::schedule_activity(activity_id, activity_name, input)
+    }
+
+    /// Schedules one first-class activity with an explicit retry policy.
+    pub fn schedule_activity_with_retry(
+        &self,
+        activity_id: impl Into<String>,
+        activity_name: impl Into<String>,
+        input: JsonValue,
+        retry: RetryPolicy,
+    ) -> RuntimeCommand {
+        RuntimeCommand::ScheduleActivity {
+            activity_id: activity_id.into(),
+            activity_name: activity_name.into(),
+            input,
+            retry,
+        }
+    }
+
+    /// Creates an activity definition with the default retry policy.
+    pub fn activity(
+        &self,
+        activity_id: impl Into<String>,
+        activity_name: impl Into<String>,
+        input: JsonValue,
+    ) -> ActivityCommand {
+        ActivityCommand::new(activity_id, activity_name, input)
+    }
+
+    /// Creates an activity definition with an explicit retry policy.
+    pub fn activity_with_retry(
+        &self,
+        activity_id: impl Into<String>,
+        activity_name: impl Into<String>,
+        input: JsonValue,
+        retry: RetryPolicy,
+    ) -> ActivityCommand {
+        ActivityCommand::new(activity_id, activity_name, input).with_retry(retry)
     }
 
     /// Suspends replay until the given UTC deadline becomes ready.

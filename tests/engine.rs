@@ -5,12 +5,13 @@ use a3s_flow::PostgresEventStore;
 #[cfg(feature = "sqlite")]
 use a3s_flow::SqliteEventStore;
 use a3s_flow::{
-    A3sFlowEvent, A3sFlowEventBridge, A3sFlowEventSink, FanoutFlowEventObserver, FlowEngine,
-    FlowError, FlowEvent, FlowEventEnvelope, FlowEventObserver, FlowEventStore, FlowRuntime,
-    HookMetadata, HookStatus, InMemoryA3sFlowEventSink, InMemoryEventStore,
-    InMemoryFlowEventObserver, LocalFileA3sFlowEventSink, LocalFileEventStore, RetryPolicy,
-    RuntimeCommand, ScheduledWakeup, StepFailureAction, StepInvocation, StepStatus, WaitStatus,
-    WorkflowInvocation, WorkflowRunStatus, WorkflowRunSummary, WorkflowRunSuspension, WorkflowSpec,
+    A3sFlowEvent, A3sFlowEventBridge, A3sFlowEventSink, ActivityInvocation,
+    FanoutFlowEventObserver, FlowEngine, FlowError, FlowEvent, FlowEventEnvelope,
+    FlowEventObserver, FlowEventStore, FlowRuntime, HookMetadata, HookStatus,
+    InMemoryA3sFlowEventSink, InMemoryEventStore, InMemoryFlowEventObserver,
+    LocalFileA3sFlowEventSink, LocalFileEventStore, RetryPolicy, RuntimeCommand, ScheduledWakeup,
+    StepFailureAction, StepInvocation, StepStatus, WaitStatus, WorkflowInvocation,
+    WorkflowRunStatus, WorkflowRunSummary, WorkflowRunSuspension, WorkflowSpec,
     WorkflowTerminalOutcome,
 };
 use async_trait::async_trait;
@@ -20,7 +21,7 @@ use std::future::pending;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::sync::Barrier;
+use tokio::sync::{Barrier, Notify};
 use uuid::Uuid;
 
 fn spec() -> WorkflowSpec {
@@ -188,6 +189,210 @@ impl FlowRuntime for SequentialRuntime {
             other => Err(FlowError::Runtime(format!("unknown step {other}"))),
         }
     }
+}
+
+struct ActivityRuntime;
+
+#[async_trait]
+impl FlowRuntime for ActivityRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        if invocation.history.iter().any(|event| {
+            matches!(
+                event.event,
+                FlowEvent::ActivityCompleted { ref activity_id, .. } if activity_id == "fetch"
+            )
+        }) {
+            Ok(RuntimeCommand::Complete {
+                output: json!("done"),
+            })
+        } else {
+            Ok(RuntimeCommand::schedule_activity(
+                "fetch",
+                "fetchUser",
+                json!({ "id": 7 }),
+            ))
+        }
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        Ok(json!(null))
+    }
+
+    async fn run_activity(
+        &self,
+        invocation: ActivityInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        assert_eq!(invocation.activity_id, "fetch");
+        assert_eq!(invocation.attempt, 1);
+        assert!(invocation.attempt_id.starts_with("flow.activity.v1/"));
+        assert_eq!(invocation.idempotency_key, invocation.attempt_id);
+        assert!(!invocation.fencing_token.is_empty());
+        Ok(json!({ "user": "alice" }))
+    }
+}
+
+#[tokio::test]
+async fn first_class_activity_persists_identity_and_output() {
+    let engine = FlowEngine::in_memory(Arc::new(ActivityRuntime));
+    let run_id = engine
+        .start_with_id("activity-run", spec(), json!({}))
+        .await
+        .unwrap();
+    let snapshot = engine.snapshot(&run_id).await.unwrap();
+    let activity = snapshot.activities.get("fetch").unwrap();
+    assert_eq!(activity.status, a3s_flow::ActivityStatus::Completed);
+    assert_eq!(activity.output, Some(json!({ "user": "alice" })));
+    assert_eq!(activity.attempt, 1);
+    assert_eq!(activity.idempotency_key, activity.attempt_id);
+    assert!(!activity.fencing_token.is_empty());
+    assert_eq!(snapshot.status, WorkflowRunStatus::Completed);
+}
+
+struct RetryingActivityRuntime {
+    calls: AtomicUsize,
+}
+
+#[async_trait]
+impl FlowRuntime for RetryingActivityRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        if invocation.history.iter().any(|event| {
+            matches!(
+                event.event,
+                FlowEvent::ActivityCompleted { ref activity_id, .. } if activity_id == "retry"
+            )
+        }) {
+            Ok(RuntimeCommand::Complete { output: json!("ok") })
+        } else {
+            Ok(RuntimeCommand::ScheduleActivity {
+                activity_id: "retry".to_string(),
+                activity_name: "retryActivity".to_string(),
+                input: json!({}),
+                retry: RetryPolicy::fixed(2, Duration::ZERO),
+            })
+        }
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        Ok(json!(null))
+    }
+
+    async fn run_activity(
+        &self,
+        invocation: ActivityInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        let call = self.calls.fetch_add(1, Ordering::SeqCst);
+        if call == 0 {
+            Err(FlowError::Runtime("transient activity failure".to_string()))
+        } else {
+            assert_eq!(invocation.attempt, 2);
+            Ok(json!("recovered"))
+        }
+    }
+}
+
+#[tokio::test]
+async fn activity_retry_reuses_identity_per_attempt_and_recovers() {
+    let runtime = Arc::new(RetryingActivityRuntime {
+        calls: AtomicUsize::new(0),
+    });
+    let engine = FlowEngine::in_memory(runtime.clone());
+    let run_id = engine
+        .start_with_id("activity-retry-run", spec(), json!({}))
+        .await
+        .unwrap();
+    let snapshot = engine.snapshot(&run_id).await.unwrap();
+    let activity = snapshot.activities.get("retry").unwrap();
+    assert_eq!(activity.status, a3s_flow::ActivityStatus::Completed);
+    assert_eq!(activity.attempt, 2);
+    assert_eq!(runtime.calls.load(Ordering::SeqCst), 2);
+}
+
+struct HeartbeatActivityRuntime {
+    started: Arc<Notify>,
+    release: Arc<Notify>,
+}
+
+#[async_trait]
+impl FlowRuntime for HeartbeatActivityRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        if invocation.history.iter().any(|event| {
+            matches!(event.event, FlowEvent::ActivityCompleted { ref activity_id, .. } if activity_id == "long")
+        }) {
+            Ok(RuntimeCommand::Complete { output: json!(true) })
+        } else {
+            Ok(RuntimeCommand::schedule_activity("long", "longTask", json!({})))
+        }
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        Ok(json!(null))
+    }
+
+    async fn run_activity(
+        &self,
+        invocation: ActivityInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        self.started.notify_one();
+        self.release.notified().await;
+        Ok(json!({ "ok": true, "attempt": invocation.attempt }))
+    }
+}
+
+#[tokio::test]
+async fn activity_heartbeat_persists_checkpoint_and_rejects_stale_fence() {
+    let runtime = Arc::new(HeartbeatActivityRuntime {
+        started: Arc::new(Notify::new()),
+        release: Arc::new(Notify::new()),
+    });
+    let engine = Arc::new(FlowEngine::in_memory(runtime.clone()));
+    let task_engine = Arc::clone(&engine);
+    let task = tokio::spawn(async move {
+        task_engine
+            .start_with_id("heartbeat-run", spec(), json!({}))
+            .await
+    });
+    runtime.started.notified().await;
+    let running = engine.snapshot("heartbeat-run").await.unwrap();
+    let activity = running.activities.get("long").unwrap();
+    engine
+        .heartbeat_activity(
+            "heartbeat-run",
+            "long",
+            activity.attempt,
+            &activity.attempt_id,
+            &activity.fencing_token,
+            Some(json!({ "cursor": 42 })),
+        )
+        .await
+        .unwrap();
+    let checkpointed = engine.snapshot("heartbeat-run").await.unwrap();
+    assert_eq!(
+        checkpointed.activities["long"].checkpoint,
+        Some(json!({ "cursor": 42 }))
+    );
+    let stale = engine
+        .heartbeat_activity(
+            "heartbeat-run",
+            "long",
+            activity.attempt,
+            &activity.attempt_id,
+            "stale-fence",
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_invalid_transition(stale, "heartbeat fencing identity is stale");
+    runtime.release.notify_one();
+    task.await.unwrap().unwrap();
 }
 
 struct DisposableHookRuntime;

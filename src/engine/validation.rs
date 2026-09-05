@@ -4,10 +4,10 @@ use std::collections::BTreeSet;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    validate_child_workflow_command, ChildOperationReference, ChildWorkflowCancellationPolicy,
-    ChildWorkflowCommand, ChildWorkflowSnapshot, HookSnapshot, RetryPolicy, SignalWaitSnapshot,
-    StepCommand, StepSnapshot, WaitSnapshot, WorkflowProgress, WorkflowRunSnapshot, WorkflowSpec,
-    MAX_CHILD_WORKFLOW_BATCH_SIZE,
+    validate_child_workflow_command, ActivityCommand, ActivitySnapshot, ChildOperationReference,
+    ChildWorkflowCancellationPolicy, ChildWorkflowCommand, ChildWorkflowSnapshot, HookSnapshot,
+    RetryPolicy, SignalWaitSnapshot, StepCommand, StepSnapshot, WaitSnapshot, WorkflowProgress,
+    WorkflowRunSnapshot, WorkflowSpec, MAX_CHILD_WORKFLOW_BATCH_SIZE,
 };
 
 pub(super) fn ensure_same_start(
@@ -122,6 +122,60 @@ pub(super) fn ensure_step_command_matches(
                 replay_diff(&step.retry, &retry)
             ),
         });
+    }
+    Ok(())
+}
+
+pub(super) fn ensure_activity_command_matches(
+    run_id: &str,
+    activity: &ActivitySnapshot,
+    activity_name: &str,
+    input: &serde_json::Value,
+    retry: RetryPolicy,
+) -> Result<()> {
+    if activity.activity_name != activity_name {
+        return Err(FlowError::NonDeterministic {
+            run_id: run_id.to_string(),
+            reason: format!(
+                "activity {} name differs: {}",
+                activity.activity_id,
+                replay_diff(&activity.activity_name, &activity_name.to_string())
+            ),
+        });
+    }
+    if activity.input != *input {
+        return Err(FlowError::NonDeterministic {
+            run_id: run_id.to_string(),
+            reason: format!(
+                "activity {} input differs: {}",
+                activity.activity_id,
+                replay_diff(&activity.input, input)
+            ),
+        });
+    }
+    if activity.retry != retry {
+        return Err(FlowError::NonDeterministic {
+            run_id: run_id.to_string(),
+            reason: format!(
+                "activity {} retry policy differs: {}",
+                activity.activity_id,
+                replay_diff(&activity.retry, &retry)
+            ),
+        });
+    }
+    Ok(())
+}
+
+pub(super) fn ensure_activity_command_valid(command: &ActivityCommand) -> Result<()> {
+    if command.activity_id.trim().is_empty() {
+        return Err(FlowError::InvalidTransition(
+            "scheduled activity id must not be empty".to_string(),
+        ));
+    }
+    if command.activity_name.trim().is_empty() {
+        return Err(FlowError::InvalidTransition(
+            "scheduled activity name must not be empty".to_string(),
+        ));
     }
     Ok(())
 }

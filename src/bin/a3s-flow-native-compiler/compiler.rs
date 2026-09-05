@@ -369,8 +369,8 @@ try {
   if (request?.protocol !== protocol) {
     throw new Error("unsupported native runtime protocol");
   }
-  if (request?.kind !== "workflow" && request?.kind !== "step") {
-    throw new Error("native runtime request kind must be workflow or step");
+  if (request?.kind !== "workflow" && request?.kind !== "step" && request?.kind !== "activity") {
+    throw new Error("native runtime request kind must be workflow, step, or activity");
   }
 
   let handler;
@@ -380,15 +380,15 @@ try {
     }
     handler = Reflect.get(flowModule, request.exportName);
   } else {
-    const stepName = request?.payload?.step_name;
-    if (typeof stepName !== "string") {
-      throw new Error("step payload.step_name must be a string");
+    const handlerName = request?.payload?.[request.kind === "activity" ? "activity_name" : "step_name"];
+    if (typeof handlerName !== "string") {
+      throw new Error(`${request.kind} payload handler name must be a string`);
     }
-    const steps = Reflect.get(flowModule, "steps");
+    const steps = Reflect.get(flowModule, request.kind === "activity" ? "activities" : "steps");
     handler =
-      steps && Object.prototype.hasOwnProperty.call(steps, stepName)
-        ? Reflect.get(steps, stepName)
-        : Reflect.get(flowModule, stepName);
+      steps && Object.prototype.hasOwnProperty.call(steps, handlerName)
+        ? Reflect.get(steps, handlerName)
+        : Reflect.get(flowModule, handlerName);
   }
 
   if (typeof handler !== "function") {
@@ -399,7 +399,7 @@ try {
     JSON.stringify({ protocol, kind: request.kind, ok: true, output }) + "\n",
   );
 } catch (error) {
-  const kind = request?.kind === "step" ? "step" : "workflow";
+  const kind = request?.kind === "step" || request?.kind === "activity" ? request.kind : "workflow";
   const message =
     error instanceof Error ? error.message : "native TypeScript handler failed";
   process.stdout.write(
@@ -444,7 +444,8 @@ mod tests {
         assert!(bootstrap.contains(NATIVE_RUNTIME_PROTOCOL));
         assert!(!bootstrap.contains("__A3S_ENTRYPOINT__"));
         assert!(!bootstrap.contains("__A3S_PROTOCOL__"));
-        assert!(bootstrap.contains("payload?.step_name"));
+        assert!(bootstrap.contains("step_name"));
+        assert!(bootstrap.contains("activity_name"));
         assert!(bootstrap.contains("--a3s-flow-runtime"));
     }
 }

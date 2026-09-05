@@ -687,6 +687,6 @@ impl FlowEngine {
     }
 }
 
-fn retry_anchor(now: DateTime<Utc>) -> DateTime<Utc> {
+pub(super) fn retry_anchor(now: DateTime<Utc>) -> DateTime<Utc> {
     Utc::now().max(now)
 }

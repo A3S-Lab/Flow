@@ -60,6 +60,8 @@ pub enum NativeRuntimeKind {
     Workflow,
     /// Execute a registered step function.
     Step,
+    /// Execute a registered first-class activity function.
+    Activity,
 }
 
 impl NativeRuntimeKind {
@@ -68,6 +70,7 @@ impl NativeRuntimeKind {
         match self {
             Self::Workflow => "workflow",
             Self::Step => "step",
+            Self::Activity => "activity",
         }
     }
 }

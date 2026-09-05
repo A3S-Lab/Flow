@@ -29,16 +29,16 @@ pub use context::WorkflowContext;
 pub use engine::{FlowEngine, FlowEngineBuilder};
 pub use error::{FlowError, Result};
 pub use model::{
-    ActiveHookSnapshot, CancellationRequest, CancellationRequestSnapshot, ChildOperationReference,
-    ChildWorkflowCancellationPolicy, ChildWorkflowCommand, ChildWorkflowSnapshot, FlowEvent,
-    FlowEventEnvelope, HookCallbackRoute, HookMetadata, HookSnapshot, HookStatus, JsonValue,
-    RetryBackoff, RetryPolicy, RuntimeCommand, RuntimeKind, RuntimeSpec, ScheduledWakeup,
-    ScheduledWakeupKind, SignalWaitSnapshot, SignalWaitStatus, StepCommand, StepFailureAction,
-    StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowContinuation, WorkflowPatchId,
-    WorkflowProgress, WorkflowRunSnapshot, WorkflowRunStatus, WorkflowRunSummary,
-    WorkflowRunSuspension, WorkflowSignal, WorkflowSignalSnapshot, WorkflowSpec,
-    WorkflowTerminalOutcome, FLOW_EVENT_ENVELOPE_SCHEMA_VERSION, MAX_CHILD_WORKFLOW_BATCH_SIZE,
-    MAX_WORKFLOW_PATCH_MARKERS,
+    ActiveHookSnapshot, ActivityCommand, ActivitySnapshot, ActivityStatus, CancellationRequest,
+    CancellationRequestSnapshot, ChildOperationReference, ChildWorkflowCancellationPolicy,
+    ChildWorkflowCommand, ChildWorkflowSnapshot, FlowEvent, FlowEventEnvelope, HookCallbackRoute,
+    HookMetadata, HookSnapshot, HookStatus, JsonValue, RetryBackoff, RetryPolicy, RuntimeCommand,
+    RuntimeKind, RuntimeSpec, ScheduledWakeup, ScheduledWakeupKind, SignalWaitSnapshot,
+    SignalWaitStatus, StepCommand, StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot,
+    WaitStatus, WorkflowContinuation, WorkflowPatchId, WorkflowProgress, WorkflowRunSnapshot,
+    WorkflowRunStatus, WorkflowRunSummary, WorkflowRunSuspension, WorkflowSignal,
+    WorkflowSignalSnapshot, WorkflowSpec, WorkflowTerminalOutcome,
+    FLOW_EVENT_ENVELOPE_SCHEMA_VERSION, MAX_CHILD_WORKFLOW_BATCH_SIZE, MAX_WORKFLOW_PATCH_MARKERS,
 };
 #[cfg(feature = "a3s-event")]
 pub use observe::A3sEventBusFlowEventSink;
@@ -53,8 +53,8 @@ pub use protocol::{
     NATIVE_RUNTIME_PROTOCOL,
 };
 pub use runtime::{
-    FlowRuntime, NativeTsDependencyMode, NativeTsRuntime, NativeTsRuntimeConfig,
-    NativeTsRuntimePreflight, StepInvocation, WorkflowInvocation,
+    ActivityInvocation, FlowRuntime, NativeTsDependencyMode, NativeTsRuntime,
+    NativeTsRuntimeConfig, NativeTsRuntimePreflight, StepInvocation, WorkflowInvocation,
 };
 pub use runtime_build::{RuntimeBuildCompatibility, RuntimeBuildId};
 pub use scheduler::{FlowScheduler, FlowSchedulerTick};

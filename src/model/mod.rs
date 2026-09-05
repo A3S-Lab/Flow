@@ -13,8 +13,9 @@ mod snapshot;
 pub(crate) use child_workflow::validate_child_workflow_command;
 pub use child_workflow::{ChildWorkflowCancellationPolicy, ChildWorkflowSnapshot};
 pub use command::{
-    ChildWorkflowCommand, JsonValue, RetryBackoff, RetryPolicy, RuntimeCommand, RuntimeKind,
-    RuntimeSpec, StepCommand, StepFailureAction, WorkflowSpec, MAX_CHILD_WORKFLOW_BATCH_SIZE,
+    ActivityCommand, ChildWorkflowCommand, JsonValue, RetryBackoff, RetryPolicy, RuntimeCommand,
+    RuntimeKind, RuntimeSpec, StepCommand, StepFailureAction, WorkflowSpec,
+    MAX_CHILD_WORKFLOW_BATCH_SIZE,
 };
 pub use event::{FlowEvent, FlowEventEnvelope, FLOW_EVENT_ENVELOPE_SCHEMA_VERSION};
 pub use hook::{HookCallbackRoute, HookMetadata};
@@ -29,6 +30,7 @@ pub(crate) use run::validate_run_id;
 pub(crate) use signal::validate_signal_wait;
 pub use signal::{SignalWaitSnapshot, SignalWaitStatus, WorkflowSignal, WorkflowSignalSnapshot};
 pub use snapshot::{
-    ActiveHookSnapshot, HookSnapshot, HookStatus, ScheduledWakeup, ScheduledWakeupKind,
-    StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowRunSnapshot, WorkflowRunStatus,
+    ActiveHookSnapshot, ActivitySnapshot, ActivityStatus, HookSnapshot, HookStatus,
+    ScheduledWakeup, ScheduledWakeupKind, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus,
+    WorkflowRunSnapshot, WorkflowRunStatus,
 };

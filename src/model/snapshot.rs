@@ -86,6 +86,76 @@ pub struct StepSnapshot {
     pub retry_after: Option<DateTime<Utc>>,
 }
 
+/// Materialized lifecycle state of a durable activity.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityStatus {
+    /// The activity is ready now or after a retry deadline.
+    Pending,
+    /// A worker has started the current attempt.
+    Running,
+    /// The activity produced a durable output.
+    Completed,
+    /// The activity exhausted its retry policy or failed permanently.
+    Failed,
+    /// The owning run cancelled the activity before completion.
+    Cancelled,
+}
+
+/// Materialized state of one durable activity invocation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
+pub struct ActivitySnapshot {
+    /// Replay-stable identity of the activity.
+    pub activity_id: String,
+    /// Registered activity implementation name.
+    pub activity_name: String,
+    /// Current lifecycle state.
+    pub status: ActivityStatus,
+    /// JSON input pinned when the activity was created.
+    pub input: JsonValue,
+    /// Retry behavior pinned when the activity was created.
+    pub retry: RetryPolicy,
+    /// Durable JSON output, when completed successfully.
+    pub output: Option<JsonValue>,
+    /// Final or most recent attempt error.
+    pub error: Option<String>,
+    /// Latest one-based attempt number observed in history.
+    pub attempt: u32,
+    /// Stable identity for the current attempt.
+    #[serde(default)]
+    pub attempt_id: String,
+    /// Stable idempotency key for the current attempt.
+    #[serde(default)]
+    pub idempotency_key: String,
+    /// Fencing token assigned to the current attempt.
+    #[serde(default)]
+    pub fencing_token: String,
+    /// Latest checkpoint supplied by the activity host.
+    #[serde(default)]
+    pub checkpoint: Option<JsonValue>,
+    /// Earliest UTC time for a delayed retry.
+    pub retry_after: Option<DateTime<Utc>>,
+    /// Last durable heartbeat timestamp, when one has been recorded.
+    #[serde(default)]
+    pub last_heartbeat_at: Option<DateTime<Utc>>,
+}
+
+impl ActivitySnapshot {
+    /// Decode the persisted activity output into a host-defined serde type.
+    pub fn output_as<T>(&self) -> Result<Option<T>>
+    where
+        T: DeserializeOwned,
+    {
+        self.output
+            .clone()
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(FlowError::from)
+    }
+}
+
 impl StepSnapshot {
     /// Decode the persisted step output into a host-defined serde type.
     pub fn output_as<T>(&self) -> Result<Option<T>>
@@ -230,7 +300,7 @@ impl ActiveHookSnapshot {
 pub enum ScheduledWakeupKind {
     /// A durable timer wait.
     Wait,
-    /// A delayed step retry.
+    /// A delayed step or activity retry.
     Retry,
 }
 
@@ -247,7 +317,7 @@ impl ScheduledWakeupKind {
     }
 }
 
-/// Minimal indexed record for a wait timer or delayed step retry.
+/// Minimal indexed record for a wait timer or delayed activity/step retry.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ScheduledWakeup {
@@ -297,6 +367,9 @@ pub struct WorkflowRunSnapshot {
     pub status: WorkflowRunStatus,
     /// Durable steps indexed by their stable identifiers.
     pub steps: BTreeMap<String, StepSnapshot>,
+    /// First-class durable activities indexed by their stable identifiers.
+    #[serde(default)]
+    pub activities: BTreeMap<String, ActivitySnapshot>,
     /// Durable timer waits indexed by their stable identifiers.
     pub waits: BTreeMap<String, WaitSnapshot>,
     /// External callback hooks indexed by their stable identifiers.
@@ -346,6 +419,7 @@ impl WorkflowRunSnapshot {
             input,
             status: WorkflowRunStatus::Pending,
             steps: BTreeMap::new(),
+            activities: BTreeMap::new(),
             waits: BTreeMap::new(),
             hooks: BTreeMap::new(),
             cancellation: None,
@@ -387,6 +461,25 @@ impl WorkflowRunSnapshot {
         self.steps
             .get(step_id)
             .and_then(|step| step.output.as_ref())
+    }
+
+    /// Returns the durable JSON output of a completed activity.
+    pub fn activity_output(&self, activity_id: &str) -> Option<&JsonValue> {
+        self.activities
+            .get(activity_id)
+            .and_then(|activity| activity.output.as_ref())
+    }
+
+    /// Decode a completed activity output into a host-defined serde type.
+    pub fn activity_output_as<T>(&self, activity_id: &str) -> Result<Option<T>>
+    where
+        T: DeserializeOwned,
+    {
+        self.activity_output(activity_id)
+            .cloned()
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(FlowError::from)
     }
 
     /// Decode a persisted step output into a host-defined serde type.
@@ -487,6 +580,10 @@ impl WorkflowRunSnapshot {
                 .any(|hook| hook.status == HookStatus::Active)
             || self.steps.values().any(|step| step.retry_after.is_some())
             || self
+                .activities
+                .values()
+                .any(|activity| activity.retry_after.is_some())
+            || self
                 .child_workflows
                 .values()
                 .any(ChildWorkflowSnapshot::is_open)
@@ -498,7 +595,8 @@ impl WorkflowRunSnapshot {
 
     /// Returns delayed step retries ready at or before `now`.
     pub fn due_retries(&self, now: DateTime<Utc>) -> Vec<(String, DateTime<Utc>)> {
-        self.steps
+        let mut retries = self
+            .steps
             .values()
             .filter_map(|step| match step.retry_after {
                 Some(retry_after) if step.status == StepStatus::Pending && retry_after <= now => {
@@ -506,7 +604,18 @@ impl WorkflowRunSnapshot {
                 }
                 _ => None,
             })
-            .collect()
+            .collect::<Vec<_>>();
+        retries.extend(self.activities.values().filter_map(
+            |activity| match activity.retry_after {
+                Some(retry_after)
+                    if activity.status == ActivityStatus::Pending && retry_after <= now =>
+                {
+                    Some((activity.activity_id.clone(), retry_after))
+                }
+                _ => None,
+            },
+        ));
+        retries
     }
 
     /// Returns whether any pending step has a retry deadline after `now`.
@@ -514,6 +623,12 @@ impl WorkflowRunSnapshot {
         self.steps.values().any(|step| {
             step.status == StepStatus::Pending
                 && step
+                    .retry_after
+                    .map(|retry_after| retry_after > now)
+                    .unwrap_or(false)
+        }) || self.activities.values().any(|activity| {
+            activity.status == ActivityStatus::Pending
+                && activity
                     .retry_after
                     .map(|retry_after| retry_after > now)
                     .unwrap_or(false)

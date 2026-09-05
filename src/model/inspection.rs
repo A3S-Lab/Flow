@@ -2,8 +2,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ChildWorkflowSnapshot, HookSnapshot, HookStatus, SignalWaitSnapshot, SignalWaitStatus,
-    StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowRunSnapshot, WorkflowRunStatus,
+    ActivitySnapshot, ChildWorkflowSnapshot, HookSnapshot, HookStatus, SignalWaitSnapshot,
+    SignalWaitStatus, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowRunSnapshot,
+    WorkflowRunStatus,
 };
 
 /// Aggregated run counts for host dashboards and health probes.
@@ -37,7 +38,7 @@ pub struct WorkflowRunSummary {
     pub open_waits: usize,
     /// Hooks still accepting an external resolution.
     pub active_hooks: usize,
-    /// Pending steps with delayed retry deadlines.
+    /// Pending steps and activities with delayed retry deadlines.
     pub pending_retries: usize,
     /// Child workflows without a terminal outcome.
     pub open_child_workflows: usize,
@@ -90,6 +91,13 @@ impl WorkflowRunSummary {
             .values()
             .filter(|step| step.status == StepStatus::Pending && step.retry_after.is_some())
             .count();
+        self.pending_retries += snapshot
+            .activities
+            .values()
+            .filter(|activity| {
+                activity.status == super::ActivityStatus::Pending && activity.retry_after.is_some()
+            })
+            .count();
         self.open_child_workflows += snapshot
             .child_workflows
             .values()
@@ -133,6 +141,15 @@ pub enum WorkflowRunSuspension {
         /// Whether the retry is ready at the inspection time.
         due: bool,
     },
+    /// An activity waiting for its retry deadline.
+    ActivityRetry {
+        /// Run that owns the activity.
+        run_id: String,
+        /// Materialized activity state.
+        activity: ActivitySnapshot,
+        /// Whether the retry is ready at the inspection time.
+        due: bool,
+    },
     /// A first-class child workflow awaiting a terminal outcome.
     ChildWorkflow {
         /// Run that owns the child request.
@@ -156,6 +173,7 @@ impl WorkflowRunSuspension {
             Self::Wait { run_id, .. }
             | Self::Hook { run_id, .. }
             | Self::Retry { run_id, .. }
+            | Self::ActivityRetry { run_id, .. }
             | Self::ChildWorkflow { run_id, .. }
             | Self::Signal { run_id, .. } => run_id,
         }
@@ -167,6 +185,7 @@ impl WorkflowRunSuspension {
             Self::Wait { wait, .. } => &wait.wait_id,
             Self::Hook { hook, .. } => &hook.hook_id,
             Self::Retry { step, .. } => &step.step_id,
+            Self::ActivityRetry { activity, .. } => &activity.activity_id,
             Self::ChildWorkflow { child, .. } => &child.child_id,
             Self::Signal { wait, .. } => &wait.wait_id,
         }
@@ -177,6 +196,7 @@ impl WorkflowRunSuspension {
             Self::Wait { .. } => 0,
             Self::Hook { .. } => 1,
             Self::Retry { .. } => 2,
+            Self::ActivityRetry { .. } => 2,
             Self::ChildWorkflow { .. } => 3,
             Self::Signal { .. } => 4,
         }
@@ -185,7 +205,9 @@ impl WorkflowRunSuspension {
     /// Returns whether scheduled work is ready at the inspection time.
     pub fn is_due(&self) -> bool {
         match self {
-            Self::Wait { due, .. } | Self::Retry { due, .. } => *due,
+            Self::Wait { due, .. } | Self::Retry { due, .. } | Self::ActivityRetry { due, .. } => {
+                *due
+            }
             Self::Hook { .. } | Self::ChildWorkflow { .. } | Self::Signal { .. } => false,
         }
     }
@@ -195,6 +217,7 @@ impl WorkflowRunSuspension {
         match self {
             Self::Wait { wait, .. } => Some(wait.resume_at),
             Self::Retry { step, .. } => step.retry_after,
+            Self::ActivityRetry { activity, .. } => activity.retry_after,
             Self::Hook { .. } | Self::ChildWorkflow { .. } | Self::Signal { .. } => None,
         }
     }

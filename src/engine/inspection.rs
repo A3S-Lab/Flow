@@ -2,8 +2,9 @@ use chrono::{DateTime, Utc};
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    project_run, ActiveHookSnapshot, HookStatus, ScheduledWakeup, ScheduledWakeupKind, StepStatus,
-    WaitStatus, WorkflowRunSnapshot, WorkflowRunSummary, WorkflowRunSuspension,
+    project_run, ActiveHookSnapshot, ActivityStatus, HookStatus, ScheduledWakeup,
+    ScheduledWakeupKind, StepStatus, WaitStatus, WorkflowRunSnapshot, WorkflowRunSummary,
+    WorkflowRunSuspension,
 };
 
 use super::FlowEngine;
@@ -81,6 +82,17 @@ impl FlowEngine {
                         suspensions.push(WorkflowRunSuspension::Retry {
                             run_id: run_id.clone(),
                             step: step.clone(),
+                            due: retry_after <= now,
+                        });
+                    }
+                }
+            }
+            for activity in snapshot.activities.values() {
+                if activity.status == ActivityStatus::Pending {
+                    if let Some(retry_after) = activity.retry_after {
+                        suspensions.push(WorkflowRunSuspension::ActivityRetry {
+                            run_id: run_id.clone(),
+                            activity: activity.clone(),
                             due: retry_after <= now,
                         });
                     }
@@ -186,13 +198,27 @@ fn resolve_scheduled_wakeup(
             })
         }
         ScheduledWakeupKind::Retry => {
-            let step = snapshot.steps.get(&wakeup.subject_id)?;
-            if step.status != StepStatus::Pending || step.retry_after != Some(wakeup.scheduled_at) {
+            if let Some(step) = snapshot.steps.get(&wakeup.subject_id) {
+                if step.status != StepStatus::Pending
+                    || step.retry_after != Some(wakeup.scheduled_at)
+                {
+                    return None;
+                }
+                return Some(WorkflowRunSuspension::Retry {
+                    run_id: wakeup.run_id.clone(),
+                    step: step.clone(),
+                    due: wakeup.scheduled_at <= now,
+                });
+            }
+            let activity = snapshot.activities.get(&wakeup.subject_id)?;
+            if activity.status != ActivityStatus::Pending
+                || activity.retry_after != Some(wakeup.scheduled_at)
+            {
                 return None;
             }
-            Some(WorkflowRunSuspension::Retry {
+            Some(WorkflowRunSuspension::ActivityRetry {
                 run_id: wakeup.run_id.clone(),
-                step: step.clone(),
+                activity: activity.clone(),
                 due: wakeup.scheduled_at <= now,
             })
         }
