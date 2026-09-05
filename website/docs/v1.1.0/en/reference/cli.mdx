@@ -108,6 +108,13 @@ NDJSON stream. JSON operations use `parentId`; `iteration` accepts only an
 intermediate incomplete container is kept in the candidate clone and is never
 written to disk.
 
+Use `--move-node <id> --parent <container-id>` to relocate an existing public
+node while preserving its stable ID, configuration, presentation fields, and
+unknown extensions. Omit `--parent` to move it back to the top level. JSON and
+NDJSON use `{"kind":"move-node","id":"node-id","parentId":"container-id"}`;
+use `parentId: null` for the top level. Internal start nodes must stay under
+their matching container, and parent cycles are rejected before publication.
+
 ```bash
 a3s-flow update workflow.json --set-app-name invoice.approval.v2 --pretty
 a3s-flow update workflow.json --set-node run-step \

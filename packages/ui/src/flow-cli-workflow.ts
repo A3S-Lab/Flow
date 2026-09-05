@@ -30,6 +30,7 @@ export type FlowCliWorkflowUpdate =
       configuration: JsonObject;
       parentId?: string;
     }
+  | { kind: 'move-node'; id: string; parentId?: string | null }
   | { kind: 'remove-node'; id: string }
   | {
       kind: 'add-edge';
@@ -126,6 +127,13 @@ function parseFlowCliWorkflowUpdateObject(
     case 'remove-node':
       assertKeys('kind', 'id');
       return { kind: 'remove-node', id: string('id') };
+    case 'move-node':
+      assertKeys('kind', 'id', 'parentId');
+      return {
+        kind: 'move-node',
+        id: string('id'),
+        parentId: optionalNullableString('parentId'),
+      };
     case 'add-edge':
       assertKeys('kind', 'id', 'source', 'target', 'sourceHandle', 'targetHandle');
       return {
@@ -451,6 +459,36 @@ function requireNodePlacement(
   return manifest;
 }
 
+function assertMoveTarget(
+  document: A3SFlowWorkflowDsl,
+  node: A3SFlowWorkflowDagNode,
+  parentId: string | null | undefined,
+): void {
+  if (parentId === null || parentId === undefined) {
+    const manifest = a3sFlowDagNodeRegistry.get(node.data.type);
+    if (manifest?.internal) {
+      throw new Error(`Internal node type ${node.data.type} must remain inside its matching container.`);
+    }
+    return;
+  }
+  if (parentId === node.id) {
+    throw new Error(`Workflow node ${node.id} cannot be its own parent.`);
+  }
+  let current = requireNode(document, parentId);
+  const visited = new Set<string>();
+  while (true) {
+    if (current.id === node.id) {
+      throw new Error(`Moving workflow node ${node.id} would create a parent cycle.`);
+    }
+    if (visited.has(current.id)) {
+      throw new Error(`Moving workflow node ${node.id} would create a parent cycle.`);
+    }
+    visited.add(current.id);
+    if (current.parentId === undefined) break;
+    current = requireNode(document, current.parentId);
+  }
+}
+
 export function applyFlowCliWorkflowUpdate(
   source: A3SFlowWorkflowDsl,
   operation: FlowCliWorkflowUpdate,
@@ -524,6 +562,17 @@ function applyFlowCliWorkflowUpdateInPlace(
       const node = createA3SFlowDagNode(operation.id, manifest, operation.configuration);
       if (operation.parentId !== undefined) node.parentId = operation.parentId;
       graph.nodes.push(node);
+      return [`node:${operation.id}`];
+    }
+    case 'move-node': {
+      const node = requireNode(document, operation.id);
+      assertMoveTarget(document, node, operation.parentId);
+      if (operation.parentId !== null && operation.parentId !== undefined) {
+        requireNodePlacement(document, node.data.type, operation.parentId);
+        node.parentId = operation.parentId;
+      } else {
+        delete node.parentId;
+      }
       return [`node:${operation.id}`];
     }
     case 'remove-node': {

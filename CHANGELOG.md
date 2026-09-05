@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added stable-ID-preserving `move-node` workflow authoring operations for
+  moving public nodes between the top-level graph and iteration/loop scopes;
+  internal start placement and parent-cycle checks remain enforced.
+
 - Added registry-driven scoped workflow node creation to the CLI and typed
   JSON/NDJSON update operations. `--parent`/`parentId` now place public nodes
   and matching container-start nodes safely, while incomplete container edits

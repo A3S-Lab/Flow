@@ -138,6 +138,28 @@ try {
   ) {
     throw new Error('The CLI did not preserve container parent placement and scope order.');
   }
+  const moved = await run(['update', scopedWorkflow, '--move-node', 'progress']);
+  if (
+    !moved.ok ||
+    moved.changed?.join(',') !== 'node:progress' ||
+    moved.document?.workflow?.graph?.nodes?.find((node) => node.id === 'progress')?.parentId !== undefined
+  ) {
+    throw new Error('The move-node command did not preserve the node while leaving its scope.');
+  }
+  const movedBack = await run([
+    'update',
+    scopedWorkflow,
+    '--move-node',
+    'progress',
+    '--parent',
+    'each',
+  ]);
+  if (
+    !movedBack.ok ||
+    movedBack.document?.workflow?.graph?.nodes?.find((node) => node.id === 'progress')?.parentId !== 'each'
+  ) {
+    throw new Error('The move-node command did not restore the container scope.');
+  }
   const deleted = await run(['delete', workflow, '--force']);
   if (!deleted.ok || deleted.deleted !== true) {
     throw new Error('The delete command did not remove the workflow file.');

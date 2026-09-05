@@ -83,15 +83,18 @@ programmatically, then reuse this exact structural compiler.
 Workflow authoring uses typed domain operations rather than arbitrary JSON
 pointer writes. `@a3s-lab/flow-ui` exposes a bounded NDJSON decoder and an async
 operation applier, so a CLI, Skill, or host adapter can validate and apply one
-`add-node`, `remove-node`, `set-node`, `add-edge`, `set-edge`, `remove-edge`,
-or app-metadata operation as it arrives. `add-node` may set `parentId` to an
+`add-node`, `move-node`, `remove-node`, `set-node`, `add-edge`, `set-edge`,
+`remove-edge`, or app-metadata operation as it arrives. `add-node` may set `parentId` to an
 existing iteration or loop container; the registry contract enforces the
 matching internal start type, while a container plus its incomplete children
 must be submitted as one batch/stream and published only after final
 validation. `set-edge` redirects an existing edge
 without changing its stable ID and preserves omitted handles plus unknown
 semantic/presentation fields; an explicit `null` handle removes that optional
-field. A base document digest can be supplied for optimistic concurrency;
+field. `move-node` changes a node's `parentId` while retaining its stable ID,
+manifest configuration, presentation fields, and unknown extensions; moving
+an internal start requires its matching container, and a move to `null` or an
+omitted parent returns a public node to the top level. A base document digest can be supplied for optimistic concurrency;
 the publisher rechecks the exact source contents under a same-directory writer
 lock before replacing the snapshot. A failed operation, invalid final graph, or
 digest conflict therefore publishes nothing.

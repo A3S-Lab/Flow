@@ -114,6 +114,12 @@ The example omits manifest defaults for readability. Create nodes with the CLI b
 
 For CLI authoring, a public child can be created directly with
 `a3s-flow update workflow.json --add-node <type> --id <id> --parent <container-id>`.
+An existing public node can be moved with
+`a3s-flow update workflow.json --move-node <id> --parent <container-id>`;
+omit `--parent` to return it to the top level. Both forms preserve the stable
+node ID and all manifest, presentation, and unknown extension fields. A JSON
+operation uses `{"kind":"move-node","id":"node-id","parentId":"container-id"}`
+or `parentId: null` for the top level.
 The parent must already exist. A new container is not executable until its
 matching internal start and at least one executable child are present, so add
 the container and its dependent children in one `--operations '<json-array>'`

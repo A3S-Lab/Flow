@@ -82,6 +82,8 @@ JSON 数组、NDJSON 流和 typed 直接调用共享最多 10,000 条 operation�
 `iteration-start`，`loop` 只能接收 `loop-start`。不完整的中间容器只存在于候选副本中，
 不会写入磁盘。
 
+使用 `--move-node <id> --parent <container-id>` 可以在保留稳定节点 ID、配置、展示字段和未知扩展字段的前提下移动已有公开节点。省略 `--parent` 可将节点移回顶层。JSON/NDJSON 使用 `{"kind":"move-node","id":"node-id","parentId":"container-id"}`；移回顶层时使用 `parentId: null`。内部起点必须留在匹配的容器中，父子循环会在发布前被拒绝。
+
 ```bash
 a3s-flow update workflow.json --set-app-name invoice.approval.v2 --pretty
 a3s-flow update workflow.json --set-node run-step \

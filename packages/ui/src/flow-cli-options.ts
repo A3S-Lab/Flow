@@ -10,6 +10,7 @@ export interface CliOptions {
   help: boolean;
   id?: string;
   addNodeType?: string;
+  moveNodeId?: string;
   removeNodeId?: string;
   removeEdgeId?: string;
   setEdgeId?: string;
@@ -63,6 +64,7 @@ Options:
   --overwrite              Allow create to replace an existing file
   --force                  Confirm a destructive delete
   --add-node <type>        Update: add one node (internal types require --parent)
+  --move-node <id>         Update: move one node to --parent or the top level
   --remove-node <id>       Update: remove one node and its scoped children
   --set-node <id>          Update: replace manifest-owned node fields (requires --config)
   --set-app-name <name>    Update: replace the workflow app name
@@ -108,6 +110,7 @@ function createCliParser() {
     .option('--overwrite', 'Allow create to replace an existing file')
     .option('--force', 'Confirm a destructive delete')
     .option('--add-node <type>', 'Add one node (internal types require --parent)')
+    .option('--move-node <id>', 'Move one node to a scope or the top level')
     .option('--remove-node <id>', 'Remove one node')
     .option('--set-node <id>', 'Set one node configuration')
     .option('--set-app-name <name>', 'Set the workflow app name')
@@ -177,6 +180,7 @@ export function parseFlowCliOptions(
       help: values.help === true,
       id: stringValue('id'),
       addNodeType: stringValue('addNode'),
+      moveNodeId: stringValue('moveNode'),
       removeNodeId: stringValue('removeNode'),
       removeEdgeId: stringValue('removeEdge'),
       setEdgeId: stringValue('setEdge'),

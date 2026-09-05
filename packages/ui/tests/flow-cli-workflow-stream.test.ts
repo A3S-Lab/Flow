@@ -158,6 +158,62 @@ describe('workflow update streams', () => {
     );
   });
 
+  it('moves a stable node between top-level and container scopes', async () => {
+    const result = await applyFlowCliWorkflowUpdateStream(
+      workflow(),
+      parseFlowCliWorkflowUpdateNdjson(
+        chunks([
+          '{"kind":"add-node","id":"each","type":"iteration","configuration":{"start_node_id":"each-start"}}\n',
+          '{"kind":"add-node","id":"each-start","type":"iteration-start","parentId":"each"}\n',
+          '{"kind":"add-node","id":"process","type":"flow.step","configuration":{"step_name":"process"}}\n',
+          '{"kind":"move-node","id":"process","parentId":"each"}\n',
+          '{"kind":"move-node","id":"process","parentId":null}\n',
+        ]),
+      ),
+    );
+
+    expect(result.changed).toEqual([
+      'node:each',
+      'node:each-start',
+      'node:process',
+      'node:process',
+      'node:process',
+    ]);
+    const process = result.document.workflow.graph.nodes.find((node) => node.id === 'process');
+    expect(process).toMatchObject({ id: 'process', data: { type: 'flow.step' } });
+    expect(process).not.toHaveProperty('parentId');
+  });
+
+  it('rejects moves that break internal placement or create a parent cycle', async () => {
+    await expect(
+      applyFlowCliWorkflowUpdateStream(
+        workflow(),
+        parseFlowCliWorkflowUpdateNdjson(
+          chunks([
+            '{"kind":"add-node","id":"each","type":"iteration","configuration":{"start_node_id":"each-start"}}\n',
+            '{"kind":"add-node","id":"each-start","type":"iteration-start","parentId":"each"}\n',
+            '{"kind":"move-node","id":"each-start","parentId":null}\n',
+          ]),
+        ),
+      ),
+    ).rejects.toThrow(/must remain inside its matching container/);
+
+    await expect(
+      applyFlowCliWorkflowUpdateStream(
+        workflow(),
+        parseFlowCliWorkflowUpdateNdjson(
+          chunks([
+            '{"kind":"add-node","id":"outer","type":"iteration","configuration":{"start_node_id":"outer-start"}}\n',
+            '{"kind":"add-node","id":"outer-start","type":"iteration-start","parentId":"outer"}\n',
+            '{"kind":"add-node","id":"inner","type":"iteration","configuration":{"start_node_id":"inner-start"},"parentId":"outer"}\n',
+            '{"kind":"add-node","id":"inner-start","type":"iteration-start","parentId":"inner"}\n',
+            '{"kind":"move-node","id":"outer","parentId":"inner"}\n',
+          ]),
+        ),
+      ),
+    ).rejects.toThrow(/parent cycle/);
+  });
+
   it('derives loop start placement from the registered container contract', async () => {
     const result = await applyFlowCliWorkflowUpdateStream(
       workflow(),

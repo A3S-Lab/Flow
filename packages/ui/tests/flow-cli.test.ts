@@ -240,6 +240,36 @@ describe('A3S Flow CLI workflow file CRUD', () => {
       expect(
         scoped.workflow.graph.nodes.find((node) => node.id === 'progress'),
       ).toMatchObject({ parentId: 'each' });
+      expect(
+        await runFlowCli([
+          'update',
+          scopedWorkflow,
+          '--move-node',
+          'progress',
+          '--output',
+          output,
+        ]),
+      ).toBe(0);
+      const movedTopLevel = JSON.parse(await readFile(scopedWorkflow, 'utf8')) as A3SFlowWorkflowDsl;
+      expect(movedTopLevel.workflow.graph.nodes.find((node) => node.id === 'progress')).not.toHaveProperty(
+        'parentId',
+      );
+      expect(
+        await runFlowCli([
+          'update',
+          scopedWorkflow,
+          '--move-node',
+          'progress',
+          '--parent',
+          'each',
+          '--output',
+          output,
+        ]),
+      ).toBe(0);
+      const movedScoped = JSON.parse(await readFile(scopedWorkflow, 'utf8')) as A3SFlowWorkflowDsl;
+      expect(movedScoped.workflow.graph.nodes.find((node) => node.id === 'progress')).toMatchObject({
+        parentId: 'each',
+      });
       await expect(
         runFlowCli([
           'update',

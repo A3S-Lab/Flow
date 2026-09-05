@@ -309,7 +309,7 @@ function updateOperations(options: CliOptions): FlowCliWorkflowUpdate[] {
 
 function hasInlineUpdateOptions(options: CliOptions): boolean {
   return Boolean(
-    options.addNodeType || options.removeNodeId || options.addEdge ||
+    options.addNodeType || options.moveNodeId || options.removeNodeId || options.addEdge ||
       options.removeEdgeId || options.setEdgeId || options.setNodeId || options.setAppName ||
       options.parentId !== undefined || options.id !== undefined || options.config !== undefined ||
       options.edgeId !== undefined || options.source !== undefined || options.target !== undefined ||
@@ -327,6 +327,7 @@ function validateIfDigest(value: string | undefined): void {
 function updateOperation(options: CliOptions): FlowCliWorkflowUpdate {
   const operations: InlineWorkflowUpdateKind[] = [
     options.addNodeType ? 'add-node' : undefined,
+    options.moveNodeId ? 'move-node' : undefined,
     options.removeNodeId ? 'remove-node' : undefined,
     options.addEdge ? 'add-edge' : undefined,
     options.removeEdgeId ? 'remove-edge' : undefined,
@@ -337,11 +338,11 @@ function updateOperation(options: CliOptions): FlowCliWorkflowUpdate {
   if (operations.length !== 1) {
     throw new CliError(
       'usage',
-      'update requires exactly one operation: --add-node, --remove-node, --add-edge, --remove-edge, --set-edge, --set-node, or --set-app-name.',
+      'update requires exactly one operation: --add-node, --move-node, --remove-node, --add-edge, --remove-edge, --set-edge, --set-node, or --set-app-name.',
     );
   }
-  if (options.parentId !== undefined && operations[0] !== 'add-node') {
-    throw new CliError('usage', '--parent is only valid with --add-node.');
+  if (options.parentId !== undefined && operations[0] !== 'add-node' && operations[0] !== 'move-node') {
+    throw new CliError('usage', '--parent is only valid with --add-node or --move-node.');
   }
   rejectUnexpectedInlineUpdateOptions(options, operations[0]);
   switch (operations[0]) {
@@ -352,6 +353,12 @@ function updateOperation(options: CliOptions): FlowCliWorkflowUpdate {
         id: options.id,
         type: options.addNodeType!,
         configuration: options.config ? parseJsonObject(options.config, '--add-node') : {},
+        parentId: options.parentId,
+      };
+    case 'move-node':
+      return {
+        kind: 'move-node',
+        id: options.moveNodeId!,
         parentId: options.parentId,
       };
     case 'remove-node':
@@ -434,7 +441,11 @@ function rejectUnexpectedInlineUpdateOptions(
       present: options.config !== undefined,
       allowed: ['add-node', 'set-node'],
     },
-    { flag: '--parent', present: options.parentId !== undefined, allowed: 'add-node' },
+    {
+      flag: '--parent',
+      present: options.parentId !== undefined,
+      allowed: ['add-node', 'move-node'],
+    },
     { flag: '--edge-id', present: options.edgeId !== undefined, allowed: 'add-edge' },
     {
       flag: '--source',
@@ -510,6 +521,7 @@ const commandAllowedOptions: Readonly<Record<string, readonly string[]>> = Objec
   read: ['pretty', 'output'],
   update: [
     'addNodeType',
+    'moveNodeId',
     'removeNodeId',
     'addEdge',
     'removeEdgeId',
@@ -550,6 +562,7 @@ function rejectUnexpectedCommandOptions(command: string, options: CliOptions): v
     ['overwrite', options.overwrite],
     ['force', options.force],
     ['addNodeType', options.addNodeType !== undefined],
+    ['moveNodeId', options.moveNodeId !== undefined],
     ['removeNodeId', options.removeNodeId !== undefined],
     ['addEdge', options.addEdge],
     ['removeEdgeId', options.removeEdgeId !== undefined],
