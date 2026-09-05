@@ -76,10 +76,12 @@ store capability admission, and retry/error classification. `FLOW-R2` now has
 the first-class Activity ledger: durable create/start/result transitions,
 attempt and idempotency identities, per-redelivery fencing, non-retryable
 classification, cancellation projection, a fenced heartbeat/checkpoint API,
-and explicit unknown-outcome reconciliation. The remaining R2 work is
-host-owned Outbox/Inbox transaction wiring and fault-injection coverage across
-every external connector boundary; those must be delivered by Cloud
-integrations without moving tenant or product policy into Flow.
+and explicit unknown-outcome reconciliation. Activity deadline enforcement and
+timeout-to-unknown conversion are still a bounded follow-up in R2. The other
+remaining R2 work is host-owned Outbox/Inbox transaction wiring and
+fault-injection coverage across every external connector boundary; those must
+be delivered by Cloud integrations without moving tenant or product policy
+into Flow.
 
 All built-in stores also enforce `MAX_FLOW_EVENT_BYTES` (currently one MiB) at
 the validated append boundary; oversized payloads fail closed before mutation.
