@@ -83,12 +83,23 @@ writer whose base document has changed. The candidate is validated before the
 atomic replace, so a rejected or conflicting edit leaves the original file
 unchanged. Add `--dry-run` to receive the candidate summary without writing it.
 
+Use `--set-edge <id> --source <id> --target <id>` to redirect an existing edge
+in place. Optional `--source-handle` and `--target-handle` replace only the
+handles that are supplied; omitted handles, the edge ID, and unknown semantic or
+presentation fields are preserved. Use `--clear-source-handle` or
+`--clear-target-handle` to remove a handle explicitly (or `null` in a JSON
+operation). This avoids a remove/add cycle that could break references to the
+edge.
+
 ```bash
 a3s-flow update workflow.json --set-app-name invoice.approval.v2 --pretty
 a3s-flow update workflow.json --set-node run-step \
   --config '{"step_name":"payments.charge"}' --pretty
 a3s-flow update workflow.json --add-node flow.progress \
   --id report-progress --pretty
+a3s-flow update workflow.json --set-edge run-step-complete \
+  --source run-step --target approval \
+  --source-handle success --target-handle in --pretty
 a3s-flow update workflow.json --operations \
   '[{"kind":"set-app-name","name":"invoice.approval.v2"},{"kind":"set-node","id":"run-step","configuration":{"step_name":"payments.charge"}}]' \
   --dry-run --pretty

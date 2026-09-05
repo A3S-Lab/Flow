@@ -21,6 +21,46 @@ function workflow(): A3SFlowWorkflowDsl {
   };
 }
 
+function edgeWorkflow(): A3SFlowWorkflowDsl {
+  const start = createA3SFlowDagNode(
+    'start',
+    a3sFlowDagNodeRegistry.require('flow.start'),
+    { workflow_name: 'edge.test' },
+  );
+  const progress = createA3SFlowDagNode(
+    'progress',
+    a3sFlowDagNodeRegistry.require('flow.progress'),
+    { progress_id: 'progress' },
+  );
+  const complete = createA3SFlowDagNode(
+    'complete',
+    a3sFlowDagNodeRegistry.require('flow.complete'),
+    {},
+  );
+  return {
+    version: '0.7.0',
+    kind: 'app',
+    app: { name: 'Edge test', mode: 'workflow' },
+    dependencies: [],
+    workflow: {
+      graph: {
+        nodes: [start, progress, complete],
+        edges: [
+          {
+            id: 'route',
+            source: 'start',
+            sourceHandle: 'next',
+            target: 'progress',
+            targetHandle: 'in',
+            data: { owner: 'billing' },
+            label: 'keep me',
+          },
+        ],
+      },
+    },
+  };
+}
+
 async function* chunks(
   lines: readonly (string | Uint8Array)[],
 ): AsyncGenerator<string | Uint8Array> {
@@ -47,6 +87,50 @@ describe('workflow update streams', () => {
       'start',
       'progress',
     ]);
+  });
+
+  it('redirects an edge in a stream without replacing its identity or extensions', async () => {
+    const result = await applyFlowCliWorkflowUpdateStream(
+      edgeWorkflow(),
+      parseFlowCliWorkflowUpdateNdjson(
+        chunks([
+          '{"kind":"set-edge","id":"route","source":"progress","target":"complete"}\n',
+        ]),
+      ),
+    );
+
+    expect(result.changed).toEqual(['edge:route']);
+    expect(result.document.workflow.graph.edges[0]).toMatchObject({
+      id: 'route',
+      source: 'progress',
+      target: 'complete',
+      sourceHandle: 'next',
+      targetHandle: 'in',
+      data: { owner: 'billing' },
+      label: 'keep me',
+    });
+  });
+
+  it('allows streamed edge updates to clear optional handles explicitly', async () => {
+    const result = await applyFlowCliWorkflowUpdateStream(
+      edgeWorkflow(),
+      parseFlowCliWorkflowUpdateNdjson(
+        chunks([
+          '{"kind":"set-edge","id":"route","source":"start","target":"progress","sourceHandle":null,"targetHandle":null}\n',
+        ]),
+      ),
+    );
+
+    const edge = result.document.workflow.graph.edges[0];
+    expect(edge).toMatchObject({
+      id: 'route',
+      source: 'start',
+      target: 'progress',
+      data: { owner: 'billing' },
+      label: 'keep me',
+    });
+    expect(edge).not.toHaveProperty('sourceHandle');
+    expect(edge).not.toHaveProperty('targetHandle');
   });
 
   it('handles UTF-8 byte boundaries, CRLF, and blank lines', async () => {

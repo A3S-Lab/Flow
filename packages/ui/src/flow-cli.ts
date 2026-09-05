@@ -53,6 +53,7 @@ interface CliOptions {
   addNodeType?: string;
   removeNodeId?: string;
   removeEdgeId?: string;
+  setEdgeId?: string;
   setNodeId?: string;
   setAppName?: string;
   source?: string;
@@ -60,6 +61,8 @@ interface CliOptions {
   edgeId?: string;
   sourceHandle?: string;
   targetHandle?: string;
+  clearSourceHandle: boolean;
+  clearTargetHandle: boolean;
   config?: string;
   name?: string;
   from?: string;
@@ -105,6 +108,7 @@ Options:
   --set-app-name <name>    Update: replace the workflow app name
   --add-edge               Update: add an edge (requires --edge-id, --source, --target)
   --remove-edge <id>       Update: remove one edge
+  --set-edge <id>          Update: change an edge's endpoints (requires --source, --target)
   --operations <json|->     Update: apply JSON array or NDJSON stdin stream
   --if-digest <sha256>      Update: reject if the file's semantic digest changed
   --dry-run                Validate an update and return its result without writing
@@ -112,8 +116,10 @@ Options:
   --edge-id <id>           Stable edge ID for --add-edge
   --source <id>            Source node ID for --add-edge
   --target <id>            Target node ID for --add-edge
-  --source-handle <id>     Optional source port for --add-edge
-  --target-handle <id>     Optional target port for --add-edge
+  --source-handle <id>     Optional source port for --add-edge/--set-edge
+  --target-handle <id>     Optional target port for --add-edge/--set-edge
+  --clear-source-handle    Update --set-edge: remove the source port
+  --clear-target-handle    Update --set-edge: remove the target port
   --pretty                 Pretty-print JSON
   --output <file>          Write JSON to a file instead of stdout
   -                        Read a workflow document from stdin`;
@@ -146,6 +152,7 @@ function createCliParser() {
     .option('--set-app-name <name>', 'Set the workflow app name')
     .option('--add-edge', 'Add one edge')
     .option('--remove-edge <id>', 'Remove one edge')
+    .option('--set-edge <id>', 'Set one edge endpoints')
     .option('--operations <json>', 'Apply a JSON array or NDJSON stdin stream')
     .option('--if-digest <digest>', 'Reject if the semantic document digest changed')
     .option('--dry-run', 'Validate an update without writing')
@@ -155,6 +162,8 @@ function createCliParser() {
     .option('--target <id>', 'Edge target node ID')
     .option('--source-handle <id>', 'Edge source port ID')
     .option('--target-handle <id>', 'Edge target port ID')
+    .option('--clear-source-handle', 'Remove the source port from --set-edge')
+    .option('--clear-target-handle', 'Remove the target port from --set-edge')
     .option('--pretty', 'Pretty-print JSON')
     .option('--output <file>', 'Write JSON to a file')
     .option('-h, --help', 'Display command help');
@@ -206,6 +215,7 @@ function parseOptions(arguments_: string[]): { positional: string[]; options: Cl
       addNodeType: stringValue('addNode'),
       removeNodeId: stringValue('removeNode'),
       removeEdgeId: stringValue('removeEdge'),
+      setEdgeId: stringValue('setEdge'),
       setNodeId: stringValue('setNode'),
       setAppName: stringValue('setAppName'),
       source: stringValue('source'),
@@ -213,6 +223,8 @@ function parseOptions(arguments_: string[]): { positional: string[]; options: Cl
       edgeId: stringValue('edgeId'),
       sourceHandle: stringValue('sourceHandle'),
       targetHandle: stringValue('targetHandle'),
+      clearSourceHandle: values.clearSourceHandle === true,
+      clearTargetHandle: values.clearTargetHandle === true,
       config: stringValue('config'),
       name: stringValue('name'),
       from: stringValue('from'),
@@ -285,10 +297,21 @@ function normalizeStringOptionValues(
 async function readText(path: string): Promise<string> {
   try {
     if (path === '-') {
-      const chunks: string[] = [];
-      process.stdin.setEncoding('utf8');
-      for await (const chunk of process.stdin) chunks.push(chunk);
-      return chunks.join('');
+      const decoder = new TextDecoder('utf-8', { fatal: true });
+      let text = '';
+      try {
+        for await (const chunk of process.stdin) {
+          text +=
+            typeof chunk === 'string'
+              ? chunk
+              : decoder.decode(chunk as Uint8Array, { stream: true });
+        }
+        return text + decoder.decode();
+      } catch (error) {
+        throw new Error(
+          `stdin is not valid UTF-8: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
     return await readFile(path, 'utf8');
   } catch (error) {
@@ -510,7 +533,8 @@ function updateOperations(options: CliOptions): FlowCliWorkflowUpdate[] {
   }
   if (
     options.addNodeType || options.removeNodeId || options.addEdge ||
-    options.removeEdgeId || options.setNodeId || options.setAppName
+    options.removeEdgeId || options.setEdgeId || options.setNodeId || options.setAppName ||
+    options.clearSourceHandle || options.clearTargetHandle
   ) {
     throw new CliError('usage', '--operations cannot be combined with a single update operation.');
   }
@@ -527,7 +551,7 @@ function updateOperations(options: CliOptions): FlowCliWorkflowUpdate[] {
 function hasSingleUpdateOperation(options: CliOptions): boolean {
   return Boolean(
     options.addNodeType || options.removeNodeId || options.addEdge ||
-      options.removeEdgeId || options.setNodeId || options.setAppName,
+      options.removeEdgeId || options.setEdgeId || options.setNodeId || options.setAppName,
   );
 }
 
@@ -543,13 +567,14 @@ function updateOperation(options: CliOptions): FlowCliWorkflowUpdate {
     options.removeNodeId ? 'remove-node' : undefined,
     options.addEdge ? 'add-edge' : undefined,
     options.removeEdgeId ? 'remove-edge' : undefined,
+    options.setEdgeId ? 'set-edge' : undefined,
     options.setNodeId ? 'set-node' : undefined,
     options.setAppName ? 'set-app-name' : undefined,
   ].filter((value): value is string => value !== undefined);
   if (operations.length !== 1) {
     throw new CliError(
       'usage',
-      'update requires exactly one operation: --add-node, --remove-node, --add-edge, --remove-edge, --set-node, or --set-app-name.',
+      'update requires exactly one operation: --add-node, --remove-node, --add-edge, --remove-edge, --set-edge, --set-node, or --set-app-name.',
     );
   }
   switch (operations[0]) {
@@ -570,6 +595,12 @@ function updateOperation(options: CliOptions): FlowCliWorkflowUpdate {
           '--add-edge requires --edge-id <id>, --source <id>, and --target <id>.',
         );
       }
+      if (options.clearSourceHandle || options.clearTargetHandle) {
+        throw new CliError(
+          'usage',
+          '--clear-source-handle and --clear-target-handle are only valid with --set-edge.',
+        );
+      }
       return {
         kind: 'add-edge',
         id: options.edgeId,
@@ -580,6 +611,33 @@ function updateOperation(options: CliOptions): FlowCliWorkflowUpdate {
       };
     case 'remove-edge':
       return { kind: 'remove-edge', id: options.removeEdgeId! };
+    case 'set-edge':
+      if (!options.source || !options.target) {
+        throw new CliError(
+          'usage',
+          '--set-edge requires --source <id> and --target <id>.',
+        );
+      }
+      if (options.clearSourceHandle && options.sourceHandle !== undefined) {
+        throw new CliError(
+          'usage',
+          '--clear-source-handle cannot be combined with --source-handle.',
+        );
+      }
+      if (options.clearTargetHandle && options.targetHandle !== undefined) {
+        throw new CliError(
+          'usage',
+          '--clear-target-handle cannot be combined with --target-handle.',
+        );
+      }
+      return {
+        kind: 'set-edge',
+        id: options.setEdgeId!,
+        source: options.source,
+        target: options.target,
+        sourceHandle: options.clearSourceHandle ? null : options.sourceHandle,
+        targetHandle: options.clearTargetHandle ? null : options.targetHandle,
+      };
     case 'set-node':
       return {
         kind: 'set-node',
@@ -749,7 +807,6 @@ async function handleUpdate(
           '--operations - cannot be combined with a single update operation.',
         );
       }
-      process.stdin.setEncoding('utf8');
       result = await applyFlowCliWorkflowUpdateStream(
         current.document,
         parseFlowCliWorkflowUpdateNdjson(process.stdin),

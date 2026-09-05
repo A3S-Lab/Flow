@@ -34,6 +34,14 @@ export type FlowCliWorkflowUpdate =
       targetHandle?: string;
     }
   | { kind: 'remove-edge'; id: string }
+  | {
+      kind: 'set-edge';
+      id: string;
+      source: string;
+      target: string;
+      sourceHandle?: string | null;
+      targetHandle?: string | null;
+    }
   | { kind: 'set-node'; id: string; configuration: JsonObject }
   | { kind: 'set-app-name'; name: string };
 
@@ -76,6 +84,11 @@ function parseFlowCliWorkflowUpdateObject(
   };
   const optionalString = (key: string): string | undefined =>
     operation[key] === undefined ? undefined : string(key);
+  const optionalNullableString = (key: string): string | null | undefined => {
+    if (operation[key] === undefined) return undefined;
+    if (operation[key] === null) return null;
+    return string(key);
+  };
   const assertKeys = (...allowed: readonly string[]): void => {
     const allowedKeys = new Set(allowed);
     const unexpected = Object.keys(operation).find((key) => !allowedKeys.has(key));
@@ -117,6 +130,16 @@ function parseFlowCliWorkflowUpdateObject(
     case 'remove-edge':
       assertKeys('kind', 'id');
       return { kind: 'remove-edge', id: string('id') };
+    case 'set-edge':
+      assertKeys('kind', 'id', 'source', 'target', 'sourceHandle', 'targetHandle');
+      return {
+        kind: 'set-edge',
+        id: string('id'),
+        source: string('source'),
+        target: string('target'),
+        sourceHandle: optionalNullableString('sourceHandle'),
+        targetHandle: optionalNullableString('targetHandle'),
+      };
     case 'set-node':
       assertKeys('kind', 'id', 'configuration');
       return { kind: 'set-node', id: string('id'), configuration: configuration(true) };
@@ -495,6 +518,19 @@ function applyFlowCliWorkflowUpdateInPlace(
       const index = graph.edges.findIndex((edge) => edge.id === operation.id);
       if (index < 0) throw new Error(`Workflow edge not found: ${operation.id}`);
       graph.edges.splice(index, 1);
+      return [`edge:${operation.id}`];
+    }
+    case 'set-edge': {
+      const edge = graph.edges.find((candidate) => candidate.id === operation.id);
+      if (!edge) throw new Error(`Workflow edge not found: ${operation.id}`);
+      requireNode(document, operation.source);
+      requireNode(document, operation.target);
+      edge.source = operation.source;
+      edge.target = operation.target;
+      if (operation.sourceHandle === null) delete edge.sourceHandle;
+      else if (operation.sourceHandle !== undefined) edge.sourceHandle = operation.sourceHandle;
+      if (operation.targetHandle === null) delete edge.targetHandle;
+      else if (operation.targetHandle !== undefined) edge.targetHandle = operation.targetHandle;
       return [`edge:${operation.id}`];
     }
     case 'set-node': {

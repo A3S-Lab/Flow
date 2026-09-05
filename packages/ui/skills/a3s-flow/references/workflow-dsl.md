@@ -33,6 +33,13 @@ Every node has a stable `id` and a `data.type` discriminator. Manifest-owned con
 
 Every edge has a stable `id`, a `source`, and a `target`. Set `sourceHandle` and `targetHandle` to port IDs returned by `a3s-flow node <type>`. Connect control ports to control ports and data ports to compatible data ports. A node and both endpoints of each edge must belong to the same container scope.
 
+To redirect an existing edge without breaking references, use the CLI's
+`--set-edge <id> --source <id> --target <id>` operation (or a `set-edge`
+operation in a JSON/NDJSON patch). The edge ID and unrecognized fields are
+retained. Supplying a handle replaces that handle; omitting it preserves the
+existing handle; use `null` in a JSON operation (or the CLI clear-handle flags)
+to remove one. Validate the complete graph after the edit.
+
 ## Public node catalog
 
 | Type                   | Purpose                                                                            | Primary settings                                                                                                          |

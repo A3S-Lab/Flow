@@ -67,6 +67,29 @@ try {
   if (!updated.ok || updated.document?.app?.name !== 'Smoke workflow v2') {
     throw new Error('The update command did not atomically persist the change.');
   }
+  const redirected = await run([
+    'update',
+    workflow,
+    '--set-edge',
+    'start-run-step',
+    '--source',
+    'start',
+    '--target',
+    'run-step',
+  ]);
+  const redirectedEdge = redirected.document?.workflow?.graph?.edges?.find(
+    (edge) => edge.id === 'start-run-step',
+  );
+  if (
+    !redirected.ok ||
+    redirected.changed?.join(',') !== 'edge:start-run-step' ||
+    redirectedEdge?.source !== 'start' ||
+    redirectedEdge?.target !== 'run-step' ||
+    redirectedEdge?.sourceHandle !== 'next' ||
+    redirectedEdge?.targetHandle !== 'in'
+  ) {
+    throw new Error('The set-edge command did not preserve the edge identity and handles.');
+  }
   const streamed = await runWithInput(
     ['update', workflow, '--operations', '-'],
     '{"kind":"set-app-name","name":"Smoke workflow streamed"}\n',

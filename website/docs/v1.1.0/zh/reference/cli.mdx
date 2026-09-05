@@ -70,12 +70,17 @@ a3s-flow read workflow.json --pretty
 
 `update` 每次可接受一个聚焦操作；需要多次图修改一起提交时，使用 `--operations '<json-array>'`。对于生成器或较大的变更流，可使用 `--operations -`，从 stdin 逐行输入一个 JSON operation（NDJSON）。Flow 会边到达边解析和应用，最后只在完整校验通过后原子发布一个快照。节点配置使用 JSON，只修改 manifest 拥有的字段，未知语义扩展和展示字段会保留。使用 `--if-digest <sha256>` 可以拒绝基线已经变化的过期写入者。候选文档通过校验后才会原子替换，因此失败或冲突更新不会改动原文件。加上 `--dry-run` 可以只查看候选摘要而不写盘。
 
+使用 `--set-edge <id> --source <id> --target <id>` 可以原地重定向已有连线。传入 `--source-handle` 或 `--target-handle` 时只替换对应句柄；省略的句柄、连线 ID 以及未知语义/展示字段都会保留。需要显式删除句柄时使用 `--clear-source-handle` 或 `--clear-target-handle`（JSON operation 中使用 `null`）。这样不需要先删除再新增，也不会破坏对连线 ID 的引用。
+
 ```bash
 a3s-flow update workflow.json --set-app-name invoice.approval.v2 --pretty
 a3s-flow update workflow.json --set-node run-step \
   --config '{"step_name":"payments.charge"}' --pretty
 a3s-flow update workflow.json --add-node flow.progress \
   --id report-progress --pretty
+a3s-flow update workflow.json --set-edge run-step-complete \
+  --source run-step --target approval \
+  --source-handle success --target-handle in --pretty
 a3s-flow update workflow.json --operations \
   '[{"kind":"set-app-name","name":"invoice.approval.v2"},{"kind":"set-node","id":"run-step","configuration":{"step_name":"payments.charge"}}]' \
   --dry-run --pretty

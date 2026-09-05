@@ -140,6 +140,99 @@ describe('A3S Flow CLI workflow file CRUD', () => {
         'edge:progress-complete',
       ]);
 
+      const batchWithEdgeExtension = JSON.parse(
+        await readFile(batchWorkflow, 'utf8'),
+      ) as A3SFlowWorkflowDsl;
+      const edgeToRedirect = batchWithEdgeExtension.workflow.graph.edges.find(
+        (edge) => edge.id === 'run-step-progress',
+      );
+      expect(edgeToRedirect).toBeDefined();
+      edgeToRedirect!.data = { owner: 'billing' };
+      edgeToRedirect!.label = 'preserve this label';
+      await writeFile(
+        batchWorkflow,
+        `${JSON.stringify(batchWithEdgeExtension)}\n`,
+        'utf8',
+      );
+
+      expect(
+        await runFlowCli([
+          'update',
+          batchWorkflow,
+          '--set-edge',
+          'run-step-progress',
+          '--source',
+          'start',
+          '--target',
+          'report-progress',
+          '--source-handle',
+          'next',
+          '--target-handle',
+          'in',
+          '--output',
+          output,
+        ]),
+      ).toBe(0);
+      const redirected = await readJson(output);
+      const redirectedEdge = redirected.document.workflow.graph.edges.find(
+        (edge) => edge.id === 'run-step-progress',
+      );
+      expect(redirectedEdge).toMatchObject({
+        id: 'run-step-progress',
+        source: 'start',
+        target: 'report-progress',
+        sourceHandle: 'next',
+        targetHandle: 'in',
+        data: { owner: 'billing' },
+        label: 'preserve this label',
+      });
+      expect(redirected.changed).toEqual(['edge:run-step-progress']);
+
+      expect(
+        await runFlowCli([
+          'update',
+          batchWorkflow,
+          '--set-edge',
+          'run-step-progress',
+          '--source',
+          'start',
+          '--target',
+          'report-progress',
+          '--clear-source-handle',
+          '--clear-target-handle',
+          '--output',
+          output,
+        ]),
+      ).toBe(0);
+      const clearedHandles = await readJson(output);
+      const edgeWithoutHandles = clearedHandles.document.workflow.graph.edges.find(
+        (edge) => edge.id === 'run-step-progress',
+      );
+      expect(edgeWithoutHandles).toMatchObject({
+        id: 'run-step-progress',
+        source: 'start',
+        target: 'report-progress',
+        data: { owner: 'billing' },
+        label: 'preserve this label',
+      });
+      expect(edgeWithoutHandles).not.toHaveProperty('sourceHandle');
+      expect(edgeWithoutHandles).not.toHaveProperty('targetHandle');
+
+      const beforeInvalidEdgeUpdate = await readFile(batchWorkflow, 'utf8');
+      await expect(
+        runFlowCli([
+          'update',
+          batchWorkflow,
+          '--set-edge',
+          'run-step-progress',
+          '--source',
+          'start',
+          '--target',
+          'missing-node',
+        ]),
+      ).rejects.toThrow(/Workflow node not found: missing-node/);
+      expect(await readFile(batchWorkflow, 'utf8')).toBe(beforeInvalidEdgeUpdate);
+
       const imported = JSON.parse(await readFile(workflow, 'utf8')) as A3SFlowWorkflowDsl;
       imported.workflow.graph.nodes[1].data['x-extension'] = { owner: 'billing' };
       imported.workflow.graph.nodes[1].title = 'Keep this title';
@@ -388,6 +481,28 @@ describe('A3S Flow CLI workflow file CRUD', () => {
         await runFlowCli(['update', workflow, '--operations', '-', '--output', output]),
       ).toBe(1);
       expect(await readFile(workflow, 'utf8')).toBe(beforeInvalidFinal);
+
+      const beforeInvalidUtf8 = await readFile(workflow, 'utf8');
+      Object.defineProperty(process, 'stdin', {
+        configurable: true,
+        value: Readable.from([new Uint8Array([0xff, 0xfe, 0x0a])]),
+      });
+      await expect(
+        runFlowCli(['update', workflow, '--operations', '-']),
+      ).rejects.toThrow(/not valid UTF-8/);
+      expect(await readFile(workflow, 'utf8')).toBe(beforeInvalidUtf8);
+
+      const invalidFromPath = join(root, 'invalid-from.json');
+      Object.defineProperty(process, 'stdin', {
+        configurable: true,
+        value: Readable.from([new Uint8Array([0xff, 0xfe])]),
+      });
+      await expect(
+        runFlowCli(['create', invalidFromPath, '--from', '-']),
+      ).rejects.toThrow(/not valid UTF-8/);
+      await expect(readFile(invalidFromPath, 'utf8')).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
     } finally {
       Object.defineProperty(process, 'stdin', { configurable: true, value: originalStdin });
       await rm(root, { recursive: true, force: true });
