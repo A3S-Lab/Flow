@@ -1,4 +1,4 @@
 interface:
   display_name: "A3S Flow"
   short_description: "Build and verify durable A3S Flow workflows"
-  default_prompt: "Use $a3s-flow to create and validate a durable workflow."
+  default_prompt: "Use $a3s-flow to CRUD and validate a durable workflow DSL file."
