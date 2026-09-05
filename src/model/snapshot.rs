@@ -58,7 +58,7 @@ pub enum StepStatus {
     Completed,
     /// The step exhausted its retry policy.
     Failed,
-    /// The owning run cancelled the step before completion.
+    /// The owning run or a failed batch cancelled the step before completion.
     Cancelled,
 }
 

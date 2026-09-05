@@ -322,6 +322,10 @@ Important protocol details:
   `token` because callback routing must be stable across replay.
 - `step_retrying.retry_after` is `string | null`, matching Rust's serialized
   `Option<DateTime<Utc>>`.
+- `step_cancelled` is emitted when a terminal batch abort makes a step
+  non-actionable. Its `reason` can indicate that an external side effect has an
+  unknown outcome; reconcile that attempt with the stable step identity before
+  retrying it.
 - `schedule_step.retry` and batched `StepCommand.retry` may be omitted; Rust
   applies the default retry policy.
 - `record_progress` and `link_child_operation` use stable IDs. Replay should

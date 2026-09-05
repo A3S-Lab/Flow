@@ -14,7 +14,10 @@ use crate::model::{
     ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookSnapshot, HookStatus, ScheduledWakeup,
 };
 
-use super::{scheduled_wakeup_from_row, scheduled_wakeup_key, sqlite_migrations, FlowEventStore};
+use super::{
+    next_event_sequence, scheduled_wakeup_from_row, scheduled_wakeup_key, sqlite_migrations,
+    validate_candidate_event, FlowEventStore,
+};
 
 mod retention;
 
@@ -106,14 +109,17 @@ impl SqliteEventStore {
                             });
                         }
                     }
+                    let history = load_sqlite_history(transaction, &run_id).await?;
+                    validate_candidate_event(&run_id, &history, &event)?;
                     if let FlowEvent::HookCreated { hook_id, token, .. } = &event {
                         ensure_sqlite_active_hook_available(transaction, &run_id, hook_id, token)
                             .await?;
                     }
+                    let sequence = next_event_sequence(actual_sequence, &run_id)?;
 
                     let envelope = FlowEventEnvelope {
                         run_id,
-                        sequence: actual_sequence + 1,
+                        sequence,
                         event_id: Uuid::new_v4(),
                         timestamp: Utc::now(),
                         event,
@@ -142,6 +148,36 @@ impl FlowEventStore for SqliteEventStore {
     ) -> Result<FlowEventEnvelope> {
         self.append_with_expected_sequence(run_id, Some(expected_sequence), event)
             .await
+    }
+
+    async fn append_validated_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> Result<FlowEventEnvelope> {
+        self.append_with_expected_sequence(run_id, Some(expected_sequence), event)
+            .await
+    }
+
+    async fn append_hook_if_token_available(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        hook_id: String,
+        token: String,
+        metadata: serde_json::Value,
+    ) -> Result<FlowEventEnvelope> {
+        self.append_with_expected_sequence(
+            run_id,
+            Some(expected_sequence),
+            FlowEvent::HookCreated {
+                hook_id,
+                token,
+                metadata,
+            },
+        )
+        .await
     }
 
     async fn list(&self, run_id: &str) -> Result<Vec<FlowEventEnvelope>> {
@@ -319,6 +355,24 @@ pub(super) async fn latest_sqlite_sequence(
         .ok_or_else(|| FlowError::Store("SQLite sequence query returned no row".to_string()))?;
     u64::try_from(sequence)
         .map_err(|error| FlowError::Store(format!("invalid SQLite sequence {sequence}: {error}")))
+}
+
+async fn load_sqlite_history(
+    transaction: &SqliteTransaction,
+    run_id: &str,
+) -> Result<Vec<FlowEventEnvelope>> {
+    fetch_all_sqlite::<(String, i64, String, String, String), _>(
+        transaction,
+        sql_query::<(String, i64, String, String, String)>(
+            "SELECT run_id, sequence, event_id, timestamp, event_json FROM flow_events WHERE run_id = ",
+        )
+        .bind(run_id)
+        .append(" ORDER BY sequence ASC"),
+    )
+    .await?
+    .into_iter()
+    .map(row_to_envelope)
+    .collect()
 }
 
 async fn ensure_sqlite_active_hook_available(

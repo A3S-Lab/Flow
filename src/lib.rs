@@ -78,5 +78,5 @@ pub use worker::{PostgresDeadLetteredTask, PostgresFlowTaskQueue};
 pub use workflow_dsl::{
     WorkflowDag, WorkflowDagEdge, WorkflowDagNode, WorkflowDagPlan, WorkflowDsl, WorkflowDslApp,
     WorkflowDslBody, WorkflowDslCompatibility, WorkflowDslError, TESTED_WORKFLOW_DSL_VERSION,
-    WORKFLOW_DSL_MAX_BYTES,
+    WORKFLOW_DSL_EXECUTION_DIGEST_VERSION, WORKFLOW_DSL_MAX_BYTES,
 };

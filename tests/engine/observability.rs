@@ -1,5 +1,25 @@
 use super::*;
 
+struct BlockingObserver;
+
+#[async_trait]
+impl FlowEventObserver for BlockingObserver {
+    async fn observe(&self, _envelope: FlowEventEnvelope) {
+        pending::<()>().await;
+    }
+}
+
+struct BarrierObserver {
+    barrier: Arc<Barrier>,
+}
+
+#[async_trait]
+impl FlowEventObserver for BarrierObserver {
+    async fn observe(&self, _envelope: FlowEventEnvelope) {
+        self.barrier.wait().await;
+    }
+}
+
 fn audit_event(run_id: &str, sequence: u64) -> A3sFlowEvent {
     A3sFlowEvent::from_envelope(
         &FlowEventEnvelope::new(
@@ -79,11 +99,91 @@ async fn fanout_observer_forwards_committed_events_to_each_observer() {
 }
 
 #[tokio::test]
+async fn fanout_observer_delivers_to_downstreams_concurrently() {
+    let barrier = Arc::new(Barrier::new(2));
+    let fanout = FanoutFlowEventObserver::new()
+        .with_observer(Arc::new(BarrierObserver {
+            barrier: barrier.clone(),
+        }))
+        .with_observer(Arc::new(BarrierObserver {
+            barrier: barrier.clone(),
+        }));
+
+    tokio::time::timeout(
+        Duration::from_millis(250),
+        fanout.observe(envelope("fanout-concurrent", 1, FlowEvent::RunStarted)),
+    )
+    .await
+    .expect("fanout must not serialize downstream observers");
+}
+
+#[tokio::test]
+async fn fanout_observer_keeps_healthy_downstreams_after_a_panic() {
+    let healthy = Arc::new(InMemoryFlowEventObserver::new());
+    let fanout = FanoutFlowEventObserver::new()
+        .with_observer(Arc::new(PanickingObserver))
+        .with_observer(healthy.clone());
+
+    fanout
+        .observe(envelope("fanout-panic", 1, FlowEvent::RunStarted))
+        .await;
+
+    assert_eq!(healthy.events().await.len(), 1);
+}
+
+#[tokio::test]
+async fn observer_timeout_keeps_durable_transition_live() {
+    let engine = FlowEngine::builder(Arc::new(SequentialRuntime))
+        .with_observer(Arc::new(BlockingObserver))
+        .with_observer_timeout(Duration::from_millis(10))
+        .build();
+    let started = std::time::Instant::now();
+
+    let run_id = engine
+        .start_with_id("observer-timeout", spec(), json!({}))
+        .await
+        .unwrap();
+
+    assert!(started.elapsed() < Duration::from_secs(1));
+    assert_eq!(
+        engine.snapshot(&run_id).await.unwrap().status,
+        WorkflowRunStatus::Completed
+    );
+    assert_eq!(engine.observer_timeout(), Duration::from_millis(10));
+}
+
+struct PanickingObserver;
+
+#[async_trait]
+impl FlowEventObserver for PanickingObserver {
+    async fn observe(&self, _envelope: FlowEventEnvelope) {
+        panic!("observer failure must not change durable state");
+    }
+}
+
+#[tokio::test]
+async fn observer_panics_are_isolated_from_durable_transition() {
+    let engine = FlowEngine::builder(Arc::new(SequentialRuntime))
+        .with_observer(Arc::new(PanickingObserver))
+        .with_observer_timeout(Duration::from_millis(100))
+        .build();
+
+    let run_id = engine
+        .start_with_id("observer-panic", spec(), json!({}))
+        .await
+        .unwrap();
+    assert_eq!(
+        engine.snapshot(&run_id).await.unwrap().status,
+        WorkflowRunStatus::Completed
+    );
+}
+
+#[tokio::test]
 async fn a3s_event_bridge_maps_committed_events_to_safe_labels() {
     let sink = Arc::new(InMemoryA3sFlowEventSink::new());
     let observer = Arc::new(A3sFlowEventBridge::new(sink.clone()));
     let engine = FlowEngine::builder(Arc::new(SequentialRuntime))
-        .with_observer(observer)
+        .with_observer(observer.clone())
         .build();
 
     engine
@@ -129,6 +229,7 @@ async fn a3s_event_bridge_maps_committed_events_to_safe_labels() {
     assert_eq!(labels["workflow_version"], "0.1.0");
     assert_eq!(labels["status"], "completed");
     assert!(!labels.contains_key("run_id"));
+    assert_eq!(observer.cached_workflow_count().await, 0);
 }
 
 #[cfg(feature = "a3s-event")]

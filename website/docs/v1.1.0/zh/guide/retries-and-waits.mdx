@@ -49,6 +49,10 @@ let retry = RetryPolicy::exponential(
 
 初始延迟至少是一毫秒，最大延迟不会小于初始延迟。构造方法会把 `max_attempts` 收紧到至少一次。
 
+步骤如果执行了较长时间才失败，Flow 会以实际失败时刻而不是本次驱动
+开始时刻计算新的 `retry_after`。调度器提供的未来截止时间仍会作为下界保留，
+因此补偿式追赶不会让长时间运行的尝试立刻过期。
+
 ## 重试耗尽后继续工作流
 
 默认行为是 `StepFailureAction::FailRun`。有些流程需要在最后一次失败后进入人工处理、降级路径或补偿逻辑，可以使用 `continue_workflow_on_failure()`。
@@ -103,6 +107,8 @@ Ok(ctx.wait_until("payment-window", deadline))
 ```
 
 同一个 `wait_id` 如果在重放时带来不同截止时间，Flow 返回 `NonDeterministic`。
+对于仍在等待且尚未到期的定时器，直接调用 `resume_wait()` 会返回状态迁移错误；
+已经终止的运行再次投递仍是幂等空操作。
 
 ## 调度器怎样唤醒运行
 

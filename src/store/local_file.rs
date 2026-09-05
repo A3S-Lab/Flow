@@ -9,11 +9,12 @@ use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
 use crate::jsonl::{append_jsonl_record, load_jsonl, repair_jsonl_tail, LoadedJsonl};
-use crate::model::{project_run, validate_run_id, FlowEvent, FlowEventEnvelope};
+use crate::model::{project_run, validate_run_id, FlowEvent, FlowEventEnvelope, HookStatus};
 
 use super::{
+    next_event_sequence,
     retention::{plan_history_retention, required_linked_flow_run_id, FlowHistoryRetentionPolicy},
-    FlowEventStore,
+    validate_candidate_event, FlowEventStore,
 };
 
 /// JSONL-backed event store for local durable runs.
@@ -103,15 +104,19 @@ impl LocalFileEventStore {
     async fn append_inner(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope> {
         tokio::fs::create_dir_all(&self.root).await?;
         self.ensure_linked_flow_run_exists(&event).await?;
+        self.ensure_hook_token_available(run_id, &event).await?;
 
         let LoadedJsonl {
             records: events,
             tail_repair,
         } = self.load_inner(run_id, true).await?;
         self.validate_existing_log(run_id, &events)?;
+        validate_candidate_event(run_id, &events, &event)?;
+        let sequence =
+            next_event_sequence(events.last().map_or(0, |event| event.sequence), run_id)?;
         let envelope = FlowEventEnvelope {
             run_id: run_id.to_string(),
-            sequence: events.last().map_or(1, |event| event.sequence + 1),
+            sequence,
             event_id: Uuid::new_v4(),
             timestamp: Utc::now(),
             event,
@@ -131,6 +136,7 @@ impl LocalFileEventStore {
     ) -> Result<FlowEventEnvelope> {
         tokio::fs::create_dir_all(&self.root).await?;
         self.ensure_linked_flow_run_exists(&event).await?;
+        self.ensure_hook_token_available(run_id, &event).await?;
 
         let LoadedJsonl {
             records: events,
@@ -145,10 +151,12 @@ impl LocalFileEventStore {
                 actual_sequence,
             });
         }
+        validate_candidate_event(run_id, &events, &event)?;
+        let sequence = next_event_sequence(actual_sequence, run_id)?;
 
         let envelope = FlowEventEnvelope {
             run_id: run_id.to_string(),
-            sequence: actual_sequence + 1,
+            sequence,
             event_id: Uuid::new_v4(),
             timestamp: Utc::now(),
             event,
@@ -169,6 +177,33 @@ impl LocalFileEventStore {
             return Err(FlowError::RunNotFound(linked_run_id.to_string()));
         }
         self.validate_existing_log(linked_run_id, &events)
+    }
+
+    async fn ensure_hook_token_available(&self, run_id: &str, event: &FlowEvent) -> Result<()> {
+        let FlowEvent::HookCreated { hook_id, token, .. } = event else {
+            return Ok(());
+        };
+
+        for candidate_run_id in self.list_run_ids_inner().await? {
+            let events = self.list_inner(&candidate_run_id, false).await?;
+            let snapshot = project_run(&candidate_run_id, &events)?;
+            if snapshot.status.is_terminal() {
+                continue;
+            }
+            for hook in snapshot.hooks.values() {
+                if hook.status == HookStatus::Active
+                    && hook.token == *token
+                    && !(candidate_run_id == run_id && hook.hook_id == *hook_id)
+                {
+                    return Err(FlowError::HookTokenConflict {
+                        token: token.clone(),
+                        existing_run_id: candidate_run_id.clone(),
+                        existing_hook_id: hook.hook_id.clone(),
+                    });
+                }
+            }
+        }
+        Ok(())
     }
 
     async fn list_run_ids_inner(&self) -> Result<Vec<String>> {
@@ -253,6 +288,38 @@ impl FlowEventStore for LocalFileEventStore {
         let _guard = self.lock.lock().await;
         self.append_if_sequence_inner(run_id, expected_sequence, event)
             .await
+    }
+
+    async fn append_validated_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> Result<FlowEventEnvelope> {
+        let _guard = self.lock.lock().await;
+        self.append_if_sequence_inner(run_id, expected_sequence, event)
+            .await
+    }
+
+    async fn append_hook_if_token_available(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        hook_id: String,
+        token: String,
+        metadata: serde_json::Value,
+    ) -> Result<FlowEventEnvelope> {
+        let _guard = self.lock.lock().await;
+        self.append_if_sequence_inner(
+            run_id,
+            expected_sequence,
+            FlowEvent::HookCreated {
+                hook_id,
+                token,
+                metadata,
+            },
+        )
+        .await
     }
 
     async fn list(&self, run_id: &str) -> Result<Vec<FlowEventEnvelope>> {

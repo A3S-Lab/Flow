@@ -5,9 +5,11 @@ mod scheduled_wakeups;
 #[cfg(all(test, any(feature = "postgres", feature = "sqlite")))]
 mod tests;
 #[cfg(feature = "postgres")]
-use scheduled_wakeups::POSTGRES_SCHEDULED_WAKEUPS_SQL;
+use scheduled_wakeups::{
+    POSTGRES_SCHEDULED_WAKEUPS_CANCELLATION_SQL, POSTGRES_SCHEDULED_WAKEUPS_SQL,
+};
 #[cfg(feature = "sqlite")]
-use scheduled_wakeups::SQLITE_SCHEDULED_WAKEUPS_SQL;
+use scheduled_wakeups::{SQLITE_SCHEDULED_WAKEUPS_CANCELLATION_SQL, SQLITE_SCHEDULED_WAKEUPS_SQL};
 
 const EVENTS_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS flow_events (
@@ -439,6 +441,11 @@ pub(crate) fn sqlite_migrations() -> Vec<Migration> {
             "close indexed run resources when history continues as new",
             SQLITE_CONTINUE_AS_NEW_SQL,
         ),
+        Migration::new(
+            "a3s-flow-0006-step-cancellation-wakeup",
+            "remove delayed retry wakeups when a batch step is cancelled",
+            SQLITE_SCHEDULED_WAKEUPS_CANCELLATION_SQL,
+        ),
     ]
 }
 
@@ -474,6 +481,11 @@ pub(crate) fn postgres_migrations() -> Vec<Migration> {
             "a3s-flow-0006-continue-as-new",
             "close indexed run resources when history continues as new",
             POSTGRES_CONTINUE_AS_NEW_SQL,
+        ),
+        Migration::new(
+            "a3s-flow-0007-step-cancellation-wakeup",
+            "remove delayed retry wakeups when a batch step is cancelled",
+            POSTGRES_SCHEDULED_WAKEUPS_CANCELLATION_SQL,
         ),
     ]
 }

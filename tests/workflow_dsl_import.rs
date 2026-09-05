@@ -2,9 +2,23 @@ use a3s_flow::{
     WorkflowDag, WorkflowDagEdge, WorkflowDagNode, WorkflowDsl, WorkflowDslCompatibility,
     WorkflowDslError,
 };
+use serde::Deserialize;
 use serde_json::json;
 
 const WORKFLOW_DSL_ECHO: &str = include_str!("fixtures/workflow_dsl_echo.yml");
+const WORKFLOW_DIGEST_VECTORS: &str =
+    include_str!("../packages/ui/tests/fixtures/workflow-digest-vectors.json");
+
+#[derive(Debug, Deserialize)]
+struct WorkflowDigestVector {
+    name: String,
+    graph: serde_json::Value,
+    document: serde_json::Value,
+    #[serde(rename = "graphDigest")]
+    graph_digest: String,
+    #[serde(rename = "documentDigest")]
+    document_digest: String,
+}
 
 #[test]
 fn complete_workflow_yaml_round_trips_without_losing_vendor_fields() {
@@ -273,6 +287,52 @@ fn custom_host_node_round_trips_compiles_and_binds_its_configuration() {
         original_digest,
         "custom-node canvas layout is not executable semantics"
     );
+}
+
+#[test]
+fn execution_digest_matches_the_cross_language_golden_vectors() {
+    let vectors: Vec<WorkflowDigestVector> =
+        serde_json::from_str(WORKFLOW_DIGEST_VECTORS).expect("digest vectors");
+
+    for vector in vectors {
+        let graph = WorkflowDag::from_json(&vector.graph.to_string())
+            .unwrap_or_else(|error| panic!("{} graph: {error}", vector.name));
+        let document = WorkflowDsl::from_json(&vector.document.to_string())
+            .unwrap_or_else(|error| panic!("{} document: {error}", vector.name));
+
+        assert_eq!(
+            graph.execution_digest().expect("graph digest"),
+            vector.graph_digest,
+            "graph vector {}",
+            vector.name
+        );
+        assert_eq!(
+            document.execution_digest().expect("document digest"),
+            vector.document_digest,
+            "document vector {}",
+            vector.name
+        );
+    }
+}
+
+#[test]
+fn execution_digest_rejects_numbers_that_javascript_cannot_represent_safely() {
+    let graph = WorkflowDag::from_json(
+        &json!({
+            "nodes": [
+                {"id": "start", "data": {"type": "start", "unsafe": 9007199254740992u64}},
+                {"id": "end", "data": {"type": "end"}}
+            ],
+            "edges": [{"id": "start-end", "source": "start", "target": "end"}]
+        })
+        .to_string(),
+    )
+    .expect("unsafe integer graph is structurally importable");
+
+    let error = graph
+        .execution_digest()
+        .expect_err("unsafe integer must not receive a cross-language digest");
+    assert!(error.to_string().contains("safe integer"), "{error}");
 }
 
 #[test]

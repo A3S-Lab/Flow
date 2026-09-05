@@ -268,3 +268,34 @@ BEGIN
         created_sequence = excluded.created_sequence;
 END;
 "#;
+
+/// Incremental projection migration for the `step_cancelled` event added by
+/// batch terminal-settlement hardening. Keeping this as a new migration (and
+/// not editing the published trigger above) preserves checksum compatibility
+/// for databases that already applied the earlier schema.
+#[cfg(feature = "sqlite")]
+pub(super) const SQLITE_SCHEDULED_WAKEUPS_CANCELLATION_SQL: &str = r#"
+-- A process may have committed a retry wakeup before it had to cancel an
+-- ambiguous sibling. Reconcile those histories before installing the trigger.
+DELETE FROM flow_scheduled_wakeups
+WHERE wakeup_kind = 2
+  AND EXISTS (
+      SELECT 1
+      FROM flow_events AS cancelled
+      WHERE cancelled.run_id = flow_scheduled_wakeups.run_id
+        AND cancelled.sequence > flow_scheduled_wakeups.created_sequence
+        AND json_extract(cancelled.event_json, '$.type') = 'step_cancelled'
+        AND json_extract(cancelled.event_json, '$.step_id') =
+            flow_scheduled_wakeups.subject_id
+  );
+
+CREATE TRIGGER IF NOT EXISTS flow_scheduled_wakeups_after_step_cancelled
+AFTER INSERT ON flow_events
+WHEN json_extract(NEW.event_json, '$.type') = 'step_cancelled'
+BEGIN
+    DELETE FROM flow_scheduled_wakeups
+    WHERE run_id = NEW.run_id
+      AND wakeup_kind = 2
+      AND subject_id = json_extract(NEW.event_json, '$.step_id');
+END;
+"#;

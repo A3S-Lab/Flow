@@ -707,7 +707,9 @@ the configured maximum, then selects deterministic full jitter from the run,
 step, and failed-attempt identities. The persisted `retry_after` deadline is
 therefore bounded, spread across workers, and stable across restart. Use
 `RetryPolicy::fixed` when a constant delay is part of an existing replay
-contract.
+contract. Flow anchors a newly computed retry deadline at the actual failure
+clock (while retaining a scheduler-provided future cutoff), so a long-running
+step cannot make its next retry immediately overdue.
 
 Host loop:
 
@@ -788,7 +790,9 @@ commits `wait_completed` receives that wait in its returned list. A compatibilit
 `ResumeWait` task left behind by cancellation is acknowledged without being
 reported as resumed. The targeted scheduler path follows the same commit-report
 rule when duplicate tasks race, while `FlowEngine::resume_scheduled_run()` itself
-still returns the wakeups that were due when the call began.
+still returns the wakeups that were due when the call began. A direct
+`resume_wait()` call for an open future timer is rejected until its persisted
+deadline; terminal redelivery remains an idempotent no-op.
 
 For polling, give each wait a deterministic ID derived from the poll attempt,
 for example `poll-1`, `poll-2`, and so on. Reusing a completed wait ID for a new

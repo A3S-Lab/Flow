@@ -1,0 +1,111 @@
+[
+  {
+    "name": "presentation-and-number-normalization",
+    "graph": {
+      "nodes": [
+        {
+          "id": "start",
+          "data": {
+            "type": "start",
+            "config": {
+              "integer": 1.0,
+              "negativeZero": -0.0,
+              "small": 0.000001
+            }
+          },
+          "position": {"x": 10, "y": 20}
+        },
+        {"id": "end", "data": {"type": "end"}}
+      ],
+      "edges": [
+        {
+          "id": "start-end",
+          "source": "start",
+          "target": "end",
+          "label": "Author-facing label",
+          "animated": true
+        }
+      ],
+      "viewport": {"x": 4, "y": 5, "zoom": 0.5}
+    },
+    "document": {
+      "version": "0.7.0",
+      "kind": "app",
+      "app": {"name": "digest-vectors", "mode": "workflow", "theme": "dark"},
+      "dependencies": [],
+      "workflow": {
+        "graph": {
+          "nodes": [
+            {
+              "id": "start",
+              "data": {
+                "type": "start",
+                "config": {
+                  "integer": 1.0,
+                  "negativeZero": -0.0,
+                  "small": 0.000001
+                }
+              },
+              "position": {"x": 10, "y": 20}
+            },
+            {"id": "end", "data": {"type": "end"}}
+          ],
+          "edges": [
+            {
+              "id": "start-end",
+              "source": "start",
+              "target": "end",
+              "label": "Author-facing label",
+              "animated": true
+            }
+          ],
+          "viewport": {"x": 4, "y": 5, "zoom": 0.5}
+        }
+      },
+      "x-extension": {"authoring": true}
+    },
+    "graphDigest": "3a6e30372f8ddf89788ff84d33b9073d2d809f35958d6d15a5de82ef011d4ba1",
+    "documentDigest": "0f305862c7ef7d9a0d0b3f7175a3173b1a4ee2b47b77a6b1f37fa006b07a7d11"
+  },
+  {
+    "name": "unicode-key-order",
+    "graph": {
+      "nodes": [
+        {
+          "id": "start",
+          "data": {
+            "type": "start",
+            "😀": "astral",
+            "é": "bmp"
+          }
+        },
+        {"id": "end", "data": {"type": "end"}}
+      ],
+      "edges": [{"id": "start-end", "source": "start", "target": "end", "data": null}]
+    },
+    "document": {
+      "version": "0.7.0",
+      "kind": "app",
+      "app": {"name": "unicode", "mode": "workflow"},
+      "dependencies": [],
+      "workflow": {
+        "graph": {
+          "nodes": [
+            {
+              "id": "start",
+              "data": {
+                "type": "start",
+                "😀": "astral",
+                "é": "bmp"
+              }
+            },
+            {"id": "end", "data": {"type": "end"}}
+          ],
+          "edges": [{"id": "start-end", "source": "start", "target": "end", "data": null}]
+        }
+      }
+    },
+    "graphDigest": "f4dc5c293ed55130507013ed6759cd2e2cea3426a4629d55e23f43780a71266c",
+    "documentDigest": "933b0c822c416ae4c6e628dddff4871c702c6fee8ba87a2594c42786dfe0bf09"
+  }
+]

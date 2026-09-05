@@ -294,3 +294,44 @@ AFTER INSERT ON flow_events
 FOR EACH ROW
 EXECUTE FUNCTION a3s_flow_project_scheduled_wakeup();
 "#;
+
+/// Incremental projection migration for the `step_cancelled` event added by
+/// batch terminal-settlement hardening. The published scheduled-wakeup
+/// migration remains immutable so existing checksum ledgers continue to
+/// validate during rolling upgrades.
+pub(super) const POSTGRES_SCHEDULED_WAKEUPS_CANCELLATION_SQL: &str = r#"
+LOCK TABLE flow_events IN SHARE ROW EXCLUSIVE MODE;
+
+DELETE FROM flow_scheduled_wakeups AS wakeup
+WHERE wakeup.wakeup_kind = 2
+  AND EXISTS (
+      SELECT 1
+      FROM flow_events AS cancelled
+      WHERE cancelled.run_id = wakeup.run_id
+        AND cancelled.sequence > wakeup.created_sequence
+        AND cancelled.event_json::jsonb ->> 'type' = 'step_cancelled'
+        AND cancelled.event_json::jsonb ->> 'step_id' = wakeup.subject_id
+  );
+
+CREATE OR REPLACE FUNCTION a3s_flow_cancel_scheduled_wakeup()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF NEW.event_json::jsonb ->> 'type' = 'step_cancelled' THEN
+        DELETE FROM flow_scheduled_wakeups
+        WHERE run_id = NEW.run_id
+          AND wakeup_kind = 2
+          AND subject_id = NEW.event_json::jsonb ->> 'step_id';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS flow_scheduled_wakeups_after_step_cancelled ON flow_events;
+
+CREATE TRIGGER flow_scheduled_wakeups_after_step_cancelled
+AFTER INSERT ON flow_events
+FOR EACH ROW
+EXECUTE FUNCTION a3s_flow_cancel_scheduled_wakeup();
+"#;

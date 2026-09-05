@@ -181,6 +181,11 @@ println!("execution_digest={digest}");
 
 摘要只证明输入语义相同，不证明宿主绑定的节点实现相同。节点执行器版本仍要进入宿主发布身份或 `runtime_build_id`。
 
+Flow 的 digest `v2` 由 Rust 引擎和 Flow UI 共用。它采用 JavaScript 数字
+语义、UTF-16 对象键排序，把边标签视为展示字段，拒绝超出 JavaScript 安全
+整数范围的整数，并把规范化 JSON 深度限制为 256 层。digest 格式升级时，
+必须显式迁移已持久化的旧值。
+
 ## 无损往返与扩展字段
 
 解析器会保留未解释的顶层字段、应用字段、工作流字段、节点展示字段和边展示字段。`to_yaml()` 与 `to_json()` 可把这些字段写回。

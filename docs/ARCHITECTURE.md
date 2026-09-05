@@ -63,7 +63,12 @@ The execution digest excludes canvas layout state such as positions,
 dimensions, selection, and viewport. It includes node configuration, edge
 handles, dependencies, features, and preserved semantic extensions. Hosts pin
 that digest to an immutable revision and must reject definition drift during
-replay.
+replay. Digest format `v2` is shared with the Flow UI: canonical JSON uses
+JavaScript number semantics, UTF-16 object-key ordering, a 256-level nesting
+limit, and rejects integers outside the JavaScript safe-integer range. Edge
+labels are presentation-only. A digest format change must use a new domain
+version and an explicit migration rather than silently reinterpreting an old
+identity.
 
 Flow does not interpret provider credentials, model catalogues, tools,
 datasets, tenant policy, or product authorization. Those remain host-owned node
@@ -95,7 +100,12 @@ The runtime returns exactly one command:
   uses `continue_workflow_on_failure()`, the engine records
   `step_failed` and replays so workflow code can observe `step_failed(...)`.
 - `schedule_steps`: the engine validates a stable batch of unique step IDs, then
-  applies the same durable step lifecycle to each step before replaying.
+  applies the same durable step lifecycle to each step before replaying. If a
+  sibling exhausts a fail-run policy, unsettled sibling futures are aborted and
+  each is marked with `step_cancelled` before the run-level terminal event is
+  committed. The cancellation reason is deliberately explicit when an
+  external side-effect outcome is unknown; hosts must reconcile that attempt
+  with its stable idempotency key before retrying it elsewhere.
 - `wait_until`: the engine persists `wait_created` and stops driving the run
   until `resume_wait()` records `wait_completed`. Redelivery for an existing
   wait is idempotent after it completed or its run became terminal. Matching
@@ -358,8 +368,9 @@ to full replay rather than trusting derived state.
 ## Event Sourcing
 
 `FlowEventStore` is append-only. `WorkflowRunSnapshot` is a projection, not the
-source of truth. Engine writes use expected-sequence appends, and conflict-aware
-entrypoints re-read history before deciding what to do next. A stale writer gets
+source of truth. Engine writes use expected-sequence appends with projection
+validation, and conflict-aware entrypoints re-read history before deciding what
+to do next. A stale writer gets
 an explicit replay signal instead of silently extending a changed history. This
 gives A3S Flow:
 
@@ -410,7 +421,11 @@ Separate SQL migrations materialize open wait timers and delayed retries into
 `flow_scheduled_wakeups`. Fixed-width UTC nanosecond timestamp keys preserve
 lexicographic deadline ordering for indexed range and earliest-row queries.
 Lifecycle triggers insert, replace, or remove projection rows for waits,
-retries, cancellation, continuation, and terminal outcomes in the event append transaction.
+retries, step cancellation, run cancellation, continuation, and terminal
+outcomes in the event append transaction. The additive
+`step-cancellation-wakeup` migration reconciles retry rows created by an older
+writer before installing the cancellation trigger without changing a published
+migration checksum.
 Compatibility-wide due scans may race after reading the same projection rows.
 Expected-sequence appends select one completion winner; losing scans treat the
 resolved or terminal wait as a successful no-op and do not report it as their

@@ -312,24 +312,70 @@ async fn resume_hook_by_token_reports_missing_active_token() {
     assert!(matches!(&err, FlowError::HookTokenNotFound(token) if token == "missing-token"));
 }
 
+struct DuplicateHookStore {
+    histories: Vec<(String, Vec<FlowEventEnvelope>)>,
+}
+
+#[async_trait]
+impl FlowEventStore for DuplicateHookStore {
+    async fn append(
+        &self,
+        _run_id: &str,
+        _event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        Err(FlowError::Store("corrupt fixture is read-only".to_string()))
+    }
+
+    async fn append_if_sequence(
+        &self,
+        _run_id: &str,
+        _expected_sequence: u64,
+        _event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        Err(FlowError::Store("corrupt fixture is read-only".to_string()))
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.histories
+            .iter()
+            .find(|(candidate, _)| candidate == run_id)
+            .map(|(_, events)| events.clone())
+            .ok_or_else(|| FlowError::RunNotFound(run_id.to_string()))
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        Ok(self
+            .histories
+            .iter()
+            .map(|(run_id, _)| run_id.clone())
+            .collect())
+    }
+}
+
 #[tokio::test]
 async fn duplicate_active_hook_lookup_redacts_the_corrupt_token() {
-    let store = Arc::new(InMemoryEventStore::new());
-    for run_id in ["duplicate-hook-a", "duplicate-hook-b"] {
-        store.append(run_id, run_created_event()).await.unwrap();
-        store.append(run_id, FlowEvent::RunStarted).await.unwrap();
-        store
-            .append(
-                run_id,
-                FlowEvent::HookCreated {
-                    hook_id: "approval".to_string(),
-                    token: "corrupt-shared-token".to_string(),
-                    metadata: json!({}),
-                },
+    let histories = ["duplicate-hook-a", "duplicate-hook-b"]
+        .into_iter()
+        .map(|run_id| {
+            (
+                run_id.to_string(),
+                vec![
+                    envelope(run_id, 1, run_created_event()),
+                    envelope(run_id, 2, FlowEvent::RunStarted),
+                    envelope(
+                        run_id,
+                        3,
+                        FlowEvent::HookCreated {
+                            hook_id: "approval".to_string(),
+                            token: "corrupt-shared-token".to_string(),
+                            metadata: json!({}),
+                        },
+                    ),
+                ],
             )
-            .await
-            .unwrap();
-    }
+        })
+        .collect();
+    let store = Arc::new(DuplicateHookStore { histories });
     let engine = FlowEngine::new(store, Arc::new(WaitHookRuntime));
 
     let err = engine

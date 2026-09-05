@@ -185,6 +185,12 @@ Node positions, selection state, viewport, and input-array order do not affect t
 
 The digest proves matching input semantics only. It does not prove that host node bindings are identical. Executor versions still belong in host release identity or `runtime_build_id`.
 
+Flow digest format `v2` is shared by the Rust engine and the Flow UI. It uses
+JavaScript number semantics, UTF-16 object-key ordering, treats edge labels as
+presentation-only, rejects unsafe integers, and limits canonical JSON nesting
+to 256 levels. Persisted digest values must be migrated explicitly when the
+format version changes.
+
 ## Lossless round trips and extensions
 
 The parser retains unknown top-level, application, workflow, node-presentation, and edge-presentation fields. `to_yaml()` and `to_json()` write those fields back.

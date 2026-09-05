@@ -246,6 +246,25 @@ fn continue_as_new_event_uses_stable_wire_shape_and_event_key() {
 }
 
 #[test]
+fn cancelled_step_event_uses_stable_wire_shape_and_event_key() {
+    let event = FlowEvent::StepCancelled {
+        step_id: "slow-sibling".to_string(),
+        attempt: 2,
+        reason: "outcome is unknown after a concurrent batch abort".to_string(),
+    };
+    assert_eq!(event.event_key(), "flow.step.cancelled");
+    assert_eq!(
+        serde_json::to_value(event).unwrap(),
+        json!({
+            "type": "step_cancelled",
+            "step_id": "slow-sibling",
+            "attempt": 2,
+            "reason": "outcome is unknown after a concurrent batch abort"
+        })
+    );
+}
+
+#[test]
 fn child_workflow_events_use_stable_wire_shapes_and_event_keys() {
     let requested = FlowEvent::ChildWorkflowRequested {
         child_id: "invoice".into(),
@@ -382,6 +401,7 @@ fn native_ts_authoring_types_track_runtime_protocol_shape() {
         "step_completed",
         "step_retrying",
         "step_failed",
+        "step_cancelled",
         "wait_created",
         "wait_completed",
         "hook_created",

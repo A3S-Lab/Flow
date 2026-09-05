@@ -9,6 +9,8 @@ use super::{WorkflowDagPlan, WorkflowDslCompatibility, WorkflowDslError};
 pub const WORKFLOW_DSL_MAX_BYTES: usize = 10 * 1024 * 1024;
 /// Latest workflow DSL version covered by compatibility tests.
 pub const TESTED_WORKFLOW_DSL_VERSION: &str = "0.7.0";
+/// Canonical execution digest format used by Rust and the Flow UI.
+pub const WORKFLOW_DSL_EXECUTION_DIGEST_VERSION: &str = "v2";
 
 /// Lossless representation of an imported A3S workflow DSL document.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

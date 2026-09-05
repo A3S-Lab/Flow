@@ -3,13 +3,14 @@ use async_trait::async_trait;
 use chrono::SecondsFormat;
 use chrono::{DateTime, Utc};
 
-use crate::error::Result;
+use crate::error::{FlowError, Result};
 use crate::model::{
-    project_run, ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookStatus, ScheduledWakeup,
-    ScheduledWakeupKind, StepStatus, WaitStatus, WorkflowRunSnapshot,
+    project_run, ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookStatus, JsonValue,
+    ScheduledWakeup, ScheduledWakeupKind, StepStatus, WaitStatus, WorkflowRunSnapshot,
 };
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 use crate::runtime_build::RuntimeBuildId;
+use uuid::Uuid;
 
 mod local_file;
 mod memory;
@@ -59,6 +60,78 @@ pub trait FlowEventStore: Send + Sync {
         expected_sequence: u64,
         event: FlowEvent,
     ) -> Result<FlowEventEnvelope>;
+
+    /// Validate the candidate event against the current projected history and
+    /// append it with an expected-sequence check.
+    ///
+    /// The default implementation is a compatibility path for custom stores:
+    /// it validates a point-in-time candidate and then delegates to
+    /// [`Self::append_if_sequence`]. Implementations that can provide an
+    /// atomic transaction should override it so validation and append share
+    /// the same lock. The engine uses this method for every state transition;
+    /// the lower-level append methods remain a trusted storage SPI.
+    async fn append_validated_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> Result<FlowEventEnvelope> {
+        let history = match self.list(run_id).await {
+            Ok(history) => history,
+            Err(FlowError::RunNotFound(_)) => Vec::new(),
+            Err(error) => return Err(error),
+        };
+        let actual_sequence = history.last().map_or(0, |envelope| envelope.sequence);
+        if actual_sequence != expected_sequence {
+            return Err(FlowError::EventConflict {
+                run_id: run_id.to_string(),
+                expected_sequence,
+                actual_sequence,
+            });
+        }
+        validate_candidate_event(run_id, &history, &event)?;
+        self.append_if_sequence(run_id, expected_sequence, event)
+            .await
+    }
+
+    /// Atomically claim a hook token and append its creation event.
+    ///
+    /// The default implementation is compatible with existing custom stores,
+    /// but its lookup and append are separate operations and therefore cannot
+    /// prevent a cross-process race. Stores that support concurrent writers
+    /// must override this method with one transaction/lock covering both the
+    /// token claim and the expected-sequence append. Built-in memory, local
+    /// file, SQLite, and PostgreSQL stores provide that guarantee within their
+    /// documented writer scope.
+    async fn append_hook_if_token_available(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        hook_id: String,
+        token: String,
+        metadata: JsonValue,
+    ) -> Result<FlowEventEnvelope> {
+        for active in self.find_active_hooks_by_token(&token).await? {
+            if active.run_id == run_id && active.hook.hook_id == hook_id {
+                continue;
+            }
+            return Err(crate::error::FlowError::HookTokenConflict {
+                token,
+                existing_run_id: active.run_id,
+                existing_hook_id: active.hook.hook_id,
+            });
+        }
+        self.append_validated_if_sequence(
+            run_id,
+            expected_sequence,
+            FlowEvent::HookCreated {
+                hook_id,
+                token,
+                metadata,
+            },
+        )
+        .await
+    }
 
     /// Load the complete event history for `run_id` in sequence order.
     async fn list(&self, run_id: &str) -> Result<Vec<FlowEventEnvelope>>;
@@ -146,6 +219,32 @@ pub trait FlowEventStore: Send + Sync {
         });
         Ok(hooks)
     }
+}
+
+/// Validate one candidate event against an existing history before it is
+/// appended. Stores call this while holding their append lock; the default
+/// trait path calls it on a point-in-time history for custom implementations.
+pub(super) fn validate_candidate_event(
+    run_id: &str,
+    history: &[FlowEventEnvelope],
+    event: &FlowEvent,
+) -> Result<()> {
+    let sequence = next_event_sequence(
+        history.last().map_or(0, |envelope| envelope.sequence),
+        run_id,
+    )?;
+    let envelope = FlowEventEnvelope::new(run_id, sequence, Uuid::nil(), Utc::now(), event.clone());
+    let mut candidate = history.to_vec();
+    candidate.push(envelope);
+    project_run(run_id, &candidate).map(|_| ())
+}
+
+/// Advance a per-run event sequence without allowing malformed or hostile
+/// history to trigger an integer-overflow panic in a storage adapter.
+pub(super) fn next_event_sequence(previous: u64, run_id: &str) -> Result<u64> {
+    previous
+        .checked_add(1)
+        .ok_or_else(|| FlowError::Store(format!("event sequence overflowed for run {run_id}")))
 }
 
 async fn replay_scheduled_wakeups<S>(store: &S) -> Result<Vec<ScheduledWakeup>>

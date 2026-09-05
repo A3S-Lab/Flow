@@ -147,7 +147,7 @@ fn workflow_patch_ids_are_bounded_typed_and_json_compatible() {
 }
 
 #[tokio::test]
-async fn projection_rejects_a_directly_written_oversized_marker_set() {
+async fn event_store_rejects_a_directly_written_oversized_marker_set() {
     let store = Arc::new(InMemoryEventStore::new());
     let mut invalid_spec = workflow_spec();
     for index in 0..=MAX_WORKFLOW_PATCH_MARKERS {
@@ -155,7 +155,7 @@ async fn projection_rejects_a_directly_written_oversized_marker_set() {
             .patch_markers
             .insert(WorkflowPatchId::new(format!("patch.{index}")).unwrap());
     }
-    store
+    let error = store
         .append(
             "invalid-patch-history",
             FlowEvent::RunCreated {
@@ -164,13 +164,10 @@ async fn projection_rejects_a_directly_written_oversized_marker_set() {
             },
         )
         .await
-        .unwrap();
-
-    let engine = FlowEngine::new(store, Arc::new(PatchRuntime));
+        .unwrap_err();
     assert!(matches!(
-        engine.snapshot("invalid-patch-history").await,
-        Err(FlowError::InvalidWorkflow(message))
-            if message.contains("patch marker count")
+        error,
+        FlowError::InvalidWorkflow(message) if message.contains("patch marker count")
     ));
 }
 

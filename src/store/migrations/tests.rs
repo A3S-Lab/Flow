@@ -33,6 +33,9 @@ const SQLITE_SCHEDULED_WAKEUPS_CHECKSUM: &str =
 #[cfg(feature = "sqlite")]
 const SQLITE_CONTINUE_AS_NEW_CHECKSUM: &str =
     "abd8e02b3da89fa50630ae951aa0e44e136b3c3f058eeb0c857dff78b84f4c57";
+#[cfg(feature = "sqlite")]
+const SQLITE_SCHEDULED_WAKEUPS_CANCELLATION_CHECKSUM: &str =
+    "8d09073d28b842385d22b12720bb3fbfc728935daefd37e6ccf198f34705af5c";
 #[cfg(feature = "postgres")]
 const POSTGRES_TASKS_CHECKSUM: &str =
     "6e73f57af6f836508a12b66eb8a00130ca0fbc62c99ca1a0bfa8c36f0b9d5b93";
@@ -45,6 +48,9 @@ const POSTGRES_SCHEDULED_WAKEUPS_CHECKSUM: &str =
 #[cfg(feature = "postgres")]
 const POSTGRES_CONTINUE_AS_NEW_CHECKSUM: &str =
     "e22ca39f110328b4b83023f306b426e15d55c5b1ff378cce3e30b4d9e8726dc0";
+#[cfg(feature = "postgres")]
+const POSTGRES_SCHEDULED_WAKEUPS_CANCELLATION_CHECKSUM: &str =
+    "23d0a21b972d67f6edb4fe27607847bb2e743055ede9e6dbd80deb8224203cba";
 
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 const LEGACY_EVENT_JSON: [&str; 4] = [
@@ -109,6 +115,10 @@ fn sqlite_migrations_keep_every_published_checksum() {
                 "a3s-flow-0005-continue-as-new".into(),
                 SQLITE_CONTINUE_AS_NEW_CHECKSUM.into(),
             ),
+            (
+                "a3s-flow-0006-step-cancellation-wakeup".into(),
+                SQLITE_SCHEDULED_WAKEUPS_CANCELLATION_CHECKSUM.into(),
+            ),
         ]
     );
 }
@@ -134,6 +144,10 @@ fn postgres_migrations_keep_every_published_checksum() {
             (
                 "a3s-flow-0006-continue-as-new".into(),
                 POSTGRES_CONTINUE_AS_NEW_CHECKSUM.into(),
+            ),
+            (
+                "a3s-flow-0007-step-cancellation-wakeup".into(),
+                POSTGRES_SCHEDULED_WAKEUPS_CANCELLATION_CHECKSUM.into(),
             ),
         ]
     );
@@ -215,11 +229,12 @@ async fn sqlite_upgrades_every_supported_pre_v1_schema_baseline() {
             .iter()
             .any(|wakeup| wakeup.run_id == run_id && wakeup.subject_id == "release-timer"));
 
+        let successor_run_id = format!("{run_id}-successor").replace('.', "-");
         store
             .append(
                 &run_id,
                 FlowEvent::RunContinuedAsNew {
-                    successor_run_id: format!("{run_id}-successor"),
+                    successor_run_id,
                     input: json!({ "generation": 1 }),
                 },
             )

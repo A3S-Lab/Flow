@@ -269,6 +269,51 @@ async fn delayed_step_retry_suspends_until_due() {
     assert_eq!(completed.output.unwrap()["attempt"], 2);
 }
 
+struct SlowFailureRuntime {
+    attempts: AtomicUsize,
+}
+
+#[async_trait]
+impl FlowRuntime for SlowFailureRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        Ok(invocation.context().schedule_step_with_retry(
+            "slow-failure",
+            "slowFailureStep",
+            json!({}),
+            RetryPolicy::fixed(2, Duration::from_millis(100)),
+        ))
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        self.attempts.fetch_add(1, Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        Err(FlowError::Runtime("slow failure".to_string()))
+    }
+}
+
+#[tokio::test]
+async fn retry_deadline_is_anchored_after_a_long_step_failure() {
+    let runtime = Arc::new(SlowFailureRuntime {
+        attempts: AtomicUsize::new(0),
+    });
+    let engine = FlowEngine::in_memory(runtime.clone());
+    let run_id = engine.start(spec(), json!({})).await.unwrap();
+    let history = engine.history(&run_id).await.unwrap();
+    let retry = history
+        .iter()
+        .find(|envelope| matches!(envelope.event, FlowEvent::StepRetrying { .. }))
+        .expect("slow failure must schedule a retry");
+    let retry_after = engine.snapshot(&run_id).await.unwrap().steps["slow-failure"]
+        .retry_after
+        .expect("retry deadline");
+
+    assert!(retry_after > retry.timestamp);
+    assert_eq!(runtime.attempts.load(Ordering::SeqCst), 1);
+}
+
 #[derive(Default)]
 struct ExponentialFailureRuntime {
     attempts: AtomicUsize,

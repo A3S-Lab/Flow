@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use std::time::Duration;
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
@@ -25,7 +26,7 @@ mod signals;
 mod steps;
 mod validation;
 use signals::SignalWaitCommandOutcome;
-use steps::{interrupted_retry_exhaustion_event, StepExecutionContext};
+use steps::{interrupted_terminal_event, StepExecutionContext};
 use validation::{
     ensure_child_operation_matches, ensure_child_workflow_batch_valid, ensure_hook_command_matches,
     ensure_progress_matches, ensure_retry_policy_valid, ensure_step_batch_valid,
@@ -34,6 +35,7 @@ use validation::{
 
 const DEFAULT_MAX_CONTINUE_AS_NEW_HOPS: usize = 64;
 const DEFAULT_MAX_CHILD_WORKFLOW_DEPTH: usize = 32;
+const DEFAULT_OBSERVER_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(crate) struct HookResolutionOutcome {
     pub(crate) hook_run_id: String,
@@ -64,6 +66,7 @@ pub struct FlowEngineBuilder {
     max_replay_iterations: usize,
     max_continue_as_new_hops: usize,
     max_child_workflow_depth: usize,
+    observer_timeout: Duration,
 }
 
 impl FlowEngineBuilder {
@@ -77,6 +80,7 @@ impl FlowEngineBuilder {
             max_replay_iterations: 1024,
             max_continue_as_new_hops: DEFAULT_MAX_CONTINUE_AS_NEW_HOPS,
             max_child_workflow_depth: DEFAULT_MAX_CHILD_WORKFLOW_DEPTH,
+            observer_timeout: DEFAULT_OBSERVER_TIMEOUT,
         }
     }
 
@@ -89,6 +93,17 @@ impl FlowEngineBuilder {
     /// Observe each event after it has been durably appended.
     pub fn with_observer(mut self, observer: Arc<dyn FlowEventObserver>) -> Self {
         self.observer = observer;
+        self
+    }
+
+    /// Bound how long a committed-event observer may delay an engine call.
+    ///
+    /// The default is five seconds. A zero duration preserves the legacy
+    /// unbounded wait while still isolating observer panics from durable state.
+    /// When a non-zero deadline expires, the event remains committed and the
+    /// observer task is cancelled after a warning is emitted.
+    pub fn with_observer_timeout(mut self, timeout: Duration) -> Self {
+        self.observer_timeout = timeout;
         self
     }
 
@@ -137,6 +152,7 @@ impl FlowEngineBuilder {
             max_replay_iterations: self.max_replay_iterations,
             max_continue_as_new_hops: self.max_continue_as_new_hops,
             max_child_workflow_depth: self.max_child_workflow_depth,
+            observer_timeout: self.observer_timeout,
         }
     }
 }
@@ -151,6 +167,7 @@ pub struct FlowEngine {
     max_replay_iterations: usize,
     max_continue_as_new_hops: usize,
     max_child_workflow_depth: usize,
+    observer_timeout: Duration,
 }
 
 impl FlowEngine {
@@ -169,6 +186,7 @@ impl FlowEngine {
             max_replay_iterations: 1024,
             max_continue_as_new_hops: DEFAULT_MAX_CONTINUE_AS_NEW_HOPS,
             max_child_workflow_depth: DEFAULT_MAX_CHILD_WORKFLOW_DEPTH,
+            observer_timeout: DEFAULT_OBSERVER_TIMEOUT,
         }
     }
 
@@ -185,6 +203,11 @@ impl FlowEngine {
     /// Clone the engine's event-observer handle.
     pub fn observer(&self) -> Arc<dyn FlowEventObserver> {
         Arc::clone(&self.observer)
+    }
+
+    /// Return the configured committed-event observer deadline.
+    pub fn observer_timeout(&self) -> Duration {
+        self.observer_timeout
     }
 
     /// Return this engine's explicit runtime-build admission policy.
@@ -228,7 +251,7 @@ impl FlowEngine {
             }
             replay_iterations += 1;
             self.ensure_runtime_build_available(run_id, &snapshot.spec)?;
-            if let Some(event) = interrupted_retry_exhaustion_event(&snapshot, &history) {
+            if let Some(event) = interrupted_terminal_event(&snapshot, &history) {
                 match self
                     .record_event_at(run_id, snapshot.last_sequence, event)
                     .await
@@ -625,17 +648,13 @@ impl FlowEngine {
                         }
                     }
                     None => {
-                        self.ensure_hook_token_available(run_id, &hook_id, &token)
-                            .await?;
                         match self
-                            .record_event_at(
+                            .record_hook_created_at(
                                 run_id,
                                 snapshot.last_sequence,
-                                FlowEvent::HookCreated {
-                                    hook_id,
-                                    token,
-                                    metadata,
-                                },
+                                hook_id,
+                                token,
+                                metadata,
                             )
                             .await
                         {
@@ -691,28 +710,73 @@ impl FlowEngine {
     ) -> Result<FlowEventEnvelope> {
         let envelope = self
             .store
-            .append_if_sequence(run_id, expected_sequence, event)
+            .append_validated_if_sequence(run_id, expected_sequence, event)
             .await?;
-        self.observer.observe(envelope.clone()).await;
+        self.observe_committed(envelope.clone()).await;
         Ok(envelope)
     }
 
-    async fn ensure_hook_token_available(
+    async fn record_hook_created_at(
         &self,
         run_id: &str,
-        hook_id: &str,
-        token: &str,
-    ) -> Result<()> {
-        for active in self.store.find_active_hooks_by_token(token).await? {
-            if active.run_id == run_id && active.hook.hook_id == hook_id {
-                continue;
+        expected_sequence: u64,
+        hook_id: String,
+        token: String,
+        metadata: serde_json::Value,
+    ) -> Result<FlowEventEnvelope> {
+        let envelope = self
+            .store
+            .append_hook_if_token_available(run_id, expected_sequence, hook_id, token, metadata)
+            .await?;
+        self.observe_committed(envelope.clone()).await;
+        Ok(envelope)
+    }
+
+    async fn observe_committed(&self, envelope: FlowEventEnvelope) {
+        let event_key = envelope.event.event_key().to_string();
+        let run_id = envelope.run_id.clone();
+        let sequence = envelope.sequence;
+        let observer = Arc::clone(&self.observer);
+        let mut task = tokio::spawn(async move {
+            observer.observe(envelope).await;
+        });
+
+        let result = if self.observer_timeout().is_zero() {
+            task.await.map_err(|error| (false, error.to_string()))
+        } else {
+            match tokio::time::timeout(self.observer_timeout(), &mut task).await {
+                Ok(result) => result.map_err(|error| (false, error.to_string())),
+                Err(_) => {
+                    task.abort();
+                    // Do not await the aborted handle here: a misbehaving
+                    // observer may be executing a non-cooperative future, and
+                    // waiting for its destructor would defeat the deadline.
+                    // Tokio will drop a cooperative task at its next
+                    // cancellation point; the durable transition is already
+                    // independent of it.
+                    Err((true, String::new()))
+                }
             }
-            return Err(FlowError::HookTokenConflict {
-                token: token.to_string(),
-                existing_run_id: active.run_id,
-                existing_hook_id: active.hook.hook_id,
-            });
+        };
+
+        if let Err((timed_out, error)) = result {
+            if timed_out {
+                tracing::warn!(
+                    run_id = %run_id,
+                    sequence,
+                    event_key = %event_key,
+                    timeout_ms = self.observer_timeout().as_millis() as u64,
+                    "flow event observer timed out; durable event remains committed"
+                );
+            } else {
+                tracing::warn!(
+                    run_id = %run_id,
+                    sequence,
+                    event_key = %event_key,
+                    error = %error,
+                    "flow event observer failed; durable event remains committed"
+                );
+            }
         }
-        Ok(())
     }
 }

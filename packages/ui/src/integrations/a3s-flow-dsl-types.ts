@@ -2,6 +2,8 @@ import type { JsonObject, JsonValue } from '@a3s-lab/ui/form/core';
 
 export const A3S_FLOW_ENGINE_VERSION = '1.0.0' as const;
 export const A3S_FLOW_TESTED_WORKFLOW_DSL_VERSION = '0.7.0' as const;
+/** Canonical execution digest format shared with the Rust engine. */
+export const A3S_FLOW_EXECUTION_DIGEST_VERSION = 'v2' as const;
 export const A3S_FLOW_WORKFLOW_DSL_MAX_BYTES = 10 * 1024 * 1024;
 export const A3S_FLOW_WORKFLOW_DAG_MAX_NODES = 10_000;
 export const A3S_FLOW_WORKFLOW_DAG_MAX_EDGES = 100_000;
@@ -10,6 +12,7 @@ export const A3S_FLOW_CONTRACT_PROVENANCE = Object.freeze({
   repository: 'https://github.com/A3S-Lab/Flow',
   revision: '006e988b1f63e92a381f138d10af4084b96625a8',
   engineVersion: A3S_FLOW_ENGINE_VERSION,
+  executionDigestVersion: A3S_FLOW_EXECUTION_DIGEST_VERSION,
   workflowDslVersion: A3S_FLOW_TESTED_WORKFLOW_DSL_VERSION,
   maximumDocumentBytes: A3S_FLOW_WORKFLOW_DSL_MAX_BYTES,
   maximumNodes: A3S_FLOW_WORKFLOW_DAG_MAX_NODES,

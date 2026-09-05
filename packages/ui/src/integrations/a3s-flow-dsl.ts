@@ -3,6 +3,7 @@ import type { JsonValue } from '@a3s-lab/ui/form/core';
 import { compileA3SFlowWorkflowDag } from './a3s-flow-dag';
 import {
   A3S_FLOW_TESTED_WORKFLOW_DSL_VERSION,
+  A3S_FLOW_EXECUTION_DIGEST_VERSION,
   A3S_FLOW_WORKFLOW_DSL_MAX_BYTES,
   type A3SFlowDslIssue,
   type A3SFlowWorkflowDsl,
@@ -11,8 +12,8 @@ import {
   type A3SFlowWorkflowDslValidation,
 } from './a3s-flow-dsl-types';
 
-const DOCUMENT_EXECUTION_DIGEST_DOMAIN = 'a3s.flow.workflow_dsl.execution.v1\0';
-const GRAPH_EXECUTION_DIGEST_DOMAIN = 'a3s.flow.workflow_dag.execution.v1\0';
+const DOCUMENT_EXECUTION_DIGEST_DOMAIN = `a3s.flow.workflow_dsl.execution.${A3S_FLOW_EXECUTION_DIGEST_VERSION}\0`;
+const GRAPH_EXECUTION_DIGEST_DOMAIN = `a3s.flow.workflow_dag.execution.${A3S_FLOW_EXECUTION_DIGEST_VERSION}\0`;
 const NODE_PRESENTATION_FIELDS = [
   'draggable',
   'height',
@@ -223,6 +224,29 @@ function normalizeGraph(graphValue: unknown): Record<string, unknown> {
   return graph;
 }
 
+function assertCanonicalDigestNumbers(value: unknown, path = '$'): void {
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      throw new TypeError(`Canonical execution digest does not support non-finite number at ${path}.`);
+    }
+    if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
+      throw new TypeError(
+        `Canonical execution digest does not support unsafe integer at ${path}; use a string instead.`,
+      );
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertCanonicalDigestNumbers(item, `${path}[${index}]`));
+    return;
+  }
+  if (isRecord(value)) {
+    Object.entries(value).forEach(([key, child]) => {
+      if (child !== undefined) assertCanonicalDigestNumbers(child, `${path}.${key}`);
+    });
+  }
+}
+
 function normalizedDocument(document: A3SFlowWorkflowDsl): JsonValue {
   const normalized = cloneRecord(document, 'Workflow DSL document');
   normalized.dependencies = Array.isArray(document.dependencies)
@@ -244,14 +268,18 @@ function ensureExecutable(document: A3SFlowWorkflowDsl): void {
 
 export function digestA3SFlowWorkflowDsl(document: A3SFlowWorkflowDsl): string {
   ensureExecutable(document);
-  return sha256(`${DOCUMENT_EXECUTION_DIGEST_DOMAIN}${canonicalize(normalizedDocument(document))}`);
+  const normalized = normalizedDocument(document);
+  assertCanonicalDigestNumbers(normalized);
+  return sha256(`${DOCUMENT_EXECUTION_DIGEST_DOMAIN}${canonicalize(normalized)}`);
 }
 
 export function digestA3SFlowWorkflowDag(graph: A3SFlowWorkflowDsl['workflow']['graph']): string {
   const compilation = compileA3SFlowWorkflowDag(graph);
   if (!compilation.ok) throw new TypeError(compilation.issues[0]?.message);
+  const normalized = normalizeGraph(graph) as JsonValue;
+  assertCanonicalDigestNumbers(normalized);
   return sha256(
-    `${GRAPH_EXECUTION_DIGEST_DOMAIN}${canonicalize(normalizeGraph(graph) as JsonValue)}`,
+    `${GRAPH_EXECUTION_DIGEST_DOMAIN}${canonicalize(normalized)}`,
   );
 }
 

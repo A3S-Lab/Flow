@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Unified Rust and TypeScript workflow execution digests under format `v2`,
+  including JavaScript number rendering, UTF-16 key ordering, safe-integer and
+  nesting guards, and cross-language golden vectors.
+- Made engine transitions projection-validated and expected-sequence based for
+  built-in stores, and made hook-token creation an atomic claim in the memory,
+  local-file, SQLite, and PostgreSQL adapters.
+- Durably settle every open sibling before a terminal concurrent-batch outcome,
+  emit an explicit `step_cancelled` marker for unknown external effects, and
+  recover interrupted settlement after a host crash; indexed stores include an
+  additive wakeup-cleanup migration.
+- Isolated post-commit observer panics and bounded observer delays, delivered
+  fan-out sinks concurrently, and released terminal workflow identities from
+  the A3S event bridge cache.
+- Anchored retry deadlines at the effective failure clock and rejected direct
+  resumption of open timer waits before their persisted deadline.
 - Added a complete manifest-contract inspector for the React authoring panel,
   including node metadata, typed ports, output definitions, field visibility,
   value state, and the original manifest properties with secret redaction.

@@ -60,6 +60,12 @@ impl FlowEngine {
 
             match wait.status {
                 WaitStatus::Waiting => {
+                    if wait.resume_at > now {
+                        return Err(FlowError::InvalidTransition(format!(
+                            "wait {wait_id} for run {run_id} is not due until {}",
+                            wait.resume_at.to_rfc3339()
+                        )));
+                    }
                     self.ensure_runtime_build_available(run_id, &snapshot.spec)?;
                     match self
                         .record_event_at(

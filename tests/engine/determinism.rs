@@ -347,6 +347,33 @@ async fn rejects_duplicate_active_hook_tokens_across_runs() {
 }
 
 #[tokio::test]
+async fn atomically_rejects_racing_duplicate_active_hook_tokens_in_memory() {
+    let store = Arc::new(InMemoryEventStore::new());
+    let first_engine = FlowEngine::new(store.clone(), Arc::new(UniqueHookRuntime));
+    let second_engine = FlowEngine::new(store.clone(), Arc::new(UniqueHookRuntime));
+
+    let (first, second) = tokio::join!(
+        first_engine.start_with_id("racing-hook-run-a", spec(), json!({})),
+        second_engine.start_with_id("racing-hook-run-b", spec(), json!({})),
+    );
+    let outcomes = [first, second];
+    assert_eq!(
+        outcomes.iter().filter(|outcome| outcome.is_ok()).count(),
+        1,
+        "exactly one racing hook creation may claim the token"
+    );
+    assert_eq!(
+        outcomes
+            .iter()
+            .filter(|outcome| matches!(outcome, Err(FlowError::HookTokenConflict { .. })))
+            .count(),
+        1,
+        "the losing creator must receive a typed token conflict"
+    );
+    assert_eq!(store.list_active_hooks().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn dispose_hook_records_disposal_and_drives_workflow() {
     let engine = FlowEngine::in_memory(Arc::new(DisposableHookRuntime));
     let run_id = engine

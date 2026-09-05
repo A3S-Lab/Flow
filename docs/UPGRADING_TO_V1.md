@@ -31,6 +31,13 @@ Patch releases inside a row share the same migration prefix. Tests pin the
 SHA-256 checksum of every published migration, so editing an applied migration
 fails CI before the ORM would reject a production database.
 
+Flow 1.1 adds one forward-only projection migration after these published
+prefixes: `a3s-flow-0006-step-cancellation-wakeup` for SQLite and
+`a3s-flow-0007-step-cancellation-wakeup` for PostgreSQL. It removes retry index
+rows left behind by an older writer when a concurrent batch step was cancelled
+and installs the matching event trigger. The migration does not rewrite event
+history or alter any earlier checksum.
+
 Histories or databases older than `v0.5.0` are outside the automated upgrade
 contract. Do not point v1 at them without an application-specific export or a
 separately qualified staged migration.

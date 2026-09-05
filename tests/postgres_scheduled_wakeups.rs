@@ -528,6 +528,56 @@ async fn postgres_scheduled_wakeup_trigger_tracks_legacy_writers_and_nanoseconds
     .await;
     assert!(scheduled_rows(&store, &run_id).await.is_empty());
 
+    let cancelled_run = format!("postgres-scheduled-cancelled-{}", Uuid::new_v4());
+    create_run(&store, &cancelled_run).await;
+    insert_raw_event(
+        store.executor(),
+        &cancelled_run,
+        3,
+        FlowEvent::StepCreated {
+            step_id: "cancelled-retry".into(),
+            step_name: "cancelledRetry".into(),
+            input: json!({}),
+            retry: RetryPolicy::fixed(3, Duration::from_secs(1)),
+        },
+    )
+    .await;
+    insert_raw_event(
+        store.executor(),
+        &cancelled_run,
+        4,
+        FlowEvent::StepStarted {
+            step_id: "cancelled-retry".into(),
+            attempt: 1,
+        },
+    )
+    .await;
+    insert_raw_event(
+        store.executor(),
+        &cancelled_run,
+        5,
+        FlowEvent::StepRetrying {
+            step_id: "cancelled-retry".into(),
+            attempt: 1,
+            error: "ambiguous sibling abort".into(),
+            retry_after: Some(timestamp("2200-08-07T00:00:04Z")),
+        },
+    )
+    .await;
+    assert_eq!(scheduled_rows(&store, &cancelled_run).await.len(), 1);
+    insert_raw_event(
+        store.executor(),
+        &cancelled_run,
+        6,
+        FlowEvent::StepCancelled {
+            step_id: "cancelled-retry".into(),
+            attempt: 1,
+            reason: "batch sibling outcome is unknown".into(),
+        },
+    )
+    .await;
+    assert!(scheduled_rows(&store, &cancelled_run).await.is_empty());
+
     insert_raw_event(
         store.executor(),
         &run_id,

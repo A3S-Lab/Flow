@@ -41,22 +41,6 @@ fn request(child_id: &str, child_run_id: &str, input: Value) -> FlowEvent {
     }
 }
 
-struct CompleteRuntime;
-
-#[async_trait]
-impl FlowRuntime for CompleteRuntime {
-    async fn run_workflow(
-        &self,
-        invocation: WorkflowInvocation,
-    ) -> a3s_flow::Result<RuntimeCommand> {
-        Ok(invocation.context().complete(json!({})))
-    }
-
-    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<Value> {
-        unreachable!("validation tests do not execute steps")
-    }
-}
-
 #[tokio::test]
 async fn projection_rejects_parent_completion_with_a_blocking_child() {
     let store = Arc::new(InMemoryEventStore::new());
@@ -68,18 +52,16 @@ async fn projection_rejects_parent_completion_with_a_blocking_child() {
         )
         .await
         .unwrap();
-    store
+    let error = store
         .append(
             "blocking-parent",
             FlowEvent::RunCompleted { output: json!({}) },
         )
         .await
-        .unwrap();
-
-    let engine = FlowEngine::new(store, Arc::new(CompleteRuntime));
+        .unwrap_err();
     assert!(matches!(
-        engine.snapshot("blocking-parent").await,
-        Err(FlowError::InvalidTransition(message))
+        error,
+        FlowError::InvalidTransition(message)
             if message.contains("cannot terminate while child workflow child is open")
     ));
 }
@@ -88,7 +70,7 @@ async fn projection_rejects_parent_completion_with_a_blocking_child() {
 async fn projection_rejects_unknown_duplicate_and_intermediate_child_resolutions() {
     let store = Arc::new(InMemoryEventStore::new());
     create_started(&store, "unknown-resolution").await;
-    store
+    let error = store
         .append(
             "unknown-resolution",
             FlowEvent::ChildWorkflowResolved {
@@ -97,11 +79,10 @@ async fn projection_rejects_unknown_duplicate_and_intermediate_child_resolutions
             },
         )
         .await
-        .unwrap();
-    let engine = FlowEngine::new(store.clone(), Arc::new(CompleteRuntime));
+        .unwrap_err();
     assert!(matches!(
-        engine.snapshot("unknown-resolution").await,
-        Err(FlowError::InvalidTransition(message)) if message.contains("unknown child missing")
+        error,
+        FlowError::InvalidTransition(message) if message.contains("unknown child missing")
     ));
 
     create_started(&store, "continued-resolution").await;
@@ -112,7 +93,7 @@ async fn projection_rejects_unknown_duplicate_and_intermediate_child_resolutions
         )
         .await
         .unwrap();
-    store
+    let error = store
         .append(
             "continued-resolution",
             FlowEvent::ChildWorkflowResolved {
@@ -123,10 +104,10 @@ async fn projection_rejects_unknown_duplicate_and_intermediate_child_resolutions
             },
         )
         .await
-        .unwrap();
+        .unwrap_err();
     assert!(matches!(
-        engine.snapshot("continued-resolution").await,
-        Err(FlowError::InvalidTransition(message))
+        error,
+        FlowError::InvalidTransition(message)
             if message.contains("cannot resolve to a continuation segment")
     ));
 }

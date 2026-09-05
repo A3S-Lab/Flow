@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
 use a3s_flow::{
-    FlowEngine, FlowError, FlowEvent, FlowEventStore, FlowRuntime, InMemoryEventStore,
-    RuntimeCommand, StepInvocation, WorkflowInvocation, WorkflowSignal, WorkflowSpec,
+    FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore, FlowRuntime,
+    InMemoryEventStore, RuntimeCommand, StepInvocation, WorkflowInvocation, WorkflowSignal,
+    WorkflowSpec,
 };
 use async_trait::async_trait;
 use serde_json::json;
+use uuid::Uuid;
 
 const RUN_ID: &str = "signal-validation-history";
 const APPROVAL_SIGNAL: &str = "order.approved";
@@ -42,22 +44,76 @@ impl FlowRuntime for SnapshotOnlyRuntime {
     }
 }
 
-async fn snapshot_error(events: Vec<FlowEvent>) -> FlowError {
-    let store = Arc::new(InMemoryEventStore::new());
-    store
-        .append(
-            RUN_ID,
-            FlowEvent::RunCreated {
-                spec: spec(),
-                input: json!({}),
-            },
-        )
-        .await
-        .unwrap();
-    store.append(RUN_ID, FlowEvent::RunStarted).await.unwrap();
-    for event in events {
-        store.append(RUN_ID, event).await.unwrap();
+struct StaticHistoryStore {
+    events: Vec<FlowEventEnvelope>,
+}
+
+#[async_trait]
+impl FlowEventStore for StaticHistoryStore {
+    async fn append(
+        &self,
+        _run_id: &str,
+        _event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        Err(FlowError::Store(
+            "signal projection fixture is read-only".to_string(),
+        ))
     }
+
+    async fn append_if_sequence(
+        &self,
+        _run_id: &str,
+        _expected_sequence: u64,
+        _event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        Err(FlowError::Store(
+            "signal projection fixture is read-only".to_string(),
+        ))
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        if run_id == RUN_ID {
+            Ok(self.events.clone())
+        } else {
+            Err(FlowError::RunNotFound(run_id.to_string()))
+        }
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        Ok(vec![RUN_ID.to_string()])
+    }
+}
+
+fn envelope(sequence: u64, event: FlowEvent) -> FlowEventEnvelope {
+    FlowEventEnvelope::new(
+        RUN_ID,
+        sequence,
+        Uuid::new_v4(),
+        "2026-01-01T00:00:00Z".parse().unwrap(),
+        event,
+    )
+}
+
+async fn snapshot_error(events: Vec<FlowEvent>) -> FlowError {
+    snapshot_error_with_prefix(vec![FlowEvent::RunStarted], events).await
+}
+
+async fn snapshot_error_with_prefix(prefix: Vec<FlowEvent>, events: Vec<FlowEvent>) -> FlowError {
+    let mut history = vec![envelope(
+        1,
+        FlowEvent::RunCreated {
+            spec: spec(),
+            input: json!({}),
+        },
+    )];
+    history.extend(
+        prefix
+            .into_iter()
+            .chain(events)
+            .enumerate()
+            .map(|(index, event)| envelope(index as u64 + 2, event)),
+    );
+    let store = Arc::new(StaticHistoryStore { events: history });
     FlowEngine::new(store, Arc::new(SnapshotOnlyRuntime))
         .snapshot(RUN_ID)
         .await
@@ -91,25 +147,8 @@ async fn workflow_spec_rejects_an_empty_signal_contract_before_history_is_writte
 
 #[tokio::test]
 async fn projection_rejects_signal_events_before_run_started() {
-    let store = Arc::new(InMemoryEventStore::new());
-    store
-        .append(
-            RUN_ID,
-            FlowEvent::RunCreated {
-                spec: spec(),
-                input: json!({}),
-            },
-        )
-        .await
-        .unwrap();
-    store
-        .append(RUN_ID, signal("delivery-1", APPROVAL_SIGNAL))
-        .await
-        .unwrap();
-    let error = FlowEngine::new(store, Arc::new(SnapshotOnlyRuntime))
-        .snapshot(RUN_ID)
-        .await
-        .unwrap_err();
+    let error =
+        snapshot_error_with_prefix(Vec::new(), vec![signal("delivery-1", APPROVAL_SIGNAL)]).await;
     assert!(matches!(
         error,
         FlowError::InvalidTransition(message)

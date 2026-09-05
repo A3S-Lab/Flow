@@ -49,6 +49,11 @@ let retry = RetryPolicy::exponential(
 
 The initial delay is at least one millisecond, the maximum cannot be lower than the initial delay, and constructors clamp `max_attempts` to at least one.
 
+When a step fails after taking time to run, Flow anchors the newly calculated
+`retry_after` at the failure clock rather than the beginning of the drive call.
+A scheduler-provided future cutoff is retained as a lower bound, so catch-up
+does not make a long-running attempt immediately overdue.
+
 ## Continue after retry exhaustion
 
 The default failure action is `StepFailureAction::FailRun`. A workflow that needs a manual-review, fallback, or compensation branch can use `continue_workflow_on_failure()`.
@@ -103,6 +108,9 @@ Ok(ctx.wait_until("payment-window", deadline))
 ```
 
 Reusing the same `wait_id` with another deadline returns `NonDeterministic`.
+Calling `resume_wait()` for an open timer before its persisted deadline returns
+an invalid-transition error; redelivery of an already terminal run remains an
+idempotent no-op.
 
 ## How scheduling resumes work
 

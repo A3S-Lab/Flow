@@ -1,12 +1,13 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use tokio::task::JoinSet;
+use tokio::task::{Id, JoinSet};
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    FlowEvent, FlowEventEnvelope, RetryPolicy, StepCommand, StepFailureAction, StepStatus,
-    WorkflowRunSnapshot,
+    project_run, FlowEvent, FlowEventEnvelope, RetryPolicy, StepCommand, StepFailureAction,
+    StepStatus, WorkflowRunSnapshot,
 };
 use crate::runtime::StepInvocation;
 
@@ -21,9 +22,38 @@ pub(super) struct StepExecutionContext {
     pub(super) now: DateTime<Utc>,
 }
 
-/// Rebuild the run-level terminal event when a host stopped after durably
-/// recording the final step failure.
-pub(super) fn interrupted_retry_exhaustion_event(
+struct BatchTerminalFailure {
+    step_index: usize,
+    attempt: u32,
+    error: String,
+    retry_exhausted: bool,
+}
+
+/// Prefix reserved for the durable marker emitted when a concurrent task
+/// terminates without returning a `Result`.  Keeping this marker stable lets a
+/// later host finish the terminal transition after a crash between the marker
+/// and the run-level outcome.
+const BATCH_TASK_FAILURE_REASON_PREFIX: &str =
+    "concurrent step task failed before returning an outcome: ";
+
+fn batch_abort_reason(failing_step_id: &str) -> String {
+    format!(
+        "concurrent batch aborted after sibling failure {failing_step_id}; step outcome is unknown"
+    )
+}
+
+fn next_open_step(snapshot: &WorkflowRunSnapshot) -> Option<(&str, u32)> {
+    snapshot.steps.values().find_map(|step| {
+        matches!(step.status, StepStatus::Pending | StepStatus::Running)
+            .then_some((step.step_id.as_str(), step.attempt))
+    })
+}
+
+/// Rebuild the next missing event after a host stopped during terminal batch
+/// settlement.  The function deliberately returns one event at a time: each
+/// event is validated and committed through the normal expected-sequence path,
+/// so a crash or writer race can safely replay this decision.
+pub(super) fn interrupted_terminal_event(
     snapshot: &WorkflowRunSnapshot,
     history: &[FlowEventEnvelope],
 ) -> Option<FlowEvent> {
@@ -31,7 +61,7 @@ pub(super) fn interrupted_retry_exhaustion_event(
         return None;
     }
 
-    history.iter().find_map(|envelope| {
+    if let Some((step_id, attempt, error)) = history.iter().find_map(|envelope| {
         let FlowEvent::StepFailed {
             step_id,
             attempt,
@@ -45,11 +75,45 @@ pub(super) fn interrupted_retry_exhaustion_event(
             && step.retry.on_exhausted == StepFailureAction::FailRun
             && step.attempt == *attempt
             && step.error.as_deref() == Some(error.as_str()))
-        .then(|| FlowEvent::RunRetryExhausted {
-            step_id: step_id.clone(),
-            attempt: *attempt,
-            error: error.clone(),
-        })
+        .then(|| (step_id.clone(), *attempt, error.clone()))
+    }) {
+        if let Some((open_step_id, open_attempt)) = next_open_step(snapshot) {
+            return Some(FlowEvent::StepCancelled {
+                step_id: open_step_id.to_string(),
+                attempt: open_attempt,
+                reason: batch_abort_reason(&step_id),
+            });
+        }
+        return Some(FlowEvent::RunRetryExhausted {
+            step_id,
+            attempt,
+            error,
+        });
+    }
+
+    // A task panic/cancellation has no `StepFailed` event to anchor recovery.
+    // Its first durable marker carries a reserved reason prefix; use that
+    // marker as the intent record and finish cancelling any remaining peers.
+    let (failed_step_id, task_failure_reason) = history.iter().find_map(|envelope| {
+        let FlowEvent::StepCancelled {
+            step_id, reason, ..
+        } = &envelope.event
+        else {
+            return None;
+        };
+        reason
+            .starts_with(BATCH_TASK_FAILURE_REASON_PREFIX)
+            .then(|| (step_id.clone(), reason.clone()))
+    })?;
+    if let Some((open_step_id, open_attempt)) = next_open_step(snapshot) {
+        return Some(FlowEvent::StepCancelled {
+            step_id: open_step_id.to_string(),
+            attempt: open_attempt,
+            reason: batch_abort_reason(&failed_step_id),
+        });
+    }
+    Some(FlowEvent::RunFailed {
+        error: task_failure_reason,
     })
 }
 
@@ -153,7 +217,15 @@ impl FlowEngine {
                     return Ok(());
                 }
                 Err(err) if attempt < max_attempts => {
-                    let retry_after = retry.retry_after_for_step(now, attempt, run_id, &step_id)?;
+                    // Anchor the deadline at the effective failure clock, not
+                    // the beginning of a potentially long drive call. A
+                    // scheduler may intentionally provide a future cutoff;
+                    // retaining that lower bound prevents one catch-up pass
+                    // from immediately consuming retries scheduled after its
+                    // logical horizon.
+                    let retry_anchor = retry_anchor(now);
+                    let retry_after =
+                        retry.retry_after_for_step(retry_anchor, attempt, run_id, &step_id)?;
                     let retrying = self
                         .record_event_at(
                             run_id,
@@ -297,6 +369,7 @@ impl FlowEngine {
         while !active.is_empty() {
             let history = self.store.list(run_id).await?;
             let mut tasks = JoinSet::new();
+            let mut task_indexes = HashMap::<Id, usize>::with_capacity(active.len());
             for (index, (step, _)) in active.iter().enumerate() {
                 let runtime = Arc::clone(&self.runtime);
                 let invocation = StepInvocation {
@@ -306,16 +379,60 @@ impl FlowEngine {
                     input: step.input.clone(),
                     history: history.clone(),
                 };
-                tasks.spawn(async move { (index, runtime.run_step(invocation).await) });
+                let task_id =
+                    tasks.spawn(async move { (index, runtime.run_step(invocation).await) });
+                task_indexes.insert(task_id.id(), index);
             }
             let mut observed_outcomes = vec![false; active.len()];
             let mut immediate_retries = Vec::new();
-            while let Some(joined) = tasks.join_next().await {
-                let (index, outcome) = joined.map_err(|error| {
-                    FlowError::Runtime(format!(
-                        "concurrent step task failed before returning an outcome: {error}"
-                    ))
-                })?;
+            let mut terminal_failure = None;
+            while let Some(joined) = tasks.join_next_with_id().await {
+                let (index, outcome) = match joined {
+                    Ok((task_id, joined)) => {
+                        let expected_index = task_indexes.remove(&task_id).ok_or_else(|| {
+                            FlowError::Runtime(format!(
+                                "concurrent step task {task_id} returned more than once"
+                            ))
+                        })?;
+                        if expected_index != joined.0 {
+                            return Err(FlowError::Runtime(format!(
+                                "concurrent step task {task_id} reported index {}, expected {expected_index}",
+                                joined.0
+                            )));
+                        }
+                        joined
+                    }
+                    Err(error) => {
+                        let index = task_indexes.remove(&error.id()).ok_or_else(|| {
+                            FlowError::Runtime(format!(
+                                "concurrent step task {} failed after it was already joined",
+                                error.id()
+                            ))
+                        })?;
+                        observed_outcomes[index] = true;
+                        let (step, attempt) = &active[index];
+                        let reason = format!("{BATCH_TASK_FAILURE_REASON_PREFIX}{error}");
+                        let cancelled = self
+                            .record_event_at(
+                                run_id,
+                                expected_sequence,
+                                FlowEvent::StepCancelled {
+                                    step_id: step.step_id.clone(),
+                                    attempt: *attempt,
+                                    reason: reason.clone(),
+                                },
+                            )
+                            .await?;
+                        expected_sequence = cancelled.sequence;
+                        terminal_failure = Some(BatchTerminalFailure {
+                            step_index: index,
+                            attempt: *attempt,
+                            error: reason,
+                            retry_exhausted: false,
+                        });
+                        break;
+                    }
+                };
                 if index >= observed_outcomes.len() || observed_outcomes[index] {
                     return Err(FlowError::InvalidTransition(
                         "concurrent step batch returned an invalid outcome index".to_string(),
@@ -339,8 +456,9 @@ impl FlowEngine {
                     }
                     Err(error) if *attempt < step.retry.max_attempts.max(1) => {
                         let error = error.to_string();
+                        let retry_anchor = retry_anchor(now);
                         let retry_after = step.retry.retry_after_for_step(
-                            now,
+                            retry_anchor,
                             *attempt,
                             run_id,
                             &step.step_id,
@@ -377,21 +495,53 @@ impl FlowEngine {
                             .await?;
                         expected_sequence = failed.sequence;
                         if step.retry.on_exhausted == StepFailureAction::FailRun {
-                            self.record_event_at(
-                                run_id,
-                                expected_sequence,
-                                FlowEvent::RunRetryExhausted {
-                                    step_id: step.step_id.clone(),
-                                    attempt: *attempt,
-                                    error,
-                                },
-                            )
-                            .await?;
-                            return Ok(());
+                            terminal_failure = Some(BatchTerminalFailure {
+                                step_index: index,
+                                attempt: *attempt,
+                                error,
+                                retry_exhausted: true,
+                            });
+                            break;
                         }
                     }
                 }
             }
+
+            if let Some(failure) = terminal_failure {
+                // A terminal sibling failure makes every still-open sibling
+                // non-actionable. Abort local futures immediately, then leave
+                // an explicit durable cancellation marker for each branch so
+                // replay never presents a terminal run with a phantom Running
+                // or Pending step. The reason deliberately says "unknown": an
+                // external side effect may have crossed the host boundary
+                // before the future was aborted.
+                tasks.abort_all();
+                drop(tasks);
+
+                let failing_step_id = active[failure.step_index].0.step_id.clone();
+                self.cancel_open_steps_after_terminal_failure(
+                    run_id,
+                    &mut expected_sequence,
+                    &failing_step_id,
+                )
+                .await?;
+
+                let terminal_event = if failure.retry_exhausted {
+                    FlowEvent::RunRetryExhausted {
+                        step_id: failing_step_id,
+                        attempt: failure.attempt,
+                        error: failure.error,
+                    }
+                } else {
+                    FlowEvent::RunFailed {
+                        error: failure.error,
+                    }
+                };
+                self.record_event_at(run_id, expected_sequence, terminal_event)
+                    .await?;
+                return Ok(());
+            }
+
             if let Some(index) = observed_outcomes.iter().position(|observed| !observed) {
                 return Err(FlowError::Runtime(format!(
                     "concurrent step batch omitted outcome index {index}"
@@ -427,4 +577,42 @@ impl FlowEngine {
 
         Ok(())
     }
+
+    /// Persist cancellation markers for every step that is still actionable
+    /// after a terminal batch decision. Re-reading the projection is
+    /// intentional: a sibling may have entered a delayed retry in an earlier
+    /// batch round and therefore no longer be present in the current `active`
+    /// vector. It also makes the normal path agree with crash recovery, which
+    /// settles any open step before writing the run-level terminal event.
+    async fn cancel_open_steps_after_terminal_failure(
+        &self,
+        run_id: &str,
+        expected_sequence: &mut u64,
+        failing_step_id: &str,
+    ) -> Result<()> {
+        let history = self.store.list(run_id).await?;
+        let snapshot = project_run(run_id, &history)?;
+        for step in snapshot.steps.values() {
+            if !matches!(step.status, StepStatus::Pending | StepStatus::Running) {
+                continue;
+            }
+            let cancelled = self
+                .record_event_at(
+                    run_id,
+                    *expected_sequence,
+                    FlowEvent::StepCancelled {
+                        step_id: step.step_id.clone(),
+                        attempt: step.attempt,
+                        reason: batch_abort_reason(failing_step_id),
+                    },
+                )
+                .await?;
+            *expected_sequence = cancelled.sequence;
+        }
+        Ok(())
+    }
+}
+
+fn retry_anchor(now: DateTime<Utc>) -> DateTime<Utc> {
+    Utc::now().max(now)
 }

@@ -149,7 +149,10 @@ impl FlowRuntime for BlockingAfterWaitRuntime {
             unreachable!("blocking runtime only completes when its future is dropped")
         }
 
-        Ok(ctx.wait_until("blocked", Utc::now() + ChronoDuration::hours(1)))
+        // Keep the fixture due so the worker reaches the intentionally
+        // blocking replay path. The production engine rejects a direct
+        // redelivery before its timer deadline.
+        Ok(ctx.wait_until("blocked", Utc::now() - ChronoDuration::seconds(1)))
     }
 
     async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {

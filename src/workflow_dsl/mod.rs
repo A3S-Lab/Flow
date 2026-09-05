@@ -7,7 +7,7 @@ mod version;
 pub use error::WorkflowDslError;
 pub use model::{
     WorkflowDag, WorkflowDagEdge, WorkflowDagNode, WorkflowDsl, WorkflowDslApp, WorkflowDslBody,
-    TESTED_WORKFLOW_DSL_VERSION, WORKFLOW_DSL_MAX_BYTES,
+    TESTED_WORKFLOW_DSL_VERSION, WORKFLOW_DSL_EXECUTION_DIGEST_VERSION, WORKFLOW_DSL_MAX_BYTES,
 };
 pub use plan::WorkflowDagPlan;
 pub use version::WorkflowDslCompatibility;

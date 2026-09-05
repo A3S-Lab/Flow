@@ -209,6 +209,231 @@ async fn completed_batch_sibling_is_durable_while_another_sibling_is_running() {
     );
 }
 
+struct FailingBatchWithSlowSiblingRuntime {
+    rendezvous: Arc<Barrier>,
+}
+
+#[async_trait]
+impl FlowRuntime for FailingBatchWithSlowSiblingRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        Ok(invocation.context().schedule_steps(vec![
+            invocation.context().step_with_retry(
+                "fail",
+                "failBatchStep",
+                json!({}),
+                RetryPolicy::none(),
+            ),
+            invocation.context().step_with_retry(
+                "slow",
+                "slowBatchStep",
+                json!({}),
+                RetryPolicy::none(),
+            ),
+        ]))
+    }
+
+    async fn run_step(&self, invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        self.rendezvous.wait().await;
+        if invocation.step_id == "fail" {
+            return Err(FlowError::Runtime("intentional batch failure".to_string()));
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        Ok(json!({ "step": invocation.step_id }))
+    }
+}
+
+#[tokio::test]
+async fn terminal_batch_failure_settles_every_started_sibling() {
+    let runtime = Arc::new(FailingBatchWithSlowSiblingRuntime {
+        rendezvous: Arc::new(Barrier::new(2)),
+    });
+    let engine = FlowEngine::in_memory(runtime);
+    let run_id = tokio::time::timeout(Duration::from_secs(1), engine.start(spec(), json!({})))
+        .await
+        .expect("a terminal batch failure must not wait for a slow sibling")
+        .expect("batch failure is a durable run outcome");
+
+    let snapshot = engine.snapshot(&run_id).await.unwrap();
+    assert_eq!(snapshot.status, WorkflowRunStatus::Failed);
+    assert_eq!(snapshot.steps["fail"].status, StepStatus::Failed);
+    assert_eq!(snapshot.steps["slow"].status, StepStatus::Cancelled);
+    assert!(snapshot.steps.values().all(|step| {
+        matches!(
+            step.status,
+            StepStatus::Completed | StepStatus::Failed | StepStatus::Cancelled
+        )
+    }));
+
+    let history = engine.history(&run_id).await.unwrap();
+    assert!(history.iter().any(|event| {
+        matches!(
+            &event.event,
+            FlowEvent::StepCancelled { step_id, reason, .. }
+                if step_id == "slow" && reason.contains("outcome is unknown")
+        )
+    }));
+    assert!(matches!(
+        history.last().map(|event| &event.event),
+        Some(FlowEvent::RunRetryExhausted { step_id, .. }) if step_id == "fail"
+    ));
+}
+
+struct MixedRetryBatchRuntime {
+    retry_recorded: Arc<Barrier>,
+}
+
+#[async_trait]
+impl FlowRuntime for MixedRetryBatchRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        Ok(invocation.context().schedule_steps(vec![
+            invocation.context().step_with_retry(
+                "fail",
+                "mixedFail",
+                json!({}),
+                RetryPolicy::none(),
+            ),
+            invocation.context().step_with_retry(
+                "delayed",
+                "mixedDelayed",
+                json!({}),
+                RetryPolicy::fixed(2, Duration::from_secs(3600)),
+            ),
+        ]))
+    }
+
+    async fn run_step(&self, invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        if invocation.step_id == "fail" {
+            // The observer releases this barrier only after the delayed
+            // sibling's retry event has committed. This makes the regression
+            // exercise the next batch round rather than depending on join
+            // scheduling luck.
+            self.retry_recorded.wait().await;
+        }
+        Err(FlowError::Runtime(format!(
+            "{} failed on attempt {}",
+            invocation.step_id,
+            invocation
+                .history
+                .iter()
+                .filter(|event| {
+                    matches!(
+                        event.event,
+                        FlowEvent::StepStarted { ref step_id, .. } if step_id == &invocation.step_id
+                    )
+                })
+                .count()
+        )))
+    }
+}
+
+struct RetryRecordingObserver {
+    barrier: Arc<Barrier>,
+}
+
+#[async_trait]
+impl FlowEventObserver for RetryRecordingObserver {
+    async fn observe(&self, envelope: FlowEventEnvelope) {
+        if matches!(
+            envelope.event,
+            FlowEvent::StepRetrying { ref step_id, .. } if step_id == "delayed"
+        ) {
+            self.barrier.wait().await;
+        }
+    }
+}
+
+#[tokio::test]
+async fn terminal_batch_failure_settles_a_sibling_left_in_delayed_retry() {
+    let retry_recorded = Arc::new(Barrier::new(2));
+    let engine = FlowEngine::builder(Arc::new(MixedRetryBatchRuntime {
+        retry_recorded: retry_recorded.clone(),
+    }))
+    .with_observer(Arc::new(RetryRecordingObserver {
+        barrier: retry_recorded,
+    }))
+    .build();
+    let run_id = tokio::time::timeout(Duration::from_secs(1), engine.start(spec(), json!({})))
+        .await
+        .expect("mixed retry batch must terminate promptly")
+        .expect("terminal batch failure is a durable run outcome");
+
+    let snapshot = engine.snapshot(&run_id).await.unwrap();
+    assert_eq!(snapshot.status, WorkflowRunStatus::Failed);
+    assert_eq!(snapshot.steps["fail"].status, StepStatus::Failed);
+    assert_eq!(snapshot.steps["delayed"].status, StepStatus::Cancelled);
+    assert!(snapshot.steps["delayed"].retry_after.is_none());
+    assert!(engine
+        .list_open_suspensions(Utc::now())
+        .await
+        .unwrap()
+        .is_empty());
+    let history = engine.history(&run_id).await.unwrap();
+    assert!(history.iter().any(|event| {
+        matches!(
+            event.event,
+            FlowEvent::StepRetrying { ref step_id, retry_after: Some(_), .. }
+                if step_id == "delayed"
+        )
+    }));
+    assert!(history.iter().any(|event| {
+        matches!(
+            event.event,
+            FlowEvent::StepCancelled { ref step_id, .. } if step_id == "delayed"
+        )
+    }));
+}
+
+struct PanickingBatchRuntime;
+
+#[async_trait]
+impl FlowRuntime for PanickingBatchRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        Ok(invocation.context().schedule_steps(vec![
+            invocation
+                .context()
+                .step("panic", "panicBatchStep", json!({})),
+            invocation
+                .context()
+                .step("slow", "panicSlowBatchStep", json!({})),
+        ]))
+    }
+
+    async fn run_step(&self, invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        if invocation.step_id == "panic" {
+            panic!("intentional concurrent batch task panic");
+        }
+        pending().await
+    }
+}
+
+#[tokio::test]
+async fn panicking_batch_tasks_are_durably_settled_before_run_failure() {
+    let engine = FlowEngine::in_memory(Arc::new(PanickingBatchRuntime));
+    let run_id = tokio::time::timeout(Duration::from_secs(1), engine.start(spec(), json!({})))
+        .await
+        .expect("a panicking batch task must not strand its sibling")
+        .expect("task panic is converted into a durable run failure");
+
+    let snapshot = engine.snapshot(&run_id).await.unwrap();
+    assert_eq!(snapshot.status, WorkflowRunStatus::Failed);
+    assert_eq!(snapshot.steps["panic"].status, StepStatus::Cancelled);
+    assert_eq!(snapshot.steps["slow"].status, StepStatus::Cancelled);
+    let history = engine.history(&run_id).await.unwrap();
+    assert!(matches!(
+        history.last().map(|event| &event.event),
+        Some(FlowEvent::RunFailed { error }) if error.contains("before returning an outcome")
+    ));
+}
+
 struct DelayedConcurrentBatchRuntime {
     barrier: Barrier,
     alpha_attempts: AtomicUsize,

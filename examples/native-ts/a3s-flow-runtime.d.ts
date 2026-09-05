@@ -196,6 +196,12 @@ export type FlowEvent =
       retry_after: string | null;
     }
   | { type: "step_failed"; step_id: string; attempt: number; error: string }
+  | {
+      type: "step_cancelled";
+      step_id: string;
+      attempt: number;
+      reason: string;
+    }
   | { type: "wait_created"; wait_id: string; resume_at: string }
   | { type: "wait_completed"; wait_id: string }
   | { type: "hook_created"; hook_id: string; token: string; metadata: Json }

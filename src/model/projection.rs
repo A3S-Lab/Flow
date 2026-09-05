@@ -598,6 +598,32 @@ pub(crate) fn project_run(
                 step.error = Some(error.clone());
                 step.retry_after = None;
             }
+            FlowEvent::StepCancelled {
+                step_id,
+                attempt,
+                reason,
+            } => {
+                let step = snapshot.steps.get_mut(step_id).ok_or_else(|| {
+                    FlowError::InvalidTransition(format!(
+                        "step_cancelled references unknown step {step_id}"
+                    ))
+                })?;
+                if !matches!(step.status, StepStatus::Pending | StepStatus::Running) {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "step_cancelled cannot follow {:?} for step {step_id}",
+                        step.status
+                    )));
+                }
+                if *attempt != step.attempt {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "step_cancelled attempt {attempt} does not match current attempt {} for step {step_id}",
+                        step.attempt
+                    )));
+                }
+                step.status = StepStatus::Cancelled;
+                step.error = Some(reason.clone());
+                step.retry_after = None;
+            }
             FlowEvent::WaitCreated { wait_id, resume_at } => {
                 if snapshot.waits.contains_key(wait_id) {
                     return Err(FlowError::InvalidTransition(format!(

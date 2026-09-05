@@ -1,8 +1,13 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use futures_util::{
+    future::FutureExt,
+    stream::{FuturesUnordered, StreamExt},
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -87,8 +92,36 @@ impl fmt::Debug for FanoutFlowEventObserver {
 #[async_trait]
 impl FlowEventObserver for FanoutFlowEventObserver {
     async fn observe(&self, envelope: FlowEventEnvelope) {
-        for observer in &self.observers {
-            observer.observe(envelope.clone()).await;
+        let mut deliveries = self
+            .observers
+            .iter()
+            .enumerate()
+            .map(|(observer_index, observer)| {
+                let observer = Arc::clone(observer);
+                let envelope = envelope.clone();
+                Box::pin(async move {
+                    // A broken telemetry sink must not prevent healthy sinks
+                    // from seeing the same committed event. `FlowEventObserver`
+                    // deliberately has no error return, so convert a panic
+                    // into a warning at this isolation boundary and continue
+                    // polling the other deliveries.
+                    if AssertUnwindSafe(observer.observe(envelope))
+                        .catch_unwind()
+                        .await
+                        .is_err()
+                    {
+                        tracing::warn!(
+                            observer_index,
+                            "flow event observer panicked; other observers remain active"
+                        );
+                    }
+                })
+            })
+            .collect::<FuturesUnordered<_>>();
+        while deliveries.next().await.is_some() {
+            // Poll every downstream observer concurrently. Dropping the
+            // collection on cancellation also drops still-pending futures,
+            // allowing the engine's observer deadline to stop a stalled sink.
         }
     }
 }
@@ -402,6 +435,15 @@ where
     pub fn sink(&self) -> Arc<S> {
         Arc::clone(&self.sink)
     }
+
+    /// Return the number of workflow identities retained for non-terminal
+    /// event streams.
+    ///
+    /// Terminal events remove their identity before delivery, so this value is
+    /// bounded by the number of runs that are currently being observed.
+    pub async fn cached_workflow_count(&self) -> usize {
+        self.workflows.lock().await.len()
+    }
 }
 
 #[async_trait]
@@ -410,12 +452,17 @@ where
     S: A3sFlowEventSink,
 {
     async fn observe(&self, envelope: FlowEventEnvelope) {
+        let terminal = is_terminal_run_event(&envelope.event);
         let workflow = {
             let mut workflows = self.workflows.lock().await;
             if let FlowEvent::RunCreated { spec, .. } = &envelope.event {
                 workflows.insert(envelope.run_id.clone(), FlowWorkflowIdentity::from(spec));
             }
-            workflows.get(&envelope.run_id).cloned()
+            let workflow = workflows.get(&envelope.run_id).cloned();
+            if terminal {
+                workflows.remove(&envelope.run_id);
+            }
+            workflow
         };
         self.sink
             .emit(A3sFlowEvent::from_envelope(&envelope, workflow))
@@ -477,12 +524,26 @@ fn event_status(event: &FlowEvent) -> Option<&'static str> {
         FlowEvent::StepCompleted { .. } => Some("completed"),
         FlowEvent::StepRetrying { .. } => Some("retrying"),
         FlowEvent::StepFailed { .. } => Some("failed"),
+        FlowEvent::StepCancelled { .. } => Some("cancelled"),
         FlowEvent::WaitCreated { .. } => Some("waiting"),
         FlowEvent::WaitCompleted { .. } => Some("completed"),
         FlowEvent::HookCreated { .. } => Some("active"),
         FlowEvent::HookReceived { .. } => Some("received"),
         FlowEvent::HookDisposed { .. } => Some("disposed"),
     }
+}
+
+fn is_terminal_run_event(event: &FlowEvent) -> bool {
+    matches!(
+        event,
+        FlowEvent::RunCompleted { .. }
+            | FlowEvent::RunFailed { .. }
+            | FlowEvent::RunCancelled { .. }
+            | FlowEvent::RunTimedOut { .. }
+            | FlowEvent::RunRetryExhausted { .. }
+            | FlowEvent::RunHostShutdown { .. }
+            | FlowEvent::RunContinuedAsNew { .. }
+    )
 }
 
 fn event_subject(event: &FlowEvent) -> Option<A3sFlowEventSubject> {
@@ -492,6 +553,7 @@ fn event_subject(event: &FlowEvent) -> Option<A3sFlowEventSubject> {
         | FlowEvent::StepCompleted { step_id, .. }
         | FlowEvent::StepRetrying { step_id, .. }
         | FlowEvent::StepFailed { step_id, .. }
+        | FlowEvent::StepCancelled { step_id, .. }
         | FlowEvent::RunRetryExhausted { step_id, .. } => Some(A3sFlowEventSubject {
             kind: "step".to_string(),
             id: step_id.clone(),

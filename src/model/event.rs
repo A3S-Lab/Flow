@@ -165,6 +165,20 @@ pub enum FlowEvent {
         /// Error returned by the final attempt.
         error: String,
     },
+    /// Marks a step as no longer actionable after a terminal batch or explicit
+    /// host abort.
+    ///
+    /// The reason should explain whether the external side-effect outcome is
+    /// unknown so a host can reconcile it with the step's stable idempotency
+    /// key before deciding whether to retry elsewhere.
+    StepCancelled {
+        /// Stable identity of the cancelled step.
+        step_id: String,
+        /// Attempt that was active when the step was cancelled.
+        attempt: u32,
+        /// Human-readable cancellation or reconciliation reason.
+        reason: String,
+    },
     /// Creates a durable timer wait.
     WaitCreated {
         /// Replay-stable identity of the wait.
@@ -226,6 +240,7 @@ impl FlowEvent {
             Self::StepCompleted { .. } => "flow.step.completed",
             Self::StepRetrying { .. } => "flow.step.retrying",
             Self::StepFailed { .. } => "flow.step.failed",
+            Self::StepCancelled { .. } => "flow.step.cancelled",
             Self::WaitCreated { .. } => "flow.wait.created",
             Self::WaitCompleted { .. } => "flow.wait.completed",
             Self::HookCreated { .. } => "flow.hook.created",

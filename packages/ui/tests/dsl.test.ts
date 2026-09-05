@@ -4,11 +4,13 @@ import {
   createA3SFlowDagNodeCatalog,
   createA3SFlowDagNodeRegistry,
   defineA3SFlowCustomDagNode,
+  digestA3SFlowWorkflowDag,
   digestA3SFlowWorkflowDsl,
   parseA3SFlowWorkflowDslJson,
   a3sFlowDagNodeRegistry,
   type A3SFlowWorkflowDsl,
 } from "../src";
+import digestVectors from "./fixtures/workflow-digest-vectors.json";
 
 function fixture(): A3SFlowWorkflowDsl {
   return {
@@ -56,6 +58,27 @@ describe("A3S Flow workflow document helpers", () => {
     expect(digestA3SFlowWorkflowDsl(labeled)).toBe(
       digestA3SFlowWorkflowDsl(document),
     );
+  });
+
+  it("matches the Rust engine's cross-language digest vectors", () => {
+    for (const vector of digestVectors) {
+      expect(
+        digestA3SFlowWorkflowDag(
+          vector.graph as A3SFlowWorkflowDsl["workflow"]["graph"],
+        ),
+      ).toBe(vector.graphDigest);
+
+      expect(
+        digestA3SFlowWorkflowDsl(vector.document as A3SFlowWorkflowDsl),
+      ).toBe(vector.documentDigest);
+    }
+  });
+
+  it("rejects integers that cannot be represented safely by JavaScript", () => {
+    const document = fixture();
+    document.workflow.graph.nodes[1].data.unsafe = Number.MAX_SAFE_INTEGER + 1;
+
+    expect(() => digestA3SFlowWorkflowDsl(document)).toThrow(/unsafe integer/);
   });
 
   it("rejects application modes outside the workflow contract", () => {

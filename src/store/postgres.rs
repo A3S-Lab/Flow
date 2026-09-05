@@ -14,8 +14,8 @@ use crate::model::{
 };
 
 use super::{
-    migrate_postgres_flow, scheduled_wakeup_from_row, scheduled_wakeup_key, verify_postgres_flow,
-    FlowEventStore,
+    migrate_postgres_flow, next_event_sequence, scheduled_wakeup_from_row, scheduled_wakeup_key,
+    validate_candidate_event, verify_postgres_flow, FlowEventStore,
 };
 
 mod retention;
@@ -120,14 +120,17 @@ impl PostgresEventStore {
                             });
                         }
                     }
+                    let history = load_postgres_history(transaction, &run_id).await?;
+                    validate_candidate_event(&run_id, &history, &event)?;
                     if let FlowEvent::HookCreated { hook_id, token, .. } = &event {
                         ensure_postgres_active_hook_available(transaction, &run_id, hook_id, token)
                             .await?;
                     }
+                    let sequence = next_event_sequence(actual_sequence, &run_id)?;
 
                     let envelope = FlowEventEnvelope {
                         run_id,
-                        sequence: actual_sequence + 1,
+                        sequence,
                         event_id: Uuid::new_v4(),
                         timestamp: Utc::now(),
                         event,
@@ -156,6 +159,36 @@ impl FlowEventStore for PostgresEventStore {
     ) -> Result<FlowEventEnvelope> {
         self.append_with_expected_sequence(run_id, Some(expected_sequence), event)
             .await
+    }
+
+    async fn append_validated_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> Result<FlowEventEnvelope> {
+        self.append_with_expected_sequence(run_id, Some(expected_sequence), event)
+            .await
+    }
+
+    async fn append_hook_if_token_available(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        hook_id: String,
+        token: String,
+        metadata: serde_json::Value,
+    ) -> Result<FlowEventEnvelope> {
+        self.append_with_expected_sequence(
+            run_id,
+            Some(expected_sequence),
+            FlowEvent::HookCreated {
+                hook_id,
+                token,
+                metadata,
+            },
+        )
+        .await
     }
 
     async fn list(&self, run_id: &str) -> Result<Vec<FlowEventEnvelope>> {
@@ -404,6 +437,24 @@ async fn latest_postgres_sequence(transaction: &PostgresTransaction, run_id: &st
             "invalid PostgreSQL event sequence {sequence}: {error}"
         ))
     })
+}
+
+async fn load_postgres_history(
+    transaction: &PostgresTransaction,
+    run_id: &str,
+) -> Result<Vec<FlowEventEnvelope>> {
+    fetch_all_postgres::<(String, i64, String, String, String), _>(
+        transaction,
+        sql_query::<(String, i64, String, String, String)>(
+            "SELECT run_id, sequence, event_id, timestamp, event_json FROM flow_events WHERE run_id = ",
+        )
+        .bind(run_id)
+        .append(" ORDER BY sequence ASC"),
+    )
+    .await?
+    .into_iter()
+    .map(row_to_envelope)
+    .collect()
 }
 
 async fn ensure_postgres_active_hook_available(

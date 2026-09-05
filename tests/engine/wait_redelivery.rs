@@ -74,6 +74,29 @@ async fn resume_wait_redelivery_is_idempotent_after_terminal_completion() {
 }
 
 #[tokio::test]
+async fn direct_wait_resume_rejects_a_timer_that_is_not_due() {
+    let resume_at = Utc::now() + ChronoDuration::hours(1);
+    let engine = FlowEngine::in_memory(Arc::new(InputSleepRuntime));
+    let run_id = engine
+        .start(spec(), json!({ "resume_at": resume_at.to_rfc3339() }))
+        .await
+        .unwrap();
+
+    let error = engine.resume_wait(&run_id, "nap").await.unwrap_err();
+    assert!(
+        matches!(error, FlowError::InvalidTransition(message) if message.contains("is not due"))
+    );
+    let snapshot = engine.snapshot(&run_id).await.unwrap();
+    assert_eq!(snapshot.waits["nap"].status, WaitStatus::Waiting);
+    assert!(!engine
+        .history(&run_id)
+        .await
+        .unwrap()
+        .iter()
+        .any(|event| matches!(event.event, FlowEvent::WaitCompleted { .. })));
+}
+
+#[tokio::test]
 async fn resume_wait_redelivery_is_ignored_after_cancellation() {
     let engine = FlowEngine::in_memory(Arc::new(InputSleepRuntime));
     let run_id = engine

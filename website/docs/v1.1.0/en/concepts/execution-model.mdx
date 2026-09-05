@@ -59,6 +59,11 @@ Flow does not require a workflow function to be mathematically pure. It does req
 
 If an existing identity reappears with different parameters, Flow reports nondeterministic replay instead of accepting new values silently.
 
+For `schedule_steps`, a sibling that exhausts a fail-run policy causes all
+unsettled peers to receive durable `step_cancelled` markers before the run
+terminal event. A marker can describe an unknown external-side-effect outcome;
+hosts reconcile that attempt with its idempotency key before retrying.
+
 Do not read current time, randomness, environment variables, network responses, or mutable global state while choosing a workflow command. Put those reads in a step and consume the durable step output.
 
 ```rust

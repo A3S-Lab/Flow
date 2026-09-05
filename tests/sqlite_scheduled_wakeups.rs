@@ -298,9 +298,85 @@ async fn sqlite_scheduled_wakeup_projection_preserves_nanosecond_boundaries() {
     store
         .append(
             run_id,
+            FlowEvent::StepCreated {
+                step_id: "cancelled-retry".into(),
+                step_name: "cancelledRetry".into(),
+                input: json!({}),
+                retry: RetryPolicy::fixed(3, Duration::from_secs(1)),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            run_id,
+            FlowEvent::StepStarted {
+                step_id: "cancelled-retry".into(),
+                attempt: 1,
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            run_id,
             FlowEvent::StepRetrying {
-                step_id: "flaky".into(),
-                attempt: 2,
+                step_id: "cancelled-retry".into(),
+                attempt: 1,
+                error: "ambiguous sibling abort".into(),
+                retry_after: Some(retry_at),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(scheduled_rows(store.executor())
+        .await
+        .iter()
+        .any(|row| { row.1 == 2 && row.2 == "cancelled-retry" }));
+    store
+        .append(
+            run_id,
+            FlowEvent::StepCancelled {
+                step_id: "cancelled-retry".into(),
+                attempt: 1,
+                reason: "batch sibling outcome is unknown".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(!scheduled_rows(store.executor())
+        .await
+        .iter()
+        .any(|row| row.2 == "cancelled-retry"));
+
+    store
+        .append(
+            run_id,
+            FlowEvent::StepCreated {
+                step_id: "instant".into(),
+                step_name: "instantStep".into(),
+                input: json!({}),
+                retry: RetryPolicy::fixed(3, Duration::ZERO),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            run_id,
+            FlowEvent::StepStarted {
+                step_id: "instant".into(),
+                attempt: 1,
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            run_id,
+            FlowEvent::StepRetrying {
+                step_id: "instant".into(),
+                attempt: 1,
                 error: "retry immediately".into(),
                 retry_after: None,
             },
@@ -460,6 +536,64 @@ async fn sqlite_scheduled_wakeup_migration_backfills_and_tracks_legacy_writers()
     )
     .await;
 
+    let cancelled_retry_run = "sqlite-wakeup-upgrade-cancelled-retry";
+    insert_raw_event(
+        &executor,
+        cancelled_retry_run,
+        1,
+        FlowEvent::RunCreated {
+            spec: spec(),
+            input: json!({}),
+        },
+    )
+    .await;
+    insert_raw_event(&executor, cancelled_retry_run, 2, FlowEvent::RunStarted).await;
+    insert_raw_event(
+        &executor,
+        cancelled_retry_run,
+        3,
+        FlowEvent::StepCreated {
+            step_id: "cancelled-retry".into(),
+            step_name: "cancelledRetry".into(),
+            input: json!({}),
+            retry: RetryPolicy::fixed(3, Duration::from_secs(1)),
+        },
+    )
+    .await;
+    insert_raw_event(
+        &executor,
+        cancelled_retry_run,
+        4,
+        FlowEvent::StepStarted {
+            step_id: "cancelled-retry".into(),
+            attempt: 1,
+        },
+    )
+    .await;
+    insert_raw_event(
+        &executor,
+        cancelled_retry_run,
+        5,
+        FlowEvent::StepRetrying {
+            step_id: "cancelled-retry".into(),
+            attempt: 1,
+            error: "ambiguous sibling abort".into(),
+            retry_after: Some(timestamp("2026-08-07T01:00:01.000000000Z")),
+        },
+    )
+    .await;
+    insert_raw_event(
+        &executor,
+        cancelled_retry_run,
+        6,
+        FlowEvent::StepCancelled {
+            step_id: "cancelled-retry".into(),
+            attempt: 1,
+            reason: "batch sibling outcome is unknown".into(),
+        },
+    )
+    .await;
+
     let cancelling_run = "sqlite-wakeup-upgrade-cancelling";
     insert_raw_event(
         &executor,
@@ -564,6 +698,7 @@ async fn sqlite_scheduled_wakeup_migration_backfills_and_tracks_legacy_writers()
             && row.2 == "legacy-retry"
             && row.3 == "2026-08-07T01:00:01.987654321Z"
     }));
+    assert!(!rows.iter().any(|row| row.0 == cancelled_retry_run));
     assert!(rows
         .iter()
         .any(|row| row.0 == cancelling_run && row.2 == "cleanup"));

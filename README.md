@@ -45,6 +45,7 @@ that operate on Flow's versioned workflow document contract.
 | A parent starts one or many child workflows      | Child identities, policies, and terminal outcomes survive either cross-stream crash window |
 | New workflow code rolls out                      | Runtime build IDs and immutable patch markers keep histories on compatible replay paths    |
 | Multiple workers append concurrently             | Expected-sequence writes select one durable winner and reject stale decisions              |
+| A batch sibling fails while peers are running    | Unsettled peers are durably marked cancelled before the run terminal outcome                |
 
 > [!IMPORTANT]
 > Flow owns workflow graph validation, append-only history, durable replay, and
@@ -180,6 +181,10 @@ That boundary produces concrete guarantees:
   callback token, or metadata fails as non-deterministic replay.
 - Timers, delayed retries, signals, and hooks release compute while the run is
   suspended.
+- A terminal failure in `schedule_steps` aborts unsettled sibling futures and
+  persists `step_cancelled` markers first. The marker records when an external
+  side-effect outcome is unknown, so hosts can reconcile the stable attempt
+  idempotency key before any compensating retry.
 - Crash recovery reconstructs state from typed events rather than an in-memory
   stack.
 
@@ -196,7 +201,7 @@ by runnable examples or integration tests.
 | Area              | Current contract                                                                                                                                               | Evidence                                                                                                                                                                     |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Durable steps     | Sequential steps, concurrent step batches, typed input/output helpers, stable IDs, progress, and child-operation references                                    | [`sequential_steps`](examples/sequential_steps.rs), [`batch_steps`](examples/batch_steps.rs)                                                                                 |
-| Retry policy      | Immediate retry, fixed delay, and capped exponential backoff with deterministic full jitter; exhaustion can fail or return to workflow fallback logic          | [`retry_backoff`](examples/retry_backoff.rs), [`recoverable_step_failure`](examples/recoverable_step_failure.rs)                                                             |
+| Retry policy      | Immediate retry, fixed delay, and capped exponential backoff with deterministic full jitter; deadlines anchor at failure time and exhaustion can fail or return to workflow fallback logic | [`retry_backoff`](examples/retry_backoff.rs), [`recoverable_step_failure`](examples/recoverable_step_failure.rs)                                                             |
 | Suspension        | Durable timers, declared named signals, and token-routed hooks/callbacks resume without holding a worker                                                       | [`scheduler_worker`](examples/scheduler_worker.rs), [`workflow_signals`](examples/workflow_signals.rs), [`hook_approval`](examples/hook_approval.rs)                         |
 | Cancellation      | Cleanup-aware cancellation enters `Cancelling`, replays stable cleanup steps, and records one typed terminal outcome; force cancellation remains explicit      | [`cancellation`](examples/cancellation.rs)                                                                                                                                   |
 | Child workflows   | First-class single children and bounded concurrent batches persist every child identity before execution and recover partial cross-stream progress             | [`child_workflow`](examples/child_workflow.rs), [`child_workflow_batch`](examples/child_workflow_batch.rs)                                                                   |
@@ -204,7 +209,7 @@ by runnable examples or integration tests.
 | Safe rollout      | Exact runtime-build routing rejects incompatible workers before mutation; immutable patch markers preserve old and new replay branches                         | [`replay_safe_patch`](examples/replay_safe_patch.rs), [rollout recipe](docs/COOKBOOK.md#replay-safe-workflow-patches)                                                        |
 | Persistence       | In-memory and JSONL stores are built in; SQLite and PostgreSQL share the `FlowEventStore` contract and canonical A3S ORM migrations                            | [`local_file_durability`](examples/local_file_durability.rs), [`sqlite_durability`](examples/sqlite_durability.rs), [`postgres_durability`](examples/postgres_durability.rs) |
 | Dispatch          | A3S Boot task management is recommended; embedded compatibility queues and `FlowWorker` remain available                                                       | [`boot_task_policy`](examples/boot_task_policy.rs), [`task_queue_durability`](examples/task_queue_durability.rs)                                                             |
-| Observability     | Post-commit observers, fan-out, an A3S Event bridge, and a repair-aware local JSONL audit sink mirror committed events without becoming state authority        | [`observer_fanout`](examples/observer_fanout.rs), [`local_audit_log`](examples/local_audit_log.rs)                                                                           |
+| Observability     | Post-commit observers with bounded panic/timeout isolation, concurrent fan-out, an A3S Event bridge, and a repair-aware local JSONL audit sink mirror committed events without becoming state authority | [`observer_fanout`](examples/observer_fanout.rs), [`local_audit_log`](examples/local_audit_log.rs)                                                                           |
 | Native TypeScript | Optional source compilation, artifact identity, dependency-manifest verification, and a versioned JSON invocation protocol; Rust remains the durable authority | [`native_ts_preflight`](examples/native_ts_preflight.rs), [protocol guide](docs/NATIVE_TYPESCRIPT.md)                                                                        |
 
 ### Bounded retries
@@ -288,8 +293,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 The compiler rejects duplicate IDs, missing endpoints, self-edges, cycles,
 invalid cross-scope edges, and malformed iteration or loop containers. Unknown
 fields round-trip, while layout, selection, and viewport do not affect the
-execution digest. An empty canvas remains importable as a draft but cannot
-produce an execution plan. See the runnable
+execution digest. Digest format `v2` is shared with the UI and follows
+JavaScript number formatting and UTF-16 key ordering, rejects unsafe integers,
+and bounds nesting to 256 levels. Edge labels remain presentation-only. An
+empty canvas remains importable as a draft but cannot produce an execution
+plan. See the runnable
 [`workflow_dsl_import`](examples/workflow_dsl_import.rs) example.
 
 ## Production operations
@@ -306,7 +314,7 @@ All stores preserve the same event envelope and replay contract.
 | `PostgresEventStore`  | Multi-process workers sharing authoritative history | `postgres` |
 
 SQLite and PostgreSQL use `a3s-orm` for typed access, checksummed migrations,
-transactional appends, active-hook routing, scheduled-wakeup indexes, and
+projection-validated transactional appends, active-hook routing, scheduled-wakeup indexes, and
 whole-history retention. Production PostgreSQL deployments run migration
 authority separately, then admit serving workers only after verifying the
 canonical migration ledger. See [Upgrading to Flow 1.0](docs/UPGRADING_TO_V1.md).
