@@ -62,7 +62,7 @@ pub use scheduler::{FlowScheduler, FlowSchedulerTick};
 pub use store::SqliteEventStore;
 #[cfg(feature = "postgres")]
 pub use store::{migrate_postgres_flow, PostgresEventStore};
-pub use store::{FlowEventStore, InMemoryEventStore, LocalFileEventStore};
+pub use store::{FlowEventStore, FlowStoreCapabilities, InMemoryEventStore, LocalFileEventStore};
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use store::{
     FlowHistoryHold, FlowHistoryRetentionPolicy, FlowHistoryRetentionReport, FlowHistoryTombstone,

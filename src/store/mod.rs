@@ -43,9 +43,86 @@ pub use retention::{
 #[cfg(feature = "sqlite")]
 pub use sqlite::SqliteEventStore;
 
+/// Execution guarantees provided by an event-store implementation.
+///
+/// Flow keeps the storage SPI open to custom hosts, but a hosted control plane
+/// must be able to distinguish a compatibility adapter from a store that can
+/// safely coordinate multiple workers. Cloud can inspect this value during
+/// admission without depending on a concrete database type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct FlowStoreCapabilities {
+    atomic_validated_append: bool,
+    atomic_hook_claim: bool,
+    indexed_wakeups: bool,
+    cross_process_locking: bool,
+}
+
+impl FlowStoreCapabilities {
+    /// Declare capabilities for a custom store implementation.
+    pub const fn new(
+        atomic_validated_append: bool,
+        atomic_hook_claim: bool,
+        indexed_wakeups: bool,
+        cross_process_locking: bool,
+    ) -> Self {
+        Self {
+            atomic_validated_append,
+            atomic_hook_claim,
+            indexed_wakeups,
+            cross_process_locking,
+        }
+    }
+
+    /// Compatibility profile used by custom stores that do not override the
+    /// capability declaration.
+    pub const fn compatibility() -> Self {
+        Self::new(false, false, false, false)
+    }
+
+    /// Return whether validation and expected-sequence append share one lock or
+    /// transaction.
+    pub const fn atomic_validated_append(self) -> bool {
+        self.atomic_validated_append
+    }
+
+    /// Return whether Hook token uniqueness is claimed atomically with append.
+    pub const fn atomic_hook_claim(self) -> bool {
+        self.atomic_hook_claim
+    }
+
+    /// Return whether due waits and retries are served by an indexed query.
+    pub const fn indexed_wakeups(self) -> bool {
+        self.indexed_wakeups
+    }
+
+    /// Return whether writers coordinate across host processes.
+    pub const fn cross_process_locking(self) -> bool {
+        self.cross_process_locking
+    }
+
+    /// Return whether this profile is suitable for a multi-worker hosted
+    /// deployment.
+    pub const fn production_ready(self) -> bool {
+        self.atomic_validated_append
+            && self.atomic_hook_claim
+            && self.indexed_wakeups
+            && self.cross_process_locking
+    }
+}
+
 /// Append-only event store for durable workflow runs.
 #[async_trait]
 pub trait FlowEventStore: Send + Sync {
+    /// Describe the execution guarantees provided by this store.
+    ///
+    /// Custom stores should override this method when they can provide stronger
+    /// guarantees than the compatibility profile. The default deliberately
+    /// fails closed for hosted admission while preserving the existing SPI.
+    fn capabilities(&self) -> FlowStoreCapabilities {
+        FlowStoreCapabilities::compatibility()
+    }
+
     /// Append `event` to `run_id` and return its durable envelope.
     async fn append(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope>;
 

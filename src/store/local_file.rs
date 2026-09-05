@@ -14,7 +14,7 @@ use crate::model::{project_run, validate_run_id, FlowEvent, FlowEventEnvelope, H
 use super::{
     next_event_sequence,
     retention::{plan_history_retention, required_linked_flow_run_id, FlowHistoryRetentionPolicy},
-    validate_candidate_event, FlowEventStore,
+    validate_candidate_event, FlowEventStore, FlowStoreCapabilities,
 };
 
 /// JSONL-backed event store for local durable runs.
@@ -278,6 +278,10 @@ impl LocalFileEventStore {
 
 #[async_trait]
 impl FlowEventStore for LocalFileEventStore {
+    fn capabilities(&self) -> FlowStoreCapabilities {
+        FlowStoreCapabilities::new(true, true, false, false)
+    }
+
     async fn append(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope> {
         let _guard = self.lock.lock().await;
         self.append_inner(run_id, event).await

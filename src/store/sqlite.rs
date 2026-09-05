@@ -16,7 +16,7 @@ use crate::model::{
 
 use super::{
     next_event_sequence, scheduled_wakeup_from_row, scheduled_wakeup_key, sqlite_migrations,
-    validate_candidate_event, FlowEventStore,
+    validate_candidate_event, FlowEventStore, FlowStoreCapabilities,
 };
 
 mod retention;
@@ -137,6 +137,10 @@ impl SqliteEventStore {
 
 #[async_trait]
 impl FlowEventStore for SqliteEventStore {
+    fn capabilities(&self) -> FlowStoreCapabilities {
+        FlowStoreCapabilities::new(true, true, true, true)
+    }
+
     async fn append(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope> {
         self.append_with_expected_sequence(run_id, None, event)
             .await

@@ -138,6 +138,12 @@ async fn sqlite_persists_and_rejects_an_unsupported_event_schema_version() {
 }
 
 #[tokio::test]
+async fn sqlite_store_advertises_production_execution_guarantees() {
+    let store = SqliteEventStore::connect("sqlite::memory:").await.unwrap();
+    assert!(store.capabilities().production_ready());
+}
+
+#[tokio::test]
 async fn sqlite_indexed_wakeups_include_the_persisted_runtime_build() {
     let store = SqliteEventStore::connect("sqlite::memory:").await.unwrap();
     let run_id = "sqlite-build-routed-wakeup";

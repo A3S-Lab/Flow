@@ -15,7 +15,7 @@ use crate::model::{
 
 use super::{
     migrate_postgres_flow, next_event_sequence, scheduled_wakeup_from_row, scheduled_wakeup_key,
-    validate_candidate_event, verify_postgres_flow, FlowEventStore,
+    validate_candidate_event, verify_postgres_flow, FlowEventStore, FlowStoreCapabilities,
 };
 
 mod retention;
@@ -148,6 +148,10 @@ impl PostgresEventStore {
 
 #[async_trait]
 impl FlowEventStore for PostgresEventStore {
+    fn capabilities(&self) -> FlowStoreCapabilities {
+        FlowStoreCapabilities::new(true, true, true, true)
+    }
+
     async fn append(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope> {
         self.append_with_expected_sequence(run_id, None, event)
             .await

@@ -8,6 +8,9 @@
 - Added replay-stable workflow logical time and UUIDv5 deterministic identity
   helpers, plus an attempt-scoped step idempotency key in Rust and native
   TypeScript invocation contracts.
+- Added an explicit `FlowStoreCapabilities` contract so Cloud admission can
+  distinguish compatibility stores from stores with atomic append, indexed
+  wakeups, and cross-process coordination guarantees.
 - Unified Rust and TypeScript workflow execution digests under format `v2`,
   including JavaScript number rendering, UTF-16 key ordering, safe-integer and
   nesting guards, and cross-language golden vectors.

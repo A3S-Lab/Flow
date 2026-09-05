@@ -46,6 +46,20 @@ fn later_time() -> DateTime<Utc> {
     "2026-01-01T01:00:00Z".parse().unwrap()
 }
 
+#[test]
+fn store_capabilities_are_explicit_and_engine_visible() {
+    let store = InMemoryEventStore::new();
+    let capabilities = store.capabilities();
+    assert!(capabilities.atomic_validated_append());
+    assert!(capabilities.atomic_hook_claim());
+    assert!(!capabilities.indexed_wakeups());
+    assert!(!capabilities.cross_process_locking());
+    assert!(!capabilities.production_ready());
+
+    let engine = FlowEngine::in_memory(Arc::new(SequentialRuntime));
+    assert_eq!(engine.store_capabilities(), capabilities);
+}
+
 #[cfg(feature = "sqlite")]
 fn sqlite_url(dir: &tempfile::TempDir) -> String {
     format!("sqlite://{}", dir.path().join("flow.db").display())

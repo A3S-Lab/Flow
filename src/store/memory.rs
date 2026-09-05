@@ -10,7 +10,7 @@ use crate::model::{project_run, FlowEvent, FlowEventEnvelope, HookStatus};
 
 use super::{
     next_event_sequence, retention::required_linked_flow_run_id, validate_candidate_event,
-    FlowEventStore,
+    FlowEventStore, FlowStoreCapabilities,
 };
 
 /// In-memory event store for tests, local development, and embedded hosts.
@@ -28,6 +28,10 @@ impl InMemoryEventStore {
 
 #[async_trait]
 impl FlowEventStore for InMemoryEventStore {
+    fn capabilities(&self) -> FlowStoreCapabilities {
+        FlowStoreCapabilities::new(true, true, false, false)
+    }
+
     async fn append(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope> {
         let mut runs = self.runs.lock().await;
         ensure_linked_flow_run_exists(&runs, &event)?;

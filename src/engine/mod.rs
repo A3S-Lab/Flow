@@ -13,7 +13,7 @@ use crate::model::{
 use crate::observe::{FlowEventObserver, NoopFlowEventObserver};
 use crate::runtime::{FlowRuntime, WorkflowInvocation};
 use crate::runtime_build::{RuntimeBuildCompatibility, RuntimeBuildId};
-use crate::store::{FlowEventStore, InMemoryEventStore};
+use crate::store::{FlowEventStore, FlowStoreCapabilities, InMemoryEventStore};
 
 mod child_workflows;
 mod continuation;
@@ -198,6 +198,11 @@ impl FlowEngine {
     /// Clone the engine's event-store handle.
     pub fn store(&self) -> Arc<dyn FlowEventStore> {
         Arc::clone(&self.store)
+    }
+
+    /// Return the declared execution guarantees of this engine's event store.
+    pub fn store_capabilities(&self) -> FlowStoreCapabilities {
+        self.store.capabilities()
     }
 
     /// Clone the engine's event-observer handle.
