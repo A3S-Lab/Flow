@@ -184,6 +184,9 @@ describe('A3S Flow CLI workflow file CRUD', () => {
     try {
       expect(await runFlowCli(['create', workflow, '--output', output])).toBe(0);
       const before = await readFile(workflow, 'utf8');
+      await expect(runFlowCli(['read', workflow, '--output', workflow])).rejects.toThrow(
+        /different from the workflow input/,
+      );
       await expect(runFlowCli(['create', workflow, '--output', output])).rejects.toThrow(
         /already exists/,
       );

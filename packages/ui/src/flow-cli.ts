@@ -197,6 +197,13 @@ function requireArguments(command: string, values: string[], count: number): voi
   }
 }
 
+function rejectOutputCollision(inputPath: string, options: CliOptions): void {
+  if (!options.output || inputPath === '-' || options.output === '-') return;
+  if (resolve(inputPath) === resolve(options.output)) {
+    throw new CliError('usage', '--output must be different from the workflow input path.');
+  }
+}
+
 function publicManifest(manifest: A3SFlowDagNodeManifest): JsonObject {
   return structuredClone(manifest) as unknown as JsonObject;
 }
@@ -501,6 +508,7 @@ export async function runFlowCli(arguments_: string[]): Promise<number> {
     requireArguments(command, argumentsForCommand, 1);
     const path = argumentsForCommand[0];
     if (path === '-') throw new CliError('usage', 'create requires a file path, not stdin.');
+    rejectOutputCollision(path, options);
     let document: A3SFlowWorkflowDsl;
     let compatibility = 'compatible';
     if (options.from) {
@@ -534,6 +542,7 @@ export async function runFlowCli(arguments_: string[]): Promise<number> {
   if (command === 'read') {
     requireArguments(command, argumentsForCommand, 1);
     const path = argumentsForCommand[0];
+    rejectOutputCollision(path, options);
     const validation = await validateWorkflow(path);
     if (!validation.ok) {
       await emit({ path, ...validation }, options);
@@ -546,6 +555,7 @@ export async function runFlowCli(arguments_: string[]): Promise<number> {
     requireArguments(command, argumentsForCommand, 1);
     const path = argumentsForCommand[0];
     if (path === '-') throw new CliError('usage', 'update requires a file path, not stdin.');
+    rejectOutputCollision(path, options);
     const parsed = await parseWorkflow(path);
     if (!parsed.ok) {
       await emit({ path, ...parsed }, options);
@@ -603,6 +613,7 @@ export async function runFlowCli(arguments_: string[]): Promise<number> {
   }
   if (command === 'validate' || command === 'compile' || command === 'digest') {
     requireArguments(command, argumentsForCommand, 1);
+    rejectOutputCollision(argumentsForCommand[0], options);
     const validation = await validateWorkflow(argumentsForCommand[0]);
     if (!validation.ok) {
       await emit(validation, options);
