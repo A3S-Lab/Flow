@@ -189,28 +189,26 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
   chunks: AsyncIterable<string | Uint8Array>,
 ): AsyncGenerator<FlowCliWorkflowUpdate> {
   let buffer = '';
+  let bufferBytes = 0;
   let index = 0;
   const decoder = new TextDecoder('utf-8', { fatal: true });
   const encoder = new TextEncoder();
   for await (const chunk of chunks) {
+    let decoded: string;
     try {
-      buffer += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
+      decoded = typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
     } catch (error) {
       throw new Error(
         `Workflow operation stream is not valid UTF-8: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    if (
-      !buffer.includes('\n') &&
-      encoder.encode(buffer).byteLength > A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES
-    ) {
-      throw new Error(
-        `Workflow operation ${index} exceeds ${A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES} bytes before its newline.`,
-      );
-    }
+    buffer += decoded;
+    bufferBytes += encoder.encode(decoded).byteLength;
     let newline = buffer.indexOf('\n');
     while (newline >= 0) {
-      const line = buffer.slice(0, newline).replace(/\r$/, '');
+      const rawLine = buffer.slice(0, newline + 1);
+      const line = rawLine.slice(0, -1).replace(/\r$/, '');
+      bufferBytes -= encoder.encode(rawLine).byteLength;
       buffer = buffer.slice(newline + 1);
       if (line.trim()) {
         const bytes = encoder.encode(line).byteLength;
@@ -237,24 +235,24 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
       }
       newline = buffer.indexOf('\n');
     }
-    if (
-      !buffer.includes('\n') &&
-      encoder.encode(buffer).byteLength > A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES
-    ) {
+    if (bufferBytes > A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES) {
       throw new Error(
         `Workflow operation ${index} exceeds ${A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES} bytes before its newline.`,
       );
     }
   }
+  let flushed = '';
   try {
-    buffer += decoder.decode();
+    flushed = decoder.decode();
   } catch (error) {
     throw new Error(
       `Workflow operation stream is not valid UTF-8: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+  buffer += flushed;
+  bufferBytes += encoder.encode(flushed).byteLength;
   if (buffer.trim()) {
-    const bytes = encoder.encode(buffer).byteLength;
+    const bytes = bufferBytes;
     if (bytes > A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES) {
       throw new Error(
         `Workflow operation ${index} is ${bytes} bytes; maximum is ${A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES}.`,

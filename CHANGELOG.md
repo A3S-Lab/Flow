@@ -11,6 +11,10 @@
   direct typed update calls, and NDJSON streams, with the limits exported for
   host adapters that need to preflight a request.
 
+- Made NDJSON framing account for UTF-8 bytes incrementally, avoiding repeated
+  re-encoding of a growing unterminated line while retaining the same strict
+  size and malformed-input checks.
+
 - Preserved stable Step/Activity attempt, attempt ID, and idempotency-key
   correlation in `A3sFlowEvent` and A3S Event metadata without increasing metric
   label cardinality.
