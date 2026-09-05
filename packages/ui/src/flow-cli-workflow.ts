@@ -153,10 +153,16 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
 ): AsyncGenerator<FlowCliWorkflowUpdate> {
   let buffer = '';
   let index = 0;
-  const decoder = new TextDecoder();
+  const decoder = new TextDecoder('utf-8', { fatal: true });
   const encoder = new TextEncoder();
   for await (const chunk of chunks) {
-    buffer += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
+    try {
+      buffer += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
+    } catch (error) {
+      throw new Error(
+        `Workflow operation stream is not valid UTF-8: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
     if (
       !buffer.includes('\n') &&
       encoder.encode(buffer).byteLength > MAX_STREAM_OPERATION_BYTES
@@ -184,16 +190,30 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
             `Workflow operation ${index} is invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
           );
         }
-        yield parseFlowCliWorkflowUpdateObject(value, index);
-        index += 1;
-        if (index > MAX_STREAM_OPERATIONS) {
+        if (index >= MAX_STREAM_OPERATIONS) {
           throw new Error(`Workflow operation stream exceeds ${MAX_STREAM_OPERATIONS} operations.`);
         }
+        yield parseFlowCliWorkflowUpdateObject(value, index);
+        index += 1;
       }
       newline = buffer.indexOf('\n');
     }
+    if (
+      !buffer.includes('\n') &&
+      encoder.encode(buffer).byteLength > MAX_STREAM_OPERATION_BYTES
+    ) {
+      throw new Error(
+        `Workflow operation ${index} exceeds ${MAX_STREAM_OPERATION_BYTES} bytes before its newline.`,
+      );
+    }
   }
-  buffer += decoder.decode();
+  try {
+    buffer += decoder.decode();
+  } catch (error) {
+    throw new Error(
+      `Workflow operation stream is not valid UTF-8: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   if (buffer.trim()) {
     const bytes = encoder.encode(buffer).byteLength;
     if (bytes > MAX_STREAM_OPERATION_BYTES) {
@@ -208,6 +228,9 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
       throw new Error(
         `Workflow operation ${index} is invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
       );
+    }
+    if (index >= MAX_STREAM_OPERATIONS) {
+      throw new Error(`Workflow operation stream exceeds ${MAX_STREAM_OPERATIONS} operations.`);
     }
     yield parseFlowCliWorkflowUpdateObject(value, index);
     index += 1;

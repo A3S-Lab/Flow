@@ -90,6 +90,18 @@ describe('workflow update streams', () => {
     ).rejects.toThrow(/at least one JSON object/);
   });
 
+  it('rejects malformed UTF-8 instead of silently replacing bytes', async () => {
+    await expect(
+      (async () => {
+        for await (const _operation of parseFlowCliWorkflowUpdateNdjson(
+          chunks([new Uint8Array([0xff, 0xfe])]),
+        )) {
+          // Consume the stream.
+        }
+      })(),
+    ).rejects.toThrow(/not valid UTF-8/);
+  });
+
   it('does not mutate the source when an operation fails', async () => {
     const source = workflow();
     const updates = (async function* (): AsyncGenerator<FlowCliWorkflowUpdate> {
@@ -118,13 +130,18 @@ describe('workflow update streams', () => {
   });
 
   it('bounds the total number of streamed operations', async () => {
+    const observed: number[] = [];
     const updates = (async function* (): AsyncGenerator<FlowCliWorkflowUpdate> {
       for (let index = 0; index < 10_001; index += 1) {
         yield { kind: 'set-app-name', name: `workflow-${index}` };
       }
     })();
-    await expect(applyFlowCliWorkflowUpdateStream(workflow(), updates)).rejects.toThrow(
-      /exceeds 10000 operations/,
-    );
+    await expect(
+      applyFlowCliWorkflowUpdateStream(workflow(), updates, (event) => {
+        observed.push(event.index);
+      }),
+    ).rejects.toThrow(/exceeds 10000 operations/);
+    expect(observed).toHaveLength(10_000);
+    expect(observed.at(-1)).toBe(9_999);
   });
 });
