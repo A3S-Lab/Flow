@@ -48,7 +48,7 @@ pub(crate) fn project_run_from_snapshot(
     // Suspended is a derived state: it is recomputed after reducing the tail.
     // Treat a checkpoint in that state as running while applying new events so
     // the incremental path has the same transition semantics as a full replay.
-    if snapshot.status == WorkflowRunStatus::Suspended {
+    if !events.is_empty() && snapshot.status == WorkflowRunStatus::Suspended {
         snapshot.status = WorkflowRunStatus::Running;
     }
 
