@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use std::future::Future;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
@@ -6,7 +7,7 @@ use crate::model::{
     ScheduledWakeup, ScheduledWakeupKind, StepStatus, WaitStatus, WorkflowRunSnapshot,
     WorkflowRunSummary, WorkflowRunSuspension,
 };
-use crate::store::FlowProjectionCheckpoint;
+use crate::store::{FlowProjectionCheckpoint, MAX_FLOW_HISTORY_PAGE_SIZE};
 
 use super::FlowEngine;
 
@@ -82,7 +83,67 @@ impl FlowEngine {
         after_sequence: u64,
         limit: usize,
     ) -> Result<Vec<crate::model::FlowEventEnvelope>> {
+        validate_history_page_size(limit)?;
         self.store.list_page(run_id, after_sequence, limit).await
+    }
+
+    /// Export a run history page by page without materializing the full log.
+    ///
+    /// The callback runs once for each validated, sequence-ordered page. Flow
+    /// owns cursor and history integrity; the callback owns the archive or
+    /// transport destination. A callback failure stops the export and leaves
+    /// already-delivered pages for the host to resume from their last cursor.
+    pub async fn export_history_pages<F, Fut>(
+        &self,
+        run_id: &str,
+        page_size: usize,
+        mut consume_page: F,
+    ) -> Result<usize>
+    where
+        F: FnMut(Vec<crate::model::FlowEventEnvelope>) -> Fut,
+        Fut: Future<Output = Result<()>>,
+    {
+        validate_history_page_size(page_size)?;
+        let mut after_sequence = 0;
+        let mut exported = 0usize;
+
+        loop {
+            let page = self.history_page(run_id, after_sequence, page_size).await?;
+            if page.is_empty() {
+                return Ok(exported);
+            }
+
+            let mut expected_sequence = after_sequence.checked_add(1).ok_or_else(|| {
+                FlowError::Store(format!(
+                    "history export cursor overflow for workflow run {run_id}"
+                ))
+            })?;
+            for envelope in &page {
+                if envelope.sequence != expected_sequence {
+                    return Err(FlowError::Store(format!(
+                        "history export for workflow run {run_id} is not contiguous at sequence {}; expected {expected_sequence}",
+                        envelope.sequence
+                    )));
+                }
+                expected_sequence = expected_sequence.checked_add(1).ok_or_else(|| {
+                    FlowError::Store(format!(
+                        "history export sequence overflow for workflow run {run_id}"
+                    ))
+                })?;
+            }
+
+            let page_len = page.len();
+            consume_page(page).await?;
+            exported = exported.checked_add(page_len).ok_or_else(|| {
+                FlowError::Store(format!(
+                    "history export count overflow for workflow run {run_id}"
+                ))
+            })?;
+            after_sequence = expected_sequence - 1;
+            if page_len < page_size {
+                return Ok(exported);
+            }
+        }
     }
 
     /// List all workflow run IDs known to the engine's store.
@@ -244,6 +305,15 @@ impl FlowEngine {
     pub async fn list_active_hooks(&self) -> Result<Vec<ActiveHookSnapshot>> {
         self.store.list_active_hooks().await
     }
+}
+
+fn validate_history_page_size(limit: usize) -> Result<()> {
+    if limit == 0 || limit > MAX_FLOW_HISTORY_PAGE_SIZE {
+        return Err(FlowError::Store(format!(
+            "history page size must be between 1 and {MAX_FLOW_HISTORY_PAGE_SIZE}, got {limit}"
+        )));
+    }
+    Ok(())
 }
 
 fn resolve_scheduled_wakeup(

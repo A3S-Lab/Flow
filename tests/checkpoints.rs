@@ -105,6 +105,37 @@ async fn history_page_uses_an_exclusive_cursor_and_enforces_the_bound() {
 }
 
 #[tokio::test]
+async fn history_export_delivers_bounded_contiguous_pages() {
+    let store = Arc::new(InMemoryEventStore::new());
+    seed_running_run(store.as_ref(), "history-export").await;
+    store
+        .append(
+            "history-export",
+            FlowEvent::WaitCreated {
+                wait_id: "export-wait".to_string(),
+                resume_at: "2030-01-01T00:00:00Z".parse().unwrap(),
+            },
+        )
+        .await
+        .unwrap();
+    let engine = FlowEngine::new(store, Arc::new(TestRuntime));
+    let mut pages = Vec::<Vec<u64>>::new();
+    let exported = engine
+        .export_history_pages("history-export", 2, |page| {
+            pages.push(page.into_iter().map(|event| event.sequence).collect());
+            async { Ok(()) }
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(exported, pages.iter().map(Vec::len).sum::<usize>());
+    assert!(pages.len() >= 2);
+    assert!(pages.iter().all(|page| page.len() <= 2));
+    let sequences = pages.into_iter().flatten().collect::<Vec<_>>();
+    assert_eq!(sequences, (1..=sequences.len() as u64).collect::<Vec<_>>());
+}
+
+#[tokio::test]
 async fn local_file_checkpoint_survives_store_reopen() {
     let directory = tempfile::tempdir().unwrap();
     let store = Arc::new(LocalFileEventStore::new(directory.path()));

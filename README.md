@@ -334,6 +334,11 @@ history into memory. Production PostgreSQL deployments run migration authority
 separately, then admit serving workers only after verifying the
 canonical migration ledger. See [Upgrading to Flow 1.0](docs/UPGRADING_TO_V1.md).
 
+For archive workers, `FlowEngine::export_history_pages` validates contiguous
+sequence pages and invokes a host-owned sink one page at a time. Flow keeps the
+event log authoritative; Cloud or another host chooses the archive format,
+retention policy, and destination.
+
 Flow task queues expose lease fencing, stale-task requeue, dead-letter
 inspection, and an administrative `redrive_dead_lettered` operation. Built-in
 local and PostgreSQL queues make repeated redrive safe; custom queue adapters

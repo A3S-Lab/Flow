@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added `FlowEngine::export_history_pages` for bounded, contiguous history
+  export through a host-owned callback without materializing a full run log.
+
 - Added the versioned `FlowWorkerCapabilities` handshake and stable task-kind
   identifiers. Hosts can reject protocol or capability mismatches before a
   worker leases work; Cloud-owned admission and fleet policy remain outside

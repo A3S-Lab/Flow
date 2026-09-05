@@ -1057,6 +1057,14 @@ let suspensions = engine.list_open_suspensions(now).await?;
 let next_wakeup = engine.next_wakeup(now).await?;
 let active_hooks = engine.list_active_hooks().await?;
 let history = engine.history(&run_ids[0]).await?;
+let mut page_sizes = Vec::new();
+let exported_events = engine
+    .export_history_pages(&run_ids[0], 500, |page| {
+        page_sizes.push(page.len());
+        // A production callback writes this page to the host archive.
+        async { Ok(()) }
+    })
+    .await?;
 ```
 
 `list_run_ids()` returns sorted run IDs from the active store.
@@ -1072,7 +1080,10 @@ open wait or delayed retry by scheduled time, which lets scheduler hosts sleep
 until the next useful tick instead of polling at a fixed interval.
 `list_active_hooks()` returns stable `ActiveHookSnapshot` records for callback
 routers and dashboards. `history()` returns the raw committed
-`FlowEventEnvelope` sequence for audit exports and replay debugging. See
+`FlowEventEnvelope` sequence for small audit/debug reads. Use
+`export_history_pages()` for bounded archive/export work: each callback receives
+one contiguous page, so the host can commit pages without loading the complete
+run. See
 `examples/run_inspection.rs` for a runnable mixed-status inspection flow.
 
 ## Observability
