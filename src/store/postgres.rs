@@ -312,8 +312,8 @@ impl FlowEventStore for PostgresEventStore {
         let database = Database::new(PostgresDialect, self.executor.clone());
         let row = database
             .fetch_all_as(
-                sql_query::<(String, i64, String, String)>(
-                    "SELECT run_id, last_sequence, last_event_id, snapshot_json \
+                sql_query::<(String, i64, String, String, String)>(
+                    "SELECT run_id, last_sequence, last_event_id, snapshot_sha256, snapshot_json \
                  FROM flow_projection_checkpoints WHERE run_id = ",
                 )
                 .bind(run_id),
@@ -340,13 +340,15 @@ impl FlowEventStore for PostgresEventStore {
             .execute(
                 sql_query::<()>(
                     "INSERT INTO flow_projection_checkpoints \
-                 (run_id, last_sequence, last_event_id, snapshot_json, updated_at) VALUES (",
+                 (run_id, last_sequence, last_event_id, snapshot_sha256, snapshot_json, updated_at) VALUES (",
                 )
                 .bind(checkpoint.run_id.clone())
                 .append(", ")
                 .bind(sequence)
                 .append(", ")
                 .bind(checkpoint.last_event_id.to_string())
+                .append(", ")
+                .bind(checkpoint.snapshot_sha256.clone())
                 .append(", ")
                 .bind(snapshot_json)
                 .append(", ")
@@ -355,6 +357,7 @@ impl FlowEventStore for PostgresEventStore {
                     ") ON CONFLICT (run_id) DO UPDATE SET \
                  last_sequence = EXCLUDED.last_sequence, \
                  last_event_id = EXCLUDED.last_event_id, \
+                 snapshot_sha256 = EXCLUDED.snapshot_sha256, \
                  snapshot_json = EXCLUDED.snapshot_json, \
                  updated_at = EXCLUDED.updated_at",
                 ),
@@ -742,7 +745,13 @@ fn active_hook_from_row(
 }
 
 fn decode_postgres_checkpoint(
-    (run_id, last_sequence, last_event_id, snapshot_json): (String, i64, String, String),
+    (run_id, last_sequence, last_event_id, snapshot_sha256, snapshot_json): (
+        String,
+        i64,
+        String,
+        String,
+        String,
+    ),
 ) -> Result<FlowProjectionCheckpoint> {
     let last_sequence = u64::try_from(last_sequence).map_err(|error| {
         FlowError::Store(format!(
@@ -755,7 +764,13 @@ fn decode_postgres_checkpoint(
         ))
     })?;
     let snapshot = serde_json::from_str(&snapshot_json)?;
-    FlowProjectionCheckpoint::new(run_id, last_sequence, last_event_id, snapshot)
+    FlowProjectionCheckpoint::from_stored(
+        run_id,
+        last_sequence,
+        last_event_id,
+        snapshot_sha256,
+        snapshot,
+    )
 }
 
 fn map_postgres_transaction<T>(

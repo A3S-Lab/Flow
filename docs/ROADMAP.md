@@ -92,8 +92,9 @@ the last sequence plus event ID; reads use it only when both anchors still
 match the append-only history, and treat missing, corrupt, or stale metadata as
 an automatic replay fallback. This is an acceleration layer, never a history
 rewrite or an independent source of truth. Checkpointed reads can replay only
-the validated event tail through indexed `list_after` queries; partitioned
-history, archive/export, and published scale SLOs remain open R3 work.
+the validated event tail through indexed `list_after` queries, and a SHA-256
+snapshot digest detects cache corruption. Partitioned history, archive/export,
+and published scale SLOs remain open R3 work.
 
 ## 4. Implementation rules
 

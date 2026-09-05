@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
@@ -18,6 +19,9 @@ pub struct FlowProjectionCheckpoint {
     pub last_sequence: u64,
     /// Event ID at `last_sequence`, used to detect stale or replaced history.
     pub last_event_id: Uuid,
+    /// SHA-256 digest of the serialized snapshot, used to detect cache damage.
+    #[serde(default)]
+    pub snapshot_sha256: String,
     /// Materialized projection at `last_sequence`.
     pub snapshot: WorkflowRunSnapshot,
 }
@@ -31,10 +35,12 @@ impl FlowProjectionCheckpoint {
         snapshot: WorkflowRunSnapshot,
     ) -> Result<Self> {
         let run_id = run_id.into();
+        let snapshot_sha256 = snapshot_digest(&snapshot)?;
         let checkpoint = Self {
             run_id,
             last_sequence,
             last_event_id,
+            snapshot_sha256,
             snapshot,
         };
         checkpoint.validate()?;
@@ -55,6 +61,38 @@ impl FlowProjectionCheckpoint {
                 self.run_id
             )));
         }
+        let expected_digest = snapshot_digest(&self.snapshot)?;
+        if self.snapshot_sha256 != expected_digest {
+            return Err(FlowError::Store(format!(
+                "projection checkpoint digest mismatch for {}",
+                self.run_id
+            )));
+        }
         Ok(())
     }
+
+    pub(crate) fn from_stored(
+        run_id: String,
+        last_sequence: u64,
+        last_event_id: Uuid,
+        snapshot_sha256: String,
+        snapshot: WorkflowRunSnapshot,
+    ) -> Result<Self> {
+        let checkpoint = Self {
+            run_id,
+            last_sequence,
+            last_event_id,
+            snapshot_sha256,
+            snapshot,
+        };
+        checkpoint.validate()?;
+        Ok(checkpoint)
+    }
+}
+
+fn snapshot_digest(snapshot: &WorkflowRunSnapshot) -> Result<String> {
+    Ok(format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(snapshot)?)
+    ))
 }

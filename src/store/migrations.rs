@@ -46,6 +46,14 @@ CREATE TABLE IF NOT EXISTS flow_projection_checkpoints (
 );
 "#;
 
+/// Adds the checkpoint digest to installations that created the table before
+/// cache-integrity validation was introduced. Existing rows intentionally keep
+/// an empty digest and are ignored until rewritten by `FlowEngine::checkpoint`.
+const PROJECTION_CHECKPOINT_DIGEST_SQL: &str = r#"
+ALTER TABLE flow_projection_checkpoints
+ADD COLUMN snapshot_sha256 TEXT NOT NULL DEFAULT '';
+"#;
+
 #[cfg(feature = "sqlite")]
 const SQLITE_ACTIVE_HOOKS_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS flow_active_hooks (
@@ -477,6 +485,11 @@ pub(crate) fn sqlite_migrations() -> Vec<Migration> {
             "persist disposable Flow projection checkpoints",
             PROJECTION_CHECKPOINTS_SQL,
         ),
+        Migration::new(
+            "a3s-flow-0009-projection-checkpoint-digest",
+            "validate projection checkpoint snapshot integrity",
+            PROJECTION_CHECKPOINT_DIGEST_SQL,
+        ),
     ]
 }
 
@@ -527,6 +540,11 @@ pub(crate) fn postgres_migrations() -> Vec<Migration> {
             "a3s-flow-0009-projection-checkpoints",
             "persist disposable Flow projection checkpoints",
             PROJECTION_CHECKPOINTS_SQL,
+        ),
+        Migration::new(
+            "a3s-flow-0010-projection-checkpoint-digest",
+            "validate projection checkpoint snapshot integrity",
+            PROJECTION_CHECKPOINT_DIGEST_SQL,
         ),
     ]
 }
