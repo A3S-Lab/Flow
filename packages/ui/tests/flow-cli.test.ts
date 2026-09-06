@@ -703,6 +703,34 @@ describe('A3S Flow CLI workflow file CRUD', () => {
     }
   });
 
+  it('rejects duplicate keys in array operations and node configuration JSON', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'a3s-flow-cli-'));
+    const workflow = join(root, 'workflow.json');
+    try {
+      expect(await runFlowCli(['create', workflow])).toBe(0);
+      await expect(
+        runFlowCli([
+          'update',
+          workflow,
+          '--operations',
+          '[{"kind":"set-app-name","name":"first","na\\u006de":"second"}]',
+        ]),
+      ).rejects.toThrow(/duplicate JSON object key/);
+      await expect(
+        runFlowCli([
+          'update',
+          workflow,
+          '--set-node',
+          'run-step',
+          '--config',
+          '{"step_name":"task.first","step_name":"task.second"}',
+        ]),
+      ).rejects.toThrow(/duplicate JSON object key/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('rejects live writer locks and recovers locks left by dead writers', async () => {
     const root = await mkdtemp(join(tmpdir(), 'a3s-flow-cli-'));
     const workflow = join(root, 'workflow.json');

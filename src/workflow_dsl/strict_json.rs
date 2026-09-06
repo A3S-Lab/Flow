@@ -10,15 +10,19 @@ use serde::de::{DeserializeSeed, Deserializer, Error as DeError, MapAccess, SeqA
 use serde_json::{Map, Number, Value};
 use std::fmt;
 
+const MAX_STRICT_JSON_DEPTH: usize = 256;
+
 /// Decode one complete JSON value while rejecting duplicate object keys.
 pub(crate) fn from_slice(source: &[u8]) -> Result<Value, serde_json::Error> {
     let mut deserializer = serde_json::Deserializer::from_slice(source);
-    let value = StrictValueSeed.deserialize(&mut deserializer)?;
+    let value = StrictValueSeed { depth: 0 }.deserialize(&mut deserializer)?;
     deserializer.end()?;
     Ok(value)
 }
 
-struct StrictValueSeed;
+struct StrictValueSeed {
+    depth: usize,
+}
 
 impl<'de> DeserializeSeed<'de> for StrictValueSeed {
     type Value = Value;
@@ -27,11 +31,18 @@ impl<'de> DeserializeSeed<'de> for StrictValueSeed {
     where
         D: Deserializer<'de>,
     {
-        deserializer.deserialize_any(StrictValueVisitor)
+        if self.depth > MAX_STRICT_JSON_DEPTH {
+            return Err(D::Error::custom(format!(
+                "JSON nesting exceeds the maximum depth {MAX_STRICT_JSON_DEPTH}"
+            )));
+        }
+        deserializer.deserialize_any(StrictValueVisitor { depth: self.depth })
     }
 }
 
-struct StrictValueVisitor;
+struct StrictValueVisitor {
+    depth: usize,
+}
 
 impl<'de> Visitor<'de> for StrictValueVisitor {
     type Value = Value;
@@ -109,7 +120,10 @@ impl<'de> Visitor<'de> for StrictValueVisitor {
     where
         D: Deserializer<'de>,
     {
-        StrictValueSeed.deserialize(deserializer)
+        StrictValueSeed {
+            depth: self.depth + 1,
+        }
+        .deserialize(deserializer)
     }
 
     fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
@@ -117,7 +131,9 @@ impl<'de> Visitor<'de> for StrictValueVisitor {
         A: SeqAccess<'de>,
     {
         let mut values = Vec::new();
-        while let Some(value) = sequence.next_element_seed(StrictValueSeed)? {
+        while let Some(value) = sequence.next_element_seed(StrictValueSeed {
+            depth: self.depth + 1,
+        })? {
             values.push(value);
         }
         Ok(Value::Array(values))
@@ -134,7 +150,9 @@ impl<'de> Visitor<'de> for StrictValueVisitor {
                     "duplicate JSON object key {key:?}"
                 )));
             }
-            let value = map.next_value_seed(StrictValueSeed)?;
+            let value = map.next_value_seed(StrictValueSeed {
+                depth: self.depth + 1,
+            })?;
             values.insert(key, value);
         }
         Ok(Value::Object(values))

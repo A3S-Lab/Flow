@@ -1,6 +1,7 @@
 import { canonicalize, sha256 } from '@a3s-lab/ui/form/core';
 import type { JsonValue } from '@a3s-lab/ui/form/core';
 import { compileA3SFlowWorkflowDag } from './a3s-flow-dag';
+import { parseA3SFlowStrictJson } from '../strict-json';
 import {
   A3S_FLOW_TESTED_WORKFLOW_DSL_VERSION,
   A3S_FLOW_EXECUTION_DIGEST_VERSION,
@@ -167,7 +168,7 @@ export function parseA3SFlowWorkflowDslJson(source: string): A3SFlowWorkflowDslP
   }
   let value: unknown;
   try {
-    value = JSON.parse(source);
+    value = parseA3SFlowStrictJson(source);
   } catch (error) {
     return {
       ok: false,

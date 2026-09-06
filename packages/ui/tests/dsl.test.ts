@@ -110,6 +110,29 @@ describe("A3S Flow workflow document helpers", () => {
     });
   });
 
+  it("rejects duplicate JSON keys, including escaped-equivalent keys", () => {
+    const duplicate = `{"version":"0.7.0","kind":"app","app":{"name":"x","mode":"workflow"},"workflow":{"graph":{"nodes":[],"edges":[]}},"workflow":{"graph":{"nodes":[],"edges":[]}}}`;
+    expect(parseA3SFlowWorkflowDslJson(duplicate)).toMatchObject({
+      ok: false,
+      issues: [{ code: "flow.dsl.invalid_json" }],
+    });
+
+    const escaped = `{"version":"0.7.0","kind":"app","app":{"name":"x","mode":"workflow"},"workflow":{"graph":{"nodes":[],"edges":[],"n\\u006fdes":[]}},"dependencies":[]}`;
+    expect(parseA3SFlowWorkflowDslJson(escaped)).toMatchObject({
+      ok: false,
+      issues: [{ code: "flow.dsl.invalid_json" }],
+    });
+  });
+
+  it("rejects JSON nesting beyond the shared boundary", () => {
+    let nested = "0";
+    for (let index = 0; index <= 256; index += 1) nested = `[${nested}]`;
+    expect(parseA3SFlowWorkflowDslJson(nested)).toMatchObject({
+      ok: false,
+      issues: [{ code: "flow.dsl.invalid_json" }],
+    });
+  });
+
   it("validates custom-node publication against an explicit capability binding", () => {
     const registration = defineA3SFlowCustomDagNode({
       manifest: {

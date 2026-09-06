@@ -10,7 +10,9 @@
 
 - Made JSON DSL and authoring decoding reject duplicate object keys at every
   nesting level, removing ambiguous last-key-wins input before canonicalization
-  and digesting.
+  and digesting. The TypeScript document/CLI decoder now enforces the same
+  duplicate-key and 256-level nesting boundary, and direct/JSON-array update
+  APIs enforce the one-megabyte per-operation budget at runtime.
 
 - Added file-backed NDJSON operation streams with `--operations @<file>`, so
   generated patches can be streamed without shell argument-size limits.

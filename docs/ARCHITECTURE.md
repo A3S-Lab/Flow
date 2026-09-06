@@ -91,7 +91,11 @@ must be submitted as one batch/stream and published only after final
 validation. `set-edge` redirects an existing edge
 without changing its stable ID and preserves omitted handles plus unknown
 semantic/presentation fields; an explicit `null` handle removes that optional
-field. CLI callers can provide NDJSON through stdin or a file-backed
+field. All JSON authoring entry points use a duplicate-key rejecting,
+256-level bounded decoder before the platform JSON value parser. This keeps
+Rust and TypeScript behavior aligned for documents, operation arrays, NDJSON
+records, and inline configuration rather than allowing a last-key-wins parser
+to alter the value that is reviewed or digested. CLI callers can provide NDJSON through stdin or a file-backed
 `--operations @<file>` stream; both transports share the same bounds and final
 atomic publication. `move-node` changes a node's `parentId` while retaining its stable ID,
 manifest configuration, presentation fields, and unknown extensions; moving

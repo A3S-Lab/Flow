@@ -214,6 +214,21 @@ fn strict_bounds_and_executable_admission_are_explicit() {
 }
 
 #[test]
+fn strict_json_rejects_excessive_nesting_before_canonicalization() {
+    let mut nested = serde_json::json!(null);
+    for _ in 0..=256 {
+        nested = serde_json::json!([nested]);
+    }
+    let mut value = document(&snapshot());
+    value["x-deep-extension"] = nested;
+    let error = canonical_workflow_authoring_snapshot(
+        serde_json::to_vec(&value).expect("deep JSON").as_slice(),
+    )
+    .expect_err("excessive nesting must fail closed");
+    assert!(matches!(error, WorkflowDslError::InvalidJson { .. }));
+}
+
+#[test]
 fn malformed_utf8_and_failed_operations_never_mutate_the_base() {
     let base = snapshot();
     assert!(canonical_workflow_authoring_snapshot(&[0xff]).is_err());

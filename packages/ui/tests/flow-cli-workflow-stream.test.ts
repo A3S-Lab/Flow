@@ -346,6 +346,19 @@ describe('workflow update streams', () => {
     ).rejects.toThrow(/at least one JSON object/);
   });
 
+  it('rejects duplicate operation keys before applying a stream item', async () => {
+    const updates = parseFlowCliWorkflowUpdateNdjson(
+      chunks(['{"kind":"set-app-name","na\\u006de":"first","name":"second"}\n']),
+    );
+    await expect(
+      (async () => {
+        for await (const _operation of updates) {
+          // Consume the stream.
+        }
+      })(),
+    ).rejects.toThrow(/duplicate JSON object key/);
+  });
+
   it('rejects malformed UTF-8 instead of silently replacing bytes', async () => {
     await expect(
       (async () => {
@@ -432,6 +445,17 @@ describe('workflow update streams', () => {
     expect(() => parseFlowCliWorkflowUpdates(operations)).toThrow(/exceeds 10000 operations/);
     expect(() => applyFlowCliWorkflowUpdates(workflow(), operations)).toThrow(
       /exceeds 10000 operations/,
+    );
+  });
+
+  it('applies the one-megabyte operation bound to direct and array transports', () => {
+    const name = 'x'.repeat(1024 * 1024);
+    const operation = { kind: 'set-app-name' as const, name };
+    expect(() => parseFlowCliWorkflowUpdates([operation])).toThrow(
+      /maximum is 1048576 bytes/,
+    );
+    expect(() => applyFlowCliWorkflowUpdates(workflow(), [operation])).toThrow(
+      /maximum is 1048576 bytes/,
     );
   });
 });

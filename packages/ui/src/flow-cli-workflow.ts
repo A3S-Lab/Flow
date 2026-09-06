@@ -21,6 +21,7 @@ import {
   mergeA3SFlowDagNodeConfiguration,
   a3sFlowDagNodeRegistry,
 } from './integrations/a3s-flow-node-manifest';
+import { parseA3SFlowStrictJson } from './strict-json';
 
 export type FlowCliWorkflowUpdate =
   | {
@@ -72,14 +73,39 @@ export const A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES = 1024 * 1024;
 /** Maximum number of operations accepted by either array or stream transport. */
 export const A3S_FLOW_CLI_MAX_UPDATE_OPERATIONS = 10_000;
 
+const utf8Encoder = new TextEncoder();
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function assertWorkflowUpdateBytes(candidate: unknown, index: number): void {
+  let encoded: string | undefined;
+  try {
+    encoded = JSON.stringify(candidate);
+  } catch (error) {
+    throw new Error(
+      `Workflow operation ${index} is not JSON-serializable: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+  if (encoded === undefined) {
+    throw new Error(`Workflow operation ${index} is not JSON-serializable.`);
+  }
+  const bytes = utf8Encoder.encode(encoded).byteLength;
+  if (bytes > A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES) {
+    throw new Error(
+      `Workflow operation ${index} is ${bytes} bytes; maximum is ${A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES} bytes.`,
+    );
+  }
 }
 
 function parseFlowCliWorkflowUpdateObject(
   candidate: unknown,
   index: number,
 ): FlowCliWorkflowUpdate {
+  assertWorkflowUpdateBytes(candidate, index);
   if (!isRecord(candidate)) {
     throw new Error(`Workflow operation ${index} must be a JSON object.`);
   }
@@ -200,7 +226,7 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
   let bufferBytes = 0;
   let index = 0;
   const decoder = new TextDecoder('utf-8', { fatal: true });
-  const encoder = new TextEncoder();
+  const encoder = utf8Encoder;
   for await (const chunk of chunks) {
     let decoded: string;
     try {
@@ -233,7 +259,7 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
       if (line.trim()) {
         let value: unknown;
         try {
-          value = JSON.parse(line);
+          value = parseA3SFlowStrictJson(line);
         } catch (error) {
           throw new Error(
             `Workflow operation ${index} is invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
@@ -273,7 +299,7 @@ export async function* parseFlowCliWorkflowUpdateNdjson(
   if (buffer.trim()) {
     let value: unknown;
     try {
-      value = JSON.parse(buffer);
+      value = parseA3SFlowStrictJson(buffer);
     } catch (error) {
       throw new Error(
         `Workflow operation ${index} is invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
@@ -493,10 +519,11 @@ export function applyFlowCliWorkflowUpdate(
   source: A3SFlowWorkflowDsl,
   operation: FlowCliWorkflowUpdate,
 ): FlowCliWorkflowUpdateResult {
+  const normalizedOperation = parseFlowCliWorkflowUpdateObject(operation, 0);
   const document = structuredClone(source);
   return {
     document,
-    changed: applyFlowCliWorkflowUpdateInPlace(document, operation),
+    changed: applyFlowCliWorkflowUpdateInPlace(document, normalizedOperation),
   };
 }
 
@@ -513,8 +540,9 @@ export function applyFlowCliWorkflowUpdates(
   }
   const document = structuredClone(source);
   const changed: string[] = [];
-  for (const operation of operations) {
-    changed.push(...applyFlowCliWorkflowUpdateInPlace(document, operation));
+  for (const [index, operation] of operations.entries()) {
+    const normalizedOperation = parseFlowCliWorkflowUpdateObject(operation, index);
+    changed.push(...applyFlowCliWorkflowUpdateInPlace(document, normalizedOperation));
   }
   return { document, changed };
 }
@@ -537,9 +565,10 @@ export async function applyFlowCliWorkflowUpdateStream(
         `Workflow operation stream exceeds ${A3S_FLOW_CLI_MAX_UPDATE_OPERATIONS} operations.`,
       );
     }
-    const operationChanged = applyFlowCliWorkflowUpdateInPlace(document, operation);
+    const normalizedOperation = parseFlowCliWorkflowUpdateObject(operation, index);
+    const operationChanged = applyFlowCliWorkflowUpdateInPlace(document, normalizedOperation);
     changed.push(...operationChanged);
-    await observer?.({ index, operation, changed: operationChanged });
+    await observer?.({ index, operation: normalizedOperation, changed: operationChanged });
     index += 1;
   }
   if (index === 0) {

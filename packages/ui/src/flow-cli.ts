@@ -39,6 +39,7 @@ import {
   type FlowCliWorkflowUpdate,
   writeWorkflowFile,
 } from './flow-cli-workflow';
+import { parseA3SFlowStrictJson } from './strict-json';
 import {
   CliError,
   parseFlowCliOptions,
@@ -273,7 +274,7 @@ function parseJsonObject(value: string | undefined, label: string): JsonObject {
   if (!value) throw new CliError('usage', `${label} requires --config <json>.`);
   let parsed: unknown;
   try {
-    parsed = JSON.parse(value);
+    parsed = parseA3SFlowStrictJson(value);
   } catch (error) {
     throw new CliError(
       'usage',
@@ -298,7 +299,7 @@ function updateOperations(options: CliOptions): FlowCliWorkflowUpdate[] {
     throw new CliError('usage', '--operations cannot be combined with a single update operation.');
   }
   try {
-    return parseFlowCliWorkflowUpdates(JSON.parse(options.operations));
+    return parseFlowCliWorkflowUpdates(parseA3SFlowStrictJson(options.operations));
   } catch (error) {
     throw new CliError(
       'usage',
