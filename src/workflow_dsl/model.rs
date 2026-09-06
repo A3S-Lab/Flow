@@ -40,8 +40,13 @@ impl WorkflowDsl {
     /// Parses and validates a workflow DSL document from JSON.
     pub fn from_json(source: &str) -> Result<Self, WorkflowDslError> {
         check_size(source)?;
+        let value = super::strict_json::from_slice(source.as_bytes()).map_err(|error| {
+            WorkflowDslError::InvalidJson {
+                message: error.to_string(),
+            }
+        })?;
         let document: Self =
-            serde_json::from_str(source).map_err(|error| WorkflowDslError::InvalidJson {
+            serde_json::from_value(value).map_err(|error| WorkflowDslError::InvalidJson {
                 message: error.to_string(),
             })?;
         document.validate_document()?;
@@ -208,7 +213,12 @@ impl WorkflowDag {
     /// Parses a graph from JSON without document-level validation.
     pub fn from_json(source: &str) -> Result<Self, WorkflowDslError> {
         check_size(source)?;
-        serde_json::from_str(source).map_err(|error| WorkflowDslError::InvalidJson {
+        let value = super::strict_json::from_slice(source.as_bytes()).map_err(|error| {
+            WorkflowDslError::InvalidJson {
+                message: error.to_string(),
+            }
+        })?;
+        serde_json::from_value(value).map_err(|error| WorkflowDslError::InvalidJson {
             message: error.to_string(),
         })
     }

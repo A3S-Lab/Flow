@@ -3,6 +3,7 @@ mod digest;
 mod error;
 mod model;
 mod plan;
+mod strict_json;
 mod version;
 
 pub use authoring::{

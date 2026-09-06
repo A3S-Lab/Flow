@@ -84,7 +84,7 @@ fn canonical_document(document: &WorkflowDsl) -> Result<Vec<u8>, WorkflowDslErro
 }
 
 fn parse_operation(source: &[u8]) -> Result<Map<String, Value>, WorkflowDslError> {
-    let value: Value = serde_json::from_slice(source)
+    let value: Value = super::strict_json::from_slice(source)
         .map_err(|error| invalid_operation(format!("operation is not valid JSON: {error}")))?;
     let object = value
         .as_object()

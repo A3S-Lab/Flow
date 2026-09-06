@@ -226,3 +226,26 @@ fn malformed_utf8_and_failed_operations_never_mutate_the_base() {
     ));
     assert_eq!(snapshot(), base);
 }
+
+#[test]
+fn duplicate_json_keys_are_rejected_at_every_authoring_boundary() {
+    let base = snapshot();
+    let snapshot_error = canonical_workflow_authoring_snapshot(
+        br#"{"version":"0.7.0","kind":"app","app":{"name":"Draft","mode":"workflow","name":"shadow"},"workflow":{"graph":{"nodes":[],"edges":[]}}}"#,
+    )
+    .expect_err("duplicate snapshot key");
+    assert!(matches!(
+        snapshot_error,
+        WorkflowDslError::InvalidJson { .. }
+    ));
+
+    let operation_error = apply_workflow_authoring_operation(
+        &base,
+        br#"{"kind":"set-app-name","name":"one","n\u0061me":"two"}"#,
+    )
+    .expect_err("duplicate operation key");
+    assert!(matches!(
+        operation_error,
+        WorkflowDslError::InvalidAuthoringOperation { .. }
+    ));
+}

@@ -119,6 +119,11 @@ incident edges without importing Cloud policy or the UI node registry. Cloud
 may therefore journal Flow-produced bytes while retaining authorization,
 product capability binding, CAS, and publication ownership.
 
+The same boundary now uses duplicate-key rejecting JSON decoding for complete
+DSL documents, graphs, and individual operations. Canonicalization therefore
+cannot silently choose a last duplicate field, which keeps digest inputs
+unambiguous across Rust, TypeScript, and hosted adapters.
+
 The first `FLOW-R5` queue lifecycle slice is also implemented: built-in local
 and PostgreSQL queues expose an administrative dead-letter redrive operation,
 and custom queues fail closed unless they explicitly provide the same contract.

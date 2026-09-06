@@ -8,6 +8,10 @@
   preservation of unknown DSL extensions. Hosts retain authorization, product
   node catalogs, persistence, and publication policy.
 
+- Made JSON DSL and authoring decoding reject duplicate object keys at every
+  nesting level, removing ambiguous last-key-wins input before canonicalization
+  and digesting.
+
 - Added file-backed NDJSON operation streams with `--operations @<file>`, so
   generated patches can be streamed without shell argument-size limits.
 
