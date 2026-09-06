@@ -3,6 +3,7 @@ import {
   applyFlowCliWorkflowUpdateStream,
   applyFlowCliWorkflowUpdates,
   canonicalizeFlowCliWorkflowUpdate,
+  canonicalizeFlowCliWorkflowUpdateNdjson,
   canonicalizeFlowCliWorkflowUpdates,
   parseFlowCliWorkflowUpdateNdjson,
   parseFlowCliWorkflowUpdates,
@@ -522,5 +523,21 @@ describe('workflow update streams', () => {
         configuration: { value: Number.MAX_SAFE_INTEGER + 1 },
       }),
     ).toThrow(/unsafe integer/);
+  });
+
+  it('canonicalizes NDJSON incrementally without buffering the stream', async () => {
+    const emitted: string[] = [];
+    for await (const line of canonicalizeFlowCliWorkflowUpdateNdjson(
+      chunks([
+        '{"kind":"add-node","id":"node","type":"host.custom"}\n',
+        '{"name":"next","kind":"set-app-name"}\n',
+      ]),
+    )) {
+      emitted.push(line);
+    }
+    expect(emitted).toEqual([
+      '{"configuration":{},"id":"node","kind":"add-node","type":"host.custom"}',
+      '{"kind":"set-app-name","name":"next"}',
+    ]);
   });
 });

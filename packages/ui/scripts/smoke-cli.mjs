@@ -13,6 +13,9 @@ if (typeof workflowUpdates.parseFlowCliWorkflowUpdateNdjson !== 'function') {
 if (typeof workflowUpdates.canonicalizeFlowCliWorkflowUpdate !== 'function') {
   throw new Error('The packaged workflow-updates canonical operation API is missing.');
 }
+if (typeof workflowUpdates.canonicalizeFlowCliWorkflowUpdateNdjson !== 'function') {
+  throw new Error('The packaged workflow-updates canonical stream API is missing.');
+}
 const canonicalOperation = workflowUpdates.canonicalizeFlowCliWorkflowUpdate({
   type: 'host.custom',
   id: 'node',
@@ -23,6 +26,16 @@ if (
   '{"configuration":{},"id":"node","kind":"add-node","type":"host.custom"}'
 ) {
   throw new Error('The packaged canonical operation API emitted an unexpected representation.');
+}
+async function* canonicalInput() {
+  yield '{"kind":"move-node","id":"node"}\n';
+}
+const canonicalLines = [];
+for await (const line of workflowUpdates.canonicalizeFlowCliWorkflowUpdateNdjson(canonicalInput())) {
+  canonicalLines.push(line);
+}
+if (canonicalLines[0] !== '{"id":"node","kind":"move-node","parentId":null}') {
+  throw new Error('The packaged canonical operation stream emitted an unexpected line.');
 }
 
 async function run(args) {

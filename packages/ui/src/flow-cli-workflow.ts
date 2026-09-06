@@ -222,6 +222,13 @@ export function parseFlowCliWorkflowUpdate(
  */
 export function canonicalizeFlowCliWorkflowUpdate(value: unknown, index = 0): string {
   const operation = parseFlowCliWorkflowUpdateObject(value, index);
+  return canonicalizeParsedFlowCliWorkflowUpdate(operation, index);
+}
+
+function canonicalizeParsedFlowCliWorkflowUpdate(
+  operation: FlowCliWorkflowUpdate,
+  index: number,
+): string {
   // Omitted and explicit-null move parents have the same wire semantics: both
   // move the node to the top-level scope. Normalize them before encoding so
   // Rust and TypeScript hosts derive identical operation bytes.
@@ -229,7 +236,14 @@ export function canonicalizeFlowCliWorkflowUpdate(value: unknown, index = 0): st
     operation.kind === 'move-node' && operation.parentId === undefined
       ? { ...operation, parentId: null }
       : operation;
-  return canonicalizeA3SFlowJson(canonicalOperation as unknown as JsonValue);
+  const encoded = canonicalizeA3SFlowJson(canonicalOperation as unknown as JsonValue);
+  const bytes = utf8Encoder.encode(encoded).byteLength;
+  if (bytes > A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES) {
+    throw new Error(
+      `Workflow operation ${index} canonical form is ${bytes} bytes; maximum is ${A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES} bytes.`,
+    );
+  }
+  return encoded;
 }
 
 /** Canonicalize a complete JSON operation array for transport or hashing. */
@@ -243,6 +257,20 @@ export function canonicalizeFlowCliWorkflowUpdates(value: unknown): string[] {
     );
   }
   return value.map((operation, index) => canonicalizeFlowCliWorkflowUpdate(operation, index));
+}
+
+/**
+ * Canonicalize an NDJSON operation stream without buffering its records.
+ * Each yielded string is one compact JSON line without a trailing newline.
+ */
+export async function* canonicalizeFlowCliWorkflowUpdateNdjson(
+  chunks: AsyncIterable<string | Uint8Array>,
+): AsyncGenerator<string> {
+  let index = 0;
+  for await (const operation of parseFlowCliWorkflowUpdateNdjson(chunks)) {
+    yield canonicalizeParsedFlowCliWorkflowUpdate(operation, index);
+    index += 1;
+  }
 }
 
 /** Parse the CLI's JSON patch list without accepting incomplete operations. */
