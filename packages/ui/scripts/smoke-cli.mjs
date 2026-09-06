@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -97,6 +97,12 @@ try {
   );
   if (!streamed.ok || streamed.document?.app?.name !== 'Smoke workflow streamed') {
     throw new Error('The NDJSON update stream did not persist the change.');
+  }
+  const operationFile = join(root, 'workflow-update.ndjson');
+  await writeFile(operationFile, '{"kind":"set-app-name","name":"Smoke workflow file-streamed"}\n');
+  const fileStreamed = await run(['update', workflow, '--operations', `@${operationFile}`]);
+  if (!fileStreamed.ok || fileStreamed.document?.app?.name !== 'Smoke workflow file-streamed') {
+    throw new Error('The file-backed NDJSON update stream did not persist the change.');
   }
   await run(['create', scopedWorkflow]);
   const scoped = await run([
