@@ -8,6 +8,11 @@
   preservation of unknown DSL extensions. Hosts retain authorization, product
   node catalogs, persistence, and publication policy.
 
+- Added `WorkflowAuthoringSession` and the iterator-based batch helper so Rust
+  hosts can consume bounded operation streams incrementally, preserve the last
+  successful candidate after a rejected operation, and canonicalize only once
+  at the publication boundary.
+
 - Made JSON DSL and authoring decoding reject duplicate object keys at every
   nesting level, removing ambiguous last-key-wins input before canonicalization
   and digesting. The TypeScript document/CLI decoder now enforces the same

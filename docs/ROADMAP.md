@@ -111,8 +111,10 @@ open.
 The repository-owned authoring boundary now has a stateless Rust counterpart to
 the CLI and Skill: `canonical_workflow_authoring_snapshot` preserves the
 complete document as canonical JSON, `apply_workflow_authoring_operation`
-applies one strictly bounded JSON operation to a cloned snapshot, and
-`validate_executable_workflow_authoring_snapshot` makes the draft-to-publication
+applies one strictly bounded JSON operation, and `WorkflowAuthoringSession`
+consumes a bounded operation stream incrementally before one final
+canonicalization. `validate_executable_workflow_authoring_snapshot` and
+`WorkflowAuthoringSession::finish_executable` make the draft-to-publication
 transition explicit. The API preserves unknown semantic and presentation
 extensions and checks scoped placement, parent cycles, stable identities, and
 incident edges without importing Cloud policy or the UI node registry. Cloud

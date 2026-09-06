@@ -403,7 +403,7 @@ lifecycle. Read the [compiler and protocol contract](docs/NATIVE_TYPESCRIPT.md).
 
 | Flow owns                                                                                                              | The host owns                                                                                        |
 | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| Workflow document/graph parsing, structural invariants, deterministic plans, semantic digests, and the stateless bounded authoring byte API | Node semantics, capability bindings, credentials, and authoring policy                               |
+| Workflow document/graph parsing, structural invariants, deterministic plans, semantic digests, and the bounded authoring byte API/session | Node semantics, capability bindings, credentials, and authoring policy                               |
 | Reusable node manifests, configuration components, React and Vue hooks, CLI commands, and the workflow-authoring Skill | Product-specific node availability, identity, authorization, publication, and hosted editor behavior |
 | Append-only run history and expected-sequence writes                                                                   | Product authorization, tenancy, and publication lifecycle                                            |
 | Replay validation and terminal state                                                                                   | Logical idempotency for physical side effects                                                        |

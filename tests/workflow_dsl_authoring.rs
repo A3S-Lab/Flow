@@ -1,6 +1,7 @@
 use a3s_flow::{
-    apply_workflow_authoring_operation, canonical_workflow_authoring_snapshot,
-    validate_executable_workflow_authoring_snapshot, WorkflowDslError,
+    apply_workflow_authoring_operation, apply_workflow_authoring_operations,
+    canonical_workflow_authoring_snapshot, validate_executable_workflow_authoring_snapshot,
+    WorkflowAuthoringSession, WorkflowDslError, WORKFLOW_AUTHORING_MAX_OPERATIONS,
     WORKFLOW_AUTHORING_OPERATION_MAX_BYTES,
 };
 use serde_json::{json, Value};
@@ -226,6 +227,82 @@ fn strict_json_rejects_excessive_nesting_before_canonicalization() {
     )
     .expect_err("excessive nesting must fail closed");
     assert!(matches!(error, WorkflowDslError::InvalidJson { .. }));
+}
+
+#[test]
+fn authoring_session_applies_incrementally_and_finishes_once() {
+    let base = snapshot();
+    let executable = WorkflowAuthoringSession::new(&base)
+        .expect("session")
+        .finish_executable()
+        .expect("executable snapshot");
+    assert_eq!(
+        executable,
+        validate_executable_workflow_authoring_snapshot(&base).unwrap()
+    );
+
+    let mut session = WorkflowAuthoringSession::new(&base).expect("session");
+    assert_eq!(session.operation_count(), 0);
+    session
+        .apply_operation(
+            br#"{"kind":"add-node","id":"progress","type":"host.progress","configuration":{"value":1}}"#,
+        )
+        .expect("add node");
+    session
+        .apply_operation(
+            br#"{"kind":"add-edge","id":"start-progress","source":"start","target":"progress"}"#,
+        )
+        .expect("add edge");
+    assert_eq!(session.operation_count(), 2);
+    let result = session.finish().expect("canonical result");
+    let value = document(&result);
+    assert_eq!(value["workflow"]["graph"]["nodes"][3]["id"], "progress");
+    assert_eq!(
+        value["workflow"]["graph"]["edges"][2]["id"],
+        "start-progress"
+    );
+}
+
+#[test]
+fn authoring_session_keeps_last_successful_state_after_rejected_operation() {
+    let base = snapshot();
+    let mut session = WorkflowAuthoringSession::new(&base).expect("session");
+    session
+        .apply_operation(br#"{"kind":"set-app-name","name":"first"}"#)
+        .expect("first operation");
+    let error = session
+        .apply_operation(br#"{"kind":"remove-node","id":"missing"}"#)
+        .expect_err("missing node");
+    assert!(matches!(
+        error,
+        WorkflowDslError::InvalidAuthoringOperation { .. }
+    ));
+    assert_eq!(session.operation_count(), 1);
+    session
+        .apply_operation(br#"{"kind":"set-app-name","name":"second"}"#)
+        .expect("second operation");
+    let value = document(&session.finish().expect("result"));
+    assert_eq!(value["app"]["name"], "second");
+}
+
+#[test]
+fn authoring_batch_is_bounded_and_rejects_empty_input() {
+    let base = snapshot();
+    let empty = apply_workflow_authoring_operations(&base, std::iter::empty::<Vec<u8>>())
+        .expect_err("empty stream");
+    assert!(matches!(
+        empty,
+        WorkflowDslError::InvalidAuthoringOperation { .. }
+    ));
+
+    let operations = (0..=WORKFLOW_AUTHORING_MAX_OPERATIONS)
+        .map(|index| format!(r#"{{"kind":"set-app-name","name":"workflow-{index}"}}"#));
+    let error =
+        apply_workflow_authoring_operations(&base, operations).expect_err("operation count bound");
+    assert!(matches!(
+        error,
+        WorkflowDslError::InvalidAuthoringOperation { .. }
+    ));
 }
 
 #[test]

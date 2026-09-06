@@ -1,10 +1,11 @@
 //! Stateless workflow-document authoring primitives.
 //!
 //! This module is the Rust counterpart of the Flow UI authoring operations. It
-//! owns parsing and applying one bounded JSON operation, while hosts remain
-//! responsible for authorization, persistence, and product-specific node
-//! catalogs. The functions return canonical JSON bytes so a host can persist a
-//! single representation and derive its own storage digest.
+//! owns parsing and applying bounded JSON operations, including incremental
+//! sessions, while hosts remain responsible for authorization, persistence,
+//! and product-specific node catalogs. The functions return canonical JSON
+//! bytes so a host can persist a single representation and derive its own
+//! storage digest.
 
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
@@ -15,6 +16,74 @@ use super::{WorkflowDsl, WorkflowDslError, WORKFLOW_DSL_MAX_BYTES};
 pub const WORKFLOW_AUTHORING_OPERATION_MAX_BYTES: usize = 1024 * 1024;
 /// Maximum byte length of one authoring identity field.
 pub const WORKFLOW_AUTHORING_ID_MAX_BYTES: usize = 255;
+/// Maximum number of operations accepted by one authoring session or batch.
+pub const WORKFLOW_AUTHORING_MAX_OPERATIONS: usize = 10_000;
+
+/// Incremental authoring session for one immutable workflow snapshot.
+///
+/// A session parses the base document once and applies bounded operations as
+/// they arrive. The input snapshot is never modified, and the session only
+/// emits a canonical snapshot when [`Self::finish`] or
+/// [`Self::finish_executable`] is called. Hosts can therefore consume NDJSON
+/// or another transport incrementally without buffering the operation list.
+/// The caller remains responsible for durable publication and concurrency
+/// control around the returned bytes.
+#[derive(Debug)]
+pub struct WorkflowAuthoringSession {
+    document: Value,
+    operation_count: usize,
+}
+
+impl WorkflowAuthoringSession {
+    /// Start a session from a bounded, structurally valid workflow snapshot.
+    pub fn new(base_snapshot: &[u8]) -> Result<Self, WorkflowDslError> {
+        let document = parse_snapshot(base_snapshot)?;
+        let document = serde_json::to_value(&document).map_err(serialization_error)?;
+        Ok(Self {
+            document,
+            operation_count: 0,
+        })
+    }
+
+    /// Apply one operation to the working snapshot.
+    ///
+    /// Parsing and all operation preconditions complete before the working
+    /// value is changed. A rejected operation therefore leaves the session at
+    /// the last successful state and can be reported without publishing it.
+    pub fn apply_operation(&mut self, operation: &[u8]) -> Result<(), WorkflowDslError> {
+        if self.operation_count >= WORKFLOW_AUTHORING_MAX_OPERATIONS {
+            return Err(invalid_operation(format!(
+                "operation count exceeds {WORKFLOW_AUTHORING_MAX_OPERATIONS}"
+            )));
+        }
+        if operation.is_empty() || operation.len() > WORKFLOW_AUTHORING_OPERATION_MAX_BYTES {
+            return Err(invalid_operation(format!(
+                "operation bytes must be between 1 and {} bytes",
+                WORKFLOW_AUTHORING_OPERATION_MAX_BYTES
+            )));
+        }
+        let operation = parse_operation(operation)?;
+        apply_operation_value(&mut self.document, &operation)?;
+        self.operation_count += 1;
+        Ok(())
+    }
+
+    /// Return the number of successfully applied operations.
+    pub fn operation_count(&self) -> usize {
+        self.operation_count
+    }
+
+    /// Finish the session as a canonical draft-capable snapshot.
+    pub fn finish(self) -> Result<Vec<u8>, WorkflowDslError> {
+        canonical_document_value(self.document)
+    }
+
+    /// Finish the session and require an executable deterministic DAG.
+    pub fn finish_executable(self) -> Result<Vec<u8>, WorkflowDslError> {
+        let canonical = canonical_document_value(self.document)?;
+        validate_executable_workflow_authoring_snapshot(&canonical)
+    }
+}
 
 /// Canonicalize and document-validate a workflow authoring snapshot.
 ///
@@ -45,18 +114,36 @@ pub fn apply_workflow_authoring_operation(
     base_snapshot: &[u8],
     operation: &[u8],
 ) -> Result<Vec<u8>, WorkflowDslError> {
-    let document = parse_snapshot(base_snapshot)?;
-    if operation.is_empty() || operation.len() > WORKFLOW_AUTHORING_OPERATION_MAX_BYTES {
-        return Err(invalid_operation(format!(
-            "operation bytes must be between 1 and {} bytes",
-            WORKFLOW_AUTHORING_OPERATION_MAX_BYTES
-        )));
+    let mut session = WorkflowAuthoringSession::new(base_snapshot)?;
+    session.apply_operation(operation)?;
+    session.finish()
+}
+
+/// Apply a bounded operation iterator without buffering the complete list.
+///
+/// The iterator may yield borrowed slices, owned byte vectors, or any other
+/// item implementing [`AsRef<[u8]>`]. An empty iterator is rejected so a host
+/// cannot mistake a no-op stream for a successful publication.
+pub fn apply_workflow_authoring_operations<I, O>(
+    base_snapshot: &[u8],
+    operations: I,
+) -> Result<Vec<u8>, WorkflowDslError>
+where
+    I: IntoIterator<Item = O>,
+    O: AsRef<[u8]>,
+{
+    let mut session = WorkflowAuthoringSession::new(base_snapshot)?;
+    let mut applied = 0;
+    for operation in operations {
+        session.apply_operation(operation.as_ref())?;
+        applied += 1;
     }
-    let mut document = serde_json::to_value(&document).map_err(serialization_error)?;
-    let operation = parse_operation(operation)?;
-    apply_operation(&mut document, &operation)?;
-    let encoded = serde_json::to_vec(&document).map_err(serialization_error)?;
-    canonical_workflow_authoring_snapshot(&encoded)
+    if applied == 0 {
+        return Err(invalid_operation(
+            "authoring operation stream must contain at least one operation",
+        ));
+    }
+    session.finish()
 }
 
 fn parse_snapshot(source: &[u8]) -> Result<WorkflowDsl, WorkflowDslError> {
@@ -81,6 +168,11 @@ fn canonical_document(document: &WorkflowDsl) -> Result<Vec<u8>, WorkflowDslErro
         });
     }
     Ok(encoded)
+}
+
+fn canonical_document_value(document: Value) -> Result<Vec<u8>, WorkflowDslError> {
+    let encoded = serde_json::to_vec(&document).map_err(serialization_error)?;
+    canonical_workflow_authoring_snapshot(&encoded)
 }
 
 fn parse_operation(source: &[u8]) -> Result<Map<String, Value>, WorkflowDslError> {
@@ -127,7 +219,7 @@ fn parse_operation(source: &[u8]) -> Result<Map<String, Value>, WorkflowDslError
     Ok(object.clone())
 }
 
-fn apply_operation(
+fn apply_operation_value(
     document: &mut Value,
     operation: &Map<String, Value>,
 ) -> Result<(), WorkflowDslError> {
