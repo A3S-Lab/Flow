@@ -91,7 +91,9 @@ must be submitted as one batch/stream and published only after final
 validation. `set-edge` redirects an existing edge
 without changing its stable ID and preserves omitted handles plus unknown
 semantic/presentation fields; an explicit `null` handle removes that optional
-field. `move-node` changes a node's `parentId` while retaining its stable ID,
+field. CLI callers can provide NDJSON through stdin or a file-backed
+`--operations @<file>` stream; both transports share the same bounds and final
+atomic publication. `move-node` changes a node's `parentId` while retaining its stable ID,
 manifest configuration, presentation fields, and unknown extensions; moving
 an internal start requires its matching container, and a move to `null` or an
 omitted parent returns a public node to the top level. A base document digest can be supplied for optimistic concurrency;

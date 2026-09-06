@@ -72,7 +72,7 @@ Options:
   --add-edge               Update: add an edge (requires --edge-id, --source, --target)
   --remove-edge <id>       Update: remove one edge
   --set-edge <id>          Update: change an edge's endpoints (requires --source, --target)
-  --operations <json|->     Update: apply JSON array or NDJSON stdin stream
+  --operations <json|@file|-> Update: apply JSON array, NDJSON file, or stdin stream
   --if-digest <sha256>      Update: reject if the file's semantic digest changed
   --dry-run                Validate an update and return its result without writing
   --config <json>          JSON object for --add-node or --set-node
@@ -118,7 +118,7 @@ function createCliParser() {
     .option('--add-edge', 'Add one edge')
     .option('--remove-edge <id>', 'Remove one edge')
     .option('--set-edge <id>', 'Set one edge endpoints')
-    .option('--operations <json>', 'Apply a JSON array or NDJSON stdin stream')
+    .option('--operations <json|@file|->', 'Apply a JSON array, NDJSON file, or stdin stream')
     .option('--if-digest <digest>', 'Reject if the semantic document digest changed')
     .option('--dry-run', 'Validate an update without writing')
     .option('--config <json>', 'Node configuration JSON')

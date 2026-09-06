@@ -75,7 +75,8 @@ a3s-flow read workflow.json --pretty
 `update` accepts one focused edit per invocation, or a JSON array passed through
 `--operations` when several graph changes must be committed together. For a
 generated or large patch set, pass `--operations -` and send one JSON operation
-per line (NDJSON) on stdin; Flow parses and applies each operation as it arrives,
+per line (NDJSON) on stdin, or pass `--operations @operations.ndjson` to stream
+an NDJSON file without loading it into the command line; Flow parses and applies each operation as it arrives,
 then validates and publishes one atomic snapshot. Node configuration is JSON and
 only manifest-owned fields are changed; unknown semantic extensions and
 presentation fields remain intact. Use `--if-digest <sha256>` to reject a stale

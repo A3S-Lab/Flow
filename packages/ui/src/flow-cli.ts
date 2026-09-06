@@ -1,5 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import { realpathSync } from 'node:fs';
+import { createReadStream, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -288,10 +288,10 @@ function parseJsonObject(value: string | undefined, label: string): JsonObject {
 
 function updateOperations(options: CliOptions): FlowCliWorkflowUpdate[] {
   if (options.operations === undefined) return [updateOperation(options)];
-  if (options.operations === '-') {
+  if (options.operations === '-' || options.operations.startsWith('@')) {
     throw new CliError(
       'usage',
-      '--operations - is a streaming NDJSON input; use it without single operation flags.',
+      '--operations - or @<file> is a streaming NDJSON input; use it without single operation flags.',
     );
   }
   if (hasInlineUpdateOptions(options)) {
@@ -305,6 +305,16 @@ function updateOperations(options: CliOptions): FlowCliWorkflowUpdate[] {
       `Invalid --operations: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+}
+
+function operationStreamPath(value: string | undefined): string | undefined {
+  if (value === undefined || value === '-') return undefined;
+  if (!value.startsWith('@')) return undefined;
+  const path = value.slice(1);
+  if (!path) {
+    throw new CliError('usage', '--operations @<file> requires a non-empty file path.');
+  }
+  return path;
 }
 
 function hasInlineUpdateOptions(options: CliOptions): boolean {
@@ -716,16 +726,18 @@ async function handleUpdate(
   }
   let result;
   try {
-    if (options.operations === '-') {
+    const streamPath = operationStreamPath(options.operations);
+    if (options.operations === '-' || streamPath !== undefined) {
       if (hasInlineUpdateOptions(options)) {
         throw new CliError(
           'usage',
-          '--operations - cannot be combined with a single update operation.',
+          '--operations - or @<file> cannot be combined with a single update operation.',
         );
       }
+      const operationInput = streamPath ? createReadStream(streamPath) : process.stdin;
       result = await applyFlowCliWorkflowUpdateStream(
         current.document,
-        parseFlowCliWorkflowUpdateNdjson(process.stdin),
+        parseFlowCliWorkflowUpdateNdjson(operationInput),
       );
     } else {
       result = applyFlowCliWorkflowUpdates(current.document, updateOperations(options));

@@ -613,6 +613,40 @@ describe('A3S Flow CLI workflow file CRUD', () => {
       expect(result.changed).toEqual(['node:progress', 'app.name']);
       expect(result.document.app.name).toBe('Streamed workflow');
 
+      const operationFile = join(root, 'workflow-update.ndjson');
+      await writeFile(
+        operationFile,
+        '{"kind":"set-app-name","name":"File streamed workflow"}\n' +
+          '{"kind":"set-node","id":"run-step","configuration":{"step_name":"task.file"}}\n',
+        'utf8',
+      );
+      expect(
+        await runFlowCli([
+          'update',
+          workflow,
+          '--operations',
+          `@${operationFile}`,
+          '--output',
+          output,
+        ]),
+      ).toBe(0);
+      const fileStreamResult = await readJson(output);
+      expect(fileStreamResult.changed).toEqual(['app.name', 'node:run-step']);
+      expect(fileStreamResult.document.app.name).toBe('File streamed workflow');
+      expect(
+        fileStreamResult.document.workflow.graph.nodes.find((node) => node.id === 'run-step')?.data,
+      ).toMatchObject({ step_name: 'task.file' });
+      const beforeInvalidFileStream = await readFile(workflow, 'utf8');
+      const invalidOperationFile = join(root, 'invalid-update.ndjson');
+      await writeFile(invalidOperationFile, '{"kind":"set-app-name","nam":"invalid"}\n', 'utf8');
+      await expect(
+        runFlowCli(['update', workflow, '--operations', `@${invalidOperationFile}`]),
+      ).rejects.toThrow(/unknown property nam/);
+      expect(await readFile(workflow, 'utf8')).toBe(beforeInvalidFileStream);
+      await expect(runFlowCli(['update', workflow, '--operations', '@'])).rejects.toThrow(
+        /requires a non-empty file path/,
+      );
+
       const beforeRejectedStream = await readFile(workflow, 'utf8');
       Object.defineProperty(process, 'stdin', {
         configurable: true,

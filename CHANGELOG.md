@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added file-backed NDJSON operation streams with `--operations @<file>`, so
+  generated patches can be streamed without shell argument-size limits.
+
 - Added stable-ID-preserving `move-node` workflow authoring operations for
   moving public nodes between the top-level graph and iteration/loop scopes;
   internal start placement and parent-cycle checks remain enforced.

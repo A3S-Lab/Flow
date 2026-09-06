@@ -53,7 +53,7 @@ organized by the failure they prevent, not by CLI command count:
 | Application is ordered and isolated | Dependent operations observe prior changes; observer sees one event per operation; edge redirects preserve IDs/extensions and support explicit handle removal; a later failure never mutates the source or publishes a partial file | `flow-cli-workflow-stream.test.ts`, `flow-cli.test.ts` |
 | Publication is concurrency-safe | Matching base digest succeeds; stale digest and changed source conflict; live lock rejects; dead-writer lock is recovered; delete and update share the lock | `flow-cli.test.ts` |
 | DSL authority is preserved | Final graph/node validation runs after the stream; unknown semantic and presentation fields survive; output reports changed IDs and base digest | `flow-cli.test.ts`, `dsl.test.ts` |
-| CLI/Skill DX remains scriptable | `--operations -` works through real stdin, stable JSON output/exit codes, packaged workflow-updates export, smoke command | `flow-cli.test.ts`, `smoke-cli.mjs`, package build |
+| CLI/Skill DX remains scriptable | `--operations -` works through real stdin, `--operations @file` streams a generated NDJSON file without argument buffering, stable JSON output/exit codes, packaged workflow-updates export, smoke command | `flow-cli.test.ts`, `smoke-cli.mjs`, package build |
 
 ## Definition Of SDK Completion
 
