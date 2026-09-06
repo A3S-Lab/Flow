@@ -72,6 +72,8 @@ export type FlowCliWorkflowUpdateObserver = (
 export const A3S_FLOW_CLI_MAX_UPDATE_OPERATION_BYTES = 1024 * 1024;
 /** Maximum number of operations accepted by either array or stream transport. */
 export const A3S_FLOW_CLI_MAX_UPDATE_OPERATIONS = 10_000;
+/** Maximum UTF-8 byte length of an operation identity or endpoint string. */
+export const A3S_FLOW_CLI_MAX_ID_BYTES = 255;
 
 const utf8Encoder = new TextEncoder();
 
@@ -110,10 +112,18 @@ function parseFlowCliWorkflowUpdateObject(
     throw new Error(`Workflow operation ${index} must be a JSON object.`);
   }
   const operation = candidate;
-  const string = (key: string): string => {
+  const string = (key: string, bounded = true): string => {
     const entry = operation[key];
     if (typeof entry !== 'string' || !entry.trim()) {
       throw new Error(`Workflow operation ${index}.${key} must be a non-empty string.`);
+    }
+    if (bounded) {
+      const bytes = utf8Encoder.encode(entry).byteLength;
+      if (bytes > A3S_FLOW_CLI_MAX_ID_BYTES) {
+        throw new Error(
+          `Workflow operation ${index}.${key} exceeds ${A3S_FLOW_CLI_MAX_ID_BYTES} bytes.`,
+        );
+      }
     }
     return entry;
   };
@@ -188,7 +198,7 @@ function parseFlowCliWorkflowUpdateObject(
       return { kind: 'set-node', id: string('id'), configuration: configuration(true) };
     case 'set-app-name':
       assertKeys('kind', 'name');
-      return { kind: 'set-app-name', name: string('name') };
+      return { kind: 'set-app-name', name: string('name', false) };
     default:
       throw new Error(`Unsupported workflow operation kind: ${String(operation.kind)}`);
   }

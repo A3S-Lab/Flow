@@ -13,6 +13,9 @@
   successful candidate after a rejected operation, and canonicalize only once
   at the publication boundary.
 
+- Aligned the TypeScript and Rust authoring contracts on the 255-byte UTF-8
+  identity/endpoint limit across JSON arrays, direct calls, and NDJSON streams.
+
 - Made JSON DSL and authoring decoding reject duplicate object keys at every
   nesting level, removing ambiguous last-key-wins input before canonicalization
   and digesting. The TypeScript document/CLI decoder now enforces the same

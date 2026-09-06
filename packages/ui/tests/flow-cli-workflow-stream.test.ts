@@ -458,4 +458,22 @@ describe('workflow update streams', () => {
       /maximum is 1048576 bytes/,
     );
   });
+
+  it('enforces the shared 255-byte identity boundary on every transport', async () => {
+    const id = 'é'.repeat(128); // 256 UTF-8 bytes
+    const operation = { kind: 'remove-node' as const, id };
+    expect(() => parseFlowCliWorkflowUpdates([operation])).toThrow(/exceeds 255 bytes/);
+    expect(() => applyFlowCliWorkflowUpdates(workflow(), [operation])).toThrow(
+      /exceeds 255 bytes/,
+    );
+    await expect(
+      (async () => {
+        for await (const _operation of parseFlowCliWorkflowUpdateNdjson(
+          chunks([JSON.stringify(operation)]),
+        )) {
+          // Consume the stream.
+        }
+      })(),
+    ).rejects.toThrow(/exceeds 255 bytes/);
+  });
 });

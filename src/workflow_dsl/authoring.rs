@@ -474,7 +474,10 @@ fn set_app_name(
     document: &mut Value,
     operation: &Map<String, Value>,
 ) -> Result<(), WorkflowDslError> {
-    let name = bounded_string(operation, "name")?;
+    // The operation byte budget bounds display text; the 255-byte identity
+    // limit is intentionally reserved for node, edge, endpoint, and type
+    // strings so long human-readable application names remain representable.
+    let name = required_string(operation, "name")?;
     let app = document
         .get_mut("app")
         .and_then(Value::as_object_mut)
