@@ -2,6 +2,12 @@
 
 Read this reference when creating or changing a workflow document, wiring node ports, or constructing a container scope. The installed `a3s-flow` CLI remains the source of truth when this reference and a newer package differ.
 
+When an operation stream crosses a hosted boundary, use the package's
+`canonicalizeFlowCliWorkflowUpdate` helper (or Flow's Rust
+`canonical_workflow_authoring_operation`) before deriving an idempotency key.
+The canonical form is compact UTF-8 JSON with deterministic key ordering; it
+does not replace the final graph validation step.
+
 ## Document envelope
 
 An executable document uses this shape:

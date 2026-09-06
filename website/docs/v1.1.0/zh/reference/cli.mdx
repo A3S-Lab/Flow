@@ -73,6 +73,12 @@ JSON 数组、NDJSON 流和 typed 直接调用共享最多 10,000 条 operation�
 与所选 operation 不匹配的参数会直接报错，不会被静默忽略。
 命令级参数也会执行同样的白名单校验，避免拼写错误在另一个命令上变成成功的空操作。
 
+如果托管适配器需要从 operation 计算幂等键，应先使用包中的
+`canonicalizeFlowCliWorkflowUpdate`（或 Flow 的 Rust
+`canonical_workflow_authoring_operation`）规范化 operation，再写入日志。
+它输出紧凑且确定性的 UTF-8 JSON，只统一语义等价的默认值；图相关的最终校验
+仍由 update 边界负责。
+
 使用 `--set-edge <id> --source <id> --target <id>` 可以原地重定向已有连线。传入 `--source-handle` 或 `--target-handle` 时只替换对应句柄；省略的句柄、连线 ID 以及未知语义/展示字段都会保留。需要显式删除句柄时使用 `--clear-source-handle` 或 `--clear-target-handle`（JSON operation 中使用 `null`）。这样不需要先删除再新增，也不会破坏对连线 ID 的引用。
 
 使用 `--add-node` 时可通过 `--parent <container-id>` 把公开节点放入已有的

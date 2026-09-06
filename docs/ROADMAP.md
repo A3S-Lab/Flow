@@ -121,6 +121,12 @@ incident edges without importing Cloud policy or the UI node registry. Cloud
 may therefore journal Flow-produced bytes while retaining authorization,
 product capability binding, CAS, and publication ownership.
 
+`canonical_workflow_authoring_operation` and the matching TypeScript helpers
+provide one canonical operation byte representation for host idempotency keys.
+They normalize only wire-equivalent defaults (an omitted add-node
+configuration and an omitted move parent); graph-dependent preconditions stay
+on the apply path.
+
 The same boundary now uses duplicate-key rejecting and depth-bounded JSON
 decoding for complete DSL documents, graphs, and individual operations. The
 TypeScript CLI applies the same checks to JSON arrays, NDJSON, and inline node

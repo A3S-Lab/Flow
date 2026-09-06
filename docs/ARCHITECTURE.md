@@ -83,7 +83,10 @@ programmatically, then reuse this exact structural compiler.
 Workflow authoring uses typed domain operations rather than arbitrary JSON
 pointer writes. `@a3s-lab/flow-ui` exposes a bounded NDJSON decoder and an async
 operation applier, while Rust exposes `WorkflowAuthoringSession` and an
-iterator-based batch helper. A CLI, Skill, or host adapter can therefore validate and apply one
+iterator-based batch helper. Both sides also expose canonical operation
+encoding (`canonicalizeFlowCliWorkflowUpdate` and
+`canonical_workflow_authoring_operation`) so equivalent JSON produces one
+idempotency byte stream before a host journals it. A CLI, Skill, or host adapter can therefore validate and apply one
 `add-node`, `move-node`, `remove-node`, `set-node`, `add-edge`, `set-edge`,
 `remove-edge`, or app-metadata operation as it arrives. `add-node` may set `parentId` to an
 existing iteration or loop container; the registry contract enforces the

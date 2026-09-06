@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added cross-language canonical operation encoding through
+  `canonical_workflow_authoring_operation` and
+  `canonicalizeFlowCliWorkflowUpdate(s)`. Equivalent operation JSON now has
+  one stable byte form (including omitted add-node configuration and omitted
+  top-level move parents), so hosts can derive idempotency keys before
+  appending a streamed patch.
+
 - Added a bounded, stateless Rust workflow-authoring API for Cloud and other
   hosts: canonical snapshot validation, strict JSON operation parsing, immutable
   single-operation application, explicit draft versus executable admission, and

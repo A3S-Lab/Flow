@@ -92,6 +92,12 @@ operation, instead of being silently ignored.
 Command-specific flags are checked the same way, so a typo cannot turn into a
 successful no-op on another command.
 
+When a hosted adapter derives an idempotency key from an operation, use the
+package's `canonicalizeFlowCliWorkflowUpdate` helper before writing the
+operation to its journal. It emits compact, deterministic UTF-8 JSON and
+normalizes only wire-equivalent defaults; the final graph-dependent validation
+still belongs to the update boundary.
+
 Use `--set-edge <id> --source <id> --target <id>` to redirect an existing edge
 in place. Optional `--source-handle` and `--target-handle` replace only the
 handles that are supplied; omitted handles, the edge ID, and unknown semantic or

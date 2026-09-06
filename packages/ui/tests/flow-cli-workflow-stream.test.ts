@@ -2,6 +2,8 @@ import {
   A3S_FLOW_CLI_MAX_UPDATE_OPERATIONS,
   applyFlowCliWorkflowUpdateStream,
   applyFlowCliWorkflowUpdates,
+  canonicalizeFlowCliWorkflowUpdate,
+  canonicalizeFlowCliWorkflowUpdates,
   parseFlowCliWorkflowUpdateNdjson,
   parseFlowCliWorkflowUpdates,
 } from '../src/flow-cli-workflow';
@@ -475,5 +477,50 @@ describe('workflow update streams', () => {
         }
       })(),
     ).rejects.toThrow(/exceeds 255 bytes/);
+  });
+
+  it('canonicalizes equivalent operations for cross-language idempotency', () => {
+    const first = canonicalizeFlowCliWorkflowUpdate({
+      type: 'host.custom',
+      id: 'node',
+      kind: 'add-node',
+      configuration: { z: 1, a: 2 },
+    });
+    const second = canonicalizeFlowCliWorkflowUpdate({
+      kind: 'add-node',
+      configuration: { a: 2, z: 1 },
+      id: 'node',
+      type: 'host.custom',
+    });
+    expect(first).toBe(second);
+    expect(first).toBe(
+      '{"configuration":{"a":2,"z":1},"id":"node","kind":"add-node","type":"host.custom"}',
+    );
+
+    expect(
+      canonicalizeFlowCliWorkflowUpdate({ kind: 'add-node', id: 'node', type: 'host.custom' }),
+    ).toBe('{"configuration":{},"id":"node","kind":"add-node","type":"host.custom"}');
+    expect(canonicalizeFlowCliWorkflowUpdate({ kind: 'move-node', id: 'node' })).toBe(
+      canonicalizeFlowCliWorkflowUpdate({ kind: 'move-node', id: 'node', parentId: null }),
+    );
+    expect(
+      canonicalizeFlowCliWorkflowUpdates([
+        { kind: 'set-app-name', name: 'one' },
+        { kind: 'set-app-name', name: 'two' },
+      ]),
+    ).toEqual([
+      '{"kind":"set-app-name","name":"one"}',
+      '{"kind":"set-app-name","name":"two"}',
+    ]);
+  });
+
+  it('rejects unsafe numeric values before operation canonicalization', () => {
+    expect(() =>
+      canonicalizeFlowCliWorkflowUpdate({
+        kind: 'set-node',
+        id: 'node',
+        configuration: { value: Number.MAX_SAFE_INTEGER + 1 },
+      }),
+    ).toThrow(/unsafe integer/);
   });
 });

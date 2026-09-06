@@ -55,6 +55,11 @@ The workflow begins with `a3s-flow nodes --pretty`, followed by `a3s-flow node <
 
 That sequence keeps decisions aligned with the installed package and prevents a digest from being reported before the graph is executable. The final response should identify changed nodes and edges, show the compiled top-level and container order, report both digests, and name any task handlers or host integration that still needs implementation.
 
+For a hosted operation journal, canonicalize each generated operation with
+`canonicalizeFlowCliWorkflowUpdate` (or Flow's Rust
+`canonical_workflow_authoring_operation`) before deriving an idempotency key.
+Equivalent JSON formatting then maps to one operation byte representation.
+
 ## Containers and durable identity
 
 An iteration or loop has exactly one matching internal start node. Every nested node uses the container ID as `parentId`, and every nested edge remains inside that scope. The normal graph stays acyclic because repetition is expressed through `iteration` or `loop`. The Skill treats IDs for steps, hooks, progress records, child operations, and child workflows as replay-sensitive identity. It should not rename them after runs exist unless the user explicitly requests a migration.

@@ -95,6 +95,36 @@ pub fn canonical_workflow_authoring_snapshot(source: &[u8]) -> Result<Vec<u8>, W
     canonical_document(&document)
 }
 
+/// Parse one authoring operation and encode it in the canonical JSON form.
+///
+/// The canonical bytes are stable across Rust and TypeScript for equivalent
+/// operations (object-key order and insignificant whitespace do not affect
+/// them). Defaults that have one wire-level meaning are materialized, while
+/// omitted optional fields retain their omission. Hosts should use these
+/// bytes when deriving an operation idempotency key or appending an operation
+/// to a hosted journal. Node existence and graph placement are intentionally
+/// not checked here; those preconditions require a base snapshot and are
+/// enforced by [`apply_workflow_authoring_operation`].
+pub fn canonical_workflow_authoring_operation(source: &[u8]) -> Result<Vec<u8>, WorkflowDslError> {
+    if source.is_empty() || source.len() > WORKFLOW_AUTHORING_OPERATION_MAX_BYTES {
+        return Err(invalid_operation(format!(
+            "operation bytes must be between 1 and {} bytes",
+            WORKFLOW_AUTHORING_OPERATION_MAX_BYTES
+        )));
+    }
+    let operation = parse_operation(source)?;
+    let operation = normalize_operation(operation)?;
+    let encoded = super::digest::canonical_json(&Value::Object(operation))
+        .map_err(|error| invalid_operation(format!("operation cannot be canonicalized: {error}")))?
+        .into_bytes();
+    if encoded.len() > WORKFLOW_AUTHORING_OPERATION_MAX_BYTES {
+        return Err(invalid_operation(format!(
+            "canonical operation exceeds {WORKFLOW_AUTHORING_OPERATION_MAX_BYTES} bytes"
+        )));
+    }
+    Ok(encoded)
+}
+
 /// Canonicalize a snapshot and require an executable deterministic DAG.
 pub fn validate_executable_workflow_authoring_snapshot(
     source: &[u8],
@@ -217,6 +247,73 @@ fn parse_operation(source: &[u8]) -> Result<Map<String, Value>, WorkflowDslError
         )));
     }
     Ok(object.clone())
+}
+
+/// Validate operation-local fields and materialize defaults whose omission is
+/// semantically equivalent to an explicit value. This is deliberately kept
+/// separate from graph-dependent application so canonicalization can be used
+/// before a host has loaded or locked its base snapshot.
+fn normalize_operation(
+    mut operation: Map<String, Value>,
+) -> Result<Map<String, Value>, WorkflowDslError> {
+    let kind = required_string(&operation, "kind")?;
+    match kind {
+        "add-node" => {
+            bounded_string(&operation, "id")?;
+            bounded_string(&operation, "type")?;
+            optional_non_null_string(&operation, "parentId")?;
+            if !operation.contains_key("configuration") {
+                operation.insert("configuration".to_owned(), Value::Object(Map::new()));
+            } else {
+                required_object(&operation, "configuration")?;
+            }
+        }
+        "move-node" => {
+            bounded_string(&operation, "id")?;
+            // An omitted parent and an explicit null both mean top-level.
+            if !operation.contains_key("parentId") {
+                operation.insert("parentId".to_owned(), Value::Null);
+            } else if operation
+                .get("parentId")
+                .is_some_and(|parent_id| !parent_id.is_null())
+            {
+                bounded_string(&operation, "parentId")?;
+            }
+        }
+        "remove-node" => {
+            bounded_string(&operation, "id")?;
+        }
+        "add-edge" => {
+            bounded_string(&operation, "id")?;
+            bounded_string(&operation, "source")?;
+            bounded_string(&operation, "target")?;
+            optional_non_null_string(&operation, "sourceHandle")?;
+            optional_non_null_string(&operation, "targetHandle")?;
+        }
+        "remove-edge" => {
+            bounded_string(&operation, "id")?;
+        }
+        "set-edge" => {
+            bounded_string(&operation, "id")?;
+            bounded_string(&operation, "source")?;
+            bounded_string(&operation, "target")?;
+            optional_nullable_string(&operation, "sourceHandle")?;
+            optional_nullable_string(&operation, "targetHandle")?;
+        }
+        "set-node" => {
+            bounded_string(&operation, "id")?;
+            required_object(&operation, "configuration")?;
+        }
+        "set-app-name" => {
+            required_string(&operation, "name")?;
+        }
+        _ => {
+            return Err(invalid_operation(format!(
+                "unsupported operation kind {kind:?}"
+            )))
+        }
+    }
+    Ok(operation)
 }
 
 fn apply_operation_value(

@@ -272,6 +272,19 @@ function assertCanonicalDigestNumbers(
   }
 }
 
+/**
+ * Encode JSON using the cross-language Flow canonical form.
+ *
+ * Besides deterministic key ordering and number formatting, this helper
+ * rejects values that JavaScript cannot represent safely before they become a
+ * digest or an authoring operation. It is intentionally exported so hosts can
+ * canonicalize operation bytes before deriving idempotency keys.
+ */
+export function canonicalizeA3SFlowJson(value: JsonValue): string {
+  assertCanonicalDigestNumbers(value);
+  return canonicalize(value);
+}
+
 function normalizedDocument(document: A3SFlowWorkflowDsl): JsonValue {
   const normalized = cloneRecord(document, 'Workflow DSL document');
   normalized.dependencies = Array.isArray(document.dependencies)
@@ -294,17 +307,15 @@ function ensureExecutable(document: A3SFlowWorkflowDsl): void {
 export function digestA3SFlowWorkflowDsl(document: A3SFlowWorkflowDsl): string {
   ensureExecutable(document);
   const normalized = normalizedDocument(document);
-  assertCanonicalDigestNumbers(normalized);
-  return sha256(`${DOCUMENT_EXECUTION_DIGEST_DOMAIN}${canonicalize(normalized)}`);
+  return sha256(`${DOCUMENT_EXECUTION_DIGEST_DOMAIN}${canonicalizeA3SFlowJson(normalized)}`);
 }
 
 export function digestA3SFlowWorkflowDag(graph: A3SFlowWorkflowDsl['workflow']['graph']): string {
   const compilation = compileA3SFlowWorkflowDag(graph);
   if (!compilation.ok) throw new TypeError(compilation.issues[0]?.message);
   const normalized = normalizeGraph(graph) as JsonValue;
-  assertCanonicalDigestNumbers(normalized);
   return sha256(
-    `${GRAPH_EXECUTION_DIGEST_DOMAIN}${canonicalize(normalized)}`,
+    `${GRAPH_EXECUTION_DIGEST_DOMAIN}${canonicalizeA3SFlowJson(normalized)}`,
   );
 }
 

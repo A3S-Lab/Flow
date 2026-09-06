@@ -10,6 +10,20 @@ const workflowUpdates = await import('../dist/workflow-updates.js');
 if (typeof workflowUpdates.parseFlowCliWorkflowUpdateNdjson !== 'function') {
   throw new Error('The packaged workflow-updates stream API is missing.');
 }
+if (typeof workflowUpdates.canonicalizeFlowCliWorkflowUpdate !== 'function') {
+  throw new Error('The packaged workflow-updates canonical operation API is missing.');
+}
+const canonicalOperation = workflowUpdates.canonicalizeFlowCliWorkflowUpdate({
+  type: 'host.custom',
+  id: 'node',
+  kind: 'add-node',
+});
+if (
+  canonicalOperation !==
+  '{"configuration":{},"id":"node","kind":"add-node","type":"host.custom"}'
+) {
+  throw new Error('The packaged canonical operation API emitted an unexpected representation.');
+}
 
 async function run(args) {
   const { stdout } = await execFileAsync(process.execPath, [cli, ...args], {

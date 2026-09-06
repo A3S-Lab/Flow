@@ -55,6 +55,11 @@ Skill 会先运行 `a3s-flow nodes --pretty`，再用 `a3s-flow node <type> --pr
 
 这套顺序有两个用途。第一，节点 manifest 与当前安装版本保持一致。第二，语义摘要只在可执行图已经通过校验并得到稳定顺序后产生。Agent 应在最终说明中列出修改过的节点与边、编译顺序、摘要以及仍由宿主负责的任务处理器。
 
+如果 operation 要进入托管日志，先使用
+`canonicalizeFlowCliWorkflowUpdate`（或 Flow 的 Rust
+`canonical_workflow_authoring_operation`）规范化，再计算幂等键。这样只是
+空格或键顺序不同的 JSON 会得到同一份 operation 字节表示。
+
 ## 容器与持久身份
 
 遍历和循环必须各有一个匹配的内部开始节点，所有子节点使用容器 ID 作为 `parentId`，容器内连线不能跨出作用域。普通图保持无环，重复行为交给 `iteration` 或 `loop` 表达。Skill 会把步骤、Hook、进度、子任务和子工作流的节点 ID 当作重放敏感身份。已经存在运行时，除非用户明确要求迁移，否则不应重命名这些节点。

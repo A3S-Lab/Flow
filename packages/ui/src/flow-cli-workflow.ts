@@ -10,7 +10,7 @@ import {
 } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { JsonObject } from '@a3s-lab/ui/form/core';
+import type { JsonObject, JsonValue } from '@a3s-lab/ui/form/core';
 import type {
   A3SFlowWorkflowDagEdge,
   A3SFlowWorkflowDagNode,
@@ -21,6 +21,7 @@ import {
   mergeA3SFlowDagNodeConfiguration,
   a3sFlowDagNodeRegistry,
 } from './integrations/a3s-flow-node-manifest';
+import { canonicalizeA3SFlowJson } from './integrations/a3s-flow-dsl';
 import { parseA3SFlowStrictJson } from './strict-json';
 
 export type FlowCliWorkflowUpdate =
@@ -210,6 +211,38 @@ export function parseFlowCliWorkflowUpdate(
   index = 0,
 ): FlowCliWorkflowUpdate {
   return parseFlowCliWorkflowUpdateObject(value, index);
+}
+
+/**
+ * Encode one operation in the canonical cross-language JSON form.
+ *
+ * Use the returned UTF-8 string when deriving a hosted idempotency key or
+ * writing NDJSON. The graph-dependent preconditions are still checked only
+ * when the operation is applied to a workflow snapshot.
+ */
+export function canonicalizeFlowCliWorkflowUpdate(value: unknown, index = 0): string {
+  const operation = parseFlowCliWorkflowUpdateObject(value, index);
+  // Omitted and explicit-null move parents have the same wire semantics: both
+  // move the node to the top-level scope. Normalize them before encoding so
+  // Rust and TypeScript hosts derive identical operation bytes.
+  const canonicalOperation =
+    operation.kind === 'move-node' && operation.parentId === undefined
+      ? { ...operation, parentId: null }
+      : operation;
+  return canonicalizeA3SFlowJson(canonicalOperation as unknown as JsonValue);
+}
+
+/** Canonicalize a complete JSON operation array for transport or hashing. */
+export function canonicalizeFlowCliWorkflowUpdates(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error('Workflow operations must be a non-empty JSON array.');
+  }
+  if (value.length > A3S_FLOW_CLI_MAX_UPDATE_OPERATIONS) {
+    throw new Error(
+      `Workflow update list exceeds ${A3S_FLOW_CLI_MAX_UPDATE_OPERATIONS} operations.`,
+    );
+  }
+  return value.map((operation, index) => canonicalizeFlowCliWorkflowUpdate(operation, index));
 }
 
 /** Parse the CLI's JSON patch list without accepting incomplete operations. */

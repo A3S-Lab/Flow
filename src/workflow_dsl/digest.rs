@@ -122,7 +122,7 @@ fn stable_digest(domain: &[u8], value: &Value) -> Result<String, WorkflowDslErro
 /// Flow UI.  The format intentionally follows JSON.stringify semantics for
 /// numbers and UTF-16 key ordering so semantically identical documents have
 /// one cross-language identity.
-fn canonical_json(value: &Value) -> Result<String, WorkflowDslError> {
+pub(super) fn canonical_json(value: &Value) -> Result<String, WorkflowDslError> {
     let mut encoded = String::new();
     write_canonical_json(value, &mut encoded, 0)?;
     Ok(encoded)

@@ -1,8 +1,8 @@
 use a3s_flow::{
     apply_workflow_authoring_operation, apply_workflow_authoring_operations,
-    canonical_workflow_authoring_snapshot, validate_executable_workflow_authoring_snapshot,
-    WorkflowAuthoringSession, WorkflowDslError, WORKFLOW_AUTHORING_MAX_OPERATIONS,
-    WORKFLOW_AUTHORING_OPERATION_MAX_BYTES,
+    canonical_workflow_authoring_operation, canonical_workflow_authoring_snapshot,
+    validate_executable_workflow_authoring_snapshot, WorkflowAuthoringSession, WorkflowDslError,
+    WORKFLOW_AUTHORING_MAX_OPERATIONS, WORKFLOW_AUTHORING_OPERATION_MAX_BYTES,
 };
 use serde_json::{json, Value};
 
@@ -338,6 +338,76 @@ fn duplicate_json_keys_are_rejected_at_every_authoring_boundary() {
     .expect_err("duplicate operation key");
     assert!(matches!(
         operation_error,
+        WorkflowDslError::InvalidAuthoringOperation { .. }
+    ));
+}
+
+#[test]
+fn canonical_operation_bytes_are_stable_and_materialize_semantic_defaults() {
+    let first = canonical_workflow_authoring_operation(
+        br#"{ "type":"host.custom", "id":"node", "kind":"add-node", "configuration":{"z":1,"a":2} }"#,
+    )
+    .expect("canonical operation");
+    let second = canonical_workflow_authoring_operation(
+        br#"{"kind":"add-node","configuration":{"a":2,"z":1},"id":"node","type":"host.custom"}"#,
+    )
+    .expect("equivalent canonical operation");
+    assert_eq!(first, second);
+    assert_eq!(
+        first,
+        br#"{"configuration":{"a":2,"z":1},"id":"node","kind":"add-node","type":"host.custom"}"#
+    );
+
+    let omitted_configuration = canonical_workflow_authoring_operation(
+        br#"{"kind":"add-node","id":"node","type":"host.custom"}"#,
+    )
+    .expect("default configuration");
+    assert_eq!(
+        omitted_configuration,
+        br#"{"configuration":{},"id":"node","kind":"add-node","type":"host.custom"}"#
+    );
+
+    let omitted_parent =
+        canonical_workflow_authoring_operation(br#"{"kind":"move-node","id":"node"}"#)
+            .expect("default parent");
+    let explicit_parent = canonical_workflow_authoring_operation(
+        br#"{"kind":"move-node","id":"node","parentId":null}"#,
+    )
+    .expect("explicit parent");
+    assert_eq!(omitted_parent, explicit_parent);
+}
+
+#[test]
+fn canonical_operation_bytes_reject_ambiguous_or_unrepresentable_input() {
+    let duplicate = canonical_workflow_authoring_operation(
+        br#"{"kind":"set-app-name","name":"one","n\u0061me":"two"}"#,
+    )
+    .expect_err("duplicate operation key");
+    assert!(matches!(
+        duplicate,
+        WorkflowDslError::InvalidAuthoringOperation { .. }
+    ));
+
+    let unknown = canonical_workflow_authoring_operation(
+        br#"{"kind":"remove-node","id":"node","unexpected":true}"#,
+    )
+    .expect_err("unknown operation key");
+    assert!(matches!(
+        unknown,
+        WorkflowDslError::InvalidAuthoringOperation { .. }
+    ));
+
+    let unsafe_number = canonical_workflow_authoring_operation(
+        br#"{"kind":"set-node","id":"node","configuration":{"value":9007199254740992}}"#,
+    )
+    .expect_err("unsafe number");
+    assert!(unsafe_number.to_string().contains("safe integer"));
+
+    let oversized = vec![b' '; WORKFLOW_AUTHORING_OPERATION_MAX_BYTES + 1];
+    let oversized =
+        canonical_workflow_authoring_operation(&oversized).expect_err("oversized operation");
+    assert!(matches!(
+        oversized,
         WorkflowDslError::InvalidAuthoringOperation { .. }
     ));
 }
