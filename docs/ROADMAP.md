@@ -108,6 +108,17 @@ delegates archive storage, retention, and destination retries to the host;
 partitioned history, durable archive ownership, and published scale SLOs remain
 open.
 
+The repository-owned authoring boundary now has a stateless Rust counterpart to
+the CLI and Skill: `canonical_workflow_authoring_snapshot` preserves the
+complete document as canonical JSON, `apply_workflow_authoring_operation`
+applies one strictly bounded JSON operation to a cloned snapshot, and
+`validate_executable_workflow_authoring_snapshot` makes the draft-to-publication
+transition explicit. The API preserves unknown semantic and presentation
+extensions and checks scoped placement, parent cycles, stable identities, and
+incident edges without importing Cloud policy or the UI node registry. Cloud
+may therefore journal Flow-produced bytes while retaining authorization,
+product capability binding, CAS, and publication ownership.
+
 The first `FLOW-R5` queue lifecycle slice is also implemented: built-in local
 and PostgreSQL queues expose an administrative dead-letter redrive operation,
 and custom queues fail closed unless they explicitly provide the same contract.

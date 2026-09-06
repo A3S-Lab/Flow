@@ -41,6 +41,14 @@ pub enum WorkflowDslError {
         message: String,
     },
 
+    /// One authoring operation is malformed or cannot be applied to the
+    /// supplied document.
+    #[error("workflow authoring operation is invalid: {message}")]
+    InvalidAuthoringOperation {
+        /// Authoring operation error description.
+        message: String,
+    },
+
     /// A validated document or graph could not be serialized.
     #[error("workflow DSL serialization failed: {message}")]
     Serialization {

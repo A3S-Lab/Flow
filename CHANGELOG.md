@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added a bounded, stateless Rust workflow-authoring API for Cloud and other
+  hosts: canonical snapshot validation, strict JSON operation parsing, immutable
+  single-operation application, explicit draft versus executable admission, and
+  preservation of unknown DSL extensions. Hosts retain authorization, product
+  node catalogs, persistence, and publication policy.
+
 - Added file-backed NDJSON operation streams with `--operations @<file>`, so
   generated patches can be streamed without shell argument-size limits.
 
