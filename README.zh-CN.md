@@ -1,5 +1,4 @@
-#A3S流程
-
+# A3S Flow
 <p align="center">
   <img src="assets/readme/hero.svg" width="100%" alt="A3S Flow commits workflow decisions to append-only history and resumes safely after worker replacement" />
 </p>
@@ -13,14 +12,8 @@
 </p>
 
 <p align="center">
-  <strong>语言 / 语言:</strong>
-  <a href="README.md">英语</a> ·
-  <a href="README.zh-CN.md">中文</a>
-</p>
-
-<p align="center">
-  <strong>用于代理、工具、审批和子工作流程的 AI 本机工作流程引擎。</strong><br />
-  使用 React 或 Vue 进行创作，使用 CLI 和 Skill 进行自动化，并从仅附加历史记录中恢复每次运行。
+  <strong>用于代理、工具、审批和子工作流程的 AI 原生工作流程引擎。</strong><br />
+  使用 React 或 Vue 进行创作，使用 CLI 和 Skill 进行自动化，并从追加式历史记录中恢复每次运行。
 </p>
 
 <p align="center">
@@ -34,35 +27,35 @@
 <p align="center">
   <a href="https://a3s-lab.github.io/Flow/">中文文档</a>·
   <a href="https://a3s-lab.github.io/Flow/en/">英文文档</a>·
-  <a href="https://a3s-lab.github.io/Flow/playground/">工作流程游乐场</a>·
-  <a href="#quick-start">快速入门</a>·
+  <a href="https://a3s-lab.github.io/Flow/playground/">工作流 Playground</a>·
+  <a href="#quick-start">快速开始</a>·
   <a href="#execution-model">执行模型</a>·
   <a href="#capability-map">功能</a>·
   <a href="#workflow-dag">工作流DAG</a>·
-  <a href="#production-operations">行动</a>·
+  <a href="#production-operations">运维</a>·
   <a href="#examples-and-guides">示例</a>·
   <a href="#release-status">状态</a>
 </p>
 
 A3S Flow 是一个 AI 原生工作流引擎和 Rust SDK，用于必须生存的工作
 进程重新启动、延迟重试、计时器、异步消息、回调、
-和工人更换。每一个有意义的转变都会被载入历史。
-引擎根据历史记录预测状态并拒绝重放漂移而不是
+以及 worker 替换。每一个有意义的转变都会追加到历史。
+引擎根据历史记录投影状态并拒绝重放漂移而不是
 默默地接受不同的决定。同一个存储库还维护
-可重用的创作包、React 和 Vue 挂钩、CLI 和编码代理技能
+可重用的创作包、React 和 Vue 挂钩、CLI 和编码 Agent Skill
 对 Flow 的版本化工作流程文档契约进行操作。
 
 |当这种情况发生时 | Flow 保持其耐用性 |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------ |
 |进程在步骤完成后终止 |重放提交的输出；已完成的工作不再被调用 |
 |重试、计时器、信号或回调未准备好 |运行挂起而不保留内存中堆栈或工作线程 |
-|父级启动一个或多个子级工作流程 |儿童身份、政策和最终结果在跨流崩溃窗口中幸存下来 |
+|父级启动一个或多个子级工作流程 |子工作流身份、政策和最终结果在跨流崩溃窗口中幸存下来 |
 |新的工作流程代码推出 |运行时构建 ID 和不可变补丁标记在兼容的重放路径上保留历史记录 |
 |多个工作人员同时追加 |预期序列写入选择一个持久的获胜者并拒绝过时的决策 |
 |当对等方运行时，批处理同级失败 |在运行终端结果之前，不稳定的对等点会被永久标记为取消 |
 
-> [!重要]
-> Flow 拥有工作流程图验证、仅附加历史记录、持久重播以及
+> [!IMPORTANT]
+> Flow 拥有工作流程图验证、追加式历史记录、持久重播以及
 > 生命周期状态。主机拥有节点实现、授权、租户
 > 外部的策略、凭证、工具访问和逻辑幂等性
 > 效果。 A3S Cloud绑定了这些产品能力；它不重复
@@ -70,13 +63,13 @@ A3S Flow 是一个 AI 原生工作流引擎和 Rust SDK，用于必须生存的�
 
 ## 编写组件、挂钩、CLI 和技能
 
-`@a3s-lab/flow-ui` 是 Fl​​ow 工作流程的可重用创作包。它
+`@a3s-lab/flow-ui` 是 Flow 工作流程的可重用创作包。它
 保留节点目录、编辑器组件、框架挂钩、命令行工具、
 以及同一清单和图表合同上的代理指令。
 
 |表面|当前合同|
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-|游乐场|集成的可视化创作路线，具有 35 节点跨境订单履行示例，涵盖所有 20 个注册表清单、完整的清单合同检查、拖放、类型化连接、可编辑的仅演示边缘标签、A3S UI 配置表单、Worker 和 WebAssembly 布局、可见节点渲染、DAG 编译、DSL 检查以及主机可注入的 CLI/Skill/Copilot 扩展抽屉 |
+|Playground|集成的可视化创作路线，具有 35 节点跨境订单履行示例，涵盖所有 20 个注册表清单、完整的清单合同检查、拖放、类型化连接、可编辑的仅演示边缘标签、A3S UI 配置表单、Worker 和 WebAssembly 布局、可见节点渲染、DAG 编译、DSL 检查以及主机可注入的 CLI/Skill/Copilot 扩展抽屉 |
 |节点目录 |六个创作组中的 18 个公共清单，包含字段、默认值、端口、运行时绑定和持久节点标识 |
 |反应 |节点预览和配置组件加上`useA3SFlowNode`用于受控就绪节点状态； `createA3SFlowDesignerContext` 和 `A3SFlowDesignerExtensionArea` 向主机扩展公开不可变的完整 DSL 和选择上下文 |
 |视图 | `useA3SFlowNode` 可在同一节点对象、默认值和清单注册表上组合 |
