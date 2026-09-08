@@ -4,6 +4,13 @@
   <img src="assets/readme/hero.svg" width="100%" alt="A3S Flow commits workflow decisions to append-only history and resumes safely after worker replacement" />
 </p>
 
+
+<p align="center">
+  <strong>Language / 语言:</strong>
+  <a href="README.md">English</a> ·
+  <a href="README.zh-CN.md">中文</a>
+</p>
+
 <p align="center">
   <strong>AI Native Workflow Engine for Agents, tools, approvals, and child workflows.</strong><br />
   Author with React or Vue, automate with the CLI and Skill, and recover every run from append-only history.
