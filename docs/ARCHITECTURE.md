@@ -845,6 +845,15 @@ step/activity attempt correlation (`attempt`, `attempt_id`, and
 for correlation; that carrier is never written into the replay log. These
 high-cardinality fields are retained for logs, traces, and audit sinks but are
 excluded from low-cardinality metric labels.
+
+`FlowEngine::visibility_projection` publishes a tip-anchored
+`FlowVisibilityProjection` for host search and operations indexes. The record
+carries schema version, run/workflow identity, status, terminal outcome,
+bounded progress tip, open-work counters, and the same snapshot SHA-256 tip
+anchors used by checkpoints. It omits workflow input, output, and per-step
+payloads. Hosts rebuild from a tip-validated snapshot path or by paging
+authoritative history; the visibility record is never a second execution
+history.
 `InMemoryA3sFlowEventSink` keeps those records in
 process for tests and examples. `LocalFileA3sFlowEventSink` appends them to
 JSONL for local audit trails and records write failures in `last_error()`. On

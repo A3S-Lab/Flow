@@ -195,8 +195,12 @@ for host logs, traces, and audit sinks while keeping those high-cardinality
 identities out of metric labels. Ambient W3C Trace Context propagation is also
 implemented: hosts bind `FlowTraceContext` with `with_trace_context` so
 invocations and `A3sFlowEvent` records can carry `traceparent` / `tracestate`
-without embedding those carriers in replay history. Hosted visibility projection
-remains open R5 work.
+without embedding those carriers in replay history. The first visibility
+projection contract is also implemented: `FlowEngine::visibility_projection`
+returns a tip-anchored, schema-versioned summary rebuildable from history or a
+tip-validated snapshot/checkpoint digest, without copying workflow payloads into
+the index. Queue-admission backpressure and processor fairness across tenants
+remain open R5 work.
 
 ## 4. Implementation rules
 

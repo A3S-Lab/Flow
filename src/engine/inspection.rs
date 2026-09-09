@@ -3,9 +3,9 @@ use std::future::Future;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    project_run, project_run_from_snapshot, ActiveHookSnapshot, ActivityStatus, HookStatus,
-    ScheduledWakeup, ScheduledWakeupKind, StepStatus, WaitStatus, WorkflowRunSnapshot,
-    WorkflowRunSummary, WorkflowRunSuspension,
+    project_run, project_run_from_snapshot, ActiveHookSnapshot, ActivityStatus,
+    FlowVisibilityProjection, HookStatus, ScheduledWakeup, ScheduledWakeupKind, StepStatus,
+    WaitStatus, WorkflowRunSnapshot, WorkflowRunSummary, WorkflowRunSuspension,
 };
 use crate::store::{
     history_content_digest, FlowHistoryArchiveSeal, FlowHistoryPartition, FlowProjectionCheckpoint,
@@ -52,6 +52,31 @@ impl FlowEngine {
         }
         let history = self.store.list(run_id).await?;
         project_run(run_id, &history)
+    }
+
+    /// Build a tip-anchored visibility projection for host search/ops indexes.
+    ///
+    /// Uses the same tip-validated snapshot path as [`Self::snapshot`], so a
+    /// valid checkpoint accelerates rebuild without treating the visibility
+    /// record as a second execution history. Hosts that lost their index can
+    /// also call [`FlowVisibilityProjection::from_history`] after paging
+    /// authoritative events with [`Self::history_page`].
+    pub async fn visibility_projection(&self, run_id: &str) -> Result<FlowVisibilityProjection> {
+        let snapshot = self.snapshot(run_id).await?;
+        let (sequence, event_id) = self
+            .store
+            .latest_event(run_id)
+            .await?
+            .ok_or_else(|| FlowError::RunNotFound(run_id.to_string()))?;
+        if snapshot.last_sequence != sequence {
+            return Err(FlowError::InvalidTransition(format!(
+                "visibility projection tip mismatch for {run_id}: snapshot sequence {} != history tip {sequence}",
+                snapshot.last_sequence
+            )));
+        }
+        let projection = FlowVisibilityProjection::from_snapshot(snapshot, event_id)?;
+        projection.validate()?;
+        Ok(projection)
     }
 
     /// Replay and persist a projection checkpoint for `run_id`.

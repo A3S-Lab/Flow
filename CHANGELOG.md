@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added the tip-anchored visibility projection contract through
+  `FlowVisibilityProjection`, `FlowVisibilityProgress`,
+  `FlowVisibilitySuspensionCounts`, `FLOW_VISIBILITY_PROJECTION_SCHEMA_VERSION`,
+  and `FlowEngine::visibility_projection`. Hosts rebuild search/ops indexes from
+  tip-validated snapshots or paged history without indexing workflow
+  input/output/step payloads or treating the index as a second execution history.
+
 - Added ambient W3C Trace Context propagation through `FlowTraceContext`,
   `with_trace_context` / `without_trace_context` / `current_trace_context`, and
   optional `trace_context` on workflow/step/activity/query/update invocations.

@@ -35,7 +35,8 @@ pub use model::{
     CancellationScopeStatus, ChildOperationReference, ChildWorkflowCancellationPolicy,
     ChildWorkflowCommand, ChildWorkflowMapSnapshot, ChildWorkflowMapStatus, ChildWorkflowSnapshot,
     CompensationMarker, CompensationMarkerSnapshot, CompensationMarkerStatus, ExternalDatasetRef,
-    FlowEvent, FlowEventEnvelope, HookCallbackRoute, HookMetadata, HookSnapshot, HookStatus,
+    FlowEvent, FlowEventEnvelope, FlowVisibilityProgress, FlowVisibilityProjection,
+    FlowVisibilitySuspensionCounts, HookCallbackRoute, HookMetadata, HookSnapshot, HookStatus,
     ItemAggregateContribution, ItemAggregateEntry, ItemAggregateSnapshot, JsonValue, RetryBackoff,
     RetryPolicy, RuntimeCommand, RuntimeKind, RuntimeSpec, ScheduledWakeup, ScheduledWakeupKind,
     SelectArm, SelectSnapshot, SelectStatus, SignalWaitSnapshot, SignalWaitStatus, StepCommand,
@@ -43,8 +44,9 @@ pub use model::{
     WorkflowPatchId, WorkflowProgress, WorkflowRunSnapshot, WorkflowRunStatus, WorkflowRunSummary,
     WorkflowRunSuspension, WorkflowSignal, WorkflowSignalSnapshot, WorkflowSpec,
     WorkflowTerminalOutcome, WorkflowUpdate, WorkflowUpdateOutcome, WorkflowUpdateSnapshot,
-    FLOW_EVENT_ENVELOPE_SCHEMA_VERSION, MAX_CHILD_WORKFLOW_BATCH_SIZE, MAX_CHILD_WORKFLOW_MAP_SIZE,
-    MAX_FLOW_EVENT_BYTES, MAX_WORKFLOW_PATCH_MARKERS,
+    FLOW_EVENT_ENVELOPE_SCHEMA_VERSION, FLOW_VISIBILITY_PROJECTION_SCHEMA_VERSION,
+    MAX_CHILD_WORKFLOW_BATCH_SIZE, MAX_CHILD_WORKFLOW_MAP_SIZE, MAX_FLOW_EVENT_BYTES,
+    MAX_WORKFLOW_PATCH_MARKERS,
 };
 #[cfg(feature = "a3s-event")]
 pub use observe::A3sEventBusFlowEventSink;

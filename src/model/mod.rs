@@ -17,6 +17,7 @@ mod select;
 mod signal;
 mod snapshot;
 mod update;
+mod visibility;
 
 pub(crate) use activity_timeout::activity_deadline;
 pub use aggregate::{ItemAggregateContribution, ItemAggregateEntry, ItemAggregateSnapshot};
@@ -56,3 +57,7 @@ pub use snapshot::{
     WaitStatus, WorkflowRunSnapshot, WorkflowRunStatus,
 };
 pub use update::{WorkflowUpdate, WorkflowUpdateOutcome, WorkflowUpdateSnapshot};
+pub use visibility::{
+    FlowVisibilityProgress, FlowVisibilityProjection, FlowVisibilitySuspensionCounts,
+    FLOW_VISIBILITY_PROJECTION_SCHEMA_VERSION,
+};
