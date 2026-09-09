@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added physical run sharding through `FlowRunShardLayout`,
+  `InMemoryEventStore::with_shard_count`, `LocalFileEventStore::with_shard_count`,
+  and `FlowStoreCapabilities::physical_run_sharding`. Runs hash stably onto
+  independent shard maps or `sNN/` directories while cross-shard linked-run and
+  hook-token checks remain store-wide.
+
 - Added structured join-all through `SelectMode::JoinAll`, `WorkflowContext::join`,
   and `WorkflowContext::select_joined`. A join waits until every timer/signal arm
   completes without cancelling siblings early; race mode remains the default for

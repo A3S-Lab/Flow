@@ -26,6 +26,7 @@ mod postgres;
 #[cfg(feature = "postgres")]
 mod postgres_schema;
 mod retention;
+mod shard;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
@@ -48,6 +49,7 @@ pub(crate) use postgres_schema::verify_postgres_flow;
 pub use retention::{
     FlowHistoryHold, FlowHistoryRetentionPolicy, FlowHistoryRetentionReport, FlowHistoryTombstone,
 };
+pub use shard::{FlowRunShardLayout, MAX_FLOW_RUN_SHARD_COUNT, MIN_FLOW_RUN_SHARD_COUNT};
 #[cfg(feature = "sqlite")]
 pub use sqlite::SqliteEventStore;
 
@@ -64,6 +66,7 @@ pub struct FlowStoreCapabilities {
     atomic_hook_claim: bool,
     indexed_wakeups: bool,
     cross_process_locking: bool,
+    physical_run_sharding: bool,
 }
 
 impl FlowStoreCapabilities {
@@ -79,6 +82,7 @@ impl FlowStoreCapabilities {
             atomic_hook_claim,
             indexed_wakeups,
             cross_process_locking,
+            physical_run_sharding: false,
         }
     }
 
@@ -86,6 +90,12 @@ impl FlowStoreCapabilities {
     /// capability declaration.
     pub const fn compatibility() -> Self {
         Self::new(false, false, false, false)
+    }
+
+    /// Advertise that run histories are partitioned across physical shards.
+    pub const fn with_physical_run_sharding(mut self, enabled: bool) -> Self {
+        self.physical_run_sharding = enabled;
+        self
     }
 
     /// Return whether validation and expected-sequence append share one lock or
@@ -107,6 +117,11 @@ impl FlowStoreCapabilities {
     /// Return whether writers coordinate across host processes.
     pub const fn cross_process_locking(self) -> bool {
         self.cross_process_locking
+    }
+
+    /// Return whether run histories are stored on physical shards by run ID.
+    pub const fn physical_run_sharding(self) -> bool {
+        self.physical_run_sharding
     }
 
     /// Return whether this profile is suitable for a multi-worker hosted

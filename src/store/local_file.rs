@@ -15,36 +15,66 @@ use super::{
     next_event_sequence,
     retention::{plan_history_retention, required_linked_flow_run_id, FlowHistoryRetentionPolicy},
     validate_candidate_event, FlowEventStore, FlowHistoryPartition, FlowProjectionCheckpoint,
-    FlowStoreCapabilities,
+    FlowRunShardLayout, FlowStoreCapabilities,
 };
 
 /// JSONL-backed event store for local durable runs.
 ///
-/// Each workflow run is stored as `<root>/<run_id>.jsonl`; every line is a full
-/// [`FlowEventEnvelope`]. The store serializes appends inside this process, but
-/// it does not provide cross-process locking. Use it for local development,
-/// embedded Rust hosts, and crash/restart durability. An unterminated malformed
-/// tail is treated as a torn append and truncated before the next write;
-/// terminated or interior corruption remains an error. Use a database-backed
-/// store for multi-writer deployments.
+/// Each workflow run is stored as `<root>/<run_id>.jsonl` when unsharded, or as
+/// `<root>/sNN/<run_id>.jsonl` when physical run sharding is enabled. Every line
+/// is a full [`FlowEventEnvelope`]. The store serializes appends inside this
+/// process, but it does not provide cross-process locking. Use it for local
+/// development, embedded Rust hosts, and crash/restart durability. An
+/// unterminated malformed tail is treated as a torn append and truncated before
+/// the next write; terminated or interior corruption remains an error. Use a
+/// database-backed store for multi-writer deployments.
 #[derive(Debug, Clone)]
 pub struct LocalFileEventStore {
     root: PathBuf,
+    layout: FlowRunShardLayout,
     lock: Arc<Mutex<()>>,
 }
 
 impl LocalFileEventStore {
     /// Create a local event store rooted at `root`.
     pub fn new(root: impl Into<PathBuf>) -> Self {
+        Self::with_shard_layout(root, FlowRunShardLayout::single())
+    }
+
+    /// Create a local store that partitions run files across shard directories.
+    pub fn with_shard_layout(root: impl Into<PathBuf>, layout: FlowRunShardLayout) -> Self {
         Self {
             root: root.into(),
+            layout,
             lock: Arc::new(Mutex::new(())),
         }
+    }
+
+    /// Create a multi-shard local store with `shard_count` directories.
+    pub fn with_shard_count(root: impl Into<PathBuf>, shard_count: u32) -> Result<Self> {
+        Ok(Self::with_shard_layout(
+            root,
+            FlowRunShardLayout::new(shard_count)?,
+        ))
     }
 
     /// Return the directory containing per-run JSONL histories.
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Return the configured run shard layout.
+    pub fn shard_layout(&self) -> FlowRunShardLayout {
+        self.layout
+    }
+
+    fn shard_dir(&self, run_id: &str) -> Result<PathBuf> {
+        if !self.layout.is_sharded() {
+            return Ok(self.root.clone());
+        }
+        Ok(self
+            .root
+            .join(self.layout.shard_name(self.layout.shard_index(run_id))?))
     }
 
     fn run_path(&self, run_id: &str) -> Result<PathBuf> {
@@ -53,7 +83,7 @@ impl LocalFileEventStore {
                 "run id {run_id:?} is not safe for local file storage"
             )));
         }
-        Ok(self.root.join(format!("{run_id}.jsonl")))
+        Ok(self.shard_dir(run_id)?.join(format!("{run_id}.jsonl")))
     }
 
     fn checkpoint_path(&self, run_id: &str) -> Result<PathBuf> {
@@ -62,7 +92,9 @@ impl LocalFileEventStore {
                 "run id {run_id:?} is not safe for local file storage"
             )));
         }
-        Ok(self.root.join(format!("{run_id}.checkpoint.json")))
+        Ok(self
+            .shard_dir(run_id)?
+            .join(format!("{run_id}.checkpoint.json")))
     }
 
     fn partitions_path(&self, run_id: &str) -> Result<PathBuf> {
@@ -71,7 +103,9 @@ impl LocalFileEventStore {
                 "run id {run_id:?} is not safe for local file storage"
             )));
         }
-        Ok(self.root.join(format!("{run_id}.partitions.json")))
+        Ok(self
+            .shard_dir(run_id)?
+            .join(format!("{run_id}.partitions.json")))
     }
 
     async fn load_partitions_inner(&self, run_id: &str) -> Result<Vec<FlowHistoryPartition>> {
@@ -135,7 +169,7 @@ impl LocalFileEventStore {
     }
 
     async fn append_inner(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope> {
-        tokio::fs::create_dir_all(&self.root).await?;
+        tokio::fs::create_dir_all(self.shard_dir(run_id)?).await?;
         self.ensure_linked_flow_run_exists(&event).await?;
         self.ensure_hook_token_available(run_id, &event).await?;
 
@@ -169,7 +203,7 @@ impl LocalFileEventStore {
         expected_sequence: u64,
         event: FlowEvent,
     ) -> Result<FlowEventEnvelope> {
-        tokio::fs::create_dir_all(&self.root).await?;
+        tokio::fs::create_dir_all(self.shard_dir(run_id)?).await?;
         self.ensure_linked_flow_run_exists(&event).await?;
         self.ensure_hook_token_available(run_id, &event).await?;
 
@@ -245,27 +279,16 @@ impl LocalFileEventStore {
 
     async fn list_run_ids_inner(&self) -> Result<Vec<String>> {
         let mut ids = Vec::new();
-
-        let mut dir = match tokio::fs::read_dir(&self.root).await {
-            Ok(dir) => dir,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(ids),
-            Err(err) => return Err(FlowError::Io(err)),
-        };
-
-        while let Some(entry) = dir.next_entry().await? {
-            let path = entry.path();
-            if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
-                continue;
+        if self.layout.is_sharded() {
+            for shard_index in 0..self.layout.shard_count() {
+                let shard_dir = self.root.join(self.layout.shard_name(shard_index)?);
+                collect_jsonl_run_ids(&shard_dir, &mut ids).await?;
             }
-            let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
-                continue;
-            };
-            if is_safe_run_id(stem) {
-                ids.push(stem.to_string());
-            }
+        } else {
+            collect_jsonl_run_ids(&self.root, &mut ids).await?;
         }
-
         ids.sort();
+        ids.dedup();
         Ok(ids)
     }
 
@@ -325,6 +348,7 @@ impl LocalFileEventStore {
 impl FlowEventStore for LocalFileEventStore {
     fn capabilities(&self) -> FlowStoreCapabilities {
         FlowStoreCapabilities::new(true, true, false, false)
+            .with_physical_run_sharding(self.layout.is_sharded())
     }
 
     async fn append(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope> {
@@ -410,7 +434,7 @@ impl FlowEventStore for LocalFileEventStore {
     async fn save_checkpoint(&self, checkpoint: &FlowProjectionCheckpoint) -> Result<()> {
         checkpoint.validate()?;
         let _guard = self.lock.lock().await;
-        tokio::fs::create_dir_all(&self.root).await?;
+        tokio::fs::create_dir_all(self.shard_dir(&checkpoint.run_id)?).await?;
         let path = self.checkpoint_path(&checkpoint.run_id)?;
         let temporary = path.with_extension("checkpoint.json.tmp");
         let bytes = serde_json::to_vec(checkpoint)?;
@@ -456,7 +480,7 @@ impl FlowEventStore for LocalFileEventStore {
             )));
         }
         partitions.push(partition.clone());
-        tokio::fs::create_dir_all(&self.root).await?;
+        tokio::fs::create_dir_all(self.shard_dir(&partition.run_id)?).await?;
         let path = self.partitions_path(&partition.run_id)?;
         let temporary = path.with_extension("partitions.json.tmp");
         let bytes = serde_json::to_vec(&partitions)?;
@@ -464,6 +488,27 @@ impl FlowEventStore for LocalFileEventStore {
         tokio::fs::rename(&temporary, &path).await?;
         Ok(())
     }
+}
+
+async fn collect_jsonl_run_ids(dir: &Path, ids: &mut Vec<String>) -> Result<()> {
+    let mut entries = match tokio::fs::read_dir(dir).await {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(FlowError::Io(err)),
+    };
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        if is_safe_run_id(stem) {
+            ids.push(stem.to_string());
+        }
+    }
+    Ok(())
 }
 
 fn is_safe_run_id(run_id: &str) -> bool {

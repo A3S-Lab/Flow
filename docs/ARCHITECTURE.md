@@ -603,6 +603,17 @@ reject tombstoned run IDs. Partial prefix compaction is not supported because
 replay and audit both depend on the original contiguous sequence beginning with
 `run_created`.
 
+Physical run sharding is an optional storage layout for hosts that need to
+partition histories across files or databases. `FlowRunShardLayout` maps each
+`run_id` to a stable shard with FNV-1a and a power-of-two bucket count. The
+in-memory store keeps one map per shard under a shared lock; the local JSONL
+store writes `<root>/sNN/<run_id>.jsonl` when constructed with
+`with_shard_count`. Capability bit `physical_run_sharding` is set only for those
+layouts. Linked-run and hook-token uniqueness remain store-wide so
+cross-shard parent/child links stay valid. SQL adapters may adopt the same
+layout contract for per-shard databases later; they do not yet expose
+`with_shard_count` constructors.
+
 Both SQL stores are adapters over `a3s-orm`. ORM executors own connection and
 pool behavior, typed decoding, and transaction completion. Flow owns the event
 schema and supplies canonical checksummed migrations to the ORM migrator. The

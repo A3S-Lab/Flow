@@ -111,7 +111,11 @@ execution history. `FlowEngine::seal_history_partition` indexes immutable
 contiguous ranges over the same authoritative log; sealed partitions persist in
 built-in stores and are deleted with retention. Published scale SLO targets for
 append, checkpointed reads, history pages, and archive export are recorded
-below. Physical table sharding across runs remains open R3 work.
+below. Physical run sharding is also implemented: `FlowRunShardLayout` maps
+run IDs onto a fixed shard count, and built-in in-memory/local-file stores can
+partition histories into independent shard maps or `sNN/` directories while
+preserving cross-shard link and hook checks. SQL hosts can adopt the same
+layout contract when placing per-shard databases.
 
 ### Published scale SLO targets (kernel)
 
