@@ -9,7 +9,7 @@ use crate::runtime_build::RuntimeBuildId;
 use super::{
     CancellationRequestSnapshot, ChildOperationReference, ChildWorkflowSnapshot, JsonValue,
     RetryPolicy, SignalWaitSnapshot, SignalWaitStatus, WorkflowContinuation, WorkflowProgress,
-    WorkflowSignalSnapshot, WorkflowSpec, WorkflowTerminalOutcome,
+    WorkflowSignalSnapshot, WorkflowSpec, WorkflowTerminalOutcome, WorkflowUpdateSnapshot,
 };
 
 /// Materialized lifecycle state of a workflow run.
@@ -439,6 +439,9 @@ pub struct WorkflowRunSnapshot {
     /// Deterministic signal waits indexed by stable wait identifiers.
     #[serde(default)]
     pub signal_waits: BTreeMap<String, SignalWaitSnapshot>,
+    /// Applied updates in durable application order.
+    #[serde(default)]
+    pub updates: Vec<WorkflowUpdateSnapshot>,
     /// Final JSON output for a successfully completed run.
     pub output: Option<JsonValue>,
     /// Terminal error for a failed run.
@@ -475,6 +478,7 @@ impl WorkflowRunSnapshot {
             child_workflows: BTreeMap::new(),
             signals: Vec::new(),
             signal_waits: BTreeMap::new(),
+            updates: Vec::new(),
             output: None,
             error: None,
             terminal_outcome: None,
@@ -574,6 +578,13 @@ impl WorkflowRunSnapshot {
         self.signals
             .iter()
             .find(|signal| signal.signal_id == signal_id)
+    }
+
+    /// Return an applied update by its caller-owned idempotency identity.
+    pub fn update(&self, update_id: &str) -> Option<&WorkflowUpdateSnapshot> {
+        self.updates
+            .iter()
+            .find(|update| update.update_id == update_id)
     }
 
     /// Return the signal payload paired with a deterministic signal wait.

@@ -6,6 +6,7 @@ use uuid::Uuid;
 use super::{
     CancellationRequest, ChildOperationReference, ChildWorkflowCancellationPolicy, JsonValue,
     RetryPolicy, WorkflowProgress, WorkflowSignal, WorkflowSpec, WorkflowTerminalOutcome,
+    WorkflowUpdate,
 };
 
 /// Schema version of the durable [`FlowEventEnvelope`] wire representation.
@@ -133,6 +134,13 @@ pub enum FlowEvent {
         wait_id: String,
         /// Identifier of the signal consumed by the wait.
         signal_id: String,
+    },
+    /// Persists one named synchronous update and its handler output.
+    UpdateApplied {
+        /// Update identity, name, and input.
+        update: WorkflowUpdate,
+        /// JSON output returned by the update handler.
+        output: JsonValue,
     },
     /// Creates a durable step invocation.
     StepCreated {
@@ -389,6 +397,7 @@ impl FlowEvent {
             Self::SignalReceived { .. } => "flow.signal.received",
             Self::SignalWaitCreated { .. } => "flow.signal.wait.created",
             Self::SignalWaitCompleted { .. } => "flow.signal.wait.completed",
+            Self::UpdateApplied { .. } => "flow.update.applied",
             Self::StepCreated { .. } => "flow.step.created",
             Self::StepStarted { .. } => "flow.step.started",
             Self::StepCompleted { .. } => "flow.step.completed",

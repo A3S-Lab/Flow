@@ -168,6 +168,17 @@ pub enum FlowError {
         reason: String,
     },
 
+    /// An update retry conflicts with its durable identity or payload.
+    #[error("update {update_id} for workflow run {run_id} conflicts with request: {reason}")]
+    UpdateConflict {
+        /// Run targeted by the update.
+        run_id: String,
+        /// Caller-owned update identity.
+        update_id: String,
+        /// Description of the conflicting delivery.
+        reason: String,
+    },
+
     /// A workflow definition violates a static invariant.
     #[error("invalid workflow definition: {0}")]
     InvalidWorkflow(String),
@@ -361,6 +372,16 @@ impl fmt::Debug for FlowError {
                 .debug_struct("SignalConflict")
                 .field("run_id", run_id)
                 .field("signal_id", signal_id)
+                .field("reason", reason)
+                .finish(),
+            Self::UpdateConflict {
+                run_id,
+                update_id,
+                reason,
+            } => formatter
+                .debug_struct("UpdateConflict")
+                .field("run_id", run_id)
+                .field("update_id", update_id)
                 .field("reason", reason)
                 .finish(),
             Self::InvalidWorkflow(message) => formatter

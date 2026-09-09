@@ -7,7 +7,7 @@ use crate::model::{
     ActivityCommand, CancellationRequest, ChildOperationReference, ChildWorkflowCancellationPolicy,
     ChildWorkflowCommand, FlowEvent, FlowEventEnvelope, HookMetadata, JsonValue, RetryPolicy,
     RuntimeCommand, StepCommand, WorkflowProgress, WorkflowSignal, WorkflowSpec,
-    WorkflowTerminalOutcome,
+    WorkflowTerminalOutcome, WorkflowUpdate,
 };
 use crate::runtime::WorkflowInvocation;
 
@@ -163,6 +163,24 @@ impl<'a> WorkflowContext<'a> {
                 }
                 _ => None,
             })
+    }
+
+    /// Return every applied update in durable history order.
+    pub fn updates(&self) -> Vec<&WorkflowUpdate> {
+        self.history()
+            .iter()
+            .filter_map(|envelope| match &envelope.event {
+                FlowEvent::UpdateApplied { update, .. } => Some(update),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Return the first applied update that matches `name`.
+    pub fn update(&self, name: &str) -> Option<&WorkflowUpdate> {
+        self.updates()
+            .into_iter()
+            .find(|update| update.name == name)
     }
 
     /// Return the payload paired with a completed deterministic signal wait.

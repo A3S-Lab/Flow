@@ -309,6 +309,7 @@ impl FlowEngine {
                     now,
                     child_depth + 1,
                     &ancestry,
+                    false,
                 ))
                 .await?
             };

@@ -86,6 +86,9 @@ pub struct WorkflowSpec {
     /// Named read-only query contracts accepted by this workflow.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub query_names: BTreeSet<String>,
+    /// Named synchronous update contracts accepted by this workflow.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub update_names: BTreeSet<String>,
 }
 
 impl WorkflowSpec {
@@ -104,6 +107,7 @@ impl WorkflowSpec {
             patch_markers: BTreeSet::new(),
             signal_names: BTreeSet::new(),
             query_names: BTreeSet::new(),
+            update_names: BTreeSet::new(),
         }
     }
 
@@ -122,6 +126,7 @@ impl WorkflowSpec {
             patch_markers: BTreeSet::new(),
             signal_names: BTreeSet::new(),
             query_names: BTreeSet::new(),
+            update_names: BTreeSet::new(),
         }
     }
 
@@ -168,6 +173,17 @@ impl WorkflowSpec {
         self.query_names.contains(query_name)
     }
 
+    /// Declare one named synchronous update contract for this workflow.
+    pub fn with_update(mut self, update_name: impl Into<String>) -> Self {
+        self.update_names.insert(update_name.into());
+        self
+    }
+
+    /// Return whether this immutable workflow definition accepts `update_name`.
+    pub fn accepts_update(&self, update_name: &str) -> bool {
+        self.update_names.contains(update_name)
+    }
+
     /// Validates identifiers, runtime metadata, patch limits, and named contracts.
     pub fn validate(&self) -> Result<()> {
         if self.name.trim().is_empty() {
@@ -207,6 +223,13 @@ impl WorkflowSpec {
             if query_name.trim().is_empty() {
                 return Err(FlowError::InvalidWorkflow(
                     "workflow query name must not be empty".to_string(),
+                ));
+            }
+        }
+        for update_name in &self.update_names {
+            if update_name.trim().is_empty() {
+                return Err(FlowError::InvalidWorkflow(
+                    "workflow update name must not be empty".to_string(),
                 ));
             }
         }

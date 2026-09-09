@@ -901,6 +901,56 @@ stores are approved for them. See `examples/workflow_signals.rs` and use hooks
 instead when a pre-created one-shot callback with a routable bearer token is
 the actual domain primitive.
 
+## Typed Workflow Updates
+
+Use updates when a host needs a synchronous, idempotent RPC that both returns a
+handler result and can change the next workflow decision. Declare every accepted
+name on the immutable run spec:
+
+```rust
+let spec = WorkflowSpec::rust_embedded("counter", "1", "counter", "main")
+    .with_update("bump");
+```
+
+Implement `FlowRuntime::run_update` to answer from durable history, then let
+workflow replay observe applied updates through `WorkflowContext`:
+
+```rust
+async fn run_update(&self, invocation: UpdateInvocation) -> a3s_flow::Result<JsonValue> {
+    Ok(json!({ "name": invocation.update.name, "input": invocation.update.input }))
+}
+
+async fn run_workflow(&self, invocation: WorkflowInvocation) -> a3s_flow::Result<RuntimeCommand> {
+    let ctx = invocation.context();
+    if ctx.update("bump").is_some() {
+        return Ok(RuntimeCommand::Complete {
+            output: json!({ "bumps": ctx.updates().len() }),
+        });
+    }
+    Ok(ctx.wait_until("pause", "2030-01-01T00:00:00Z".parse().unwrap()))
+}
+```
+
+Hosts supply a caller-owned `update_id` and retry the exact triple:
+
+```rust
+use a3s_flow::WorkflowUpdate;
+
+let outcome = engine
+    .apply_update(
+        "run-1",
+        WorkflowUpdate::new("upd-1", "bump", json!({ "by": 1 })),
+    )
+    .await?;
+assert_eq!(outcome.output["name"], "bump");
+```
+
+Identical retries return the stored output without another `run_update` call.
+Changing the name or input for the same `update_id` returns `UpdateConflict`.
+Unlike queries, updates append `update_applied` and force one workflow replay so
+open waits or hooks can observe the new history. Authorization and input schemas
+remain host-owned.
+
 ## Human Approval Or Webhook Callback
 
 Use hooks when an external system or user must call back later. The token is the

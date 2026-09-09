@@ -38,7 +38,9 @@ mod invocation;
 pub(crate) use invocation::{
     activity_attempt_id, activity_attempt_idempotency_key, step_attempt_idempotency_key,
 };
-pub use invocation::{ActivityInvocation, QueryInvocation, StepInvocation, WorkflowInvocation};
+pub use invocation::{
+    ActivityInvocation, QueryInvocation, StepInvocation, UpdateInvocation, WorkflowInvocation,
+};
 /// Runtime boundary for workflow code and side-effecting steps.
 #[async_trait]
 pub trait FlowRuntime: Send + Sync {
@@ -71,6 +73,18 @@ pub trait FlowRuntime: Send + Sync {
         Err(FlowError::Runtime(format!(
             "workflow query {} is unsupported by this runtime",
             invocation.query_name
+        )))
+    }
+
+    /// Apply one declared synchronous update and return its handler output.
+    ///
+    /// The default fails closed so existing runtimes do not silently accept
+    /// update contracts they do not implement. The engine persists the returned
+    /// output with the update before driving workflow replay.
+    async fn run_update(&self, invocation: UpdateInvocation) -> Result<JsonValue> {
+        Err(FlowError::Runtime(format!(
+            "workflow update {} is unsupported by this runtime",
+            invocation.update.name
         )))
     }
 }

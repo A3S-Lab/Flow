@@ -10,6 +10,7 @@ mod projection;
 mod run;
 mod signal;
 mod snapshot;
+mod update;
 
 pub(crate) use activity_timeout::activity_deadline;
 pub(crate) use child_workflow::validate_child_workflow_command;
@@ -38,3 +39,4 @@ pub use snapshot::{
     HookStatus, ScheduledWakeup, ScheduledWakeupKind, StepSnapshot, StepStatus, WaitSnapshot,
     WaitStatus, WorkflowRunSnapshot, WorkflowRunStatus,
 };
+pub use update::{WorkflowUpdate, WorkflowUpdateOutcome, WorkflowUpdateSnapshot};

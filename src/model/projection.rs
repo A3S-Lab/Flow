@@ -5,6 +5,7 @@ use super::{
     FlowEventEnvelope, HookSnapshot, HookStatus, SignalWaitSnapshot, SignalWaitStatus,
     StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowContinuation,
     WorkflowRunSnapshot, WorkflowRunStatus, WorkflowSignalSnapshot, WorkflowTerminalOutcome,
+    WorkflowUpdateSnapshot,
 };
 
 mod activity;
@@ -387,6 +388,38 @@ pub(crate) fn project_run_from_snapshot(
                     received_at: envelope.timestamp,
                     received_sequence: envelope.sequence,
                     consumed_by: None,
+                });
+            }
+            FlowEvent::UpdateApplied { update, output } => {
+                if snapshot.status == WorkflowRunStatus::Pending {
+                    return Err(FlowError::InvalidTransition(
+                        "update_applied cannot precede run_started".to_string(),
+                    ));
+                }
+                update.validate()?;
+                if !snapshot.spec.accepts_update(&update.name) {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "update {} uses undeclared workflow update name {}",
+                        update.update_id, update.name
+                    )));
+                }
+                if snapshot
+                    .updates
+                    .iter()
+                    .any(|existing| existing.update_id == update.update_id)
+                {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "update_applied duplicates update {}",
+                        update.update_id
+                    )));
+                }
+                snapshot.updates.push(WorkflowUpdateSnapshot {
+                    update_id: update.update_id.clone(),
+                    name: update.name.clone(),
+                    input: update.input.clone(),
+                    output: output.clone(),
+                    applied_at: envelope.timestamp,
+                    applied_sequence: envelope.sequence,
                 });
             }
             FlowEvent::SignalWaitCreated {

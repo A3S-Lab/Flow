@@ -359,6 +359,28 @@ messages. Unlike hooks, signals require no pre-created bearer token and support
 repeated named deliveries. Hooks remain the right primitive for a one-shot
 externally routed callback whose public token and lifecycle must be inspected.
 
+## Typed Workflow Queries And Updates
+
+Queries and updates are declared contracts on the immutable `WorkflowSpec`.
+`with_query` / `accepts_query` pin read-only names; `with_update` /
+`accepts_update` pin synchronous mutation names. Both paths fail closed before
+runtime dispatch when a name is undeclared, and both are fenced by the same
+runtime-build admission rules as workflow replay.
+
+`FlowEngine::query` builds a `QueryInvocation` over durable history and calls
+`FlowRuntime::run_query`. Queries never append events. The query input is
+separate from the workflow input so handlers can inspect both.
+
+`FlowEngine::apply_update` resolves the continue-as-new leaf, invokes
+`FlowRuntime::run_update` against history that does not yet include the new
+update, then appends `update_applied` with the handler output. Caller-owned
+`update_id` makes identical retries idempotent across the descendant chain;
+name or input drift returns `UpdateConflict`. After a new update commits, the
+engine forces one workflow replay even while timer, hook, or signal-wait
+suspensions remain open, so workflow code can observe `WorkflowContext::update`
+/ `updates` and choose a different next command. Authorization, schemas, and
+admission policy remain host-owned.
+
 ## Continue-As-New History Segmentation
 
 Continue-as-new bounds replay history without rewriting it. The runtime returns

@@ -26,6 +26,7 @@ mod runs;
 mod scheduling;
 mod signals;
 mod steps;
+mod updates;
 mod validation;
 use activities::ActivityExecutionContext;
 use signals::SignalWaitCommandOutcome;
@@ -244,6 +245,7 @@ impl FlowEngine {
         allow_continue_as_new: bool,
         child_depth: usize,
         ancestry: &BTreeSet<String>,
+        force_workflow_replay: bool,
     ) -> Result<WorkflowRunSnapshot> {
         let mut replay_iterations = 0;
         'replay: while replay_iterations < self.max_replay_iterations {
@@ -286,19 +288,23 @@ impl FlowEngine {
                 Err(err) if is_event_conflict(&err) => continue,
                 Err(err) => return Err(err),
             }
-            if snapshot
-                .waits
-                .values()
-                .any(|wait| wait.status == WaitStatus::Waiting)
-                || snapshot
-                    .hooks
+            // Updates can change the next command while a timer, hook, or signal
+            // wait remains open. Callers that just mutated history with an update
+            // force one workflow replay past this short-circuit.
+            if !force_workflow_replay
+                && (snapshot
+                    .waits
                     .values()
-                    .any(|hook| hook.status == HookStatus::Active)
-                || snapshot
-                    .signal_waits
-                    .values()
-                    .any(|wait| wait.status == crate::model::SignalWaitStatus::Waiting)
-                || (snapshot.has_future_retry(now) && snapshot.due_retries(now).is_empty())
+                    .any(|wait| wait.status == WaitStatus::Waiting)
+                    || snapshot
+                        .hooks
+                        .values()
+                        .any(|hook| hook.status == HookStatus::Active)
+                    || snapshot
+                        .signal_waits
+                        .values()
+                        .any(|wait| wait.status == crate::model::SignalWaitStatus::Waiting)
+                    || (snapshot.has_future_retry(now) && snapshot.due_retries(now).is_empty()))
             {
                 return Ok(snapshot);
             }

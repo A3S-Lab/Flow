@@ -38,8 +38,9 @@ pub use model::{
     StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowContinuation, WorkflowPatchId,
     WorkflowProgress, WorkflowRunSnapshot, WorkflowRunStatus, WorkflowRunSummary,
     WorkflowRunSuspension, WorkflowSignal, WorkflowSignalSnapshot, WorkflowSpec,
-    WorkflowTerminalOutcome, FLOW_EVENT_ENVELOPE_SCHEMA_VERSION, MAX_CHILD_WORKFLOW_BATCH_SIZE,
-    MAX_FLOW_EVENT_BYTES, MAX_WORKFLOW_PATCH_MARKERS,
+    WorkflowTerminalOutcome, WorkflowUpdate, WorkflowUpdateOutcome, WorkflowUpdateSnapshot,
+    FLOW_EVENT_ENVELOPE_SCHEMA_VERSION, MAX_CHILD_WORKFLOW_BATCH_SIZE, MAX_FLOW_EVENT_BYTES,
+    MAX_WORKFLOW_PATCH_MARKERS,
 };
 #[cfg(feature = "a3s-event")]
 pub use observe::A3sEventBusFlowEventSink;
@@ -56,7 +57,7 @@ pub use protocol::{
 pub use runtime::{
     ActivityInvocation, FlowRuntime, NativeTsDependencyMode, NativeTsRuntime,
     NativeTsRuntimeConfig, NativeTsRuntimePreflight, QueryInvocation, StepInvocation,
-    WorkflowInvocation,
+    UpdateInvocation, WorkflowInvocation,
 };
 pub use runtime_build::{RuntimeBuildCompatibility, RuntimeBuildId};
 pub use scheduler::{FlowScheduler, FlowSchedulerTick};

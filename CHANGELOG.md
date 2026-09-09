@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added typed synchronous workflow updates through `WorkflowSpec::with_update`,
+  `WorkflowUpdate`, `UpdateInvocation`, `FlowRuntime::run_update`, and
+  `FlowEngine::apply_update`. Updates are declared on the immutable run spec,
+  fenced by runtime-build admission, idempotent on `(update_id, name, input)`,
+  conflict-safe on payload drift, and force one workflow replay after the
+  durable `update_applied` event so suspended runs can observe the new history.
+
 - Added typed read-only workflow queries through `WorkflowSpec::with_query`,
   `QueryInvocation`, `FlowRuntime::run_query`, and `FlowEngine::query`. Queries
   are declared on the immutable run spec, fenced by runtime-build admission,

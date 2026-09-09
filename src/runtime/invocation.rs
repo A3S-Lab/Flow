@@ -183,6 +183,67 @@ impl QueryInvocation {
     }
 }
 
+/// Synchronous update request passed to a runtime implementation.
+///
+/// The engine calls `run_update` before appending history. The returned output
+/// is persisted with `update_applied`, then the workflow is driven so replay
+/// can observe the new update.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct UpdateInvocation {
+    /// Durable identifier of the workflow run being updated.
+    pub run_id: String,
+    /// Workflow definition recorded when the run was created.
+    pub spec: WorkflowSpec,
+    /// Caller-owned update delivery.
+    pub update: crate::model::WorkflowUpdate,
+    /// Complete persisted event history in sequence order before this update.
+    pub history: Vec<FlowEventEnvelope>,
+}
+
+impl UpdateInvocation {
+    /// Create an update invocation from durable history and caller input.
+    pub fn new(
+        run_id: impl Into<String>,
+        spec: WorkflowSpec,
+        update: crate::model::WorkflowUpdate,
+        history: Vec<FlowEventEnvelope>,
+    ) -> Self {
+        Self {
+            run_id: run_id.into(),
+            spec,
+            update,
+            history,
+        }
+    }
+
+    /// Build a workflow replay view over the durable history for this update.
+    pub fn workflow_invocation(&self) -> WorkflowInvocation {
+        let workflow_input = self
+            .history
+            .first()
+            .and_then(|envelope| match &envelope.event {
+                crate::model::FlowEvent::RunCreated { input, .. } => Some(input.clone()),
+                _ => None,
+            })
+            .unwrap_or(JsonValue::Null);
+        WorkflowInvocation::new(
+            self.run_id.clone(),
+            self.spec.clone(),
+            workflow_input,
+            self.history.clone(),
+        )
+    }
+
+    /// Decode the update input into a host-defined serde type.
+    pub fn input_as<T>(&self) -> Result<T>
+    where
+        T: DeserializeOwned,
+    {
+        serde_json::from_value(self.update.input.clone()).map_err(FlowError::from)
+    }
+}
+
 impl StepInvocation {
     /// Create a step invocation from its complete durable execution input.
     pub fn new(
