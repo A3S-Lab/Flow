@@ -1450,7 +1450,8 @@ page, and tip-validated checkpointed snapshot percentiles; when
 published SQL scale SLO targets from a `--release` build with
 `A3S_FLOW_POSTGRES_LOCAL=1` (URL must be host-local to the test process) and runs
 `tests/postgres_chaos.rs` for real-provider concurrent-writer, hook-claim,
-lease-fencing, competing-worker, and dead-letter redrive gates. The UI package
+lease-fencing, competing-worker, dead-letter redrive, and backend-disconnect
+reconnect gates. The UI package
 reads the same JSON fixtures so TypeScript and Rust share one wire authority.
 Retained pre-v1 histories under `tests/fixtures/pre_v1/` must continue to
 deserialize and resume on the current kernel. `just release-certification` also

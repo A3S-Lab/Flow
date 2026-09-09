@@ -328,3 +328,55 @@ async fn postgres_chaos_competing_workers_lease_distinct_tasks_when_url_is_confi
 
     drop_schema(base, &schema).await;
 }
+
+#[tokio::test]
+async fn postgres_chaos_store_recovers_after_backend_disconnect_when_url_is_configured() {
+    let Some(url) = postgres_url_from_env() else {
+        eprintln!("skipping postgres chaos backend disconnect; set A3S_FLOW_POSTGRES_URL");
+        return;
+    };
+    let schema = unique_schema("chaos_failover");
+    let (base, store) = migrated_store(&url, &schema).await;
+    let run_id = format!("chaos-failover-{}", Uuid::new_v4());
+
+    store
+        .append_if_sequence(
+            &run_id,
+            0,
+            FlowEvent::RunCreated {
+                spec: spec(),
+                input: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+
+    // Kill every other backend for this role/database. Idle pooled connections
+    // held by the store must be discarded so the next append reconnects.
+    base.connection()
+        .await
+        .unwrap()
+        .batch_execute(
+            "SELECT pg_terminate_backend(pid)
+             FROM pg_stat_activity
+             WHERE datname = current_database()
+               AND pid <> pg_backend_pid()
+               AND usename = current_user",
+        )
+        .await
+        .unwrap();
+
+    let resumed = store
+        .append_if_sequence(&run_id, 1, FlowEvent::RunStarted)
+        .await
+        .expect("store must recover after backend disconnect without rewriting history");
+    assert_eq!(resumed.sequence, 2);
+    let history = store.list(&run_id).await.unwrap();
+    assert_eq!(history.len(), 2);
+    assert!(matches!(history[0].event, FlowEvent::RunCreated { .. }));
+    assert!(matches!(history[1].event, FlowEvent::RunStarted));
+
+    // Admin pool connections may also have been terminated; reconnect to clean up.
+    let cleanup = PostgresExecutor::connect_no_tls(&url, 2).unwrap();
+    drop_schema(cleanup, &schema).await;
+}

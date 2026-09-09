@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added FLOW-R3 backend-disconnect recovery evidence:
+  `postgres_chaos_store_recovers_after_backend_disconnect_when_url_is_configured`
+  terminates pooled PostgreSQL backends and proves the next validated append
+  reconnects without rewriting history. Extended FLOW-R2 Activity crash
+  coverage to the create→start boundary
+  (`pending_activity_starts_after_start_persistence_is_lost`).
+
 - Closed the FLOW-R2 Activity kill/disconnect evidence gap: crash recovery now
   redelivers a running activity after `activity_completed` persistence loss
   (`tests/crash_recovery.rs`), and the PostgreSQL process-death gate covers

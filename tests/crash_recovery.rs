@@ -255,6 +255,55 @@ impl FlowEventStore for CrashBeforeActivityCompletionStore {
     }
 }
 
+struct CrashBeforeActivityStartedStore {
+    inner: InMemoryEventStore,
+    armed: AtomicBool,
+}
+
+impl CrashBeforeActivityStartedStore {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryEventStore::new(),
+            armed: AtomicBool::new(true),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowEventStore for CrashBeforeActivityStartedStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        if matches!(
+            &event,
+            FlowEvent::ActivityStarted { activity_id, .. } if activity_id == "durable-effect"
+        ) && self.armed.swap(false, Ordering::SeqCst)
+        {
+            return Err(FlowError::Store(
+                "injected crash before activity start became durable".into(),
+            ));
+        }
+        self.inner
+            .append_if_sequence(run_id, expected_sequence, event)
+            .await
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
 #[derive(Default)]
 struct DurableEffectRuntime {
     effect_invocations: AtomicUsize,
@@ -448,6 +497,68 @@ async fn running_activity_is_redelivered_after_completion_persistence_is_lost() 
     );
     let recovered = restarted.snapshot(run_id).await.expect("final snapshot");
     assert_eq!(recovered.activities["durable-effect"].attempt, 1);
+}
+
+#[tokio::test]
+async fn pending_activity_starts_after_start_persistence_is_lost() {
+    let run_id = "activity-start-crash-recovery";
+    let store = Arc::new(CrashBeforeActivityStartedStore::new());
+    let runtime = Arc::new(DurableActivityEffectRuntime::default());
+    let engine = FlowEngine::new(store.clone(), runtime.clone());
+
+    let failure = engine
+        .start_with_id(run_id, workflow_spec(), json!({}))
+        .await
+        .expect_err("the injected persistence loss must interrupt the first engine");
+    assert!(matches!(failure, FlowError::Store(_)));
+    let interrupted = engine.snapshot(run_id).await.expect("pending snapshot");
+    assert_eq!(interrupted.status, WorkflowRunStatus::Running);
+    assert_eq!(
+        interrupted.activities["durable-effect"].status,
+        ActivityStatus::Pending
+    );
+    assert_eq!(interrupted.activities["durable-effect"].attempt, 0);
+    assert_eq!(runtime.effect_invocations.load(Ordering::SeqCst), 0);
+
+    drop(engine);
+    let restarted = FlowEngine::new(store.clone(), runtime.clone());
+    restarted
+        .start_with_id(run_id, workflow_spec(), json!({}))
+        .await
+        .expect("restarted engine must start the pending activity");
+
+    assert_eq!(
+        restarted
+            .snapshot(run_id)
+            .await
+            .expect("completed snapshot")
+            .status,
+        WorkflowRunStatus::Completed
+    );
+    assert_eq!(runtime.effect_invocations.load(Ordering::SeqCst), 1);
+    let history = store.list(run_id).await.expect("recovered history");
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| matches!(event.event, FlowEvent::ActivityCreated { .. }))
+            .count(),
+        1
+    );
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| matches!(event.event, FlowEvent::ActivityStarted { .. }))
+            .count(),
+        1,
+        "start must be recorded exactly once after the crash window"
+    );
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| matches!(event.event, FlowEvent::ActivityCompleted { .. }))
+            .count(),
+        1
+    );
 }
 
 #[tokio::test]

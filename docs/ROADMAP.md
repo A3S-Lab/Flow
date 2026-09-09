@@ -81,10 +81,10 @@ that converts timeout into an unknown outcome. The remaining R2 work is
 host-owned Outbox/Inbox transaction wiring and
 fault-injection coverage across every external connector boundary; those must
 be delivered by Cloud integrations without moving tenant or product policy
-into Flow. Kernel evidence for kill/disconnect at Activity completion is covered
-by `tests/crash_recovery.rs` (in-memory completion-persistence loss) and
-`tests/postgres_process_recovery.rs` (real PostgreSQL process death on both
-Step and Activity boundaries).
+into Flow. Kernel evidence for kill/disconnect at Activity create→start and completion
+boundaries is covered by `tests/crash_recovery.rs` (in-memory persistence loss)
+and `tests/postgres_process_recovery.rs` (real PostgreSQL process death on both
+Step and Activity completion boundaries).
 
 All built-in stores also enforce `MAX_FLOW_EVENT_BYTES` (currently one MiB) at
 the validated append boundary; oversized payloads fail closed before mutation.
@@ -124,7 +124,11 @@ backend per shard through `ShardedFlowEventStore` and
 linked-run and hook-token checks on the facade while each physical database
 stays local. Multi-process atomicity of those cross-database invariants remains
 a host concern, so composed multi-backend layouts do not claim
-`production_ready()` admission.
+`production_ready()` admission. Kernel recovery after SQL backend disconnect
+(pooled connection loss) is covered by
+`postgres_chaos_store_recovers_after_backend_disconnect_when_url_is_configured`;
+regional failover orchestration, replica promotion policy, and RTO/RPO remain
+Cloud/operator concerns.
 
 ### Published scale SLO targets (kernel)
 
@@ -239,7 +243,8 @@ targets when `A3S_FLOW_POSTGRES_URL` is configured under `--release` with
 `A3S_FLOW_POSTGRES_LOCAL=1` (host-local SQL in the same network namespace as the
 test process). Real-provider chaos gates live in `tests/postgres_chaos.rs` and
 run through `just postgres-certification` (concurrent writers, exclusive hook
-claims, lease fencing, competing workers, and idempotent dead-letter redrive).
+claims, lease fencing, competing workers, idempotent dead-letter redrive, and
+backend-disconnect reconnect without history rewrite).
 
 ## 4. Implementation rules
 
