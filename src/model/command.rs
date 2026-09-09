@@ -83,6 +83,9 @@ pub struct WorkflowSpec {
     /// Named asynchronous message contracts accepted by this workflow.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub signal_names: BTreeSet<String>,
+    /// Named read-only query contracts accepted by this workflow.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub query_names: BTreeSet<String>,
 }
 
 impl WorkflowSpec {
@@ -100,6 +103,7 @@ impl WorkflowSpec {
             runtime_build_id: None,
             patch_markers: BTreeSet::new(),
             signal_names: BTreeSet::new(),
+            query_names: BTreeSet::new(),
         }
     }
 
@@ -117,6 +121,7 @@ impl WorkflowSpec {
             runtime_build_id: None,
             patch_markers: BTreeSet::new(),
             signal_names: BTreeSet::new(),
+            query_names: BTreeSet::new(),
         }
     }
 
@@ -152,7 +157,18 @@ impl WorkflowSpec {
         self.signal_names.contains(signal_name)
     }
 
-    /// Validates identifiers, runtime metadata, patch limits, and signal names.
+    /// Declare one named read-only query contract for this workflow.
+    pub fn with_query(mut self, query_name: impl Into<String>) -> Self {
+        self.query_names.insert(query_name.into());
+        self
+    }
+
+    /// Return whether this immutable workflow definition accepts `query_name`.
+    pub fn accepts_query(&self, query_name: &str) -> bool {
+        self.query_names.contains(query_name)
+    }
+
+    /// Validates identifiers, runtime metadata, patch limits, and named contracts.
     pub fn validate(&self) -> Result<()> {
         if self.name.trim().is_empty() {
             return Err(FlowError::InvalidWorkflow(
@@ -184,6 +200,13 @@ impl WorkflowSpec {
             if signal_name.trim().is_empty() {
                 return Err(FlowError::InvalidWorkflow(
                     "workflow signal name must not be empty".to_string(),
+                ));
+            }
+        }
+        for query_name in &self.query_names {
+            if query_name.trim().is_empty() {
+                return Err(FlowError::InvalidWorkflow(
+                    "workflow query name must not be empty".to_string(),
                 ));
             }
         }

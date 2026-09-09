@@ -126,6 +126,13 @@ fleet, multi-tenant fairness, and regional RTO/RPO policy on top of them.
 | Bounded history page (`limit ≤ 1_000`) | p50 ≤ 5 ms, p99 ≤ 20 ms |
 | Tip-pinned archive export of 10_000 events | complete without materializing the full log in one allocation; seal verify matches digest |
 
+The first `FLOW-R4` execution-API slice is also implemented: workflows can
+declare immutable query names, and `FlowEngine::query` answers them through
+`FlowRuntime::run_query` without appending history. Undeclared names fail
+closed before runtime dispatch, and runtime-build admission fences query code
+the same way replay does. Typed Update semantics, cancellation scopes,
+join/race/select, and dynamic fan-out remain open R4 work.
+
 The repository-owned authoring boundary now has a stateless Rust counterpart to
 the CLI and Skill: `canonical_workflow_authoring_snapshot` preserves the
 complete document as canonical JSON, `apply_workflow_authoring_operation`

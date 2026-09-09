@@ -55,7 +55,8 @@ pub use protocol::{
 };
 pub use runtime::{
     ActivityInvocation, FlowRuntime, NativeTsDependencyMode, NativeTsRuntime,
-    NativeTsRuntimeConfig, NativeTsRuntimePreflight, StepInvocation, WorkflowInvocation,
+    NativeTsRuntimeConfig, NativeTsRuntimePreflight, QueryInvocation, StepInvocation,
+    WorkflowInvocation,
 };
 pub use runtime_build::{RuntimeBuildCompatibility, RuntimeBuildId};
 pub use scheduler::{FlowScheduler, FlowSchedulerTick};

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added typed read-only workflow queries through `WorkflowSpec::with_query`,
+  `QueryInvocation`, `FlowRuntime::run_query`, and `FlowEngine::query`. Queries
+  are declared on the immutable run spec, fenced by runtime-build admission,
+  fail closed for undeclared names, and never append history.
+
 - Added tip-pinned history archive ownership seals through
   `FlowEngine::export_history_archive` and
   `FlowEngine::verify_history_archive_seal`. Seals digest ordered event IDs

@@ -21,6 +21,7 @@ mod continuation;
 mod hooks;
 mod inspection;
 mod operations;
+mod queries;
 mod runs;
 mod scheduling;
 mod signals;

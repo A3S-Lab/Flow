@@ -116,6 +116,73 @@ impl ActivityInvocation {
     }
 }
 
+/// Read-only query request passed to a runtime implementation.
+///
+/// Queries never append history. The runtime must answer from the durable
+/// projection carried by this invocation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct QueryInvocation {
+    /// Durable identifier of the workflow run being queried.
+    pub run_id: String,
+    /// Workflow definition recorded when the run was created.
+    pub spec: WorkflowSpec,
+    /// Declared query name from the immutable workflow spec.
+    pub query_name: String,
+    /// Caller-supplied query input.
+    pub input: JsonValue,
+    /// Complete persisted event history in sequence order.
+    pub history: Vec<FlowEventEnvelope>,
+}
+
+impl QueryInvocation {
+    /// Create a query invocation from durable history and caller input.
+    pub fn new(
+        run_id: impl Into<String>,
+        spec: WorkflowSpec,
+        query_name: impl Into<String>,
+        input: JsonValue,
+        history: Vec<FlowEventEnvelope>,
+    ) -> Self {
+        Self {
+            run_id: run_id.into(),
+            spec,
+            query_name: query_name.into(),
+            input,
+            history,
+        }
+    }
+
+    /// Build a workflow replay view over the durable history for this query.
+    ///
+    /// The query input is intentionally separate from the workflow input so
+    /// handlers can inspect both without mutating history.
+    pub fn workflow_invocation(&self) -> WorkflowInvocation {
+        let workflow_input = self
+            .history
+            .first()
+            .and_then(|envelope| match &envelope.event {
+                crate::model::FlowEvent::RunCreated { input, .. } => Some(input.clone()),
+                _ => None,
+            })
+            .unwrap_or(JsonValue::Null);
+        WorkflowInvocation::new(
+            self.run_id.clone(),
+            self.spec.clone(),
+            workflow_input,
+            self.history.clone(),
+        )
+    }
+
+    /// Decode the query input into a host-defined serde type.
+    pub fn input_as<T>(&self) -> Result<T>
+    where
+        T: DeserializeOwned,
+    {
+        serde_json::from_value(self.input.clone()).map_err(FlowError::from)
+    }
+}
+
 impl StepInvocation {
     /// Create a step invocation from its complete durable execution input.
     pub fn new(

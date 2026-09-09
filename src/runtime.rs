@@ -38,7 +38,7 @@ mod invocation;
 pub(crate) use invocation::{
     activity_attempt_id, activity_attempt_idempotency_key, step_attempt_idempotency_key,
 };
-pub use invocation::{ActivityInvocation, StepInvocation, WorkflowInvocation};
+pub use invocation::{ActivityInvocation, QueryInvocation, StepInvocation, WorkflowInvocation};
 /// Runtime boundary for workflow code and side-effecting steps.
 #[async_trait]
 pub trait FlowRuntime: Send + Sync {
@@ -61,6 +61,17 @@ pub trait FlowRuntime: Send + Sync {
             idempotency_key: invocation.idempotency_key,
         })
         .await
+    }
+
+    /// Answer one declared read-only query without mutating history.
+    ///
+    /// The default fails closed so existing runtimes do not silently accept
+    /// query contracts they do not implement.
+    async fn run_query(&self, invocation: QueryInvocation) -> Result<JsonValue> {
+        Err(FlowError::Runtime(format!(
+            "workflow query {} is unsupported by this runtime",
+            invocation.query_name
+        )))
     }
 }
 
