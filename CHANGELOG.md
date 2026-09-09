@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Extended opaque processor-partition fairness to `PostgresFlowTaskQueue` with
+  migration `a3s-flow-0012-task-partition-key`, `with_partition_fairness`, and
+  the same `enqueue_for_partition` contract used by in-memory and local-file
+  queues.
+
+- Extended the FLOW-R6 certification recipe to include retained pre-v1 history
+  upgrade tests (`cargo test --test pre_v1_history`) alongside protocol
+  fixtures and TypeScript parity checks.
+
 - Added the first FLOW-R6 certification harness through `tests/certification.rs`
   and frozen protocol fixtures under `tests/fixtures/protocol/`. The suite
   locks worker capability, task, and event-envelope wire shapes, fails closed

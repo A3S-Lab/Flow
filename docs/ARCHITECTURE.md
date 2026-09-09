@@ -794,9 +794,11 @@ leasing. Queues may also configure a pending admission budget with
 `FlowError::QueueBackpressure`. Built-in in-memory and local-file queues can
 enable opaque processor-partition fairness with `with_partition_fairness` and
 `enqueue_for_partition`: leasing round-robins across host-supplied keys (or
-run-ID defaults) so one partition cannot monopolize FIFO dispatch. Cloud still
-owns tenant identity and maps it onto those opaque keys; application processor
-lifecycle remains owned by A3S Boot and Cloud.
+run-ID defaults) so one partition cannot monopolize FIFO dispatch. PostgreSQL
+queues persist the same opaque `partition_key` column and apply the same
+round-robin lease selection when fairness is enabled. Cloud still owns tenant
+identity and maps it onto those opaque keys; application processor lifecycle
+remains owned by A3S Boot and Cloud.
 
 Worker replacement uses the versioned `a3s.flow.worker.v1` capability contract.
 Hosts negotiate the required task kinds and kernel guarantees before leasing;

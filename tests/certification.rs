@@ -273,3 +273,36 @@ async fn chaos_stale_activity_fencing_token_cannot_complete() {
         "expected stale fencing rejection, got {error:?}"
     );
 }
+
+#[test]
+fn upgrade_retained_pre_v1_histories_deserialize_without_synthesizing_fields() {
+    for (name, source) in [
+        (
+            "v0.5.0",
+            include_str!("fixtures/pre_v1/v0.5.0-running-step.json"),
+        ),
+        (
+            "v0.13.1",
+            include_str!("fixtures/pre_v1/v0.13.1-running-step.json"),
+        ),
+    ] {
+        let json: serde_json::Value =
+            serde_json::from_str(source).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let history: Vec<FlowEventEnvelope> = serde_json::from_value(json.clone())
+            .unwrap_or_else(|error| panic!("{name} deserialize: {error}"));
+        assert!(
+            !history.is_empty(),
+            "{name} fixture must contain retained events"
+        );
+        assert_eq!(
+            serde_json::to_value(&history).unwrap(),
+            json,
+            "{name} must round-trip without synthesizing durable fields"
+        );
+        for envelope in &history {
+            envelope
+                .validate_schema_version()
+                .unwrap_or_else(|error| panic!("{name} schema: {error}"));
+        }
+    }
+}

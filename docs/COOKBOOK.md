@@ -1437,6 +1437,7 @@ kernel certification harness and keep the frozen protocol fixtures in sync.
 
 ```bash
 cargo test --test certification
+cargo test --test pre_v1_history
 node packages/ui/node_modules/vitest/vitest.mjs run tests/protocol-fixtures.test.ts
 ```
 
@@ -1444,7 +1445,9 @@ node packages/ui/node_modules/vitest/vitest.mjs run tests/protocol-fixtures.test
 shapes under `tests/fixtures/protocol/`, fails closed on stale or forged lease
 acknowledgements and mixed worker protocols, and verifies tip-pinned archive
 export for a 10_000-event history. The UI package reads the same JSON fixtures
-so TypeScript and Rust share one wire authority.
+so TypeScript and Rust share one wire authority. Retained pre-v1 histories under
+`tests/fixtures/pre_v1/` must continue to deserialize and resume on the current
+kernel.
 
 When changing wire shapes, regenerate the fixtures and update both the Rust and
 TypeScript consumers in the same change. Host-owned chaos against real Postgres

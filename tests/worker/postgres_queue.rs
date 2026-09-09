@@ -187,3 +187,57 @@ async fn postgres_task_queue_drives_worker_when_url_is_configured() {
     let snapshot = engine.snapshot(&run_id).await.unwrap();
     assert_eq!(snapshot.status, WorkflowRunStatus::Completed);
 }
+
+#[cfg(feature = "postgres")]
+#[tokio::test]
+async fn postgres_partition_fairness_rotates_across_opaque_keys_when_url_is_configured() {
+    let Some(url) = postgres_url_from_env() else {
+        eprintln!("skipping postgres partition fairness test; set A3S_FLOW_POSTGRES_URL");
+        return;
+    };
+    let queue_name = format!("fair-queue-{}", Uuid::new_v4());
+    let queue = PostgresFlowTaskQueue::connect_with_queue(&url, &queue_name)
+        .await
+        .unwrap()
+        .with_partition_fairness();
+    assert!(queue.partition_fairness());
+
+    for run_id in ["a-1", "a-2", "a-3"] {
+        queue
+            .enqueue_for_partition(
+                "tenant-a",
+                FlowTask::DriveRun {
+                    run_id: run_id.to_string(),
+                },
+            )
+            .await
+            .unwrap();
+    }
+    queue
+        .enqueue_for_partition(
+            "tenant-b",
+            FlowTask::DriveRun {
+                run_id: "b-1".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+    let first = queue.lease().await.unwrap().unwrap();
+    queue.ack(&first.lease_id).await.unwrap();
+    let second = queue.lease().await.unwrap().unwrap();
+    queue.ack(&second.lease_id).await.unwrap();
+
+    assert_eq!(
+        first.task,
+        FlowTask::DriveRun {
+            run_id: "a-1".to_string()
+        }
+    );
+    assert_eq!(
+        second.task,
+        FlowTask::DriveRun {
+            run_id: "b-1".to_string()
+        }
+    );
+}

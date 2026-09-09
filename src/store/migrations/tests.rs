@@ -45,6 +45,9 @@ const PROJECTION_CHECKPOINT_DIGEST_CHECKSUM: &str =
 const HISTORY_PARTITIONS_CHECKSUM: &str =
     "613e69a8190c542ec41c2121e25ff50ff7e867470473c6629fa4e1ad79c5a702";
 #[cfg(feature = "postgres")]
+const POSTGRES_TASK_PARTITION_KEY_CHECKSUM: &str =
+    "7e778edf8b101f8ef3b6f2ef73a86ead0e3821211adc9aeef1e71ad044cc2d9d";
+#[cfg(feature = "postgres")]
 const POSTGRES_TASKS_CHECKSUM: &str =
     "6e73f57af6f836508a12b66eb8a00130ca0fbc62c99ca1a0bfa8c36f0b9d5b93";
 #[cfg(feature = "postgres")]
@@ -188,6 +191,10 @@ fn postgres_migrations_keep_every_published_checksum() {
             (
                 "a3s-flow-0011-history-partitions".into(),
                 HISTORY_PARTITIONS_CHECKSUM.into(),
+            ),
+            (
+                "a3s-flow-0012-task-partition-key".into(),
+                POSTGRES_TASK_PARTITION_KEY_CHECKSUM.into(),
             ),
         ]
     );

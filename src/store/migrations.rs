@@ -74,6 +74,15 @@ CREATE INDEX IF NOT EXISTS idx_flow_history_partitions_run_last
 ON flow_history_partitions (run_id, last_sequence);
 "#;
 
+#[cfg(feature = "postgres")]
+const POSTGRES_TASK_PARTITION_KEY_SQL: &str = r#"
+ALTER TABLE flow_tasks
+    ADD COLUMN IF NOT EXISTS partition_key TEXT NOT NULL DEFAULT '';
+
+CREATE INDEX IF NOT EXISTS idx_flow_tasks_pending_partition
+ON flow_tasks (queue_name, status, partition_key, enqueued_at_nanos, task_id);
+"#;
+
 #[cfg(feature = "sqlite")]
 const SQLITE_ACTIVE_HOOKS_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS flow_active_hooks (
@@ -575,6 +584,11 @@ pub(crate) fn postgres_migrations() -> Vec<Migration> {
             "a3s-flow-0011-history-partitions",
             "index sealed contiguous Flow history partitions",
             HISTORY_PARTITIONS_SQL,
+        ),
+        Migration::new(
+            "a3s-flow-0012-task-partition-key",
+            "persist opaque processor partition keys for fair task leasing",
+            POSTGRES_TASK_PARTITION_KEY_SQL,
         ),
     ]
 }

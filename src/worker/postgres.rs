@@ -1,4 +1,5 @@
 use std::fmt;
+use std::sync::Arc;
 
 use a3s_orm::{
     sql_query, Executor, FromRow, PostgresDialect, PostgresError, PostgresExecutor, PostgresRow,
@@ -11,6 +12,9 @@ use uuid::Uuid;
 use crate::error::{FlowError, Result};
 use crate::store::{migrate_postgres_flow, verify_postgres_flow};
 
+use super::fairness::{
+    resolve_flow_task_partition, select_fair_pending_index, validate_flow_task_partition_key,
+};
 pub use super::task::PostgresDeadLetteredTask;
 use super::{timestamp_nanos_saturating, FlowTask, FlowTaskLease, FlowTaskQueue};
 
@@ -25,6 +29,8 @@ pub struct PostgresFlowTaskQueue {
     executor: PostgresExecutor,
     queue_name: String,
     max_pending: Option<usize>,
+    partition_fairness: bool,
+    last_partition: Arc<tokio::sync::Mutex<Option<String>>>,
 }
 
 impl fmt::Debug for PostgresFlowTaskQueue {
@@ -110,6 +116,8 @@ impl PostgresFlowTaskQueue {
             executor,
             queue_name,
             max_pending: None,
+            partition_fairness: false,
+            last_partition: Arc::new(tokio::sync::Mutex::new(None)),
         }
     }
 
@@ -120,6 +128,16 @@ impl PostgresFlowTaskQueue {
     pub fn with_max_pending(mut self, max_pending: usize) -> Result<Self> {
         self.max_pending = Some(super::queue::validate_queue_capacity(max_pending)?);
         Ok(self)
+    }
+
+    /// Lease round-robin across opaque processor partitions.
+    ///
+    /// Hosts map tenant identity onto partition keys via
+    /// [`FlowTaskQueue::enqueue_for_partition`]. When fairness is enabled,
+    /// ordinary enqueue derives the partition from the targeted run ID.
+    pub fn with_partition_fairness(mut self) -> Self {
+        self.partition_fairness = true;
+        self
     }
 
     /// Returns the configured A3S ORM executor.
@@ -195,24 +213,27 @@ impl PostgresFlowTaskQueue {
                     let Some((dead_letter_id, task_json)) = row else {
                         return Ok(false);
                     };
-                    let _: FlowTask = serde_json::from_str(&task_json)?;
+                    let task: FlowTask = serde_json::from_str(&task_json)?;
+                    let partition_key = resolve_flow_task_partition(None, &task)?;
                     let task_id = format!("redrive-{dead_letter_id}");
                     let now = timestamp_nanos_saturating(Utc::now());
                     execute_query(
                         transaction,
                         sql_query::<()>(
                             "INSERT INTO flow_tasks (queue_name, task_id, task_json, status, \
-                             enqueued_at_nanos, updated_at_nanos) VALUES (",
+                             enqueued_at_nanos, updated_at_nanos, partition_key) VALUES (",
                         )
                         .bind(queue_name.clone())
                         .append(", ")
                         .bind(task_id)
                         .append(", ")
-                        .bind(task_json)
+                        .bind(serde_json::to_string(&task)?)
                         .append(", 'pending', ")
                         .bind(now)
                         .append(", ")
                         .bind(now)
+                        .append(", ")
+                        .bind(partition_key)
                         .append(") ON CONFLICT (queue_name, task_id) DO NOTHING"),
                     )
                     .await?;
@@ -335,15 +356,8 @@ impl PostgresFlowTaskQueue {
         .await?;
         postgres_count_to_usize(count)
     }
-}
 
-#[async_trait]
-impl FlowTaskQueue for PostgresFlowTaskQueue {
-    fn max_pending_tasks(&self) -> Option<usize> {
-        self.max_pending
-    }
-
-    async fn enqueue(&self, task: FlowTask) -> Result<()> {
+    async fn enqueue_resolved(&self, partition_key: &str, task: FlowTask) -> Result<()> {
         let pending = self.len().await?;
         super::queue::ensure_queue_admission(pending, self.max_pending)?;
         let now = timestamp_nanos_saturating(Utc::now());
@@ -351,7 +365,7 @@ impl FlowTaskQueue for PostgresFlowTaskQueue {
             &self.executor,
             sql_query::<()>(
                 "INSERT INTO flow_tasks (queue_name, task_id, task_json, status, \
-                 enqueued_at_nanos, updated_at_nanos) VALUES (",
+                 enqueued_at_nanos, updated_at_nanos, partition_key) VALUES (",
             )
             .bind(self.queue_name.clone())
             .append(", ")
@@ -362,13 +376,15 @@ impl FlowTaskQueue for PostgresFlowTaskQueue {
             .bind(now)
             .append(", ")
             .bind(now)
+            .append(", ")
+            .bind(partition_key.to_string())
             .append(")"),
         )
         .await?;
         Ok(())
     }
 
-    async fn lease(&self) -> Result<Option<FlowTaskLease>> {
+    async fn lease_fifo(&self) -> Result<Option<FlowTaskLease>> {
         let lease_id = Uuid::new_v4().to_string();
         let now = timestamp_nanos_saturating(Utc::now());
         let row = fetch_optional_query(
@@ -403,6 +419,107 @@ impl FlowTaskQueue for PostgresFlowTaskQueue {
             })
         })
         .transpose()
+    }
+
+    async fn lease_fair(&self) -> Result<Option<FlowTaskLease>> {
+        // Retry a few times when another worker wins the chosen head between
+        // partition selection and the SKIP LOCKED update.
+        for _ in 0..8 {
+            let heads = fetch_all_query(
+                &self.executor,
+                sql_query::<(String, String)>(
+                    "SELECT DISTINCT ON (partition_key) partition_key, task_id \
+                     FROM flow_tasks WHERE queue_name = ",
+                )
+                .bind(self.queue_name.clone())
+                .append(
+                    " AND status = 'pending' \
+                     ORDER BY partition_key ASC, enqueued_at_nanos ASC, task_id ASC",
+                ),
+            )
+            .await?;
+            if heads.is_empty() {
+                return Ok(None);
+            }
+            let keys: Vec<String> = heads.iter().map(|(key, _)| key.clone()).collect();
+            let last_partition = self.last_partition.lock().await;
+            let mut next_last = last_partition.clone();
+            let Some(index) = select_fair_pending_index(&keys, &mut next_last) else {
+                return Ok(None);
+            };
+            let task_id = heads[index].1.clone();
+            drop(last_partition);
+
+            let lease_id = Uuid::new_v4().to_string();
+            let now = timestamp_nanos_saturating(Utc::now());
+            let row = fetch_optional_query(
+                &self.executor,
+                sql_query::<(String, String)>(
+                    "WITH next_task AS (SELECT task_id FROM flow_tasks \
+                     WHERE queue_name = ",
+                )
+                .bind(self.queue_name.clone())
+                .append(" AND task_id = ")
+                .bind(task_id)
+                .append(
+                    " AND status = 'pending' FOR UPDATE SKIP LOCKED LIMIT 1) \
+                     UPDATE flow_tasks SET status = 'inflight', lease_id = ",
+                )
+                .bind(lease_id)
+                .append(", leased_at_nanos = ")
+                .bind(now)
+                .append(", updated_at_nanos = ")
+                .bind(now)
+                .append(" FROM next_task WHERE flow_tasks.queue_name = ")
+                .bind(self.queue_name.clone())
+                .append(
+                    " AND flow_tasks.task_id = next_task.task_id \
+                     RETURNING flow_tasks.lease_id, flow_tasks.task_json",
+                ),
+            )
+            .await?;
+            if let Some((lease_id, task_json)) = row {
+                *self.last_partition.lock().await = next_last;
+                return Ok(Some(FlowTaskLease {
+                    lease_id,
+                    task: serde_json::from_str(&task_json)?,
+                }));
+            }
+        }
+        Ok(None)
+    }
+}
+
+#[async_trait]
+impl FlowTaskQueue for PostgresFlowTaskQueue {
+    fn max_pending_tasks(&self) -> Option<usize> {
+        self.max_pending
+    }
+
+    fn partition_fairness(&self) -> bool {
+        self.partition_fairness
+    }
+
+    async fn enqueue(&self, task: FlowTask) -> Result<()> {
+        let partition_key = if self.partition_fairness {
+            resolve_flow_task_partition(None, &task)?
+        } else {
+            String::new()
+        };
+        self.enqueue_resolved(&partition_key, task).await
+    }
+
+    async fn enqueue_for_partition(&self, partition_key: &str, task: FlowTask) -> Result<()> {
+        let partition_key = validate_flow_task_partition_key(partition_key)?;
+        self.enqueue_resolved(partition_key, task).await
+    }
+
+    async fn lease(&self) -> Result<Option<FlowTaskLease>> {
+        if self.partition_fairness {
+            self.lease_fair().await
+        } else {
+            self.lease_fifo().await
+        }
     }
 
     async fn heartbeat(&self, lease_id: &str) -> Result<String> {

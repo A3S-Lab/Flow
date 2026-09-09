@@ -198,8 +198,9 @@ task/guarantee mismatches. Opaque processor-partition fairness is also
 available on built-in in-memory and local-file queues through
 `with_partition_fairness` and `enqueue_for_partition`: leasing round-robins
 across host-supplied keys (defaulting to targeted run IDs) without Flow
-interpreting Cloud tenant identity. Cloud still owns tenant queue admission and
-fleet policy.
+interpreting Cloud tenant identity. PostgreSQL queues persist `partition_key`
+and use the same fair lease selection when enabled. Cloud still owns tenant
+queue admission and fleet policy.
 
 The observability bridge now preserves stable step/activity attempt correlation
 for host logs, traces, and audit sinks while keeping those high-cardinality
@@ -218,8 +219,10 @@ The first `FLOW-R6` certification harness is also present:
 stale/forged lease acknowledgements, and verifies tip-pinned archive export
 correctness for a 10_000-event history. It also rejects stale activity fencing
 tokens at the append boundary. TypeScript consumes the same fixtures in
-`packages/ui/tests/protocol-fixtures.test.ts`. Full real-provider chaos, package,
-and security automation gates remain open certification work.
+`packages/ui/tests/protocol-fixtures.test.ts`. Upgrade fixtures under
+`tests/fixtures/pre_v1/` are exercised by the certification recipe via
+`cargo test --test pre_v1_history`. Full real-provider chaos, package, and
+security automation gates remain open certification work.
 
 ## 4. Implementation rules
 
