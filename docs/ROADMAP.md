@@ -137,8 +137,10 @@ fences both paths the same way replay does, and update retries are idempotent
 or explicitly conflict-safe. Nested cancellation scopes are also implemented:
 workflows open/complete scopes through runtime commands, timer waits inherit the
 innermost open scope, `FlowEngine::cancel_scope` is idempotent and conflict-safe,
-and run cancellation marks open scopes cancelled. Join/race/select and dynamic
-fan-out remain open R4 work.
+and run cancellation marks open scopes cancelled. Structured select/race is
+also implemented for timer and signal arms: the first completed arm wins and
+sibling waits are cancelled durably. Dynamic fan-out beyond existing child and
+step batches remains open R4 work.
 
 The repository-owned authoring boundary now has a stateless Rust counterpart to
 the CLI and Skill: `canonical_workflow_authoring_snapshot` preserves the

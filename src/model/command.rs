@@ -682,6 +682,13 @@ pub enum RuntimeCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
     },
+    /// Race multiple durable arms; the first completion wins.
+    Select {
+        /// Replay-stable identity of the select.
+        select_id: String,
+        /// Arms competing for completion.
+        arms: Vec<crate::model::SelectArm>,
+    },
 }
 
 /// Step definition returned by workflow replay.

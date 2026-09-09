@@ -374,6 +374,20 @@ pub enum FlowEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
     },
+    /// Creates a structured select/race over durable arms.
+    SelectCreated {
+        /// Replay-stable identity of the select.
+        select_id: String,
+        /// Arms competing for completion.
+        arms: Vec<super::SelectArm>,
+    },
+    /// Records the winning arm of a structured select/race.
+    SelectCompleted {
+        /// Stable identity of the completed select.
+        select_id: String,
+        /// Arm that completed first.
+        winning_arm_id: String,
+    },
     /// Creates an externally completable hook.
     HookCreated {
         /// Replay-stable identity of the hook.
@@ -441,6 +455,8 @@ impl FlowEvent {
             Self::ScopeOpened { .. } => "flow.scope.opened",
             Self::ScopeCompleted { .. } => "flow.scope.completed",
             Self::ScopeCancelled { .. } => "flow.scope.cancelled",
+            Self::SelectCreated { .. } => "flow.select.created",
+            Self::SelectCompleted { .. } => "flow.select.completed",
             Self::HookCreated { .. } => "flow.hook.created",
             Self::HookReceived { .. } => "flow.hook.received",
             Self::HookDisposed { .. } => "flow.hook.disposed",

@@ -25,11 +25,13 @@ mod queries;
 mod runs;
 mod scheduling;
 mod scopes;
+mod selects;
 mod signals;
 mod steps;
 mod updates;
 mod validation;
 use activities::ActivityExecutionContext;
+use selects::SelectCommandOutcome;
 use signals::SignalWaitCommandOutcome;
 use steps::{interrupted_terminal_event, StepExecutionContext};
 use validation::{
@@ -284,6 +286,12 @@ impl FlowEngine {
                 }
             }
             match self.reconcile_signal_waits(&snapshot).await {
+                Ok(true) => continue,
+                Ok(false) => {}
+                Err(err) if is_event_conflict(&err) => continue,
+                Err(err) => return Err(err),
+            }
+            match self.reconcile_open_selects(&snapshot).await {
                 Ok(true) => continue,
                 Ok(false) => {}
                 Err(err) if is_event_conflict(&err) => continue,
@@ -771,6 +779,14 @@ impl FlowEngine {
                         .await
                     {
                         Ok(_) => continue,
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
+                RuntimeCommand::Select { select_id, arms } => {
+                    match self.schedule_select(&snapshot, select_id, arms).await {
+                        Ok(SelectCommandOutcome::Replay) => continue,
+                        Ok(SelectCommandOutcome::Waiting) => return self.snapshot(run_id).await,
                         Err(err) if is_event_conflict(&err) => continue,
                         Err(err) => return Err(err),
                     }

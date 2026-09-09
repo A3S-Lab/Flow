@@ -3,9 +3,10 @@ use crate::error::{FlowError, Result};
 use super::{
     validate_run_id, ActivityStatus, CancellationRequestSnapshot, CancellationScopeSnapshot,
     CancellationScopeStatus, ChildWorkflowSnapshot, FlowEvent, FlowEventEnvelope, HookSnapshot,
-    HookStatus, SignalWaitSnapshot, SignalWaitStatus, StepFailureAction, StepSnapshot, StepStatus,
-    WaitSnapshot, WaitStatus, WorkflowContinuation, WorkflowRunSnapshot, WorkflowRunStatus,
-    WorkflowSignalSnapshot, WorkflowTerminalOutcome, WorkflowUpdateSnapshot,
+    HookStatus, SelectArm, SelectSnapshot, SelectStatus, SignalWaitSnapshot, SignalWaitStatus,
+    StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowContinuation,
+    WorkflowRunSnapshot, WorkflowRunStatus, WorkflowSignalSnapshot, WorkflowTerminalOutcome,
+    WorkflowUpdateSnapshot,
 };
 
 mod activity;
@@ -176,6 +177,11 @@ pub(crate) fn project_run_from_snapshot(
                                 scope.reason = request.reason.clone();
                             }
                         }
+                    }
+                }
+                for select in snapshot.selects.values_mut() {
+                    if select.status == SelectStatus::Open {
+                        select.status = SelectStatus::Cancelled;
                     }
                 }
             }
@@ -463,6 +469,7 @@ pub(crate) fn project_run_from_snapshot(
                         signal_id: None,
                         completed_at: None,
                         completed_sequence: None,
+                        select_id: None,
                     },
                 );
             }
@@ -743,6 +750,7 @@ pub(crate) fn project_run_from_snapshot(
                         status: WaitStatus::Waiting,
                         resume_at: *resume_at,
                         scope_id: snapshot.innermost_open_scope().map(str::to_string),
+                        select_id: None,
                     },
                 );
             }
@@ -885,6 +893,119 @@ pub(crate) fn project_run_from_snapshot(
                     scope.reason = reason.clone();
                 }
                 cancel_scope_tree(&mut snapshot, scope_id);
+            }
+            FlowEvent::SelectCreated { select_id, arms } => {
+                if snapshot.status == WorkflowRunStatus::Pending {
+                    return Err(FlowError::InvalidTransition(
+                        "select_created cannot precede run_started".to_string(),
+                    ));
+                }
+                super::validate_select(select_id, arms)?;
+                if snapshot.selects.contains_key(select_id) {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "select_created duplicates select {select_id}"
+                    )));
+                }
+                let scope_id = snapshot.innermost_open_scope().map(str::to_string);
+                for arm in arms {
+                    match arm {
+                        SelectArm::Timer { arm_id, resume_at } => {
+                            if snapshot.waits.contains_key(arm_id) {
+                                return Err(FlowError::InvalidTransition(format!(
+                                    "select {select_id} timer arm {arm_id} duplicates an existing wait"
+                                )));
+                            }
+                            snapshot.waits.insert(
+                                arm_id.clone(),
+                                WaitSnapshot {
+                                    wait_id: arm_id.clone(),
+                                    status: WaitStatus::Waiting,
+                                    resume_at: *resume_at,
+                                    scope_id: scope_id.clone(),
+                                    select_id: Some(select_id.clone()),
+                                },
+                            );
+                        }
+                        SelectArm::Signal {
+                            arm_id,
+                            signal_name,
+                        } => {
+                            super::validate_signal_wait(arm_id, signal_name)?;
+                            if !snapshot.spec.accepts_signal(signal_name) {
+                                return Err(FlowError::InvalidTransition(format!(
+                                    "select {select_id} signal arm {arm_id} uses undeclared signal {signal_name}"
+                                )));
+                            }
+                            if snapshot.signal_waits.contains_key(arm_id) {
+                                return Err(FlowError::InvalidTransition(format!(
+                                    "select {select_id} signal arm {arm_id} duplicates an existing signal wait"
+                                )));
+                            }
+                            snapshot.signal_waits.insert(
+                                arm_id.clone(),
+                                SignalWaitSnapshot {
+                                    wait_id: arm_id.clone(),
+                                    signal_name: signal_name.clone(),
+                                    status: SignalWaitStatus::Waiting,
+                                    created_at: envelope.timestamp,
+                                    created_sequence: envelope.sequence,
+                                    signal_id: None,
+                                    completed_at: None,
+                                    completed_sequence: None,
+                                    select_id: Some(select_id.clone()),
+                                },
+                            );
+                        }
+                    }
+                }
+                snapshot.selects.insert(
+                    select_id.clone(),
+                    SelectSnapshot {
+                        select_id: select_id.clone(),
+                        arms: arms.clone(),
+                        status: SelectStatus::Open,
+                        winning_arm_id: None,
+                    },
+                );
+            }
+            FlowEvent::SelectCompleted {
+                select_id,
+                winning_arm_id,
+            } => {
+                let select = snapshot.selects.get_mut(select_id).ok_or_else(|| {
+                    FlowError::InvalidTransition(format!(
+                        "select_completed references unknown select {select_id}"
+                    ))
+                })?;
+                if select.status != SelectStatus::Open {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "select_completed cannot follow {:?} for select {select_id}",
+                        select.status
+                    )));
+                }
+                if !select.arms.iter().any(|arm| arm.arm_id() == winning_arm_id) {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "select_completed winning arm {winning_arm_id} is not part of select {select_id}"
+                    )));
+                }
+                select.status = SelectStatus::Completed;
+                select.winning_arm_id = Some(winning_arm_id.clone());
+                for wait in snapshot.waits.values_mut() {
+                    if wait.select_id.as_deref() == Some(select_id.as_str())
+                        && wait.wait_id != *winning_arm_id
+                        && wait.status == WaitStatus::Waiting
+                    {
+                        wait.status = WaitStatus::Cancelled;
+                    }
+                }
+                for wait in snapshot.signal_waits.values_mut() {
+                    if wait.select_id.as_deref() == Some(select_id.as_str())
+                        && wait.wait_id != *winning_arm_id
+                        && wait.status == SignalWaitStatus::Waiting
+                    {
+                        wait.status = SignalWaitStatus::Cancelled;
+                    }
+                }
             }
         }
     }

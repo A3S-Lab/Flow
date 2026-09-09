@@ -106,6 +106,9 @@ pub struct SignalWaitSnapshot {
     /// Event sequence that completed the wait.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completed_sequence: Option<u64>,
+    /// Structured select that owns this wait, when created by a select arm.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub select_id: Option<String>,
 }
 
 pub(crate) fn validate_signal_name(name: &str) -> Result<()> {

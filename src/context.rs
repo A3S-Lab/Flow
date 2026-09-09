@@ -654,6 +654,41 @@ impl<'a> WorkflowContext<'a> {
         }
     }
 
+    /// Race multiple durable arms; the first completion wins.
+    pub fn select(
+        &self,
+        select_id: impl Into<String>,
+        arms: Vec<crate::model::SelectArm>,
+    ) -> RuntimeCommand {
+        RuntimeCommand::Select {
+            select_id: select_id.into(),
+            arms,
+        }
+    }
+
+    /// Return the winning arm id of a completed select, when present.
+    pub fn select_winner(&self, select_id: &str) -> Option<&str> {
+        self.history()
+            .iter()
+            .find_map(|envelope| match &envelope.event {
+                FlowEvent::SelectCompleted {
+                    select_id: id,
+                    winning_arm_id,
+                } if id == select_id => Some(winning_arm_id.as_str()),
+                _ => None,
+            })
+    }
+
+    /// Return whether a timer wait has a durable created event.
+    pub fn wait_status(&self, wait_id: &str) -> Option<()> {
+        self.history()
+            .iter()
+            .find_map(|envelope| match &envelope.event {
+                FlowEvent::WaitCreated { wait_id: id, .. } if id == wait_id => Some(()),
+                _ => None,
+            })
+    }
+
     /// Return whether a cancellation scope has been opened in history.
     pub fn has_scope(&self, scope_id: &str) -> bool {
         self.history().iter().any(|envelope| {
@@ -700,16 +735,6 @@ impl<'a> WorkflowContext<'a> {
             index > opened_at
                 && matches!(envelope.event, FlowEvent::RunCancellationRequested { .. })
         })
-    }
-
-    /// Return whether a timer wait has a durable created event.
-    pub fn wait_status(&self, wait_id: &str) -> Option<()> {
-        self.history()
-            .iter()
-            .find_map(|envelope| match &envelope.event {
-                FlowEvent::WaitCreated { wait_id: id, .. } if id == wait_id => Some(()),
-                _ => None,
-            })
     }
 
     /// Creates an externally completable hook with JSON metadata.

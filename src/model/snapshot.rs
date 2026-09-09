@@ -8,8 +8,8 @@ use crate::runtime_build::RuntimeBuildId;
 
 use super::{
     CancellationRequestSnapshot, CancellationScopeSnapshot, ChildOperationReference,
-    ChildWorkflowSnapshot, JsonValue, RetryPolicy, SignalWaitSnapshot, SignalWaitStatus,
-    WorkflowContinuation, WorkflowProgress, WorkflowSignalSnapshot, WorkflowSpec,
+    ChildWorkflowSnapshot, JsonValue, RetryPolicy, SelectSnapshot, SignalWaitSnapshot,
+    SignalWaitStatus, WorkflowContinuation, WorkflowProgress, WorkflowSignalSnapshot, WorkflowSpec,
     WorkflowTerminalOutcome, WorkflowUpdateSnapshot,
 };
 
@@ -244,6 +244,9 @@ pub struct WaitSnapshot {
     /// Cancellation scope that owned the wait when it was created.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope_id: Option<String>,
+    /// Structured select that owns this wait, when created by a select arm.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub select_id: Option<String>,
 }
 
 /// Materialized lifecycle state of an external callback hook.
@@ -452,6 +455,9 @@ pub struct WorkflowRunSnapshot {
     /// Open scope stack from outermost to innermost.
     #[serde(default)]
     pub open_scope_stack: Vec<String>,
+    /// Structured selects indexed by stable select identifiers.
+    #[serde(default)]
+    pub selects: BTreeMap<String, SelectSnapshot>,
     /// Final JSON output for a successfully completed run.
     pub output: Option<JsonValue>,
     /// Terminal error for a failed run.
@@ -491,6 +497,7 @@ impl WorkflowRunSnapshot {
             updates: Vec::new(),
             scopes: BTreeMap::new(),
             open_scope_stack: Vec::new(),
+            selects: BTreeMap::new(),
             output: None,
             error: None,
             terminal_outcome: None,
@@ -607,6 +614,11 @@ impl WorkflowRunSnapshot {
     /// Return the innermost currently open cancellation scope, if any.
     pub fn innermost_open_scope(&self) -> Option<&str> {
         self.open_scope_stack.last().map(String::as_str)
+    }
+
+    /// Return a structured select by its stable identity.
+    pub fn select(&self, select_id: &str) -> Option<&SelectSnapshot> {
+        self.selects.get(select_id)
     }
 
     /// Return the signal payload paired with a deterministic signal wait.

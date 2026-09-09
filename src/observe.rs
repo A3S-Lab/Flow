@@ -613,6 +613,8 @@ fn event_status(event: &FlowEvent) -> Option<&'static str> {
         FlowEvent::ScopeOpened { .. } => Some("open"),
         FlowEvent::ScopeCompleted { .. } => Some("completed"),
         FlowEvent::ScopeCancelled { .. } => Some("cancelled"),
+        FlowEvent::SelectCreated { .. } => Some("open"),
+        FlowEvent::SelectCompleted { .. } => Some("completed"),
         FlowEvent::HookCreated { .. } => Some("active"),
         FlowEvent::HookReceived { .. } => Some("received"),
         FlowEvent::HookDisposed { .. } => Some("disposed"),
@@ -695,6 +697,11 @@ fn event_subject(event: &FlowEvent) -> Option<A3sFlowEventSubject> {
         | FlowEvent::ScopeCancelled { scope_id, .. } => Some(A3sFlowEventSubject {
             kind: "scope".to_string(),
             id: scope_id.clone(),
+        }),
+        FlowEvent::SelectCreated { select_id, .. }
+        | FlowEvent::SelectCompleted { select_id, .. } => Some(A3sFlowEventSubject {
+            kind: "select".to_string(),
+            id: select_id.clone(),
         }),
         FlowEvent::HookCreated { hook_id, .. }
         | FlowEvent::HookReceived { hook_id, .. }

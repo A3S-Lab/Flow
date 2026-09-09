@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added structured select/race through `RuntimeCommand::Select`,
+  `SelectArm::{timer,signal}`, `FlowEvent::{SelectCreated,SelectCompleted}`, and
+  `WorkflowContext::{select,select_winner}`. The first completed timer or signal
+  arm wins; sibling waits are cancelled durably without silently dropping work.
+
 - Added durable cancellation scopes through `RuntimeCommand::{OpenScope,
   CompleteScope, CancelScope}`, `FlowEvent::{ScopeOpened, ScopeCompleted,
   ScopeCancelled}`, `FlowEngine::cancel_scope`, and
