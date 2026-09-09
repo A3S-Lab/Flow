@@ -26,11 +26,13 @@ certification:
     cargo test --test pre_v1_history
     node packages/ui/node_modules/vitest/vitest.mjs run packages/ui/tests/protocol-fixtures.test.ts
 
-# Real-provider PostgreSQL chaos and release-scale SLO gates
+# Real-provider PostgreSQL chaos and release-scale SLO gates.
+# A3S_FLOW_POSTGRES_URL must address a host-local endpoint in the same network
+# namespace as the test process (for example Postgres in WSL run from WSL).
 postgres-certification:
     test -n "${A3S_FLOW_POSTGRES_URL:-}" || (echo "A3S_FLOW_POSTGRES_URL is required" >&2; exit 1)
     cargo test --test postgres_chaos --features postgres -- --test-threads=1
-    cargo test --release --test scale_slos --features postgres -- --exact postgres_scale_slos_meet_published_targets_when_url_is_configured --test-threads=1
+    A3S_FLOW_POSTGRES_LOCAL=1 cargo test --release --test scale_slos --features postgres -- --exact postgres_scale_slos_meet_published_targets_when_url_is_configured --test-threads=1
 
 # Certification plus local package and advisory verification (no CI required)
 release-certification: certification package-dry-run advisory-check

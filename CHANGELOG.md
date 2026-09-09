@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Require `A3S_FLOW_POSTGRES_LOCAL=1` (or `A3S_FLOW_POSTGRES_SLO_STRICT=1`) before
+  enforcing published SQL scale SLO budgets in `--release`, so bridged remotes
+  such as Windows host → WSL2 Docker still record samples without false
+  failures. `just postgres-certification` sets the host-local flag.
+
 - Added real-provider PostgreSQL chaos certification through
   `tests/postgres_chaos.rs` and `just postgres-certification`: concurrent
   expected-sequence writers have one winner, hook-token claims are exclusive,

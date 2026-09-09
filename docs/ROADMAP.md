@@ -232,10 +232,11 @@ the local queue. TypeScript consumes the same fixtures in
 `just release-certification` to include local `cargo package --locked`
 verification and the bounded advisory reachability check. `tests/scale_slos.rs`
 records append/page/checkpoint percentiles and asserts the published SQL
-targets when `A3S_FLOW_POSTGRES_URL` is configured under `--release`. Real-provider
-chaos gates live in `tests/postgres_chaos.rs` and run through
-`just postgres-certification` (concurrent writers, exclusive hook claims, lease
-fencing, competing workers, and idempotent dead-letter redrive).
+targets when `A3S_FLOW_POSTGRES_URL` is configured under `--release` with
+`A3S_FLOW_POSTGRES_LOCAL=1` (host-local SQL in the same network namespace as the
+test process). Real-provider chaos gates live in `tests/postgres_chaos.rs` and
+run through `just postgres-certification` (concurrent writers, exclusive hook
+claims, lease fencing, competing workers, and idempotent dead-letter redrive).
 
 ## 4. Implementation rules
 

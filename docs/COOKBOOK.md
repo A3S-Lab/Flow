@@ -1447,7 +1447,8 @@ acknowledgements and mixed worker protocols, and verifies tip-pinned archive
 export for a 10_000-event history. `tests/scale_slos.rs` records append, history
 page, and tip-validated checkpointed snapshot percentiles; when
 `A3S_FLOW_POSTGRES_URL` is set, `just postgres-certification` asserts the
-published SQL scale SLO targets from a `--release` build and runs
+published SQL scale SLO targets from a `--release` build with
+`A3S_FLOW_POSTGRES_LOCAL=1` (URL must be host-local to the test process) and runs
 `tests/postgres_chaos.rs` for real-provider concurrent-writer, hook-claim,
 lease-fencing, competing-worker, and dead-letter redrive gates. The UI package
 reads the same JSON fixtures so TypeScript and Rust share one wire authority.
