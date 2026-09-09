@@ -218,7 +218,8 @@ The first `FLOW-R6` certification harness is also present:
 `tests/fixtures/protocol/`, fails closed on mixed-version worker negotiation and
 stale/forged lease acknowledgements, and verifies tip-pinned archive export
 correctness for a 10_000-event history. It also rejects stale activity fencing
-tokens at the append boundary. TypeScript consumes the same fixtures in
+tokens at the append boundary and proves dead-letter redrive is idempotent on
+the local queue. TypeScript consumes the same fixtures in
 `packages/ui/tests/protocol-fixtures.test.ts`. Upgrade fixtures under
 `tests/fixtures/pre_v1/` are exercised by the certification recipe via
 `cargo test --test pre_v1_history`. Operators can also run

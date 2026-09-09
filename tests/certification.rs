@@ -306,3 +306,29 @@ fn upgrade_retained_pre_v1_histories_deserialize_without_synthesizing_fields() {
         }
     }
 }
+
+#[tokio::test]
+async fn chaos_dead_letter_redrive_is_idempotent_on_local_queue() {
+    let dir = tempfile::tempdir().unwrap();
+    let queue = LocalFileFlowTaskQueue::new(dir.path());
+    let task = FlowTask::DriveRun {
+        run_id: "chaos-redrive".to_string(),
+    };
+    queue.enqueue(task.clone()).await.unwrap();
+    let lease = queue.lease().await.unwrap().unwrap();
+    assert_eq!(
+        queue
+            .dead_letter_inflight_older_than(
+                chrono::Utc::now() + chrono::Duration::seconds(1),
+                "certification poison",
+            )
+            .await
+            .unwrap(),
+        1
+    );
+    assert!(queue.redrive_dead_lettered(&lease.lease_id).await.unwrap());
+    assert!(!queue.redrive_dead_lettered(&lease.lease_id).await.unwrap());
+    let restored = queue.lease().await.unwrap().unwrap();
+    assert_eq!(restored.task, task);
+    queue.ack(&restored.lease_id).await.unwrap();
+}
