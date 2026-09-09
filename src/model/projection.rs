@@ -2,11 +2,11 @@ use crate::error::{FlowError, Result};
 
 use super::{
     validate_run_id, ActivityStatus, CancellationRequestSnapshot, CancellationScopeSnapshot,
-    CancellationScopeStatus, ChildWorkflowSnapshot, FlowEvent, FlowEventEnvelope, HookSnapshot,
-    HookStatus, SelectArm, SelectSnapshot, SelectStatus, SignalWaitSnapshot, SignalWaitStatus,
-    StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowContinuation,
-    WorkflowRunSnapshot, WorkflowRunStatus, WorkflowSignalSnapshot, WorkflowTerminalOutcome,
-    WorkflowUpdateSnapshot,
+    CancellationScopeStatus, ChildWorkflowMapSnapshot, ChildWorkflowMapStatus,
+    ChildWorkflowSnapshot, FlowEvent, FlowEventEnvelope, HookSnapshot, HookStatus, SelectArm,
+    SelectSnapshot, SelectStatus, SignalWaitSnapshot, SignalWaitStatus, StepFailureAction,
+    StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowContinuation, WorkflowRunSnapshot,
+    WorkflowRunStatus, WorkflowSignalSnapshot, WorkflowTerminalOutcome, WorkflowUpdateSnapshot,
 };
 
 mod activity;
@@ -182,6 +182,11 @@ pub(crate) fn project_run_from_snapshot(
                 for select in snapshot.selects.values_mut() {
                     if select.status == SelectStatus::Open {
                         select.status = SelectStatus::Cancelled;
+                    }
+                }
+                for map in snapshot.child_workflow_maps.values_mut() {
+                    if map.status == ChildWorkflowMapStatus::Open {
+                        map.status = ChildWorkflowMapStatus::Cancelled;
                     }
                 }
             }
@@ -373,6 +378,68 @@ pub(crate) fn project_run_from_snapshot(
                 child.outcome = Some(outcome.clone());
                 child.resolved_at = Some(envelope.timestamp);
                 child.resolved_sequence = Some(envelope.sequence);
+            }
+            FlowEvent::ChildWorkflowMapOpened {
+                map_id,
+                children,
+                concurrency,
+            } => {
+                if snapshot.status == WorkflowRunStatus::Pending {
+                    return Err(FlowError::InvalidTransition(
+                        "child_workflow_map_opened cannot precede run_started".to_string(),
+                    ));
+                }
+                super::validate_child_workflow_map(map_id, children, *concurrency)?;
+                if snapshot.child_workflow_maps.contains_key(map_id) {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "child_workflow_map_opened duplicates map {map_id}"
+                    )));
+                }
+                for child in children {
+                    if snapshot.child_workflows.contains_key(&child.child_id) {
+                        return Err(FlowError::InvalidTransition(format!(
+                            "child workflow map {map_id} child {} already exists outside the map",
+                            child.child_id
+                        )));
+                    }
+                }
+                snapshot.child_workflow_maps.insert(
+                    map_id.clone(),
+                    ChildWorkflowMapSnapshot {
+                        map_id: map_id.clone(),
+                        children: children.clone(),
+                        concurrency: *concurrency,
+                        status: ChildWorkflowMapStatus::Open,
+                    },
+                );
+            }
+            FlowEvent::ChildWorkflowMapCompleted { map_id } => {
+                let map = snapshot.child_workflow_maps.get(map_id).ok_or_else(|| {
+                    FlowError::InvalidTransition(format!(
+                        "child_workflow_map_completed references unknown map {map_id}"
+                    ))
+                })?;
+                if map.status != ChildWorkflowMapStatus::Open {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "child_workflow_map_completed cannot follow {:?} for map {map_id}",
+                        map.status
+                    )));
+                }
+                if !map.children.iter().all(|child| {
+                    snapshot
+                        .child_workflows
+                        .get(&child.child_id)
+                        .is_some_and(|existing| existing.outcome.is_some())
+                }) {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "child_workflow_map_completed before all children resolved for map {map_id}"
+                    )));
+                }
+                snapshot
+                    .child_workflow_maps
+                    .get_mut(map_id)
+                    .expect("map validated above")
+                    .status = ChildWorkflowMapStatus::Completed;
             }
             FlowEvent::SignalReceived { signal } => {
                 if snapshot.status == WorkflowRunStatus::Pending {

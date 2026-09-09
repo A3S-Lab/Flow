@@ -116,6 +116,20 @@ pub enum FlowEvent {
         /// Terminal outcome returned by the child.
         outcome: WorkflowTerminalOutcome,
     },
+    /// Opens a dynamic bounded child-workflow map with an ordered plan.
+    ChildWorkflowMapOpened {
+        /// Replay-stable identity of the map.
+        map_id: String,
+        /// Ordered child definitions that form the complete plan.
+        children: Vec<super::ChildWorkflowCommand>,
+        /// Maximum number of open children activated at once.
+        concurrency: usize,
+    },
+    /// Records that every planned child in a map reached a terminal outcome.
+    ChildWorkflowMapCompleted {
+        /// Stable identity of the completed map.
+        map_id: String,
+    },
     /// Persists one named asynchronous signal.
     SignalReceived {
         /// Signal identity, name, payload, and receipt metadata.
@@ -429,6 +443,8 @@ impl FlowEvent {
             Self::ChildOperationLinked { .. } => "flow.child.operation.linked",
             Self::ChildWorkflowRequested { .. } => "flow.child.workflow.requested",
             Self::ChildWorkflowResolved { .. } => "flow.child.workflow.resolved",
+            Self::ChildWorkflowMapOpened { .. } => "flow.child.workflow.map.opened",
+            Self::ChildWorkflowMapCompleted { .. } => "flow.child.workflow.map.completed",
             Self::SignalReceived { .. } => "flow.signal.received",
             Self::SignalWaitCreated { .. } => "flow.signal.wait.created",
             Self::SignalWaitCompleted { .. } => "flow.signal.wait.completed",

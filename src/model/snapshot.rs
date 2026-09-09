@@ -8,9 +8,9 @@ use crate::runtime_build::RuntimeBuildId;
 
 use super::{
     CancellationRequestSnapshot, CancellationScopeSnapshot, ChildOperationReference,
-    ChildWorkflowSnapshot, JsonValue, RetryPolicy, SelectSnapshot, SignalWaitSnapshot,
-    SignalWaitStatus, WorkflowContinuation, WorkflowProgress, WorkflowSignalSnapshot, WorkflowSpec,
-    WorkflowTerminalOutcome, WorkflowUpdateSnapshot,
+    ChildWorkflowMapSnapshot, ChildWorkflowSnapshot, JsonValue, RetryPolicy, SelectSnapshot,
+    SignalWaitSnapshot, SignalWaitStatus, WorkflowContinuation, WorkflowProgress,
+    WorkflowSignalSnapshot, WorkflowSpec, WorkflowTerminalOutcome, WorkflowUpdateSnapshot,
 };
 
 /// Materialized lifecycle state of a workflow run.
@@ -458,6 +458,9 @@ pub struct WorkflowRunSnapshot {
     /// Structured selects indexed by stable select identifiers.
     #[serde(default)]
     pub selects: BTreeMap<String, SelectSnapshot>,
+    /// Dynamic child-workflow maps indexed by stable map identifiers.
+    #[serde(default)]
+    pub child_workflow_maps: BTreeMap<String, ChildWorkflowMapSnapshot>,
     /// Final JSON output for a successfully completed run.
     pub output: Option<JsonValue>,
     /// Terminal error for a failed run.
@@ -498,6 +501,7 @@ impl WorkflowRunSnapshot {
             scopes: BTreeMap::new(),
             open_scope_stack: Vec::new(),
             selects: BTreeMap::new(),
+            child_workflow_maps: BTreeMap::new(),
             output: None,
             error: None,
             terminal_outcome: None,
@@ -619,6 +623,11 @@ impl WorkflowRunSnapshot {
     /// Return a structured select by its stable identity.
     pub fn select(&self, select_id: &str) -> Option<&SelectSnapshot> {
         self.selects.get(select_id)
+    }
+
+    /// Return a dynamic child-workflow map by its stable identity.
+    pub fn child_workflow_map(&self, map_id: &str) -> Option<&ChildWorkflowMapSnapshot> {
+        self.child_workflow_maps.get(map_id)
     }
 
     /// Return the signal payload paired with a deterministic signal wait.

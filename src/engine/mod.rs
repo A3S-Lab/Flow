@@ -16,6 +16,7 @@ use crate::runtime_build::{RuntimeBuildCompatibility, RuntimeBuildId};
 use crate::store::{FlowEventStore, FlowStoreCapabilities, InMemoryEventStore};
 
 mod activities;
+mod child_maps;
 mod child_workflows;
 mod continuation;
 mod hooks;
@@ -31,6 +32,7 @@ mod steps;
 mod updates;
 mod validation;
 use activities::ActivityExecutionContext;
+use child_maps::ChildMapCommandOutcome;
 use selects::SelectCommandOutcome;
 use signals::SignalWaitCommandOutcome;
 use steps::{interrupted_terminal_event, StepExecutionContext};
@@ -279,10 +281,29 @@ impl FlowEngine {
                 .reconcile_child_workflows(&snapshot, now, child_depth, ancestry)
                 .await?
             {
-                child_workflows::ChildReconciliation::Ready => {}
+                child_workflows::ChildReconciliation::Ready => {
+                    match self
+                        .reconcile_open_child_workflow_maps(&snapshot, child_depth)
+                        .await
+                    {
+                        Ok(true) => continue,
+                        Ok(false) => {}
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
                 child_workflows::ChildReconciliation::Replay => continue,
                 child_workflows::ChildReconciliation::Waiting => {
-                    return self.snapshot(run_id).await;
+                    match self
+                        .reconcile_open_child_workflow_maps(&snapshot, child_depth)
+                        .await
+                    {
+                        Ok(true) => continue,
+                        Ok(false) if force_workflow_replay => {}
+                        Ok(false) => return self.snapshot(run_id).await,
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
                 }
             }
             match self.reconcile_signal_waits(&snapshot).await {
@@ -542,6 +563,29 @@ impl FlowEngine {
                                 )));
                             }
                             continue;
+                        }
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
+                RuntimeCommand::MapChildWorkflows {
+                    map_id,
+                    children,
+                    concurrency,
+                } => {
+                    match self
+                        .schedule_child_workflow_map(
+                            &snapshot,
+                            map_id,
+                            children,
+                            concurrency,
+                            child_depth,
+                        )
+                        .await
+                    {
+                        Ok(ChildMapCommandOutcome::Replay) => continue,
+                        Ok(ChildMapCommandOutcome::Waiting) => {
+                            return self.snapshot(run_id).await;
                         }
                         Err(err) if is_event_conflict(&err) => continue,
                         Err(err) => return Err(err),

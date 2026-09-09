@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Added dynamic bounded child-workflow maps through
+  `RuntimeCommand::MapChildWorkflows`, `FlowEvent::{ChildWorkflowMapOpened,
+  ChildWorkflowMapCompleted}`, and
+  `WorkflowContext::{map_child_workflows,child_workflow_map_completed}`. A map
+  declares an ordered plan up to `MAX_CHILD_WORKFLOW_MAP_SIZE` and activates at
+  most `concurrency` open children at a time, so partial fan-out recovery stays
+  deterministic and no planned child is silently dropped. Update-forced replay
+  may observe an open map while children are suspended, so plan drift fails
+  closed instead of being ignored.
+
 - Added structured select/race through `RuntimeCommand::Select`,
   `SelectArm::{timer,signal}`, `FlowEvent::{SelectCreated,SelectCompleted}`, and
   `WorkflowContext::{select,select_winner}`. The first completed timer or signal

@@ -679,6 +679,26 @@ impl<'a> WorkflowContext<'a> {
             })
     }
 
+    /// Open a dynamic bounded child-workflow map with engine-managed windows.
+    pub fn map_child_workflows(
+        &self,
+        map_id: impl Into<String>,
+        children: Vec<crate::model::ChildWorkflowCommand>,
+        concurrency: usize,
+    ) -> RuntimeCommand {
+        RuntimeCommand::map_child_workflows(map_id, children, concurrency)
+    }
+
+    /// Return whether a child-workflow map has a durable completed event.
+    pub fn child_workflow_map_completed(&self, map_id: &str) -> bool {
+        self.history().iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                FlowEvent::ChildWorkflowMapCompleted { map_id: id } if id == map_id
+            )
+        })
+    }
+
     /// Return whether a timer wait has a durable created event.
     pub fn wait_status(&self, wait_id: &str) -> Option<()> {
         self.history()

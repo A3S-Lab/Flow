@@ -319,6 +319,18 @@ ordering. New workflow code that emits the additive command must use a runtime
 build ID admitted only by workers that implement it, so older workers fail at
 build admission rather than interpreting an unsupported decision.
 
+## Dynamic Child-Workflow Maps
+
+`RuntimeCommand::MapChildWorkflows` is the dynamic fan-out form of first-class
+children. The parent declares one ordered plan (≤ `MAX_CHILD_WORKFLOW_MAP_SIZE`)
+and a concurrency window (1..=`MAX_CHILD_WORKFLOW_BATCH_SIZE`). Flow appends
+`child_workflow_map_opened` with the full plan, then requests at most
+`concurrency` missing children at a time. As open children resolve, the engine
+advances the window without requiring the workflow to restate a smaller batch.
+When every planned child has a terminal outcome, Flow appends
+`child_workflow_map_completed`. Redrive with the same plan is idempotent; plan
+or concurrency drift fails closed. Run cancellation marks an open map cancelled.
+
 ## Named Workflow Signals
 
 Signals are durable asynchronous messages, not callback tokens. A

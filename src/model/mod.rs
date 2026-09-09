@@ -1,4 +1,5 @@
 mod activity_timeout;
+mod child_map;
 mod child_workflow;
 mod command;
 mod event;
@@ -15,6 +16,10 @@ mod snapshot;
 mod update;
 
 pub(crate) use activity_timeout::activity_deadline;
+pub(crate) use child_map::validate_child_workflow_map;
+pub use child_map::{
+    ChildWorkflowMapSnapshot, ChildWorkflowMapStatus, MAX_CHILD_WORKFLOW_MAP_SIZE,
+};
 pub(crate) use child_workflow::validate_child_workflow_command;
 pub use child_workflow::{ChildWorkflowCancellationPolicy, ChildWorkflowSnapshot};
 pub use command::{

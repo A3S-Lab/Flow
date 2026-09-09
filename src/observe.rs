@@ -587,6 +587,8 @@ fn event_status(event: &FlowEvent) -> Option<&'static str> {
         FlowEvent::ChildOperationLinked { .. } => Some("linked"),
         FlowEvent::ChildWorkflowRequested { .. } => Some("requested"),
         FlowEvent::ChildWorkflowResolved { .. } => Some("resolved"),
+        FlowEvent::ChildWorkflowMapOpened { .. } => Some("open"),
+        FlowEvent::ChildWorkflowMapCompleted { .. } => Some("completed"),
         FlowEvent::SignalReceived { .. } => Some("received"),
         FlowEvent::SignalWaitCreated { .. } => Some("waiting"),
         FlowEvent::SignalWaitCompleted { .. } => Some("completed"),
@@ -672,6 +674,11 @@ fn event_subject(event: &FlowEvent) -> Option<A3sFlowEventSubject> {
         | FlowEvent::ChildWorkflowResolved { child_id, .. } => Some(A3sFlowEventSubject {
             kind: "child_workflow".to_string(),
             id: child_id.clone(),
+        }),
+        FlowEvent::ChildWorkflowMapOpened { map_id, .. }
+        | FlowEvent::ChildWorkflowMapCompleted { map_id } => Some(A3sFlowEventSubject {
+            kind: "child_workflow_map".to_string(),
+            id: map_id.clone(),
         }),
         FlowEvent::SignalReceived { signal } => Some(A3sFlowEventSubject {
             kind: "signal".to_string(),

@@ -689,6 +689,15 @@ pub enum RuntimeCommand {
         /// Arms competing for completion.
         arms: Vec<crate::model::SelectArm>,
     },
+    /// Open a dynamic bounded child-workflow map with engine-managed windows.
+    MapChildWorkflows {
+        /// Replay-stable identity of the map.
+        map_id: String,
+        /// Ordered child definitions that form the complete plan.
+        children: Vec<ChildWorkflowCommand>,
+        /// Maximum number of open children activated at once.
+        concurrency: usize,
+    },
 }
 
 /// Step definition returned by workflow replay.
@@ -824,5 +833,18 @@ impl RuntimeCommand {
     /// Create a bounded batch child-workflow command.
     pub fn start_child_workflows(children: Vec<ChildWorkflowCommand>) -> Self {
         Self::StartChildWorkflows { children }
+    }
+
+    /// Create a dynamic bounded child-workflow map command.
+    pub fn map_child_workflows(
+        map_id: impl Into<String>,
+        children: Vec<ChildWorkflowCommand>,
+        concurrency: usize,
+    ) -> Self {
+        Self::MapChildWorkflows {
+            map_id: map_id.into(),
+            children,
+            concurrency,
+        }
     }
 }
