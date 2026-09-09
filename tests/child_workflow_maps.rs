@@ -1,10 +1,11 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use a3s_flow::{
-    ChildWorkflowCommand, FlowEngine, FlowError, FlowEvent, FlowEventStore, FlowRuntime,
-    InMemoryEventStore, RuntimeCommand, WorkflowInvocation, WorkflowRunStatus, WorkflowSpec,
-    WorkflowTerminalOutcome, MAX_CHILD_WORKFLOW_BATCH_SIZE, MAX_CHILD_WORKFLOW_MAP_SIZE,
+    ChildWorkflowCommand, FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore,
+    FlowRuntime, InMemoryEventStore, RuntimeCommand, WorkflowInvocation, WorkflowRunStatus,
+    WorkflowSpec, WorkflowTerminalOutcome, MAX_CHILD_WORKFLOW_BATCH_SIZE,
+    MAX_CHILD_WORKFLOW_MAP_SIZE,
 };
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -337,4 +338,161 @@ async fn map_rejects_oversized_plans_and_invalid_concurrency() {
         matches!(err, FlowError::InvalidTransition(ref message) if message.contains("concurrency")),
         "{err:?}"
     );
+}
+
+struct CrashDuringMapRequestStore {
+    inner: InMemoryEventStore,
+    request_count: AtomicUsize,
+    armed: AtomicBool,
+}
+
+impl CrashDuringMapRequestStore {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryEventStore::new(),
+            request_count: AtomicUsize::new(0),
+            armed: AtomicBool::new(true),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowEventStore for CrashDuringMapRequestStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        if run_id == PARENT_RUN_ID && matches!(event, FlowEvent::ChildWorkflowRequested { .. }) {
+            let request_index = self.request_count.fetch_add(1, Ordering::SeqCst);
+            // Fail while filling the first concurrency window so recovery must
+            // finish the remaining slot without duplicating the durable request.
+            if request_index == 1 && self.armed.swap(false, Ordering::SeqCst) {
+                return Err(FlowError::Store(
+                    "injected crash during child map window request persistence".into(),
+                ));
+            }
+        }
+        self.inner
+            .append_if_sequence(run_id, expected_sequence, event)
+            .await
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
+struct CompletingMapRuntime;
+
+#[async_trait]
+impl FlowRuntime for CompletingMapRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let context = invocation.context();
+        if invocation.spec.name == "child-map.parent" {
+            if context.child_workflow_map_completed(MAP_ID) {
+                let mut output = Vec::new();
+                for child in children(5) {
+                    match context.child_workflow_outcome(&child.child_id) {
+                        Some(WorkflowTerminalOutcome::Completed { output: value }) => {
+                            output.push(value.clone());
+                        }
+                        Some(other) => {
+                            return Err(FlowError::Runtime(format!("map child failed: {other:?}")));
+                        }
+                        None => {
+                            return Err(FlowError::Runtime(format!(
+                                "map completed without outcome for {}",
+                                child.child_id
+                            )));
+                        }
+                    }
+                }
+                return Ok(context.complete(json!(output)));
+            }
+            return Ok(context.map_child_workflows(MAP_ID, children(5), 2));
+        }
+        Ok(context.complete(json!({ "ordinal": context.input()["ordinal"] })))
+    }
+
+    async fn run_step(&self, _invocation: a3s_flow::StepInvocation) -> a3s_flow::Result<Value> {
+        unreachable!("child workflow map recovery does not execute steps")
+    }
+}
+
+#[tokio::test]
+async fn partial_map_window_request_persistence_recovers_without_duplicate_or_lost_children() {
+    let store = Arc::new(CrashDuringMapRequestStore::new());
+    let engine = FlowEngine::new(store.clone(), Arc::new(CompletingMapRuntime));
+
+    let error = engine
+        .start_with_id(PARENT_RUN_ID, parent_spec(), json!({}))
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        FlowError::Store(message) if message.contains("child map window")
+    ));
+    let interrupted = engine.snapshot(PARENT_RUN_ID).await.unwrap();
+    assert!(interrupted.child_workflow_map(MAP_ID).unwrap().is_open());
+    assert_eq!(interrupted.child_workflows.len(), 1);
+    assert!(interrupted.child_workflow("item-0000").is_some());
+    assert!(interrupted.child_workflow("item-0001").is_none());
+
+    let recovered = engine.drive(PARENT_RUN_ID).await.unwrap();
+    assert_eq!(recovered.status, WorkflowRunStatus::Completed);
+    assert!(recovered.child_workflow_map(MAP_ID).unwrap().is_completed());
+    assert_eq!(recovered.child_workflows.len(), 5);
+    assert_eq!(
+        recovered.output,
+        Some(json!([
+            { "ordinal": 0 },
+            { "ordinal": 1 },
+            { "ordinal": 2 },
+            { "ordinal": 3 },
+            { "ordinal": 4 },
+        ]))
+    );
+
+    let history = store.list(PARENT_RUN_ID).await.unwrap();
+    for child in children(5) {
+        assert_eq!(
+            history
+                .iter()
+                .filter(|envelope| matches!(
+                    &envelope.event,
+                    FlowEvent::ChildWorkflowRequested { child_id, .. }
+                        if child_id == &child.child_id
+                ))
+                .count(),
+            1,
+            "child {} must be requested exactly once",
+            child.child_id
+        );
+        let child_run_id = &recovered.child_workflow(&child.child_id).unwrap().run_id;
+        assert_eq!(
+            store
+                .list(child_run_id)
+                .await
+                .unwrap()
+                .iter()
+                .filter(|envelope| matches!(envelope.event, FlowEvent::RunCreated { .. }))
+                .count(),
+            1,
+            "child {} must not be silently lost or duplicated",
+            child.child_id
+        );
+    }
 }

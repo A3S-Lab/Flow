@@ -81,10 +81,10 @@ that converts timeout into an unknown outcome. The remaining R2 work is
 host-owned Outbox/Inbox transaction wiring and
 fault-injection coverage across every external connector boundary; those must
 be delivered by Cloud integrations without moving tenant or product policy
-into Flow. Kernel evidence for kill/disconnect at Activity create→start and completion
-boundaries is covered by `tests/crash_recovery.rs` (in-memory persistence loss)
-and `tests/postgres_process_recovery.rs` (real PostgreSQL process death on both
-Step and Activity completion boundaries).
+into Flow. Kernel evidence for kill/disconnect at Activity create→start, unknown-outcome,
+and completion boundaries is covered by `tests/crash_recovery.rs` (in-memory
+persistence loss) and `tests/postgres_process_recovery.rs` (real PostgreSQL
+process death on both Step and Activity completion boundaries).
 
 All built-in stores also enforce `MAX_FLOW_EVENT_BYTES` (currently one MiB) at
 the validated append boundary; oversized payloads fail closed before mutation.
@@ -159,7 +159,8 @@ also implemented for timer and signal arms: the first completed arm wins and
 sibling waits are cancelled durably. Dynamic bounded child-workflow maps are
 also implemented: `MapChildWorkflows` persists an ordered plan, activates at
 most `concurrency` open children at a time (≤ `MAX_CHILD_WORKFLOW_BATCH_SIZE`),
-recovers partial windows without duplicate requests, and completes only after
+recovers partial windows without duplicate requests or silently lost children
+(`tests/child_workflow_maps.rs`), and completes only after
 every planned child resolves. External dataset references attach host-owned
 content-addressed CAS pointers without embedding item payloads. Per-item
 aggregates record durable `(aggregate_id, item_id)` contributions for folding

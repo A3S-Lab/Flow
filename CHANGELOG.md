@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added FLOW-R4 map partial-window crash recovery and FLOW-R2 unknown-outcome
+  persistence-loss evidence: map concurrency windows recover without duplicate
+  or lost children (`tests/child_workflow_maps.rs`), and undurable
+  `ActivityUnknown` appends redeliver the same running attempt
+  (`tests/crash_recovery.rs`).
+
 - Added FLOW-R3 backend-disconnect recovery evidence:
   `postgres_chaos_store_recovers_after_backend_disconnect_when_url_is_configured`
   terminates pooled PostgreSQL backends and proves the next validated append
