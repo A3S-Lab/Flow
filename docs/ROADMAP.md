@@ -148,7 +148,9 @@ content-addressed CAS pointers without embedding item payloads. Per-item
 aggregates record durable `(aggregate_id, item_id)` contributions for folding
 map results. Durable compensation markers record and complete saga-style
 obligations idempotently so workflows can schedule ordinary cleanup steps.
-Structured join-all beyond select/race remains optional follow-on R4 work.
+Structured join-all is also implemented through `SelectMode::JoinAll` and
+`WorkflowContext::join`: every arm must complete before the select closes, and
+siblings are not cancelled early.
 
 The repository-owned authoring boundary now has a stateless Rust counterpart to
 the CLI and Skill: `canonical_workflow_authoring_snapshot` preserves the

@@ -411,19 +411,26 @@ pub enum FlowEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
     },
-    /// Creates a structured select/race over durable arms.
+    /// Creates a structured select over durable arms.
     SelectCreated {
         /// Replay-stable identity of the select.
         select_id: String,
         /// Arms competing for completion.
         arms: Vec<super::SelectArm>,
+        /// Completion policy; omitted histories default to race.
+        #[serde(default)]
+        mode: super::SelectMode,
     },
-    /// Records the winning arm of a structured select/race.
+    /// Records completion of a structured select.
+    ///
+    /// Race mode sets `winning_arm_id` to the first completed arm. Join-all mode
+    /// omits a winner after every arm has completed.
     SelectCompleted {
         /// Stable identity of the completed select.
         select_id: String,
-        /// Arm that completed first.
-        winning_arm_id: String,
+        /// Winning arm for race mode, when present.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        winning_arm_id: Option<String>,
     },
     /// Creates an externally completable hook.
     HookCreated {

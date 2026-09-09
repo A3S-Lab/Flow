@@ -48,7 +48,7 @@ pub(crate) use projection::{project_run, project_run_from_snapshot};
 pub(crate) use run::validate_run_id;
 pub use scope::{CancellationScopeSnapshot, CancellationScopeStatus};
 pub(crate) use select::validate_select;
-pub use select::{SelectArm, SelectSnapshot, SelectStatus};
+pub use select::{SelectArm, SelectMode, SelectSnapshot, SelectStatus};
 pub(crate) use signal::validate_signal_wait;
 pub use signal::{SignalWaitSnapshot, SignalWaitStatus, WorkflowSignal, WorkflowSignalSnapshot};
 pub use snapshot::{

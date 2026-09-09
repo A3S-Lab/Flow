@@ -128,9 +128,9 @@ async fn select_command_is_idempotent_and_rejects_arm_drift() {
     let created = history
         .iter()
         .find_map(|envelope| match &envelope.event {
-            a3s_flow::FlowEvent::SelectCreated { select_id, arms } if select_id == "race" => {
-                Some(arms.clone())
-            }
+            a3s_flow::FlowEvent::SelectCreated {
+                select_id, arms, ..
+            } if select_id == "race" => Some(arms.clone()),
             _ => None,
         })
         .unwrap();

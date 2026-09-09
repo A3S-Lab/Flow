@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added structured join-all through `SelectMode::JoinAll`, `WorkflowContext::join`,
+  and `WorkflowContext::select_joined`. A join waits until every timer/signal arm
+  completes without cancelling siblings early; race mode remains the default for
+  existing select histories.
+
 - Added queue-admission backpressure through `FlowError::QueueBackpressure`,
   `FlowTaskQueue::max_pending_tasks`, `ensure_queue_admission`, and
   `with_max_pending` on in-memory, local-file, and PostgreSQL task queues.

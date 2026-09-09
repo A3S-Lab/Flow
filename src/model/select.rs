@@ -3,6 +3,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{FlowError, Result};
 
+/// Completion policy for a structured select.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
+#[serde(rename_all = "snake_case")]
+pub enum SelectMode {
+    /// First completed arm wins; sibling waits are cancelled.
+    #[default]
+    Race,
+    /// Completes only after every arm completes; siblings are not cancelled early.
+    JoinAll,
+}
+
 /// One durable arm of a structured select/race.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
@@ -86,9 +98,12 @@ pub struct SelectSnapshot {
     pub select_id: String,
     /// Arms recorded when the select was created.
     pub arms: Vec<SelectArm>,
+    /// Completion policy recorded when the select was created.
+    #[serde(default)]
+    pub mode: SelectMode,
     /// Current lifecycle state.
     pub status: SelectStatus,
-    /// Winning arm identity when completed.
+    /// Winning arm identity when a race completed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub winning_arm_id: Option<String>,
 }
@@ -102,6 +117,11 @@ impl SelectSnapshot {
     /// Returns whether the select completed with a winner.
     pub fn is_completed(&self) -> bool {
         self.status == SelectStatus::Completed
+    }
+
+    /// Returns whether this select waits for every arm.
+    pub fn is_join_all(&self) -> bool {
+        self.mode == SelectMode::JoinAll
     }
 }
 

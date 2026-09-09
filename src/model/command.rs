@@ -705,12 +705,15 @@ pub enum RuntimeCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
     },
-    /// Race multiple durable arms; the first completion wins.
+    /// Wait for durable arms under a completion policy.
     Select {
         /// Replay-stable identity of the select.
         select_id: String,
-        /// Arms competing for completion.
+        /// Arms participating in the select.
         arms: Vec<crate::model::SelectArm>,
+        /// Completion policy; defaults to race for compatibility.
+        #[serde(default)]
+        mode: crate::model::SelectMode,
     },
     /// Open a dynamic bounded child-workflow map with engine-managed windows.
     MapChildWorkflows {

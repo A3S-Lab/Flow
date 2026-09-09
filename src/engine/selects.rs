@@ -1,6 +1,6 @@
 use crate::error::{FlowError, Result};
 use crate::model::{
-    validate_select, FlowEvent, SelectArm, SelectStatus, SignalWaitStatus, WaitStatus,
+    validate_select, FlowEvent, SelectArm, SelectMode, SelectStatus, SignalWaitStatus, WaitStatus,
     WorkflowRunSnapshot,
 };
 
@@ -17,6 +17,7 @@ impl FlowEngine {
         snapshot: &WorkflowRunSnapshot,
         select_id: String,
         arms: Vec<SelectArm>,
+        mode: SelectMode,
     ) -> Result<SelectCommandOutcome> {
         validate_select(&select_id, &arms)?;
         for arm in &arms {
@@ -32,9 +33,9 @@ impl FlowEngine {
 
         match snapshot.select(&select_id) {
             Some(existing) => {
-                if existing.arms != arms {
+                if existing.arms != arms || existing.mode != mode {
                     return Err(FlowError::InvalidTransition(format!(
-                        "select {select_id} arms differ from the durable select"
+                        "select {select_id} definition differs from the durable select"
                     )));
                 }
                 match existing.status {
@@ -48,7 +49,11 @@ impl FlowEngine {
                 self.record_event_at(
                     &snapshot.run_id,
                     snapshot.last_sequence,
-                    FlowEvent::SelectCreated { select_id, arms },
+                    FlowEvent::SelectCreated {
+                        select_id,
+                        arms,
+                        mode,
+                    },
                 )
                 .await?;
                 Ok(SelectCommandOutcome::Waiting)
@@ -56,8 +61,8 @@ impl FlowEngine {
         }
     }
 
-    /// If a completed wait/signal arm belongs to an open select, record the
-    /// winner. Returns true when an event was appended.
+    /// If a completed wait/signal arm belongs to an open select, record
+    /// completion when the select's policy is satisfied.
     pub(super) async fn maybe_complete_select_for_arm(
         &self,
         snapshot: &WorkflowRunSnapshot,
@@ -82,28 +87,48 @@ impl FlowEngine {
         if select.status != SelectStatus::Open {
             return Ok(false);
         }
-        // Winner must be completed (timer) or completed signal wait.
-        let timer_won = snapshot
-            .waits
-            .get(arm_id)
-            .is_some_and(|wait| wait.status == WaitStatus::Completed);
-        let signal_won = snapshot
-            .signal_waits
-            .get(arm_id)
-            .is_some_and(|wait| wait.status == SignalWaitStatus::Completed);
-        if !timer_won && !signal_won {
+        let arm_completed = |arm_id: &str| {
+            snapshot
+                .waits
+                .get(arm_id)
+                .is_some_and(|wait| wait.status == WaitStatus::Completed)
+                || snapshot
+                    .signal_waits
+                    .get(arm_id)
+                    .is_some_and(|wait| wait.status == SignalWaitStatus::Completed)
+        };
+        if !arm_completed(arm_id) {
             return Ok(false);
         }
-        self.record_event_at(
-            &snapshot.run_id,
-            snapshot.last_sequence,
-            FlowEvent::SelectCompleted {
-                select_id,
-                winning_arm_id: arm_id.to_string(),
-            },
-        )
-        .await?;
-        Ok(true)
+        match select.mode {
+            SelectMode::Race => {
+                self.record_event_at(
+                    &snapshot.run_id,
+                    snapshot.last_sequence,
+                    FlowEvent::SelectCompleted {
+                        select_id,
+                        winning_arm_id: Some(arm_id.to_string()),
+                    },
+                )
+                .await?;
+                Ok(true)
+            }
+            SelectMode::JoinAll => {
+                if !select.arms.iter().all(|arm| arm_completed(arm.arm_id())) {
+                    return Ok(false);
+                }
+                self.record_event_at(
+                    &snapshot.run_id,
+                    snapshot.last_sequence,
+                    FlowEvent::SelectCompleted {
+                        select_id,
+                        winning_arm_id: None,
+                    },
+                )
+                .await?;
+                Ok(true)
+            }
+        }
     }
 
     pub(super) async fn reconcile_open_selects(

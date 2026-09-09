@@ -430,7 +430,10 @@ open scope cancelled during projection.
 
 ## Structured Select And Race
 
-`RuntimeCommand::Select` records a durable race over two or more timer or
+`RuntimeCommand::Select` records a durable wait over two or more timer or
+signal arms. `SelectMode::Race` (default) completes when the first arm finishes
+and cancels sibling waits. `SelectMode::JoinAll` via `WorkflowContext::join`
+completes only after every arm finishes and does not cancel siblings early.
 signal arms. Projection materializes each arm as a normal wait or signal wait
 tagged with the select identity. When the first arm completes, the engine
 appends `select_completed` with the winning arm id and cancels sibling waits.

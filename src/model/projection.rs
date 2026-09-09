@@ -4,9 +4,9 @@ use super::{
     validate_run_id, ActivityStatus, CancellationRequestSnapshot, CancellationScopeSnapshot,
     CancellationScopeStatus, ChildWorkflowMapSnapshot, ChildWorkflowMapStatus,
     ChildWorkflowSnapshot, CompensationMarkerSnapshot, CompensationMarkerStatus, FlowEvent,
-    FlowEventEnvelope, HookSnapshot, HookStatus, ItemAggregateSnapshot, SelectArm, SelectSnapshot,
-    SelectStatus, SignalWaitSnapshot, SignalWaitStatus, StepFailureAction, StepSnapshot,
-    StepStatus, WaitSnapshot, WaitStatus, WorkflowContinuation, WorkflowRunSnapshot,
+    FlowEventEnvelope, HookSnapshot, HookStatus, ItemAggregateSnapshot, SelectArm, SelectMode,
+    SelectSnapshot, SelectStatus, SignalWaitSnapshot, SignalWaitStatus, StepFailureAction,
+    StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowContinuation, WorkflowRunSnapshot,
     WorkflowRunStatus, WorkflowSignalSnapshot, WorkflowTerminalOutcome, WorkflowUpdateSnapshot,
 };
 
@@ -1053,7 +1053,11 @@ pub(crate) fn project_run_from_snapshot(
                 }
                 cancel_scope_tree(&mut snapshot, scope_id);
             }
-            FlowEvent::SelectCreated { select_id, arms } => {
+            FlowEvent::SelectCreated {
+                select_id,
+                arms,
+                mode,
+            } => {
                 if snapshot.status == WorkflowRunStatus::Pending {
                     return Err(FlowError::InvalidTransition(
                         "select_created cannot precede run_started".to_string(),
@@ -1122,6 +1126,7 @@ pub(crate) fn project_run_from_snapshot(
                     SelectSnapshot {
                         select_id: select_id.clone(),
                         arms: arms.clone(),
+                        mode: *mode,
                         status: SelectStatus::Open,
                         winning_arm_id: None,
                     },
@@ -1142,27 +1147,65 @@ pub(crate) fn project_run_from_snapshot(
                         select.status
                     )));
                 }
-                if !select.arms.iter().any(|arm| arm.arm_id() == winning_arm_id) {
-                    return Err(FlowError::InvalidTransition(format!(
-                        "select_completed winning arm {winning_arm_id} is not part of select {select_id}"
-                    )));
-                }
-                select.status = SelectStatus::Completed;
-                select.winning_arm_id = Some(winning_arm_id.clone());
-                for wait in snapshot.waits.values_mut() {
-                    if wait.select_id.as_deref() == Some(select_id.as_str())
-                        && wait.wait_id != *winning_arm_id
-                        && wait.status == WaitStatus::Waiting
-                    {
-                        wait.status = WaitStatus::Cancelled;
+                let mode = select.mode;
+                let arms = select.arms.clone();
+                match mode {
+                    SelectMode::Race => {
+                        let Some(winning_arm_id) = winning_arm_id.as_ref() else {
+                            return Err(FlowError::InvalidTransition(format!(
+                                "select_completed for race select {select_id} requires a winning arm"
+                            )));
+                        };
+                        if !arms.iter().any(|arm| arm.arm_id() == winning_arm_id) {
+                            return Err(FlowError::InvalidTransition(format!(
+                                "select_completed winning arm {winning_arm_id} is not part of select {select_id}"
+                            )));
+                        }
+                        let select = snapshot.selects.get_mut(select_id).unwrap();
+                        select.status = SelectStatus::Completed;
+                        select.winning_arm_id = Some(winning_arm_id.clone());
+                        for wait in snapshot.waits.values_mut() {
+                            if wait.select_id.as_deref() == Some(select_id.as_str())
+                                && wait.wait_id != *winning_arm_id
+                                && wait.status == WaitStatus::Waiting
+                            {
+                                wait.status = WaitStatus::Cancelled;
+                            }
+                        }
+                        for wait in snapshot.signal_waits.values_mut() {
+                            if wait.select_id.as_deref() == Some(select_id.as_str())
+                                && wait.wait_id != *winning_arm_id
+                                && wait.status == SignalWaitStatus::Waiting
+                            {
+                                wait.status = SignalWaitStatus::Cancelled;
+                            }
+                        }
                     }
-                }
-                for wait in snapshot.signal_waits.values_mut() {
-                    if wait.select_id.as_deref() == Some(select_id.as_str())
-                        && wait.wait_id != *winning_arm_id
-                        && wait.status == SignalWaitStatus::Waiting
-                    {
-                        wait.status = SignalWaitStatus::Cancelled;
+                    SelectMode::JoinAll => {
+                        if winning_arm_id.is_some() {
+                            return Err(FlowError::InvalidTransition(format!(
+                                "select_completed for join-all select {select_id} must not set a winner"
+                            )));
+                        }
+                        for arm in &arms {
+                            let arm_id = arm.arm_id();
+                            let timer_done = snapshot
+                                .waits
+                                .get(arm_id)
+                                .is_some_and(|wait| wait.status == WaitStatus::Completed);
+                            let signal_done = snapshot
+                                .signal_waits
+                                .get(arm_id)
+                                .is_some_and(|wait| wait.status == SignalWaitStatus::Completed);
+                            if !timer_done && !signal_done {
+                                return Err(FlowError::InvalidTransition(format!(
+                                    "select_completed for join-all select {select_id} before arm {arm_id} completed"
+                                )));
+                            }
+                        }
+                        let select = snapshot.selects.get_mut(select_id).unwrap();
+                        select.status = SelectStatus::Completed;
+                        select.winning_arm_id = None;
                     }
                 }
             }

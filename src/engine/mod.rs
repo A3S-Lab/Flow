@@ -950,14 +950,16 @@ impl FlowEngine {
                         Err(err) => return Err(err),
                     }
                 }
-                RuntimeCommand::Select { select_id, arms } => {
-                    match self.schedule_select(&snapshot, select_id, arms).await {
-                        Ok(SelectCommandOutcome::Replay) => continue,
-                        Ok(SelectCommandOutcome::Waiting) => return self.snapshot(run_id).await,
-                        Err(err) if is_event_conflict(&err) => continue,
-                        Err(err) => return Err(err),
-                    }
-                }
+                RuntimeCommand::Select {
+                    select_id,
+                    arms,
+                    mode,
+                } => match self.schedule_select(&snapshot, select_id, arms, mode).await {
+                    Ok(SelectCommandOutcome::Replay) => continue,
+                    Ok(SelectCommandOutcome::Waiting) => return self.snapshot(run_id).await,
+                    Err(err) if is_event_conflict(&err) => continue,
+                    Err(err) => return Err(err),
+                },
             }
         }
 

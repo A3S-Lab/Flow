@@ -798,10 +798,24 @@ impl<'a> WorkflowContext<'a> {
         RuntimeCommand::Select {
             select_id: select_id.into(),
             arms,
+            mode: crate::model::SelectMode::Race,
         }
     }
 
-    /// Return the winning arm id of a completed select, when present.
+    /// Wait until every durable arm completes without cancelling siblings early.
+    pub fn join(
+        &self,
+        select_id: impl Into<String>,
+        arms: Vec<crate::model::SelectArm>,
+    ) -> RuntimeCommand {
+        RuntimeCommand::Select {
+            select_id: select_id.into(),
+            arms,
+            mode: crate::model::SelectMode::JoinAll,
+        }
+    }
+
+    /// Return the winning arm id of a completed race select, when present.
     pub fn select_winner(&self, select_id: &str) -> Option<&str> {
         self.history()
             .iter()
@@ -809,9 +823,35 @@ impl<'a> WorkflowContext<'a> {
                 FlowEvent::SelectCompleted {
                     select_id: id,
                     winning_arm_id,
-                } if id == select_id => Some(winning_arm_id.as_str()),
+                } if id == select_id => winning_arm_id.as_deref(),
                 _ => None,
             })
+    }
+
+    /// Return whether a join-all select has completed.
+    pub fn select_joined(&self, select_id: &str) -> bool {
+        let is_join = self.history().iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                FlowEvent::SelectCreated {
+                    select_id: id,
+                    mode: crate::model::SelectMode::JoinAll,
+                    ..
+                } if id == select_id
+            )
+        });
+        if !is_join {
+            return false;
+        }
+        self.history().iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                FlowEvent::SelectCompleted {
+                    select_id: id,
+                    ..
+                } if id == select_id
+            )
+        })
     }
 
     /// Open a dynamic bounded child-workflow map with engine-managed windows.
