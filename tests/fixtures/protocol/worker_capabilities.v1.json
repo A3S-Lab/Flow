@@ -1,0 +1,18 @@
+{
+  "protocol": "a3s.flow.worker.v1",
+  "task_types": [
+    "drive_run",
+    "resume_wait",
+    "resume_hook",
+    "resume_hook_by_token",
+    "send_signal",
+    "dispose_hook",
+    "dispose_hook_by_token",
+    "resume_scheduled_run",
+    "resume_due_waits",
+    "resume_due_retries"
+  ],
+  "lease_fencing": true,
+  "heartbeats": true,
+  "bounded_drain": true
+}

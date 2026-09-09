@@ -212,6 +212,13 @@ returns a tip-anchored, schema-versioned summary rebuildable from history or a
 tip-validated snapshot/checkpoint digest, without copying workflow payloads into
 the index.
 
+The first `FLOW-R6` certification harness is also present:
+`tests/certification.rs` freezes worker/task/envelope protocol fixtures under
+`tests/fixtures/protocol/`, fails closed on mixed-version worker negotiation and
+stale/forged lease acknowledgements, and verifies tip-pinned archive export
+correctness for a 10_000-event history. Full real-provider chaos, package, and
+security automation gates remain open certification work.
+
 ## 4. Implementation rules
 
 ### 4.1 Activity protocol

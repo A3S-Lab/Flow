@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added the first FLOW-R6 certification harness through `tests/certification.rs`
+  and frozen protocol fixtures under `tests/fixtures/protocol/`. The suite
+  locks worker capability, task, and event-envelope wire shapes, fails closed
+  on mixed-version negotiation and stale/forged lease acknowledgements, and
+  verifies tip-pinned archive export for a 10_000-event history.
+
 - Added opaque processor-partition fairness through
   `FlowTaskQueue::enqueue_for_partition`, `FlowTaskQueue::partition_fairness`,
   `InMemoryFlowTaskQueue::with_partition_fairness`, and
