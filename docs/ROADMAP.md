@@ -81,10 +81,11 @@ that converts timeout into an unknown outcome. The remaining R2 work is
 host-owned Outbox/Inbox transaction wiring and
 fault-injection coverage across every external connector boundary; those must
 be delivered by Cloud integrations without moving tenant or product policy
-into Flow. Kernel evidence for kill/disconnect at Activity create→start, unknown-outcome,
-and completion boundaries is covered by `tests/crash_recovery.rs` (in-memory
-persistence loss) and `tests/postgres_process_recovery.rs` (real PostgreSQL
-process death on both Step and Activity completion boundaries).
+into Flow. Kernel evidence for kill/disconnect at Activity create→start, heartbeat/
+checkpoint, unknown-outcome, and completion boundaries is covered by
+`tests/crash_recovery.rs` (in-memory persistence loss) and
+`tests/postgres_process_recovery.rs` (real PostgreSQL process death on both
+Step and Activity completion boundaries).
 
 All built-in stores also enforce `MAX_FLOW_EVENT_BYTES` (currently one MiB) at
 the validated append boundary; oversized payloads fail closed before mutation.

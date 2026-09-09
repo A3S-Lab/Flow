@@ -9,6 +9,7 @@ use serde_json::json;
 use std::future::pending;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use tokio::sync::Notify;
 
 fn workflow_spec() -> WorkflowSpec {
     WorkflowSpec::rust_embedded("test.crash-recovery", "1", "tests::runtime", "main")
@@ -368,6 +369,14 @@ struct AmbiguousThenCompleteActivityRuntime {
     effect_invocations: AtomicUsize,
 }
 
+struct HeartbeatThenCrashActivityRuntime {
+    started: Arc<Notify>,
+    release: Arc<Notify>,
+    redelivered: Arc<Notify>,
+    release_redelivery: Arc<Notify>,
+    effect_invocations: AtomicUsize,
+}
+
 #[derive(Default)]
 struct PermanentFailureRuntime {
     step_invocations: AtomicUsize,
@@ -524,6 +533,44 @@ impl FlowRuntime for AmbiguousThenCompleteActivityRuntime {
     }
 }
 
+#[async_trait]
+impl FlowRuntime for HeartbeatThenCrashActivityRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let context = invocation.context();
+        match context.activity_output("durable-effect") {
+            Some(output) => Ok(context.complete(output.clone())),
+            None => Ok(context.schedule_activity_with_retry(
+                "durable-effect",
+                "persistDurableEffect",
+                json!({"effectId": "stable-effect"}),
+                RetryPolicy::none(),
+            )),
+        }
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        Ok(json!(null))
+    }
+
+    async fn run_activity(
+        &self,
+        _invocation: ActivityInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        let call = self.effect_invocations.fetch_add(1, Ordering::SeqCst);
+        if call == 0 {
+            self.started.notify_one();
+            self.release.notified().await;
+        } else {
+            self.redelivered.notify_one();
+            self.release_redelivery.notified().await;
+        }
+        Ok(json!({"effectId": "stable-effect", "cursor": 42}))
+    }
+}
+
 #[tokio::test]
 async fn running_activity_is_redelivered_after_completion_persistence_is_lost() {
     let run_id = "activity-crash-recovery";
@@ -587,6 +634,145 @@ async fn running_activity_is_redelivered_after_completion_persistence_is_lost() 
     );
     let recovered = restarted.snapshot(run_id).await.expect("final snapshot");
     assert_eq!(recovered.activities["durable-effect"].attempt, 1);
+}
+
+#[tokio::test]
+async fn heartbeat_checkpoint_survives_completion_persistence_loss_and_redelivery() {
+    let run_id = "activity-heartbeat-crash-recovery";
+    let store = Arc::new(CrashBeforeActivityCompletionStore::new());
+    let runtime = Arc::new(HeartbeatThenCrashActivityRuntime {
+        started: Arc::new(Notify::new()),
+        release: Arc::new(Notify::new()),
+        redelivered: Arc::new(Notify::new()),
+        release_redelivery: Arc::new(Notify::new()),
+        effect_invocations: AtomicUsize::new(0),
+    });
+    let engine = Arc::new(FlowEngine::new(store.clone(), runtime.clone()));
+    let task_engine = Arc::clone(&engine);
+    let drive = tokio::spawn(async move {
+        task_engine
+            .start_with_id(run_id, workflow_spec(), json!({}))
+            .await
+    });
+
+    runtime.started.notified().await;
+    let running = engine.snapshot(run_id).await.expect("running snapshot");
+    let activity = running.activities.get("durable-effect").unwrap();
+    let pre_crash_fence = activity.fencing_token.clone();
+    let attempt_id = activity.attempt_id.clone();
+    engine
+        .heartbeat_activity(
+            run_id,
+            "durable-effect",
+            activity.attempt,
+            &attempt_id,
+            &pre_crash_fence,
+            Some(json!({ "cursor": 42 })),
+        )
+        .await
+        .expect("heartbeat checkpoint must persist");
+    assert_eq!(
+        engine.snapshot(run_id).await.unwrap().activities["durable-effect"].checkpoint,
+        Some(json!({ "cursor": 42 }))
+    );
+
+    runtime.release.notify_one();
+    let failure = drive
+        .await
+        .unwrap()
+        .expect_err("completion persistence must fail");
+    assert!(matches!(failure, FlowError::Store(_)));
+    let interrupted = engine.snapshot(run_id).await.expect("interrupted snapshot");
+    assert_eq!(
+        interrupted.activities["durable-effect"].status,
+        ActivityStatus::Running
+    );
+    assert_eq!(
+        interrupted.activities["durable-effect"].checkpoint,
+        Some(json!({ "cursor": 42 })),
+        "durable heartbeat checkpoint must survive the completion crash window"
+    );
+    assert_eq!(interrupted.activities["durable-effect"].attempt, 1);
+    assert_eq!(
+        interrupted.activities["durable-effect"].attempt_id,
+        attempt_id
+    );
+
+    drop(engine);
+    let restarted = Arc::new(FlowEngine::new(store.clone(), runtime.clone()));
+    let redelivery_engine = Arc::clone(&restarted);
+    let redelivery = tokio::spawn(async move {
+        redelivery_engine
+            .start_with_id(run_id, workflow_spec(), json!({}))
+            .await
+    });
+    runtime.redelivered.notified().await;
+    let leased = restarted
+        .snapshot(run_id)
+        .await
+        .expect("lease-rotated snapshot");
+    assert_eq!(
+        leased.activities["durable-effect"].checkpoint,
+        Some(json!({ "cursor": 42 }))
+    );
+    assert_ne!(
+        leased.activities["durable-effect"].fencing_token,
+        pre_crash_fence
+    );
+    let stale = restarted
+        .heartbeat_activity(
+            run_id,
+            "durable-effect",
+            1,
+            &attempt_id,
+            &pre_crash_fence,
+            Some(json!({ "cursor": 99 })),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(stale, FlowError::InvalidTransition(ref message) if message.contains("stale")),
+        "{stale:?}"
+    );
+
+    runtime.release_redelivery.notify_one();
+    redelivery
+        .await
+        .unwrap()
+        .expect("redelivery must complete the same attempt");
+    let completed = restarted
+        .snapshot(run_id)
+        .await
+        .expect("completed snapshot");
+    assert_eq!(completed.status, WorkflowRunStatus::Completed);
+    assert_eq!(completed.activities["durable-effect"].attempt, 1);
+    assert_eq!(
+        completed.activities["durable-effect"].attempt_id,
+        attempt_id
+    );
+    assert_eq!(runtime.effect_invocations.load(Ordering::SeqCst), 2);
+    let history = store.list(run_id).await.expect("history");
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| matches!(event.event, FlowEvent::ActivityHeartbeat { .. }))
+            .count(),
+        1
+    );
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| matches!(event.event, FlowEvent::ActivityLeaseAcquired { .. }))
+            .count(),
+        1
+    );
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| matches!(event.event, FlowEvent::ActivityCompleted { .. }))
+            .count(),
+        1
+    );
 }
 
 #[tokio::test]

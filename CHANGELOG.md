@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added FLOW-R2 heartbeat/checkpoint crash recovery: durable activity checkpoints
+  survive `activity_completed` persistence loss, redelivery rotates the lease
+  fence while rejecting the pre-crash token, and the same attempt completes
+  (`heartbeat_checkpoint_survives_completion_persistence_loss_and_redelivery`).
+
 - Added FLOW-R4 map partial-window crash recovery and FLOW-R2 unknown-outcome
   persistence-loss evidence: map concurrency windows recover without duplicate
   or lost children (`tests/child_workflow_maps.rs`), and undurable
