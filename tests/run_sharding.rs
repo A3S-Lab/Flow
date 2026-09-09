@@ -1,7 +1,7 @@
 use a3s_flow::{
     ChildOperationReference, FlowEngine, FlowEvent, FlowEventStore, FlowRunShardLayout,
-    FlowRuntime, InMemoryEventStore, LocalFileEventStore, RuntimeCommand, WorkflowInvocation,
-    WorkflowSpec,
+    FlowRuntime, InMemoryEventStore, LocalFileEventStore, RuntimeCommand, ShardedFlowEventStore,
+    WorkflowInvocation, WorkflowSpec,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -123,4 +123,124 @@ async fn unsharded_stores_do_not_advertise_physical_sharding() {
     assert!(!LocalFileEventStore::new(dir.path())
         .capabilities()
         .physical_run_sharding());
+}
+
+#[tokio::test]
+async fn composed_sharded_store_routes_and_preserves_cross_shard_links() {
+    let store = ShardedFlowEventStore::from_in_memory(4).unwrap();
+    assert!(store.capabilities().physical_run_sharding());
+    assert!(!store.capabilities().cross_process_locking());
+    assert!(!store.capabilities().production_ready());
+    let layout = store.shard_layout();
+    let parent = "composed-parent".to_string();
+    let child = (0..10_000)
+        .map(|index| format!("composed-child-{index}"))
+        .find(|candidate| layout.shard_index(candidate) != layout.shard_index(&parent))
+        .expect("expected a child run id on a different shard");
+    assert_ne!(layout.shard_index(&parent), layout.shard_index(&child));
+
+    store
+        .append(
+            &child,
+            FlowEvent::RunCreated {
+                spec: spec(),
+                input: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &parent,
+            FlowEvent::RunCreated {
+                spec: spec(),
+                input: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+    store.append(&parent, FlowEvent::RunStarted).await.unwrap();
+    store
+        .append(
+            &parent,
+            FlowEvent::ChildOperationLinked {
+                child: ChildOperationReference::new("op", "ext", "kind")
+                    .with_flow_run_id(child.clone()),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(store.list(&parent).await.unwrap().len(), 3);
+    assert_eq!(store.list(&child).await.unwrap().len(), 1);
+    let missing = store
+        .append(
+            &parent,
+            FlowEvent::ChildOperationLinked {
+                child: ChildOperationReference::new("missing", "ext", "kind")
+                    .with_flow_run_id("composed-missing-run".to_string()),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(missing, a3s_flow::FlowError::RunNotFound(_)));
+}
+
+#[tokio::test]
+async fn composed_sharded_store_rejects_duplicate_hook_tokens_across_shards() {
+    let store = ShardedFlowEventStore::from_in_memory(4).unwrap();
+    let layout = store.shard_layout();
+    let first = "hook-run-a".to_string();
+    let second = (0..10_000)
+        .map(|index| format!("hook-run-b-{index}"))
+        .find(|candidate| layout.shard_index(candidate) != layout.shard_index(&first))
+        .expect("expected a second run on another shard");
+
+    for run_id in [&first, &second] {
+        store
+            .append(
+                run_id,
+                FlowEvent::RunCreated {
+                    spec: spec(),
+                    input: json!({}),
+                },
+            )
+            .await
+            .unwrap();
+        store.append(run_id, FlowEvent::RunStarted).await.unwrap();
+    }
+
+    store
+        .append_hook_if_token_available(&first, 2, "h1".into(), "shared-token".into(), json!({}))
+        .await
+        .unwrap();
+    let conflict = store
+        .append_hook_if_token_available(&second, 2, "h2".into(), "shared-token".into(), json!({}))
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        conflict,
+        a3s_flow::FlowError::HookTokenConflict { .. }
+    ));
+}
+
+#[test]
+fn composed_sharded_store_rejects_nested_or_mismatched_backends() {
+    let layout = FlowRunShardLayout::new(2).unwrap();
+    let nested =
+        Arc::new(InMemoryEventStore::with_shard_count(2).unwrap()) as Arc<dyn FlowEventStore>;
+    let err = ShardedFlowEventStore::new(
+        layout,
+        vec![Arc::new(InMemoryEventStore::new()) as _, nested],
+    )
+    .unwrap_err();
+    assert!(matches!(err, a3s_flow::FlowError::InvalidTransition(_)));
+
+    let mismatch =
+        ShardedFlowEventStore::new(layout, vec![Arc::new(InMemoryEventStore::new()) as _])
+            .unwrap_err();
+    assert!(matches!(
+        mismatch,
+        a3s_flow::FlowError::InvalidTransition(_)
+    ));
 }

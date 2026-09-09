@@ -130,23 +130,17 @@ impl FlowEventStore for InMemoryEventStore {
         let mut state = self.state.lock().await;
         ensure_linked_flow_run_exists(&state, &event)?;
         ensure_hook_token_available(&state, run_id, &event)?;
-        let history = state
-            .shard(run_id)
-            .runs
-            .get(run_id)
-            .map(Vec::as_slice)
-            .unwrap_or(&[]);
-        let actual_sequence = history.last().map_or(0, |event| event.sequence);
-        if actual_sequence != expected_sequence {
-            return Err(FlowError::EventConflict {
-                run_id: run_id.to_string(),
-                expected_sequence,
-                actual_sequence,
-            });
-        }
-        validate_candidate_event(run_id, history, &event)?;
-        let shard = state.shard_mut(run_id);
-        append_in_memory(&mut shard.runs, run_id, event)
+        append_in_memory_if_sequence(&mut state, run_id, expected_sequence, event)
+    }
+
+    async fn append_shard_local_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> Result<FlowEventEnvelope> {
+        let mut state = self.state.lock().await;
+        append_in_memory_if_sequence(&mut state, run_id, expected_sequence, event)
     }
 
     async fn append_validated_if_sequence(
@@ -326,6 +320,31 @@ fn ensure_hook_token_available(
         }
     }
     Ok(())
+}
+
+fn append_in_memory_if_sequence(
+    state: &mut InMemoryState,
+    run_id: &str,
+    expected_sequence: u64,
+    event: FlowEvent,
+) -> Result<FlowEventEnvelope> {
+    let history = state
+        .shard(run_id)
+        .runs
+        .get(run_id)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    let actual_sequence = history.last().map_or(0, |event| event.sequence);
+    if actual_sequence != expected_sequence {
+        return Err(FlowError::EventConflict {
+            run_id: run_id.to_string(),
+            expected_sequence,
+            actual_sequence,
+        });
+    }
+    validate_candidate_event(run_id, history, &event)?;
+    let shard = state.shard_mut(run_id);
+    append_in_memory(&mut shard.runs, run_id, event)
 }
 
 fn append_in_memory(

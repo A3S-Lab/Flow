@@ -1444,7 +1444,10 @@ just release-certification
 `tests/certification.rs` locks worker capability, task, and event-envelope wire
 shapes under `tests/fixtures/protocol/`, fails closed on stale or forged lease
 acknowledgements and mixed worker protocols, and verifies tip-pinned archive
-export for a 10_000-event history. The UI package reads the same JSON fixtures
+export for a 10_000-event history. `tests/scale_slos.rs` records append, history
+page, and tip-validated checkpointed snapshot percentiles; when
+`A3S_FLOW_POSTGRES_URL` is set it also asserts the published SQL scale SLO
+targets from `docs/ROADMAP.md`. The UI package reads the same JSON fixtures
 so TypeScript and Rust share one wire authority. Retained pre-v1 histories under
 `tests/fixtures/pre_v1/` must continue to deserialize and resume on the current
 kernel. `just release-certification` also runs the local
@@ -1453,8 +1456,8 @@ reachability check.
 
 When changing wire shapes, regenerate the fixtures and update both the Rust and
 TypeScript consumers in the same change. Host-owned chaos against real Postgres
-providers, package publishing, and security automation remain outside this
-kernel harness.
+providers and broader fault matrices remain outside the always-on kernel
+harness; set `A3S_FLOW_POSTGRES_URL` to exercise the SQL scale SLO gate.
 
 ## Operational Checklist
 

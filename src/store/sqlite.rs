@@ -85,14 +85,18 @@ impl SqliteEventStore {
         run_id: &str,
         expected_sequence: Option<u64>,
         event: FlowEvent,
+        enforce_cross_run: bool,
     ) -> Result<FlowEventEnvelope> {
         let run_id = run_id.to_string();
         let result = self
             .executor
             .transaction(|transaction| {
                 Box::pin(async move {
-                    let linked_run_id =
-                        retention::required_linked_flow_run_id(&event).map(str::to_string);
+                    let linked_run_id = if enforce_cross_run {
+                        retention::required_linked_flow_run_id(&event).map(str::to_string)
+                    } else {
+                        None
+                    };
                     retention::ensure_sqlite_history_not_tombstoned(transaction, &run_id).await?;
                     if let Some(linked_run_id) = linked_run_id.as_deref() {
                         retention::ensure_sqlite_history_not_tombstoned(transaction, linked_run_id)
@@ -112,9 +116,16 @@ impl SqliteEventStore {
                         }
                     }
                     validate_event_payload(&event)?;
-                    if let FlowEvent::HookCreated { hook_id, token, .. } = &event {
-                        ensure_sqlite_active_hook_available(transaction, &run_id, hook_id, token)
+                    if enforce_cross_run {
+                        if let FlowEvent::HookCreated { hook_id, token, .. } = &event {
+                            ensure_sqlite_active_hook_available(
+                                transaction,
+                                &run_id,
+                                hook_id,
+                                token,
+                            )
                             .await?;
+                        }
                     }
                     let sequence = next_event_sequence(actual_sequence, &run_id)?;
 
@@ -165,7 +176,7 @@ impl FlowEventStore for SqliteEventStore {
     }
 
     async fn append(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope> {
-        self.append_with_expected_sequence(run_id, None, event)
+        self.append_with_expected_sequence(run_id, None, event, true)
             .await
     }
 
@@ -175,7 +186,17 @@ impl FlowEventStore for SqliteEventStore {
         expected_sequence: u64,
         event: FlowEvent,
     ) -> Result<FlowEventEnvelope> {
-        self.append_with_expected_sequence(run_id, Some(expected_sequence), event)
+        self.append_with_expected_sequence(run_id, Some(expected_sequence), event, true)
+            .await
+    }
+
+    async fn append_shard_local_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> Result<FlowEventEnvelope> {
+        self.append_with_expected_sequence(run_id, Some(expected_sequence), event, false)
             .await
     }
 
@@ -185,7 +206,7 @@ impl FlowEventStore for SqliteEventStore {
         expected_sequence: u64,
         event: FlowEvent,
     ) -> Result<FlowEventEnvelope> {
-        self.append_with_expected_sequence(run_id, Some(expected_sequence), event)
+        self.append_with_expected_sequence(run_id, Some(expected_sequence), event, true)
             .await
     }
 
@@ -205,6 +226,7 @@ impl FlowEventStore for SqliteEventStore {
                 token,
                 metadata,
             },
+            true,
         )
         .await
     }

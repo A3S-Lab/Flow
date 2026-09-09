@@ -22,6 +22,7 @@ test:
 # Run FLOW-R6 certification harness and TypeScript protocol fixture parity
 certification:
     cargo test --test certification
+    cargo test --test scale_slos
     cargo test --test pre_v1_history
     node packages/ui/node_modules/vitest/vitest.mjs run packages/ui/tests/protocol-fixtures.test.ts
 

@@ -610,9 +610,13 @@ in-memory store keeps one map per shard under a shared lock; the local JSONL
 store writes `<root>/sNN/<run_id>.jsonl` when constructed with
 `with_shard_count`. Capability bit `physical_run_sharding` is set only for those
 layouts. Linked-run and hook-token uniqueness remain store-wide so
-cross-shard parent/child links stay valid. SQL adapters may adopt the same
-layout contract for per-shard databases later; they do not yet expose
-`with_shard_count` constructors.
+cross-shard parent/child links stay valid. SQL and other hosts can place one
+unsharded backend per shard with `ShardedFlowEventStore`, which routes by
+`FlowRunShardLayout`, enforces store-wide link/hook checks, and appends through
+`FlowEventStore::append_shard_local_if_sequence`. Composed multi-backend layouts
+do not claim cross-process locking for those store-wide invariants; hosts that
+need production-ready multi-worker admission should keep one database (or use
+the built-in single-process sharded memory/file stores).
 
 Both SQL stores are adapters over `a3s-orm`. ORM executors own connection and
 pool behavior, typed decoding, and transaction completion. Flow owns the event

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Added `ShardedFlowEventStore` for host-composed physical run sharding: one
+  unsharded backend per `FlowRunShardLayout` shard, store-wide linked-run and
+  hook-token checks on the facade, and
+  `FlowEventStore::append_shard_local_if_sequence` on built-in memory, local
+  file, SQLite, and PostgreSQL stores. Composed multi-backend layouts advertise
+  `physical_run_sharding` but do not claim production-ready cross-process
+  locking for cross-database invariants.
+
+- Added `tests/scale_slos.rs` to the FLOW-R6 certification recipe. The harness
+  always records in-memory append/page/checkpoint percentiles and asserts the
+  published SQL scale SLO targets when `A3S_FLOW_POSTGRES_URL` is set.
+
 - Extended opaque processor-partition fairness to `PostgresFlowTaskQueue` with
   migration `a3s-flow-0012-task-partition-key`, `with_partition_fairness`, and
   the same `enqueue_for_partition` contract used by in-memory and local-file

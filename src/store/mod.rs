@@ -27,6 +27,7 @@ mod postgres;
 mod postgres_schema;
 mod retention;
 mod shard;
+mod sharded;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
@@ -50,6 +51,7 @@ pub use retention::{
     FlowHistoryHold, FlowHistoryRetentionPolicy, FlowHistoryRetentionReport, FlowHistoryTombstone,
 };
 pub use shard::{FlowRunShardLayout, MAX_FLOW_RUN_SHARD_COUNT, MIN_FLOW_RUN_SHARD_COUNT};
+pub use sharded::ShardedFlowEventStore;
 #[cfg(feature = "sqlite")]
 pub use sqlite::SqliteEventStore;
 
@@ -160,6 +162,23 @@ pub trait FlowEventStore: Send + Sync {
         expected_sequence: u64,
         event: FlowEvent,
     ) -> Result<FlowEventEnvelope>;
+
+    /// Append after the caller has already enforced store-wide linked-run and
+    /// hook-token invariants.
+    ///
+    /// [`ShardedFlowEventStore`] uses this SPI so each physical backend can
+    /// stay local to one shard while the facade preserves cross-shard checks.
+    /// The default fails closed; built-in single-shard stores override it.
+    async fn append_shard_local_if_sequence(
+        &self,
+        _run_id: &str,
+        _expected_sequence: u64,
+        _event: FlowEvent,
+    ) -> Result<FlowEventEnvelope> {
+        Err(FlowError::Store(
+            "shard-local append is unsupported by this event store".to_string(),
+        ))
+    }
 
     /// Validate the candidate event against the current projected history and
     /// append it with an expected-sequence check.

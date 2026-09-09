@@ -114,8 +114,13 @@ append, checkpointed reads, history pages, and archive export are recorded
 below. Physical run sharding is also implemented: `FlowRunShardLayout` maps
 run IDs onto a fixed shard count, and built-in in-memory/local-file stores can
 partition histories into independent shard maps or `sNN/` directories while
-preserving cross-shard link and hook checks. SQL hosts can adopt the same
-layout contract when placing per-shard databases.
+preserving cross-shard link and hook checks. SQL and other hosts can place one
+backend per shard through `ShardedFlowEventStore` and
+`FlowEventStore::append_shard_local_if_sequence`, which keep store-wide
+linked-run and hook-token checks on the facade while each physical database
+stays local. Multi-process atomicity of those cross-database invariants remains
+a host concern, so composed multi-backend layouts do not claim
+`production_ready()` admission.
 
 ### Published scale SLO targets (kernel)
 
@@ -224,7 +229,9 @@ the local queue. TypeScript consumes the same fixtures in
 `tests/fixtures/pre_v1/` are exercised by the certification recipe via
 `cargo test --test pre_v1_history`. Operators can also run
 `just release-certification` to include local `cargo package --locked`
-verification and the bounded advisory reachability check. Full real-provider
+verification and the bounded advisory reachability check. `tests/scale_slos.rs`
+records append/page/checkpoint percentiles and asserts the published SQL
+targets when `A3S_FLOW_POSTGRES_URL` is configured. Full real-provider
 chaos gates remain open certification work.
 
 ## 4. Implementation rules

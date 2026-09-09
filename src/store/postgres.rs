@@ -83,6 +83,7 @@ impl PostgresEventStore {
         run_id: &str,
         expected_sequence: Option<u64>,
         event: FlowEvent,
+        enforce_cross_run: bool,
     ) -> Result<FlowEventEnvelope> {
         let run_id = run_id.to_string();
         let result = self
@@ -90,8 +91,11 @@ impl PostgresEventStore {
             .transaction(|transaction| {
                 Box::pin(async move {
                     retention::lock_postgres_retention_guard_shared(transaction).await?;
-                    let linked_run_id =
-                        retention::required_linked_flow_run_id(&event).map(str::to_string);
+                    let linked_run_id = if enforce_cross_run {
+                        retention::required_linked_flow_run_id(&event).map(str::to_string)
+                    } else {
+                        None
+                    };
                     let mut locked_run_ids = vec![run_id.as_str()];
                     if let Some(linked_run_id) = linked_run_id.as_deref() {
                         locked_run_ids.push(linked_run_id);
@@ -123,9 +127,16 @@ impl PostgresEventStore {
                         }
                     }
                     validate_event_payload(&event)?;
-                    if let FlowEvent::HookCreated { hook_id, token, .. } = &event {
-                        ensure_postgres_active_hook_available(transaction, &run_id, hook_id, token)
+                    if enforce_cross_run {
+                        if let FlowEvent::HookCreated { hook_id, token, .. } = &event {
+                            ensure_postgres_active_hook_available(
+                                transaction,
+                                &run_id,
+                                hook_id,
+                                token,
+                            )
                             .await?;
+                        }
                     }
                     let sequence = next_event_sequence(actual_sequence, &run_id)?;
 
@@ -176,7 +187,7 @@ impl FlowEventStore for PostgresEventStore {
     }
 
     async fn append(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope> {
-        self.append_with_expected_sequence(run_id, None, event)
+        self.append_with_expected_sequence(run_id, None, event, true)
             .await
     }
 
@@ -186,7 +197,17 @@ impl FlowEventStore for PostgresEventStore {
         expected_sequence: u64,
         event: FlowEvent,
     ) -> Result<FlowEventEnvelope> {
-        self.append_with_expected_sequence(run_id, Some(expected_sequence), event)
+        self.append_with_expected_sequence(run_id, Some(expected_sequence), event, true)
+            .await
+    }
+
+    async fn append_shard_local_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> Result<FlowEventEnvelope> {
+        self.append_with_expected_sequence(run_id, Some(expected_sequence), event, false)
             .await
     }
 
@@ -196,7 +217,7 @@ impl FlowEventStore for PostgresEventStore {
         expected_sequence: u64,
         event: FlowEvent,
     ) -> Result<FlowEventEnvelope> {
-        self.append_with_expected_sequence(run_id, Some(expected_sequence), event)
+        self.append_with_expected_sequence(run_id, Some(expected_sequence), event, true)
             .await
     }
 
@@ -216,6 +237,7 @@ impl FlowEventStore for PostgresEventStore {
                 token,
                 metadata,
             },
+            true,
         )
         .await
     }

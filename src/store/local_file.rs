@@ -168,10 +168,17 @@ impl LocalFileEventStore {
         Ok(())
     }
 
-    async fn append_inner(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope> {
+    async fn append_inner(
+        &self,
+        run_id: &str,
+        event: FlowEvent,
+        enforce_cross_run: bool,
+    ) -> Result<FlowEventEnvelope> {
         tokio::fs::create_dir_all(self.shard_dir(run_id)?).await?;
-        self.ensure_linked_flow_run_exists(&event).await?;
-        self.ensure_hook_token_available(run_id, &event).await?;
+        if enforce_cross_run {
+            self.ensure_linked_flow_run_exists(&event).await?;
+            self.ensure_hook_token_available(run_id, &event).await?;
+        }
 
         let LoadedJsonl {
             records: events,
@@ -202,10 +209,13 @@ impl LocalFileEventStore {
         run_id: &str,
         expected_sequence: u64,
         event: FlowEvent,
+        enforce_cross_run: bool,
     ) -> Result<FlowEventEnvelope> {
         tokio::fs::create_dir_all(self.shard_dir(run_id)?).await?;
-        self.ensure_linked_flow_run_exists(&event).await?;
-        self.ensure_hook_token_available(run_id, &event).await?;
+        if enforce_cross_run {
+            self.ensure_linked_flow_run_exists(&event).await?;
+            self.ensure_hook_token_available(run_id, &event).await?;
+        }
 
         let LoadedJsonl {
             records: events,
@@ -353,7 +363,7 @@ impl FlowEventStore for LocalFileEventStore {
 
     async fn append(&self, run_id: &str, event: FlowEvent) -> Result<FlowEventEnvelope> {
         let _guard = self.lock.lock().await;
-        self.append_inner(run_id, event).await
+        self.append_inner(run_id, event, true).await
     }
 
     async fn append_if_sequence(
@@ -363,7 +373,18 @@ impl FlowEventStore for LocalFileEventStore {
         event: FlowEvent,
     ) -> Result<FlowEventEnvelope> {
         let _guard = self.lock.lock().await;
-        self.append_if_sequence_inner(run_id, expected_sequence, event)
+        self.append_if_sequence_inner(run_id, expected_sequence, event, true)
+            .await
+    }
+
+    async fn append_shard_local_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> Result<FlowEventEnvelope> {
+        let _guard = self.lock.lock().await;
+        self.append_if_sequence_inner(run_id, expected_sequence, event, false)
             .await
     }
 
@@ -374,7 +395,7 @@ impl FlowEventStore for LocalFileEventStore {
         event: FlowEvent,
     ) -> Result<FlowEventEnvelope> {
         let _guard = self.lock.lock().await;
-        self.append_if_sequence_inner(run_id, expected_sequence, event)
+        self.append_if_sequence_inner(run_id, expected_sequence, event, true)
             .await
     }
 
@@ -395,6 +416,7 @@ impl FlowEventStore for LocalFileEventStore {
                 token,
                 metadata,
             },
+            true,
         )
         .await
     }
