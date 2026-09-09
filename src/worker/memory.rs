@@ -5,12 +5,14 @@ use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
 
+use super::queue::{ensure_queue_admission, validate_queue_capacity};
 use super::{FlowTask, FlowTaskLease, FlowTaskQueue};
 
 /// In-process FIFO queue for tests, embedded hosts, and local workers.
 #[derive(Debug, Default)]
 pub struct InMemoryFlowTaskQueue {
     state: Mutex<InMemoryQueueState>,
+    max_pending: Option<usize>,
 }
 
 #[derive(Debug, Default)]
@@ -20,9 +22,15 @@ struct InMemoryQueueState {
 }
 
 impl InMemoryFlowTaskQueue {
-    /// Creates an empty in-process queue.
+    /// Creates an empty in-process queue with unlimited pending admission.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Limit pending depth; further enqueue calls fail with backpressure.
+    pub fn with_max_pending(mut self, max_pending: usize) -> Result<Self> {
+        self.max_pending = Some(validate_queue_capacity(max_pending)?);
+        Ok(self)
     }
 
     /// Returns the number of currently leased tasks.
@@ -33,8 +41,14 @@ impl InMemoryFlowTaskQueue {
 
 #[async_trait]
 impl FlowTaskQueue for InMemoryFlowTaskQueue {
+    fn max_pending_tasks(&self) -> Option<usize> {
+        self.max_pending
+    }
+
     async fn enqueue(&self, task: FlowTask) -> Result<()> {
-        self.state.lock().await.pending.push_back(task);
+        let mut state = self.state.lock().await;
+        ensure_queue_admission(state.pending.len(), self.max_pending)?;
+        state.pending.push_back(task);
         Ok(())
     }
 

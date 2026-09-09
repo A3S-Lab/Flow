@@ -1,9 +1,33 @@
 use async_trait::async_trait;
 
-use crate::error::Result;
+use crate::error::{FlowError, Result};
 use crate::runtime_build::RuntimeBuildId;
 
 use super::{FlowTask, FlowTaskLease};
+
+/// Refuse enqueue when `pending` already meets or exceeds `capacity`.
+///
+/// A missing capacity means unlimited admission. Capacity must be positive when
+/// configured by a concrete queue builder.
+pub fn ensure_queue_admission(pending: usize, capacity: Option<usize>) -> Result<()> {
+    let Some(capacity) = capacity else {
+        return Ok(());
+    };
+    if pending >= capacity {
+        return Err(FlowError::QueueBackpressure { pending, capacity });
+    }
+    Ok(())
+}
+
+/// Validate a host-configured pending admission budget.
+pub fn validate_queue_capacity(capacity: usize) -> Result<usize> {
+    if capacity == 0 {
+        return Err(FlowError::InvalidTransition(
+            "workflow task queue capacity must be greater than zero".to_string(),
+        ));
+    }
+    Ok(capacity)
+}
 
 /// Enqueue-only dispatch boundary used by schedulers and callback routers.
 #[async_trait]
@@ -47,6 +71,16 @@ pub trait FlowTaskDispatcher: Send + Sync {
 pub trait FlowTaskQueue: Send + Sync {
     /// Appends one task to pending dispatch.
     async fn enqueue(&self, task: FlowTask) -> Result<()>;
+
+    /// Optional pending-task admission budget for host backpressure.
+    ///
+    /// When set, [`Self::enqueue`] must refuse work with
+    /// [`FlowError::QueueBackpressure`] once pending depth reaches the budget.
+    /// Tenant fairness and fleet placement remain host-owned; this hook only
+    /// protects a single queue's pending depth.
+    fn max_pending_tasks(&self) -> Option<usize> {
+        None
+    }
 
     /// Leases the next pending task without acknowledging it.
     async fn lease(&self) -> Result<Option<FlowTaskLease>>;

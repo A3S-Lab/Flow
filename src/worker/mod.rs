@@ -17,7 +17,9 @@ pub use memory::InMemoryFlowTaskQueue;
 #[cfg(feature = "postgres")]
 pub use postgres::{PostgresDeadLetteredTask, PostgresFlowTaskQueue};
 pub use protocol::{FlowWorkerCapabilities, FLOW_WORKER_PROTOCOL};
-pub use queue::{FlowTaskDispatcher, FlowTaskQueue};
+pub use queue::{
+    ensure_queue_admission, validate_queue_capacity, FlowTaskDispatcher, FlowTaskQueue,
+};
 pub use routing::RuntimeBuildTaskRouter;
 pub use runner::FlowWorker;
 pub use task::{FlowTask, FlowTaskLease, FlowTaskOutcome};

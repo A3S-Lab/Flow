@@ -132,6 +132,15 @@ pub enum FlowError {
     #[error("workflow task lease is no longer active: {0}")]
     LeaseLost(String),
 
+    /// A queue refused a new task because its pending admission budget is full.
+    #[error("workflow task queue is at capacity: pending {pending} tasks, capacity {capacity}")]
+    QueueBackpressure {
+        /// Observed pending task count when admission was refused.
+        pending: usize,
+        /// Configured maximum pending tasks for this queue.
+        capacity: usize,
+    },
+
     /// The conflicting token remains available for programmatic handling,
     /// while `Display` and `Debug` deliberately redact it.
     #[error(
@@ -355,6 +364,11 @@ impl fmt::Debug for FlowError {
             Self::LeaseLost(lease_id) => {
                 formatter.debug_tuple("LeaseLost").field(lease_id).finish()
             }
+            Self::QueueBackpressure { pending, capacity } => formatter
+                .debug_struct("QueueBackpressure")
+                .field("pending", pending)
+                .field("capacity", capacity)
+                .finish(),
             Self::HookTokenConflict {
                 existing_run_id,
                 existing_hook_id,

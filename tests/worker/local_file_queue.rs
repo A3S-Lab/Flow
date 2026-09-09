@@ -406,3 +406,31 @@ async fn local_file_task_queue_drives_worker_after_restart() {
     let snapshot = engine.snapshot(&run_id).await.unwrap();
     assert_eq!(snapshot.status, WorkflowRunStatus::Completed);
 }
+
+#[tokio::test]
+async fn local_file_task_queue_refuses_enqueue_at_pending_capacity() {
+    let dir = tempfile::tempdir().unwrap();
+    let queue = LocalFileFlowTaskQueue::new(dir.path())
+        .with_max_pending(1)
+        .unwrap();
+    queue
+        .enqueue(FlowTask::DriveRun {
+            run_id: "kept".to_string(),
+        })
+        .await
+        .unwrap();
+    let error = queue
+        .enqueue(FlowTask::DriveRun {
+            run_id: "rejected".to_string(),
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        FlowError::QueueBackpressure {
+            pending: 1,
+            capacity: 1
+        }
+    ));
+    assert_eq!(queue.len().await.unwrap(), 1);
+}

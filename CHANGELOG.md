@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added queue-admission backpressure through `FlowError::QueueBackpressure`,
+  `FlowTaskQueue::max_pending_tasks`, `ensure_queue_admission`, and
+  `with_max_pending` on in-memory, local-file, and PostgreSQL task queues.
+  Pending depth budgets refuse enqueue without inventing tenant fairness or
+  fleet placement policy.
+
 - Added the tip-anchored visibility projection contract through
   `FlowVisibilityProjection`, `FlowVisibilityProgress`,
   `FlowVisibilitySuspensionCounts`, `FLOW_VISIBILITY_PROJECTION_SCHEMA_VERSION`,

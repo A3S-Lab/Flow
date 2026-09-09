@@ -82,3 +82,30 @@ async fn worker_bounded_drain_preserves_fairness_budget() {
     assert!(matches!(error, FlowError::InvalidWorkerConfiguration(_)));
     assert_eq!(queue.len().await.unwrap(), 1);
 }
+
+#[tokio::test]
+async fn in_memory_task_queue_refuses_enqueue_at_pending_capacity() {
+    let queue = InMemoryFlowTaskQueue::new().with_max_pending(1).unwrap();
+    queue
+        .enqueue(FlowTask::DriveRun {
+            run_id: "kept".to_string(),
+        })
+        .await
+        .unwrap();
+    let error = queue
+        .enqueue(FlowTask::DriveRun {
+            run_id: "rejected".to_string(),
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        FlowError::QueueBackpressure {
+            pending: 1,
+            capacity: 1
+        }
+    ));
+    assert_eq!(queue.len().await.unwrap(), 1);
+    assert_eq!(queue.max_pending_tasks(), Some(1));
+    assert!(InMemoryFlowTaskQueue::new().with_max_pending(0).is_err());
+}

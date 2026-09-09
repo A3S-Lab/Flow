@@ -82,13 +82,14 @@ pub use store::{
 pub use trace::{
     current_trace_context, with_trace_context, without_trace_context, FlowTraceContext,
 };
+pub use worker::{
+    ensure_queue_admission, validate_queue_capacity, FlowTask, FlowTaskDispatcher, FlowTaskLease,
+    FlowTaskOutcome, FlowTaskQueue, FlowWorker, FlowWorkerCapabilities, InMemoryFlowTaskQueue,
+    LocalFileDeadLetteredTask, LocalFileFlowTaskQueue, RuntimeBuildTaskRouter,
+    FLOW_WORKER_PROTOCOL,
+};
 #[cfg(feature = "boot")]
 pub use worker::{BootFlowTaskDeduplication, BootFlowTaskManager, BootFlowTaskPolicy};
-pub use worker::{
-    FlowTask, FlowTaskDispatcher, FlowTaskLease, FlowTaskOutcome, FlowTaskQueue, FlowWorker,
-    FlowWorkerCapabilities, InMemoryFlowTaskQueue, LocalFileDeadLetteredTask,
-    LocalFileFlowTaskQueue, RuntimeBuildTaskRouter, FLOW_WORKER_PROTOCOL,
-};
 #[cfg(feature = "postgres")]
 pub use worker::{PostgresDeadLetteredTask, PostgresFlowTaskQueue};
 pub use workflow_dsl::{

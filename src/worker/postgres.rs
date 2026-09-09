@@ -24,6 +24,7 @@ use super::{timestamp_nanos_saturating, FlowTask, FlowTaskLease, FlowTaskQueue};
 pub struct PostgresFlowTaskQueue {
     executor: PostgresExecutor,
     queue_name: String,
+    max_pending: Option<usize>,
 }
 
 impl fmt::Debug for PostgresFlowTaskQueue {
@@ -108,7 +109,17 @@ impl PostgresFlowTaskQueue {
         Self {
             executor,
             queue_name,
+            max_pending: None,
         }
+    }
+
+    /// Limit pending depth; further enqueue calls fail with backpressure.
+    ///
+    /// Concurrent writers may race the pending count; admission is fail-closed
+    /// for the observed depth and does not invent tenant fairness policy.
+    pub fn with_max_pending(mut self, max_pending: usize) -> Result<Self> {
+        self.max_pending = Some(super::queue::validate_queue_capacity(max_pending)?);
+        Ok(self)
     }
 
     /// Returns the configured A3S ORM executor.
@@ -328,7 +339,13 @@ impl PostgresFlowTaskQueue {
 
 #[async_trait]
 impl FlowTaskQueue for PostgresFlowTaskQueue {
+    fn max_pending_tasks(&self) -> Option<usize> {
+        self.max_pending
+    }
+
     async fn enqueue(&self, task: FlowTask) -> Result<()> {
+        let pending = self.len().await?;
+        super::queue::ensure_queue_admission(pending, self.max_pending)?;
         let now = timestamp_nanos_saturating(Utc::now());
         execute_query(
             &self.executor,

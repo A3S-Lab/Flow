@@ -25,6 +25,7 @@ use super::{timestamp_nanos_saturating, FlowTask, FlowTaskLease, FlowTaskQueue};
 pub struct LocalFileFlowTaskQueue {
     root: PathBuf,
     lock: Arc<Mutex<()>>,
+    max_pending: Option<usize>,
 }
 
 impl LocalFileFlowTaskQueue {
@@ -33,7 +34,14 @@ impl LocalFileFlowTaskQueue {
         Self {
             root: root.into(),
             lock: Arc::new(Mutex::new(())),
+            max_pending: None,
         }
+    }
+
+    /// Limit pending depth; further enqueue calls fail with backpressure.
+    pub fn with_max_pending(mut self, max_pending: usize) -> Result<Self> {
+        self.max_pending = Some(super::queue::validate_queue_capacity(max_pending)?);
+        Ok(self)
     }
 
     /// Returns the queue root directory.
@@ -302,9 +310,15 @@ impl LocalFileFlowTaskQueue {
 
 #[async_trait]
 impl FlowTaskQueue for LocalFileFlowTaskQueue {
+    fn max_pending_tasks(&self) -> Option<usize> {
+        self.max_pending
+    }
+
     async fn enqueue(&self, task: FlowTask) -> Result<()> {
         let _guard = self.lock.lock().await;
         tokio::fs::create_dir_all(self.pending_dir()).await?;
+        let pending = self.pending_files().await?.len();
+        super::queue::ensure_queue_admission(pending, self.max_pending)?;
 
         let id = Uuid::new_v4();
         let file_name = Self::queue_file_name(Utc::now(), id);
