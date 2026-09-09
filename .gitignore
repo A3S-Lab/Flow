@@ -3,4 +3,5 @@
 # Cargo.lock is committed because CI and release gates use --locked.
 /.a3s/flow
 /.a3s-test/
+/node_modules/
 *.log
