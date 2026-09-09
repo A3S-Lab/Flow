@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "run_id": "cert-vis",
+  "last_sequence": 3,
+  "last_event_id": "11111111-1111-4111-8111-111111111111",
+  "snapshot_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "workflow_name": "cert.visibility",
+  "workflow_version": "1",
+  "status": "completed",
+  "cancellation_requested": false,
+  "latest_progress": {
+    "progress_id": "half",
+    "completed": 1,
+    "total": 2,
+    "message": "halfway"
+  },
+  "suspensions": {
+    "open_waits": 0,
+    "active_hooks": 0,
+    "pending_retries": 0,
+    "unknown_activities": 0,
+    "open_child_workflows": 0,
+    "open_signal_waits": 0,
+    "open_scopes": 0,
+    "open_selects": 0,
+    "open_child_workflow_maps": 0,
+    "open_compensation_markers": 0
+  }
+}

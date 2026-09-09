@@ -48,4 +48,23 @@ describe("cross-language FLOW protocol fixtures", () => {
     expect(envelope.event.type).toBe("run_created");
     expect(envelope.event.spec.name).toBe("cert.protocol");
   });
+
+  it("reads the Rust visibility projection fixture without payloads", () => {
+    const projection = loadFixture("visibility_projection.v1.json") as {
+      schema_version: number;
+      run_id: string;
+      workflow_name: string;
+      status: string;
+      input?: unknown;
+      output?: unknown;
+      steps?: unknown;
+    };
+    expect(projection.schema_version).toBe(1);
+    expect(projection.run_id).toBe("cert-vis");
+    expect(projection.workflow_name).toBe("cert.visibility");
+    expect(projection.status).toBe("completed");
+    expect(projection.input).toBeUndefined();
+    expect(projection.output).toBeUndefined();
+    expect(projection.steps).toBeUndefined();
+  });
 });

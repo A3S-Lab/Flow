@@ -7,6 +7,7 @@ Frozen wire shapes for FLOW-R6 cross-language and upgrade gates.
 | `worker_capabilities.v1.json` | `FlowWorkerCapabilities::current()` |
 | `flow_task.drive_run.v1.json` | `FlowTask::DriveRun` |
 | `event_envelope.run_created.v1.json` | `FlowEventEnvelope` with explicit `schema_version` |
+| `visibility_projection.v1.json` | `FlowVisibilityProjection` without input/output/steps |
 
 Regenerate only when intentionally changing the wire protocol, then update
 `tests/certification.rs` and `packages/ui/tests/protocol-fixtures.test.ts` in
