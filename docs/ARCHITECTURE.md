@@ -381,6 +381,19 @@ suspensions remain open, so workflow code can observe `WorkflowContext::update`
 / `updates` and choose a different next command. Authorization, schemas, and
 admission policy remain host-owned.
 
+## Cancellation Scopes
+
+Cancellation scopes are nested durable regions that localize cleanup without
+embedding product policy. Workflows emit `OpenScope` / `CompleteScope` /
+`CancelScope` commands. The engine persists `scope_opened`, `scope_completed`,
+and `scope_cancelled` events. Timer waits inherit the innermost open scope at
+`wait_created` projection time. Cancelling a scope cancels descendant open
+scopes and waiting timers owned by that tree; the run remains non-terminal so
+cleanup code can observe `WorkflowContext::scope_cancelled` and continue.
+`FlowEngine::cancel_scope` is the host-facing idempotent API; reason drift
+returns `ScopeConflict`. Run-level `run_cancellation_requested` also marks every
+open scope cancelled during projection.
+
 ## Continue-As-New History Segmentation
 
 Continue-as-new bounds replay history without rewriting it. The runtime returns

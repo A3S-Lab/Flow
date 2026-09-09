@@ -1,11 +1,11 @@
 use crate::error::{FlowError, Result};
 
 use super::{
-    validate_run_id, ActivityStatus, CancellationRequestSnapshot, ChildWorkflowSnapshot, FlowEvent,
-    FlowEventEnvelope, HookSnapshot, HookStatus, SignalWaitSnapshot, SignalWaitStatus,
-    StepFailureAction, StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowContinuation,
-    WorkflowRunSnapshot, WorkflowRunStatus, WorkflowSignalSnapshot, WorkflowTerminalOutcome,
-    WorkflowUpdateSnapshot,
+    validate_run_id, ActivityStatus, CancellationRequestSnapshot, CancellationScopeSnapshot,
+    CancellationScopeStatus, ChildWorkflowSnapshot, FlowEvent, FlowEventEnvelope, HookSnapshot,
+    HookStatus, SignalWaitSnapshot, SignalWaitStatus, StepFailureAction, StepSnapshot, StepStatus,
+    WaitSnapshot, WaitStatus, WorkflowContinuation, WorkflowRunSnapshot, WorkflowRunStatus,
+    WorkflowSignalSnapshot, WorkflowTerminalOutcome, WorkflowUpdateSnapshot,
 };
 
 mod activity;
@@ -166,6 +166,16 @@ pub(crate) fn project_run_from_snapshot(
                 for wait in snapshot.signal_waits.values_mut() {
                     if wait.status == SignalWaitStatus::Waiting {
                         wait.status = SignalWaitStatus::Cancelled;
+                    }
+                }
+                for scope_id in snapshot.open_scope_stack.drain(..).rev() {
+                    if let Some(scope) = snapshot.scopes.get_mut(&scope_id) {
+                        if scope.status == CancellationScopeStatus::Open {
+                            scope.status = CancellationScopeStatus::Cancelled;
+                            if scope.reason.is_none() {
+                                scope.reason = request.reason.clone();
+                            }
+                        }
                     }
                 }
             }
@@ -732,6 +742,7 @@ pub(crate) fn project_run_from_snapshot(
                         wait_id: wait_id.clone(),
                         status: WaitStatus::Waiting,
                         resume_at: *resume_at,
+                        scope_id: snapshot.innermost_open_scope().map(str::to_string),
                     },
                 );
             }
@@ -799,6 +810,82 @@ pub(crate) fn project_run_from_snapshot(
                 }
                 hook.status = HookStatus::Disposed;
             }
+            FlowEvent::ScopeOpened {
+                scope_id,
+                parent_scope_id,
+            } => {
+                if snapshot.status == WorkflowRunStatus::Pending {
+                    return Err(FlowError::InvalidTransition(
+                        "scope_opened cannot precede run_started".to_string(),
+                    ));
+                }
+                if scope_id.trim().is_empty() {
+                    return Err(FlowError::InvalidTransition(
+                        "workflow scope id must not be empty".to_string(),
+                    ));
+                }
+                if snapshot.scopes.contains_key(scope_id) {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "scope_opened duplicates scope {scope_id}"
+                    )));
+                }
+                let expected_parent = snapshot.innermost_open_scope().map(str::to_string);
+                if parent_scope_id.as_deref() != expected_parent.as_deref() {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "scope_opened parent for {scope_id} does not match the open scope stack"
+                    )));
+                }
+                snapshot.scopes.insert(
+                    scope_id.clone(),
+                    CancellationScopeSnapshot {
+                        scope_id: scope_id.clone(),
+                        status: CancellationScopeStatus::Open,
+                        parent_scope_id: parent_scope_id.clone(),
+                        opened_at: envelope.timestamp,
+                        opened_sequence: envelope.sequence,
+                        reason: None,
+                    },
+                );
+                snapshot.open_scope_stack.push(scope_id.clone());
+            }
+            FlowEvent::ScopeCompleted { scope_id } => {
+                let scope = snapshot.scopes.get_mut(scope_id).ok_or_else(|| {
+                    FlowError::InvalidTransition(format!(
+                        "scope_completed references unknown scope {scope_id}"
+                    ))
+                })?;
+                if scope.status != CancellationScopeStatus::Open {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "scope_completed cannot follow {:?} for scope {scope_id}",
+                        scope.status
+                    )));
+                }
+                if snapshot.open_scope_stack.last().map(String::as_str) != Some(scope_id.as_str()) {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "scope_completed requires {scope_id} to be the innermost open scope"
+                    )));
+                }
+                scope.status = CancellationScopeStatus::Completed;
+                snapshot.open_scope_stack.pop();
+            }
+            FlowEvent::ScopeCancelled { scope_id, reason } => {
+                {
+                    let scope = snapshot.scopes.get_mut(scope_id).ok_or_else(|| {
+                        FlowError::InvalidTransition(format!(
+                            "scope_cancelled references unknown scope {scope_id}"
+                        ))
+                    })?;
+                    if scope.status != CancellationScopeStatus::Open {
+                        return Err(FlowError::InvalidTransition(format!(
+                            "scope_cancelled cannot follow {:?} for scope {scope_id}",
+                            scope.status
+                        )));
+                    }
+                    scope.status = CancellationScopeStatus::Cancelled;
+                    scope.reason = reason.clone();
+                }
+                cancel_scope_tree(&mut snapshot, scope_id);
+            }
         }
     }
 
@@ -807,6 +894,50 @@ pub(crate) fn project_run_from_snapshot(
     }
 
     Ok(snapshot)
+}
+
+fn cancel_scope_tree(snapshot: &mut WorkflowRunSnapshot, root_scope_id: &str) {
+    use std::collections::BTreeSet;
+
+    let mut cancelled = BTreeSet::new();
+    cancelled.insert(root_scope_id.to_string());
+    loop {
+        let mut grew = false;
+        for (scope_id, scope) in &snapshot.scopes {
+            if scope.status != CancellationScopeStatus::Open {
+                continue;
+            }
+            let Some(parent) = scope.parent_scope_id.as_deref() else {
+                continue;
+            };
+            if cancelled.contains(parent) && cancelled.insert(scope_id.clone()) {
+                grew = true;
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+
+    for scope_id in &cancelled {
+        if let Some(scope) = snapshot.scopes.get_mut(scope_id) {
+            if scope.status == CancellationScopeStatus::Open {
+                scope.status = CancellationScopeStatus::Cancelled;
+            }
+        }
+    }
+    snapshot
+        .open_scope_stack
+        .retain(|scope_id| !cancelled.contains(scope_id));
+    for wait in snapshot.waits.values_mut() {
+        if wait.status == WaitStatus::Waiting {
+            if let Some(scope_id) = wait.scope_id.as_deref() {
+                if cancelled.contains(scope_id) {
+                    wait.status = WaitStatus::Cancelled;
+                }
+            }
+        }
+    }
 }
 
 fn ensure_signal_pair_is_fifo(

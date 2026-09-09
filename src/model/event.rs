@@ -353,6 +353,27 @@ pub enum FlowEvent {
         /// Stable identity of the completed wait.
         wait_id: String,
     },
+    /// Opens a nested cancellation scope.
+    ScopeOpened {
+        /// Replay-stable identity of the scope.
+        scope_id: String,
+        /// Parent scope that was open when this scope opened.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent_scope_id: Option<String>,
+    },
+    /// Completes a cancellation scope cleanly.
+    ScopeCompleted {
+        /// Stable identity of the completed scope.
+        scope_id: String,
+    },
+    /// Cancels a cancellation scope and its owned suspensions.
+    ScopeCancelled {
+        /// Stable identity of the cancelled scope.
+        scope_id: String,
+        /// Optional cancellation reason.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
     /// Creates an externally completable hook.
     HookCreated {
         /// Replay-stable identity of the hook.
@@ -417,6 +438,9 @@ impl FlowEvent {
             Self::ActivityCancelled { .. } => "flow.activity.cancelled",
             Self::WaitCreated { .. } => "flow.wait.created",
             Self::WaitCompleted { .. } => "flow.wait.completed",
+            Self::ScopeOpened { .. } => "flow.scope.opened",
+            Self::ScopeCompleted { .. } => "flow.scope.completed",
+            Self::ScopeCancelled { .. } => "flow.scope.cancelled",
             Self::HookCreated { .. } => "flow.hook.created",
             Self::HookReceived { .. } => "flow.hook.received",
             Self::HookDisposed { .. } => "flow.hook.disposed",

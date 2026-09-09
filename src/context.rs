@@ -628,6 +628,90 @@ impl<'a> WorkflowContext<'a> {
         }
     }
 
+    /// Open a nested cancellation scope with a stable identity.
+    pub fn open_scope(&self, scope_id: impl Into<String>) -> RuntimeCommand {
+        RuntimeCommand::OpenScope {
+            scope_id: scope_id.into(),
+        }
+    }
+
+    /// Complete the innermost open cancellation scope cleanly.
+    pub fn complete_scope(&self, scope_id: impl Into<String>) -> RuntimeCommand {
+        RuntimeCommand::CompleteScope {
+            scope_id: scope_id.into(),
+        }
+    }
+
+    /// Cancel a cancellation scope and its owned suspensions.
+    pub fn cancel_scope(
+        &self,
+        scope_id: impl Into<String>,
+        reason: Option<String>,
+    ) -> RuntimeCommand {
+        RuntimeCommand::CancelScope {
+            scope_id: scope_id.into(),
+            reason,
+        }
+    }
+
+    /// Return whether a cancellation scope has been opened in history.
+    pub fn has_scope(&self, scope_id: &str) -> bool {
+        self.history().iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                FlowEvent::ScopeOpened { scope_id: id, .. } if id == scope_id
+            )
+        })
+    }
+
+    /// Return whether a cancellation scope was cancelled in durable history.
+    ///
+    /// Run-level cancellation also counts once the scope had been opened and
+    /// had not completed before the request.
+    pub fn scope_cancelled(&self, scope_id: &str) -> bool {
+        if self.history().iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                FlowEvent::ScopeCancelled { scope_id: id, .. } if id == scope_id
+            )
+        }) {
+            return true;
+        }
+        let opened = self.history().iter().position(|envelope| {
+            matches!(
+                &envelope.event,
+                FlowEvent::ScopeOpened { scope_id: id, .. } if id == scope_id
+            )
+        });
+        let Some(opened_at) = opened else {
+            return false;
+        };
+        let completed = self.history().iter().enumerate().any(|(index, envelope)| {
+            index > opened_at
+                && matches!(
+                    &envelope.event,
+                    FlowEvent::ScopeCompleted { scope_id: id } if id == scope_id
+                )
+        });
+        if completed {
+            return false;
+        }
+        self.history().iter().enumerate().any(|(index, envelope)| {
+            index > opened_at
+                && matches!(envelope.event, FlowEvent::RunCancellationRequested { .. })
+        })
+    }
+
+    /// Return whether a timer wait has a durable created event.
+    pub fn wait_status(&self, wait_id: &str) -> Option<()> {
+        self.history()
+            .iter()
+            .find_map(|envelope| match &envelope.event {
+                FlowEvent::WaitCreated { wait_id: id, .. } if id == wait_id => Some(()),
+                _ => None,
+            })
+    }
+
     /// Creates an externally completable hook with JSON metadata.
     pub fn create_hook(
         &self,

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added durable cancellation scopes through `RuntimeCommand::{OpenScope,
+  CompleteScope, CancelScope}`, `FlowEvent::{ScopeOpened, ScopeCompleted,
+  ScopeCancelled}`, `FlowEngine::cancel_scope`, and
+  `WorkflowContext::{open_scope,scope_cancelled,...}`. Timer waits inherit the
+  innermost open scope; cancelling a scope (or requesting run cancellation)
+  cancels owned waits without requiring a distinct wait identity for cleanup.
+
 - Added typed synchronous workflow updates through `WorkflowSpec::with_update`,
   `WorkflowUpdate`, `UpdateInvocation`, `FlowRuntime::run_update`, and
   `FlowEngine::apply_update`. Updates are declared on the immutable run spec,

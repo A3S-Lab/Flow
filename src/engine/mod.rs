@@ -24,6 +24,7 @@ mod operations;
 mod queries;
 mod runs;
 mod scheduling;
+mod scopes;
 mod signals;
 mod steps;
 mod updates;
@@ -750,6 +751,30 @@ impl FlowEngine {
                     Err(err) if is_event_conflict(&err) => continue,
                     Err(err) => return Err(err),
                 },
+                RuntimeCommand::OpenScope { scope_id } => {
+                    match self.schedule_open_scope(&snapshot, scope_id).await {
+                        Ok(_) => continue,
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
+                RuntimeCommand::CompleteScope { scope_id } => {
+                    match self.schedule_complete_scope(&snapshot, scope_id).await {
+                        Ok(_) => continue,
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
+                RuntimeCommand::CancelScope { scope_id, reason } => {
+                    match self
+                        .schedule_cancel_scope(&snapshot, scope_id, reason)
+                        .await
+                    {
+                        Ok(_) => continue,
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
             }
         }
 

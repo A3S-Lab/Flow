@@ -134,7 +134,10 @@ queries through `FlowRuntime::run_query` without appending history.
 forces workflow replay so suspended runs can observe the durable update.
 Undeclared names fail closed before runtime dispatch, runtime-build admission
 fences both paths the same way replay does, and update retries are idempotent
-or explicitly conflict-safe. Cancellation scopes, join/race/select, and dynamic
+or explicitly conflict-safe. Nested cancellation scopes are also implemented:
+workflows open/complete scopes through runtime commands, timer waits inherit the
+innermost open scope, `FlowEngine::cancel_scope` is idempotent and conflict-safe,
+and run cancellation marks open scopes cancelled. Join/race/select and dynamic
 fan-out remain open R4 work.
 
 The repository-owned authoring boundary now has a stateless Rust counterpart to

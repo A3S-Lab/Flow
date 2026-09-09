@@ -7,9 +7,10 @@ use crate::error::{FlowError, Result};
 use crate::runtime_build::RuntimeBuildId;
 
 use super::{
-    CancellationRequestSnapshot, ChildOperationReference, ChildWorkflowSnapshot, JsonValue,
-    RetryPolicy, SignalWaitSnapshot, SignalWaitStatus, WorkflowContinuation, WorkflowProgress,
-    WorkflowSignalSnapshot, WorkflowSpec, WorkflowTerminalOutcome, WorkflowUpdateSnapshot,
+    CancellationRequestSnapshot, CancellationScopeSnapshot, ChildOperationReference,
+    ChildWorkflowSnapshot, JsonValue, RetryPolicy, SignalWaitSnapshot, SignalWaitStatus,
+    WorkflowContinuation, WorkflowProgress, WorkflowSignalSnapshot, WorkflowSpec,
+    WorkflowTerminalOutcome, WorkflowUpdateSnapshot,
 };
 
 /// Materialized lifecycle state of a workflow run.
@@ -240,6 +241,9 @@ pub struct WaitSnapshot {
     pub status: WaitStatus,
     /// UTC time at which the wait becomes ready.
     pub resume_at: DateTime<Utc>,
+    /// Cancellation scope that owned the wait when it was created.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_id: Option<String>,
 }
 
 /// Materialized lifecycle state of an external callback hook.
@@ -442,6 +446,12 @@ pub struct WorkflowRunSnapshot {
     /// Applied updates in durable application order.
     #[serde(default)]
     pub updates: Vec<WorkflowUpdateSnapshot>,
+    /// Cancellation scopes indexed by stable scope identifiers.
+    #[serde(default)]
+    pub scopes: BTreeMap<String, CancellationScopeSnapshot>,
+    /// Open scope stack from outermost to innermost.
+    #[serde(default)]
+    pub open_scope_stack: Vec<String>,
     /// Final JSON output for a successfully completed run.
     pub output: Option<JsonValue>,
     /// Terminal error for a failed run.
@@ -479,6 +489,8 @@ impl WorkflowRunSnapshot {
             signals: Vec::new(),
             signal_waits: BTreeMap::new(),
             updates: Vec::new(),
+            scopes: BTreeMap::new(),
+            open_scope_stack: Vec::new(),
             output: None,
             error: None,
             terminal_outcome: None,
@@ -585,6 +597,16 @@ impl WorkflowRunSnapshot {
         self.updates
             .iter()
             .find(|update| update.update_id == update_id)
+    }
+
+    /// Return a cancellation scope by its stable identity.
+    pub fn scope(&self, scope_id: &str) -> Option<&CancellationScopeSnapshot> {
+        self.scopes.get(scope_id)
+    }
+
+    /// Return the innermost currently open cancellation scope, if any.
+    pub fn innermost_open_scope(&self) -> Option<&str> {
+        self.open_scope_stack.last().map(String::as_str)
     }
 
     /// Return the signal payload paired with a deterministic signal wait.

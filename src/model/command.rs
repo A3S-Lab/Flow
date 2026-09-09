@@ -664,6 +664,24 @@ pub enum RuntimeCommand {
         /// Child definitions in deterministic request order.
         children: Vec<ChildWorkflowCommand>,
     },
+    /// Open a nested cancellation scope.
+    OpenScope {
+        /// Replay-stable identity of the scope.
+        scope_id: String,
+    },
+    /// Complete a cancellation scope cleanly.
+    CompleteScope {
+        /// Stable identity of the completed scope.
+        scope_id: String,
+    },
+    /// Cancel a cancellation scope and its owned suspensions.
+    CancelScope {
+        /// Stable identity of the cancelled scope.
+        scope_id: String,
+        /// Optional cancellation reason.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
 }
 
 /// Step definition returned by workflow replay.

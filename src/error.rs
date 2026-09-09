@@ -179,6 +179,17 @@ pub enum FlowError {
         reason: String,
     },
 
+    /// A scope cancellation conflicts with its durable identity or reason.
+    #[error("scope {scope_id} for workflow run {run_id} conflicts with request: {reason}")]
+    ScopeConflict {
+        /// Run that owns the scope.
+        run_id: String,
+        /// Replay-stable scope identity.
+        scope_id: String,
+        /// Description of the conflicting request.
+        reason: String,
+    },
+
     /// A workflow definition violates a static invariant.
     #[error("invalid workflow definition: {0}")]
     InvalidWorkflow(String),
@@ -382,6 +393,16 @@ impl fmt::Debug for FlowError {
                 .debug_struct("UpdateConflict")
                 .field("run_id", run_id)
                 .field("update_id", update_id)
+                .field("reason", reason)
+                .finish(),
+            Self::ScopeConflict {
+                run_id,
+                scope_id,
+                reason,
+            } => formatter
+                .debug_struct("ScopeConflict")
+                .field("run_id", run_id)
+                .field("scope_id", scope_id)
                 .field("reason", reason)
                 .finish(),
             Self::InvalidWorkflow(message) => formatter
