@@ -162,21 +162,27 @@ impl PostgresEventStore {
                         }
                     };
                     insert_postgres_envelope(transaction, &envelope).await?;
-                    if let Ok(checkpoint) = FlowProjectionCheckpoint::new(
+                    let checkpoint = FlowProjectionCheckpoint::new(
                         &envelope.run_id,
                         envelope.sequence,
                         envelope.event_id,
                         projected,
-                    ) {
-                        // The event history is authoritative. A cache write must
-                        // never turn a successful append into a failed append.
-                        let _ = save_postgres_checkpoint(transaction, &checkpoint).await;
-                    }
-                    Ok(envelope)
+                    )
+                    .ok();
+                    Ok((envelope, checkpoint))
                 })
             })
             .await;
-        map_postgres_transaction(result)
+        let (envelope, checkpoint) = map_postgres_transaction(result)?;
+        if let Some(checkpoint) = checkpoint {
+            // Disposable acceleration stays off the append commit path so history
+            // latency is independent of checkpoint cache writes.
+            let store = self.clone();
+            tokio::spawn(async move {
+                let _ = store.save_checkpoint(&checkpoint).await;
+            });
+        }
+        Ok(envelope)
     }
 }
 
@@ -425,44 +431,14 @@ impl FlowEventStore for PostgresEventStore {
     }
 
     async fn save_checkpoint(&self, checkpoint: &FlowProjectionCheckpoint) -> Result<()> {
-        checkpoint.validate()?;
-        let sequence = i64::try_from(checkpoint.last_sequence).map_err(|error| {
-            FlowError::Store(format!(
-                "projection checkpoint sequence {} exceeds PostgreSQL bigint range: {error}",
-                checkpoint.last_sequence
-            ))
-        })?;
-        let snapshot_json = serde_json::to_string(&checkpoint.snapshot)?;
-        let database = Database::new(PostgresDialect, self.executor.clone());
-        database
-            .execute(
-                sql_query::<()>(
-                    "INSERT INTO flow_projection_checkpoints \
-                 (run_id, last_sequence, last_event_id, snapshot_sha256, snapshot_json, updated_at) VALUES (",
-                )
-                .bind(checkpoint.run_id.clone())
-                .append(", ")
-                .bind(sequence)
-                .append(", ")
-                .bind(checkpoint.last_event_id.to_string())
-                .append(", ")
-                .bind(checkpoint.snapshot_sha256.clone())
-                .append(", ")
-                .bind(snapshot_json)
-                .append(", ")
-                .bind(Utc::now().to_rfc3339())
-                .append(
-                    ") ON CONFLICT (run_id) DO UPDATE SET \
-                 last_sequence = EXCLUDED.last_sequence, \
-                 last_event_id = EXCLUDED.last_event_id, \
-                 snapshot_sha256 = EXCLUDED.snapshot_sha256, \
-                 snapshot_json = EXCLUDED.snapshot_json, \
-                 updated_at = EXCLUDED.updated_at",
-                ),
-            )
-            .await
-            .map_err(postgres_orm_error)?;
-        Ok(())
+        let checkpoint = checkpoint.clone();
+        let result = self
+            .executor
+            .transaction(|transaction| {
+                Box::pin(async move { save_postgres_checkpoint(transaction, &checkpoint).await })
+            })
+            .await;
+        map_postgres_transaction(result)
     }
 
     async fn list_history_partitions(&self, run_id: &str) -> Result<Vec<FlowHistoryPartition>> {

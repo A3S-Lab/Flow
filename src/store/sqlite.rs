@@ -151,21 +151,25 @@ impl SqliteEventStore {
                         }
                     };
                     insert_sqlite_envelope(transaction, &envelope).await?;
-                    if let Ok(checkpoint) = FlowProjectionCheckpoint::new(
+                    let checkpoint = FlowProjectionCheckpoint::new(
                         &envelope.run_id,
                         envelope.sequence,
                         envelope.event_id,
                         projected,
-                    ) {
-                        // The event history is authoritative. A cache write must
-                        // never turn a successful append into a failed append.
-                        let _ = save_sqlite_checkpoint(transaction, &checkpoint).await;
-                    }
-                    Ok(envelope)
+                    )
+                    .ok();
+                    Ok((envelope, checkpoint))
                 })
             })
             .await;
-        map_sqlite_transaction(result)
+        let (envelope, checkpoint) = map_sqlite_transaction(result)?;
+        if let Some(checkpoint) = checkpoint {
+            let store = self.clone();
+            tokio::spawn(async move {
+                let _ = store.save_checkpoint(&checkpoint).await;
+            });
+        }
+        Ok(envelope)
     }
 }
 
@@ -414,44 +418,14 @@ impl FlowEventStore for SqliteEventStore {
     }
 
     async fn save_checkpoint(&self, checkpoint: &FlowProjectionCheckpoint) -> Result<()> {
-        checkpoint.validate()?;
-        let sequence = i64::try_from(checkpoint.last_sequence).map_err(|error| {
-            FlowError::Store(format!(
-                "projection checkpoint sequence {} exceeds SQLite integer range: {error}",
-                checkpoint.last_sequence
-            ))
-        })?;
-        let snapshot_json = serde_json::to_string(&checkpoint.snapshot)?;
-        let database = Database::new(SqliteDialect, self.executor.clone());
-        database
-            .execute(
-                sql_query::<()>(
-                    "INSERT INTO flow_projection_checkpoints \
-                 (run_id, last_sequence, last_event_id, snapshot_sha256, snapshot_json, updated_at) VALUES (",
-                )
-                .bind(checkpoint.run_id.clone())
-                .append(", ")
-                .bind(sequence)
-                .append(", ")
-                .bind(checkpoint.last_event_id.to_string())
-                .append(", ")
-                .bind(checkpoint.snapshot_sha256.clone())
-                .append(", ")
-                .bind(snapshot_json)
-                .append(", ")
-                .bind(Utc::now().to_rfc3339())
-                .append(
-                    ") ON CONFLICT(run_id) DO UPDATE SET \
-                 last_sequence = excluded.last_sequence, \
-                 last_event_id = excluded.last_event_id, \
-                 snapshot_sha256 = excluded.snapshot_sha256, \
-                 snapshot_json = excluded.snapshot_json, \
-                 updated_at = excluded.updated_at",
-                ),
-            )
-            .await
-            .map_err(sqlite_orm_error)?;
-        Ok(())
+        let checkpoint = checkpoint.clone();
+        let result = self
+            .executor
+            .transaction(|transaction| {
+                Box::pin(async move { save_sqlite_checkpoint(transaction, &checkpoint).await })
+            })
+            .await;
+        map_sqlite_transaction(result)
     }
 
     async fn list_history_partitions(&self, run_id: &str) -> Result<Vec<FlowHistoryPartition>> {

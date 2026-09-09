@@ -26,8 +26,17 @@ certification:
     cargo test --test pre_v1_history
     node packages/ui/node_modules/vitest/vitest.mjs run packages/ui/tests/protocol-fixtures.test.ts
 
+# Real-provider PostgreSQL chaos and release-scale SLO gates
+postgres-certification:
+    test -n "${A3S_FLOW_POSTGRES_URL:-}" || (echo "A3S_FLOW_POSTGRES_URL is required" >&2; exit 1)
+    cargo test --test postgres_chaos --features postgres -- --test-threads=1
+    cargo test --release --test scale_slos --features postgres -- --exact postgres_scale_slos_meet_published_targets_when_url_is_configured --test-threads=1
+
 # Certification plus local package and advisory verification (no CI required)
 release-certification: certification package-dry-run advisory-check
+
+# Full offline + real-provider certification when Postgres is configured
+full-certification: release-certification postgres-certification
 
 # Verify the bounded advisory exception remains inactive
 advisory-check:

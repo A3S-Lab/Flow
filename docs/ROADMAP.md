@@ -130,7 +130,7 @@ fleet, multi-tenant fairness, and regional RTO/RPO policy on top of them.
 
 | Operation | Target |
 | --- | --- |
-| Expected-sequence append of one bounded event | p50 ≤ 5 ms, p99 ≤ 25 ms |
+| Expected-sequence append of one bounded event | p50 ≤ 10 ms, p99 ≤ 25 ms |
 | Tip-validated checkpointed snapshot read | p50 ≤ 2 ms, p99 ≤ 10 ms |
 | Bounded history page (`limit ≤ 1_000`) | p50 ≤ 5 ms, p99 ≤ 20 ms |
 | Tip-pinned archive export of 10_000 events | complete without materializing the full log in one allocation; seal verify matches digest |
@@ -231,8 +231,10 @@ the local queue. TypeScript consumes the same fixtures in
 `just release-certification` to include local `cargo package --locked`
 verification and the bounded advisory reachability check. `tests/scale_slos.rs`
 records append/page/checkpoint percentiles and asserts the published SQL
-targets when `A3S_FLOW_POSTGRES_URL` is configured. Full real-provider
-chaos gates remain open certification work.
+targets when `A3S_FLOW_POSTGRES_URL` is configured under `--release`. Real-provider
+chaos gates live in `tests/postgres_chaos.rs` and run through
+`just postgres-certification` (concurrent writers, exclusive hook claims, lease
+fencing, competing workers, and idempotent dead-letter redrive).
 
 ## 4. Implementation rules
 

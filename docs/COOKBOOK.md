@@ -1446,18 +1446,16 @@ shapes under `tests/fixtures/protocol/`, fails closed on stale or forged lease
 acknowledgements and mixed worker protocols, and verifies tip-pinned archive
 export for a 10_000-event history. `tests/scale_slos.rs` records append, history
 page, and tip-validated checkpointed snapshot percentiles; when
-`A3S_FLOW_POSTGRES_URL` is set it also asserts the published SQL scale SLO
-targets from `docs/ROADMAP.md`. The UI package reads the same JSON fixtures
-so TypeScript and Rust share one wire authority. Retained pre-v1 histories under
-`tests/fixtures/pre_v1/` must continue to deserialize and resume on the current
-kernel. `just release-certification` also runs the local
-`cargo package --locked` verification script and the bounded advisory
-reachability check.
-
-When changing wire shapes, regenerate the fixtures and update both the Rust and
-TypeScript consumers in the same change. Host-owned chaos against real Postgres
-providers and broader fault matrices remain outside the always-on kernel
-harness; set `A3S_FLOW_POSTGRES_URL` to exercise the SQL scale SLO gate.
+`A3S_FLOW_POSTGRES_URL` is set, `just postgres-certification` asserts the
+published SQL scale SLO targets from a `--release` build and runs
+`tests/postgres_chaos.rs` for real-provider concurrent-writer, hook-claim,
+lease-fencing, competing-worker, and dead-letter redrive gates. The UI package
+reads the same JSON fixtures so TypeScript and Rust share one wire authority.
+Retained pre-v1 histories under `tests/fixtures/pre_v1/` must continue to
+deserialize and resume on the current kernel. `just release-certification` also
+runs the local `cargo package --locked` verification script and the bounded
+advisory reachability check. Use `just full-certification` when Postgres is
+available.
 
 ## Operational Checklist
 

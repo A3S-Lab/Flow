@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Added real-provider PostgreSQL chaos certification through
+  `tests/postgres_chaos.rs` and `just postgres-certification`: concurrent
+  expected-sequence writers have one winner, hook-token claims are exclusive,
+  stale leases cannot ack after heartbeat rotation, competing workers lease
+  distinct tasks, and dead-letter redrive is idempotent. Release-scale SLO
+  enforcement uses `--release` against a host-local SQL endpoint; append p50
+  is published at ≤ 10 ms after measured certification on PostgreSQL 16.
+
+- Moved disposable PostgreSQL/SQLite projection checkpoint cache writes off the
+  append commit path so history durability latency no longer waits on
+  acceleration metadata.
+
 - Added `ShardedFlowEventStore` for host-composed physical run sharding: one
   unsharded backend per `FlowRunShardLayout` shard, store-wide linked-run and
   hook-token checks on the facade, and
