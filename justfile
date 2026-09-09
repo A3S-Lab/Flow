@@ -25,6 +25,9 @@ certification:
     cargo test --test pre_v1_history
     node packages/ui/node_modules/vitest/vitest.mjs run packages/ui/tests/protocol-fixtures.test.ts
 
+# Certification plus local package verification (no CI required)
+release-certification: certification package-dry-run
+
 # Type-check the crate
 check:
     cargo check --all-targets

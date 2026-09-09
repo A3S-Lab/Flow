@@ -221,8 +221,10 @@ correctness for a 10_000-event history. It also rejects stale activity fencing
 tokens at the append boundary. TypeScript consumes the same fixtures in
 `packages/ui/tests/protocol-fixtures.test.ts`. Upgrade fixtures under
 `tests/fixtures/pre_v1/` are exercised by the certification recipe via
-`cargo test --test pre_v1_history`. Full real-provider chaos, package, and
-security automation gates remain open certification work.
+`cargo test --test pre_v1_history`. Operators can also run
+`just release-certification` to include local `cargo package --locked`
+verification. Full real-provider chaos and security automation gates remain
+open certification work.
 
 ## 4. Implementation rules
 

@@ -1436,9 +1436,9 @@ Before cutting a Flow release that Cloud or another host will pin, run the
 kernel certification harness and keep the frozen protocol fixtures in sync.
 
 ```bash
-cargo test --test certification
-cargo test --test pre_v1_history
-node packages/ui/node_modules/vitest/vitest.mjs run tests/protocol-fixtures.test.ts
+just certification
+# or include local package verification:
+just release-certification
 ```
 
 `tests/certification.rs` locks worker capability, task, and event-envelope wire
@@ -1447,7 +1447,8 @@ acknowledgements and mixed worker protocols, and verifies tip-pinned archive
 export for a 10_000-event history. The UI package reads the same JSON fixtures
 so TypeScript and Rust share one wire authority. Retained pre-v1 histories under
 `tests/fixtures/pre_v1/` must continue to deserialize and resume on the current
-kernel.
+kernel. `just release-certification` also runs the local
+`cargo package --locked` verification script.
 
 When changing wire shapes, regenerate the fixtures and update both the Rust and
 TypeScript consumers in the same change. Host-owned chaos against real Postgres
