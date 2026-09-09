@@ -6,7 +6,8 @@
   and frozen protocol fixtures under `tests/fixtures/protocol/`. The suite
   locks worker capability, task, and event-envelope wire shapes, fails closed
   on mixed-version negotiation and stale/forged lease acknowledgements, and
-  verifies tip-pinned archive export for a 10_000-event history.
+  verifies tip-pinned archive export for a 10_000-event history. TypeScript
+  consumes the same fixtures via `packages/ui/tests/protocol-fixtures.test.ts`.
 
 - Added opaque processor-partition fairness through
   `FlowTaskQueue::enqueue_for_partition`, `FlowTaskQueue::partition_fairness`,
