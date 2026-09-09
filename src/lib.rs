@@ -84,10 +84,12 @@ pub use trace::{
     current_trace_context, with_trace_context, without_trace_context, FlowTraceContext,
 };
 pub use worker::{
-    ensure_queue_admission, validate_queue_capacity, FlowTask, FlowTaskDispatcher, FlowTaskLease,
-    FlowTaskOutcome, FlowTaskQueue, FlowWorker, FlowWorkerCapabilities, InMemoryFlowTaskQueue,
-    LocalFileDeadLetteredTask, LocalFileFlowTaskQueue, RuntimeBuildTaskRouter,
-    FLOW_WORKER_PROTOCOL,
+    ensure_queue_admission, resolve_flow_task_partition, select_fair_pending_index,
+    validate_flow_task_partition_key, validate_queue_capacity, FlowTask, FlowTaskDispatcher,
+    FlowTaskLease, FlowTaskOutcome, FlowTaskQueue, FlowWorker, FlowWorkerCapabilities,
+    InMemoryFlowTaskQueue, LocalFileDeadLetteredTask, LocalFileFlowTaskQueue,
+    RuntimeBuildTaskRouter, FLOW_WORKER_PROTOCOL, MAX_FLOW_TASK_PARTITION_KEY_BYTES,
+    UNSCOPED_FLOW_TASK_PARTITION,
 };
 #[cfg(feature = "boot")]
 pub use worker::{BootFlowTaskDeduplication, BootFlowTaskManager, BootFlowTaskPolicy};

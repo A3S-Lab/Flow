@@ -109,3 +109,89 @@ async fn in_memory_task_queue_refuses_enqueue_at_pending_capacity() {
     assert_eq!(queue.max_pending_tasks(), Some(1));
     assert!(InMemoryFlowTaskQueue::new().with_max_pending(0).is_err());
 }
+
+#[tokio::test]
+async fn in_memory_partition_fairness_rotates_across_opaque_keys() {
+    let queue = InMemoryFlowTaskQueue::new().with_partition_fairness();
+    assert!(queue.partition_fairness());
+
+    for run_id in ["a-1", "a-2", "a-3"] {
+        queue
+            .enqueue_for_partition(
+                "tenant-a",
+                FlowTask::DriveRun {
+                    run_id: run_id.to_string(),
+                },
+            )
+            .await
+            .unwrap();
+    }
+    queue
+        .enqueue_for_partition(
+            "tenant-b",
+            FlowTask::DriveRun {
+                run_id: "b-1".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+    let first = queue.lease().await.unwrap().unwrap();
+    queue.ack(&first.lease_id).await.unwrap();
+    let second = queue.lease().await.unwrap().unwrap();
+    queue.ack(&second.lease_id).await.unwrap();
+
+    assert_eq!(
+        first.task,
+        FlowTask::DriveRun {
+            run_id: "a-1".to_string()
+        }
+    );
+    assert_eq!(
+        second.task,
+        FlowTask::DriveRun {
+            run_id: "b-1".to_string()
+        }
+    );
+}
+
+#[tokio::test]
+async fn in_memory_partition_fairness_defaults_to_run_id_buckets() {
+    let queue = InMemoryFlowTaskQueue::new().with_partition_fairness();
+    queue
+        .enqueue(FlowTask::DriveRun {
+            run_id: "hot".to_string(),
+        })
+        .await
+        .unwrap();
+    queue
+        .enqueue(FlowTask::DriveRun {
+            run_id: "hot".to_string(),
+        })
+        .await
+        .unwrap();
+    queue
+        .enqueue(FlowTask::DriveRun {
+            run_id: "cold".to_string(),
+        })
+        .await
+        .unwrap();
+
+    let first = queue.lease().await.unwrap().unwrap();
+    queue.ack(&first.lease_id).await.unwrap();
+    let second = queue.lease().await.unwrap().unwrap();
+    queue.ack(&second.lease_id).await.unwrap();
+
+    assert_eq!(
+        first.task,
+        FlowTask::DriveRun {
+            run_id: "cold".to_string()
+        }
+    );
+    assert_eq!(
+        second.task,
+        FlowTask::DriveRun {
+            run_id: "hot".to_string()
+        }
+    );
+}

@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::fs::File;
@@ -10,6 +10,9 @@ use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
 
+use super::fairness::{
+    resolve_flow_task_partition, select_fair_pending_index, validate_flow_task_partition_key,
+};
 pub use super::task::LocalFileDeadLetteredTask;
 use super::{timestamp_nanos_saturating, FlowTask, FlowTaskLease, FlowTaskQueue};
 
@@ -26,6 +29,22 @@ pub struct LocalFileFlowTaskQueue {
     root: PathBuf,
     lock: Arc<Mutex<()>>,
     max_pending: Option<usize>,
+    partition_fairness: bool,
+    last_partition: Arc<Mutex<Option<String>>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+struct LocalFileQueuedTask {
+    #[serde(rename = "a3s_flow_partition_key")]
+    partition_key: String,
+    task: FlowTask,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum LocalFilePendingRecord {
+    Partitioned(LocalFileQueuedTask),
+    Legacy(FlowTask),
 }
 
 impl LocalFileFlowTaskQueue {
@@ -35,6 +54,8 @@ impl LocalFileFlowTaskQueue {
             root: root.into(),
             lock: Arc::new(Mutex::new(())),
             max_pending: None,
+            partition_fairness: false,
+            last_partition: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -44,9 +65,29 @@ impl LocalFileFlowTaskQueue {
         Ok(self)
     }
 
+    /// Lease round-robin across opaque processor partitions.
+    pub fn with_partition_fairness(mut self) -> Self {
+        self.partition_fairness = true;
+        self
+    }
+
     /// Returns the queue root directory.
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    async fn enqueue_resolved(&self, partition_key: &str, task: FlowTask) -> Result<()> {
+        let _guard = self.lock.lock().await;
+        tokio::fs::create_dir_all(self.pending_dir()).await?;
+        let pending = self.pending_files().await?.len();
+        super::queue::ensure_queue_admission(pending, self.max_pending)?;
+
+        let id = Uuid::new_v4();
+        let file_name = Self::queue_file_name(Utc::now(), id);
+        let pending_path = self.pending_path(&file_name);
+        self.write_pending_task(&pending_path, partition_key, &task)
+            .await?;
+        Ok(())
     }
 
     fn pending_dir(&self) -> PathBuf {
@@ -147,14 +188,42 @@ impl LocalFileFlowTaskQueue {
         Self::json_files(self.dead_letter_dir()).await
     }
 
-    async fn read_task_file(path: &Path) -> Result<FlowTask> {
+    async fn read_pending_record(path: &Path) -> Result<(String, FlowTask)> {
         let bytes = tokio::fs::read(path).await?;
-        serde_json::from_slice(&bytes).map_err(|err| {
+        let record: LocalFilePendingRecord = serde_json::from_slice(&bytes).map_err(|err| {
             FlowError::Store(format!(
                 "failed to decode queued task from {}: {err}",
                 path.display()
             ))
+        })?;
+        Ok(match record {
+            LocalFilePendingRecord::Partitioned(record) => (record.partition_key, record.task),
+            LocalFilePendingRecord::Legacy(task) => (String::new(), task),
         })
+    }
+
+    async fn read_task_file(path: &Path) -> Result<FlowTask> {
+        Ok(Self::read_pending_record(path).await?.1)
+    }
+
+    async fn write_pending_task(
+        &self,
+        path: &Path,
+        partition_key: &str,
+        task: &FlowTask,
+    ) -> Result<()> {
+        if self.partition_fairness || !partition_key.is_empty() {
+            self.write_json_file(
+                path,
+                &LocalFileQueuedTask {
+                    partition_key: partition_key.to_string(),
+                    task: task.clone(),
+                },
+            )
+            .await
+        } else {
+            self.write_json_file(path, task).await
+        }
     }
 
     async fn write_json_file<T: Serialize>(&self, path: &Path, value: &T) -> Result<()> {
@@ -314,33 +383,46 @@ impl FlowTaskQueue for LocalFileFlowTaskQueue {
         self.max_pending
     }
 
+    fn partition_fairness(&self) -> bool {
+        self.partition_fairness
+    }
+
     async fn enqueue(&self, task: FlowTask) -> Result<()> {
-        let _guard = self.lock.lock().await;
-        tokio::fs::create_dir_all(self.pending_dir()).await?;
-        let pending = self.pending_files().await?.len();
-        super::queue::ensure_queue_admission(pending, self.max_pending)?;
+        let partition_key = if self.partition_fairness {
+            resolve_flow_task_partition(None, &task)?
+        } else {
+            String::new()
+        };
+        self.enqueue_resolved(&partition_key, task).await
+    }
 
-        let id = Uuid::new_v4();
-        let file_name = Self::queue_file_name(Utc::now(), id);
-        let temp_path = self.temp_path(id);
-        let pending_path = self.pending_path(&file_name);
-
-        let mut file = File::create(&temp_path).await?;
-        file.write_all(serde_json::to_string(&task)?.as_bytes())
-            .await?;
-        file.write_all(b"\n").await?;
-        file.flush().await?;
-        file.sync_data().await?;
-        drop(file);
-
-        tokio::fs::rename(temp_path, pending_path).await?;
-        Ok(())
+    async fn enqueue_for_partition(&self, partition_key: &str, task: FlowTask) -> Result<()> {
+        let partition_key = validate_flow_task_partition_key(partition_key)?;
+        self.enqueue_resolved(partition_key, task).await
     }
 
     async fn lease(&self) -> Result<Option<FlowTaskLease>> {
         let _guard = self.lock.lock().await;
         tokio::fs::create_dir_all(self.inflight_dir()).await?;
-        let Some(path) = self.pending_files().await?.into_iter().next() else {
+        let pending = self.pending_files().await?;
+        if pending.is_empty() {
+            return Ok(None);
+        }
+
+        let path = if self.partition_fairness {
+            let mut keys = Vec::with_capacity(pending.len());
+            for candidate in &pending {
+                keys.push(Self::read_pending_record(candidate).await?.0);
+            }
+            let mut last_partition = self.last_partition.lock().await;
+            let Some(index) = select_fair_pending_index(&keys, &mut last_partition) else {
+                return Ok(None);
+            };
+            pending.into_iter().nth(index)
+        } else {
+            pending.into_iter().next()
+        };
+        let Some(path) = path else {
             return Ok(None);
         };
         if path.file_name().and_then(|name| name.to_str()).is_none() {

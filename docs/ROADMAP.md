@@ -194,8 +194,12 @@ is available through optional `with_max_pending` budgets that return
 `FlowError::QueueBackpressure` when pending depth is full. Protocol negotiation
 and the versioned worker handshake are available through
 `FlowWorkerCapabilities`; they fail closed on protocol or required
-task/guarantee mismatches. Processor fairness across tenants remains open R5
-work; Cloud still owns tenant queue admission and fleet policy.
+task/guarantee mismatches. Opaque processor-partition fairness is also
+available on built-in in-memory and local-file queues through
+`with_partition_fairness` and `enqueue_for_partition`: leasing round-robins
+across host-supplied keys (defaulting to targeted run IDs) without Flow
+interpreting Cloud tenant identity. Cloud still owns tenant queue admission and
+fleet policy.
 
 The observability bridge now preserves stable step/activity attempt correlation
 for host logs, traces, and audit sinks while keeping those high-cardinality
@@ -206,7 +210,7 @@ without embedding those carriers in replay history. The first visibility
 projection contract is also implemented: `FlowEngine::visibility_projection`
 returns a tip-anchored, schema-versioned summary rebuildable from history or a
 tip-validated snapshot/checkpoint digest, without copying workflow payloads into
-the index. Processor fairness across tenants remains open R5 work.
+the index.
 
 ## 4. Implementation rules
 

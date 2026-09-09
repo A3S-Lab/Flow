@@ -434,3 +434,51 @@ async fn local_file_task_queue_refuses_enqueue_at_pending_capacity() {
     ));
     assert_eq!(queue.len().await.unwrap(), 1);
 }
+
+#[tokio::test]
+async fn local_file_partition_fairness_rotates_across_opaque_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let queue = LocalFileFlowTaskQueue::new(dir.path()).with_partition_fairness();
+    assert!(queue.partition_fairness());
+
+    for run_id in ["a-1", "a-2"] {
+        queue
+            .enqueue_for_partition(
+                "tenant-a",
+                FlowTask::DriveRun {
+                    run_id: run_id.to_string(),
+                },
+            )
+            .await
+            .unwrap();
+        // Ensure stable lexicographic file order within a partition.
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    queue
+        .enqueue_for_partition(
+            "tenant-b",
+            FlowTask::DriveRun {
+                run_id: "b-1".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+    let first = queue.lease().await.unwrap().unwrap();
+    queue.ack(&first.lease_id).await.unwrap();
+    let second = queue.lease().await.unwrap().unwrap();
+    queue.ack(&second.lease_id).await.unwrap();
+
+    assert_eq!(
+        first.task,
+        FlowTask::DriveRun {
+            run_id: "a-1".to_string()
+        }
+    );
+    assert_eq!(
+        second.task,
+        FlowTask::DriveRun {
+            run_id: "b-1".to_string()
+        }
+    );
+}

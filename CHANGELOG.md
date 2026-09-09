@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added opaque processor-partition fairness through
+  `FlowTaskQueue::enqueue_for_partition`, `FlowTaskQueue::partition_fairness`,
+  `InMemoryFlowTaskQueue::with_partition_fairness`, and
+  `LocalFileFlowTaskQueue::with_partition_fairness`. Fair queues lease
+  round-robin across host-supplied partition keys (or targeted run IDs) so one
+  partition cannot monopolize FIFO dispatch; Cloud still owns tenant identity.
+
 - Added physical run sharding through `FlowRunShardLayout`,
   `InMemoryEventStore::with_shard_count`, `LocalFileEventStore::with_shard_count`,
   and `FlowStoreCapabilities::physical_run_sharding`. Runs hash stably onto
