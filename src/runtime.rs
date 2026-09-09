@@ -61,6 +61,7 @@ pub trait FlowRuntime: Send + Sync {
             input: invocation.input,
             history: invocation.history,
             idempotency_key: invocation.idempotency_key,
+            trace_context: invocation.trace_context,
         })
         .await
     }

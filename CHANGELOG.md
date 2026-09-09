@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added ambient W3C Trace Context propagation through `FlowTraceContext`,
+  `with_trace_context` / `without_trace_context` / `current_trace_context`, and
+  optional `trace_context` on workflow/step/activity/query/update invocations.
+  Hosts bind context for a drive without writing it into replay history;
+  `A3sFlowEvent` and the a3s-event sink mirror `traceparent` / `tracestate` when
+  ambient context is present.
+
 - Added durable per-item aggregates through `ItemAggregateContribution`,
   `RuntimeCommand::RecordItemAggregate`, `FlowEvent::ItemAggregateRecorded`, and
   `WorkflowContext::{record_item_aggregate,item_aggregate_has,item_aggregate_values}`.

@@ -840,8 +840,11 @@ source of truth for workflow state and cannot roll back a committed event.
 `A3sFlowEventBridge` converts committed envelopes into A3S-style records with
 workflow identity, event key, status, subject, audit identity, and optional
 step/activity attempt correlation (`attempt`, `attempt_id`, and
-`idempotency_key`). These high-cardinality fields are retained for logs,
-traces, and audit sinks but are excluded from low-cardinality metric labels.
+`idempotency_key`). When a host binds ambient W3C Trace Context with
+`with_trace_context`, bridge records also carry `traceparent` / `tracestate`
+for correlation; that carrier is never written into the replay log. These
+high-cardinality fields are retained for logs, traces, and audit sinks but are
+excluded from low-cardinality metric labels.
 `InMemoryA3sFlowEventSink` keeps those records in
 process for tests and examples. `LocalFileA3sFlowEventSink` appends them to
 JSONL for local audit trails and records write failures in `last_error()`. On

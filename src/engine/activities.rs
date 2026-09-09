@@ -286,6 +286,7 @@ impl FlowEngine {
                 idempotency_key: activity_attempt_idempotency_key(run_id, &activity_id, attempt),
                 fencing_token: fencing_token.clone(),
                 deadline,
+                trace_context: crate::trace::current_trace_context(),
             };
 
             let outcome = if let Some(deadline) = deadline {

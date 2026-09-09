@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::context::WorkflowContext;
 use crate::error::{FlowError, Result};
 use crate::model::{FlowEventEnvelope, JsonValue, WorkflowSpec};
+use crate::trace::{current_trace_context, FlowTraceContext};
 
 /// Workflow replay request passed to a runtime implementation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,6 +18,9 @@ pub struct WorkflowInvocation {
     pub input: JsonValue,
     /// Complete persisted event history in sequence order.
     pub history: Vec<FlowEventEnvelope>,
+    /// Ambient W3C Trace Context for this host operation, when provided.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_context: Option<FlowTraceContext>,
 }
 
 impl WorkflowInvocation {
@@ -32,6 +36,7 @@ impl WorkflowInvocation {
             spec,
             input,
             history,
+            trace_context: current_trace_context(),
         }
     }
 
@@ -74,6 +79,9 @@ pub struct StepInvocation {
     /// idempotency and reconciliation.
     #[serde(default)]
     pub idempotency_key: String,
+    /// Ambient W3C Trace Context for this host operation, when provided.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_context: Option<FlowTraceContext>,
 }
 
 /// First-class activity execution request passed to a runtime implementation.
@@ -104,6 +112,9 @@ pub struct ActivityInvocation {
     /// Persisted deadline of this attempt, retained across redelivery.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deadline: Option<chrono::DateTime<chrono::Utc>>,
+    /// Ambient W3C Trace Context for this host operation, when provided.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_context: Option<FlowTraceContext>,
 }
 
 impl ActivityInvocation {
@@ -133,6 +144,9 @@ pub struct QueryInvocation {
     pub input: JsonValue,
     /// Complete persisted event history in sequence order.
     pub history: Vec<FlowEventEnvelope>,
+    /// Ambient W3C Trace Context for this host operation, when provided.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_context: Option<FlowTraceContext>,
 }
 
 impl QueryInvocation {
@@ -150,6 +164,7 @@ impl QueryInvocation {
             query_name: query_name.into(),
             input,
             history,
+            trace_context: current_trace_context(),
         }
     }
 
@@ -199,6 +214,9 @@ pub struct UpdateInvocation {
     pub update: crate::model::WorkflowUpdate,
     /// Complete persisted event history in sequence order before this update.
     pub history: Vec<FlowEventEnvelope>,
+    /// Ambient W3C Trace Context for this host operation, when provided.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_context: Option<FlowTraceContext>,
 }
 
 impl UpdateInvocation {
@@ -214,6 +232,7 @@ impl UpdateInvocation {
             spec,
             update,
             history,
+            trace_context: current_trace_context(),
         }
     }
 
@@ -274,6 +293,7 @@ impl StepInvocation {
             input,
             history,
             idempotency_key: step_attempt_idempotency_key(&run_id, &step_id, attempt),
+            trace_context: current_trace_context(),
         }
     }
 

@@ -230,6 +230,12 @@ pub struct A3sFlowEvent {
     /// Stable external side-effect idempotency key, when the event carries one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idempotency_key: Option<String>,
+    /// Ambient W3C `traceparent`, when the host bound a trace context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub traceparent: Option<String>,
+    /// Ambient W3C `tracestate`, when the host bound one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tracestate: Option<String>,
 }
 
 impl A3sFlowEvent {
@@ -239,6 +245,7 @@ impl A3sFlowEvent {
         workflow: Option<FlowWorkflowIdentity>,
     ) -> Self {
         let (attempt, attempt_id, idempotency_key) = event_attempt_identity(&envelope.event);
+        let trace = crate::trace::current_trace_context();
         Self {
             key: envelope.event.event_key().to_string(),
             run_id: envelope.run_id.clone(),
@@ -251,6 +258,8 @@ impl A3sFlowEvent {
             attempt,
             attempt_id,
             idempotency_key,
+            traceparent: trace.as_ref().map(|value| value.traceparent.clone()),
+            tracestate: trace.and_then(|value| value.tracestate),
         }
     }
 
@@ -362,6 +371,12 @@ impl A3sEventBusFlowEventSink {
         }
         if let Some(idempotency_key) = &event.idempotency_key {
             metadata.insert("flow.idempotency_key".to_string(), idempotency_key.clone());
+        }
+        if let Some(traceparent) = &event.traceparent {
+            metadata.insert("traceparent".to_string(), traceparent.clone());
+        }
+        if let Some(tracestate) = &event.tracestate {
+            metadata.insert("tracestate".to_string(), tracestate.clone());
         }
 
         Ok(a3s_event::Event {

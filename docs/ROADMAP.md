@@ -192,8 +192,11 @@ fleet policy.
 
 The observability bridge now preserves stable step/activity attempt correlation
 for host logs, traces, and audit sinks while keeping those high-cardinality
-identities out of metric labels. OpenTelemetry context propagation and hosted
-visibility projection remain open R5 work.
+identities out of metric labels. Ambient W3C Trace Context propagation is also
+implemented: hosts bind `FlowTraceContext` with `with_trace_context` so
+invocations and `A3sFlowEvent` records can carry `traceparent` / `tracestate`
+without embedding those carriers in replay history. Hosted visibility projection
+remains open R5 work.
 
 ## 4. Implementation rules
 

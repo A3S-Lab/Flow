@@ -346,6 +346,7 @@ impl FlowEngine {
                     spec: snapshot.spec.clone(),
                     input: snapshot.input.clone(),
                     history,
+                    trace_context: crate::trace::current_trace_context(),
                 })
                 .await?;
 

@@ -228,6 +228,7 @@ impl FlowEngine {
                 idempotency_key: crate::runtime::step_attempt_idempotency_key(
                     run_id, &step_id, attempt,
                 ),
+                trace_context: crate::trace::current_trace_context(),
             };
 
             match self.runtime.run_step(invocation).await {
@@ -428,6 +429,7 @@ impl FlowEngine {
                         &step.step_id,
                         active[index].1,
                     ),
+                    trace_context: crate::trace::current_trace_context(),
                 };
                 let task_id =
                     tasks.spawn(async move { (index, runtime.run_step(invocation).await) });

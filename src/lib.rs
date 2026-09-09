@@ -22,6 +22,7 @@ mod runtime;
 mod runtime_build;
 mod scheduler;
 mod store;
+mod trace;
 mod worker;
 mod workflow_dsl;
 
@@ -75,6 +76,9 @@ pub use store::{
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use store::{
     FlowHistoryHold, FlowHistoryRetentionPolicy, FlowHistoryRetentionReport, FlowHistoryTombstone,
+};
+pub use trace::{
+    current_trace_context, with_trace_context, without_trace_context, FlowTraceContext,
 };
 #[cfg(feature = "boot")]
 pub use worker::{BootFlowTaskDeduplication, BootFlowTaskManager, BootFlowTaskPolicy};
