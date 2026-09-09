@@ -1430,6 +1430,27 @@ message unless `A3S_FLOW_NATIVE_TS_COMPILER` points at a compiler. The
 `native_ts_preflight` example exercises the validation and artifact-cache path
 without starting a workflow run.
 
+## Certification Gates
+
+Before cutting a Flow release that Cloud or another host will pin, run the
+kernel certification harness and keep the frozen protocol fixtures in sync.
+
+```bash
+cargo test --test certification
+node packages/ui/node_modules/vitest/vitest.mjs run tests/protocol-fixtures.test.ts
+```
+
+`tests/certification.rs` locks worker capability, task, and event-envelope wire
+shapes under `tests/fixtures/protocol/`, fails closed on stale or forged lease
+acknowledgements and mixed worker protocols, and verifies tip-pinned archive
+export for a 10_000-event history. The UI package reads the same JSON fixtures
+so TypeScript and Rust share one wire authority.
+
+When changing wire shapes, regenerate the fixtures and update both the Rust and
+TypeScript consumers in the same change. Host-owned chaos against real Postgres
+providers, package publishing, and security automation remain outside this
+kernel harness.
+
 ## Operational Checklist
 
 Before shipping a host integration:
@@ -1439,6 +1460,8 @@ Before shipping a host integration:
   in workflow decisions.
 - Put side effects in steps and persist their outputs before fan-in.
 - Run a scheduler loop for due waits and delayed retries.
+- Run `cargo test --test certification` and the UI protocol-fixture Vitest file
+  before pinning a host to a new Flow revision.
 - Use `FlowScheduler::next_wakeup_delay()` to choose the next scheduler sleep
   deadline when the host is not already using an external clock or queue
   trigger.
