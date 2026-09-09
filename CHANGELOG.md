@@ -9,7 +9,8 @@
 
 - Extended the FLOW-R6 certification recipe to include retained pre-v1 history
   upgrade tests (`cargo test --test pre_v1_history`) alongside protocol
-  fixtures and TypeScript parity checks.
+  fixtures and TypeScript parity checks. Added `just release-certification` to
+  fold in local package verification without requiring CI.
 
 - Added the first FLOW-R6 certification harness through `tests/certification.rs`
   and frozen protocol fixtures under `tests/fixtures/protocol/`. The suite
