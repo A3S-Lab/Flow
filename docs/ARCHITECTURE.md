@@ -394,6 +394,16 @@ cleanup code can observe `WorkflowContext::scope_cancelled` and continue.
 returns `ScopeConflict`. Run-level `run_cancellation_requested` also marks every
 open scope cancelled during projection.
 
+## Structured Select And Race
+
+`RuntimeCommand::Select` records a durable race over two or more timer or
+signal arms. Projection materializes each arm as a normal wait or signal wait
+tagged with the select identity. When the first arm completes, the engine
+appends `select_completed` with the winning arm id and cancels sibling waits.
+Workflow code observes the winner through `WorkflowContext::select_winner`.
+Redrive while the select is open is idempotent; changing the arm set is
+rejected as non-deterministic replay.
+
 ## Continue-As-New History Segmentation
 
 Continue-as-new bounds replay history without rewriting it. The runtime returns
