@@ -54,6 +54,26 @@ ALTER TABLE flow_projection_checkpoints
 ADD COLUMN snapshot_sha256 TEXT NOT NULL DEFAULT '';
 "#;
 
+/// Sealed history partitions index contiguous ranges over the authoritative
+/// event log. They never rewrite history; hosts may archive sealed ranges by
+/// digest while Flow retains the live tip for replay.
+const HISTORY_PARTITIONS_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS flow_history_partitions (
+    run_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    first_sequence BIGINT NOT NULL CHECK (first_sequence >= 1),
+    last_sequence BIGINT NOT NULL CHECK (last_sequence >= first_sequence),
+    first_event_id TEXT NOT NULL,
+    last_event_id TEXT NOT NULL,
+    event_count BIGINT NOT NULL CHECK (event_count >= 1),
+    content_sha256 TEXT NOT NULL,
+    PRIMARY KEY (run_id, ordinal)
+);
+
+CREATE INDEX IF NOT EXISTS idx_flow_history_partitions_run_last
+ON flow_history_partitions (run_id, last_sequence);
+"#;
+
 #[cfg(feature = "sqlite")]
 const SQLITE_ACTIVE_HOOKS_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS flow_active_hooks (
@@ -490,6 +510,11 @@ pub(crate) fn sqlite_migrations() -> Vec<Migration> {
             "validate projection checkpoint snapshot integrity",
             PROJECTION_CHECKPOINT_DIGEST_SQL,
         ),
+        Migration::new(
+            "a3s-flow-0010-history-partitions",
+            "index sealed contiguous Flow history partitions",
+            HISTORY_PARTITIONS_SQL,
+        ),
     ]
 }
 
@@ -545,6 +570,11 @@ pub(crate) fn postgres_migrations() -> Vec<Migration> {
             "a3s-flow-0010-projection-checkpoint-digest",
             "validate projection checkpoint snapshot integrity",
             PROJECTION_CHECKPOINT_DIGEST_SQL,
+        ),
+        Migration::new(
+            "a3s-flow-0011-history-partitions",
+            "index sealed contiguous Flow history partitions",
+            HISTORY_PARTITIONS_SQL,
         ),
     ]
 }

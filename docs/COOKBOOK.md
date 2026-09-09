@@ -1083,8 +1083,11 @@ routers and dashboards. `history()` returns the raw committed
 `FlowEventEnvelope` sequence for small audit/debug reads. Use
 `export_history_pages()` for bounded archive/export work: it pins the current
 tip and each callback receives one contiguous page, so the host can commit pages
-without loading the complete run or racing a continuously appended tail. See
-`examples/run_inspection.rs` for a runnable mixed-status inspection flow.
+without loading the complete run or racing a continuously appended tail. Prefer
+`export_history_archive()` when the host needs a tip-pinned ownership seal whose
+digest is independent of page size, and `seal_history_partition()` when sealing
+immutable contiguous ranges for later cold storage while Flow retains the live
+tip. See `examples/run_inspection.rs` for a runnable mixed-status inspection flow.
 
 ## Observability
 

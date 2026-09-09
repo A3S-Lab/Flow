@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Added tip-pinned history archive ownership seals through
+  `FlowEngine::export_history_archive` and
+  `FlowEngine::verify_history_archive_seal`. Seals digest ordered event IDs
+  independently of page size so hosts can verify contiguous exports without
+  Flow owning archive storage or retention policy.
+
+- Added sealed `FlowHistoryPartition` indexes for contiguous history ranges,
+  with `FlowEngine::seal_history_partition` / `list_history_partitions` and
+  durable persistence in memory, local-file, SQLite, and PostgreSQL stores.
+  Partitions never rewrite the append-only event log; retention deletes their
+  index rows with the owning run.
+
+- Published initial Flow kernel scale SLO targets for append, tip-validated
+  checkpoint reads, bounded history pages, and tip-pinned archive export.
+
 - Added cross-language canonical operation encoding through
   `canonical_workflow_authoring_operation` and
   `canonicalizeFlowCliWorkflowUpdate(s)`. Equivalent operation JSON now has

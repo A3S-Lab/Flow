@@ -97,16 +97,34 @@ missing cache rebuilds once from authoritative history and then converges.
 This is an acceleration layer, never a history rewrite or an independent source
 of truth. Checkpointed reads can replay only the validated event tail through
 indexed `list_after` queries, and a SHA-256 snapshot digest detects cache
-corruption. Partitioned history, archive/export, and published scale SLOs
-remain open R3 work. `FlowEngine::history_page` and
+corruption. `FlowEngine::history_page` and
 `MAX_FLOW_HISTORY_PAGE_SIZE` provide the bounded cursor primitive that Cloud
-can use to build those export/archive projections.
+can use to build export/archive projections.
 
 `FlowEngine::export_history_pages` is the corresponding bounded streaming
 boundary. It pins an initial history tip, validates contiguous cursors, and
-delegates archive storage, retention, and destination retries to the host;
-partitioned history, durable archive ownership, and published scale SLOs remain
-open.
+delegates archive storage, retention, and destination retries to the host.
+`FlowEngine::export_history_archive` returns a tip-pinned
+`FlowHistoryArchiveSeal` whose content digest is independent of page size, so
+hosts can prove export completeness without treating the archive as a second
+execution history. `FlowEngine::seal_history_partition` indexes immutable
+contiguous ranges over the same authoritative log; sealed partitions persist in
+built-in stores and are deleted with retention. Published scale SLO targets for
+append, checkpointed reads, history pages, and archive export are recorded
+below. Physical table sharding across runs remains open R3 work.
+
+### Published scale SLO targets (kernel)
+
+These are Flow repository targets for a single hot run on a production-capable
+SQL store (`FlowStoreCapabilities::production_ready()`). Cloud and operators own
+fleet, multi-tenant fairness, and regional RTO/RPO policy on top of them.
+
+| Operation | Target |
+| --- | --- |
+| Expected-sequence append of one bounded event | p50 ≤ 5 ms, p99 ≤ 25 ms |
+| Tip-validated checkpointed snapshot read | p50 ≤ 2 ms, p99 ≤ 10 ms |
+| Bounded history page (`limit ≤ 1_000`) | p50 ≤ 5 ms, p99 ≤ 20 ms |
+| Tip-pinned archive export of 10_000 events | complete without materializing the full log in one allocation; seal verify matches digest |
 
 The repository-owned authoring boundary now has a stateless Rust counterpart to
 the CLI and Skill: `canonical_workflow_authoring_snapshot` preserves the

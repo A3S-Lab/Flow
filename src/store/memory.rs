@@ -10,7 +10,7 @@ use crate::model::{project_run, FlowEvent, FlowEventEnvelope, HookStatus};
 
 use super::{
     next_event_sequence, retention::required_linked_flow_run_id, validate_candidate_event,
-    FlowEventStore, FlowProjectionCheckpoint, FlowStoreCapabilities,
+    FlowEventStore, FlowHistoryPartition, FlowProjectionCheckpoint, FlowStoreCapabilities,
 };
 
 /// In-memory event store for tests, local development, and embedded hosts.
@@ -18,6 +18,7 @@ use super::{
 pub struct InMemoryEventStore {
     runs: Arc<Mutex<HashMap<String, Vec<FlowEventEnvelope>>>>,
     checkpoints: Arc<Mutex<HashMap<String, FlowProjectionCheckpoint>>>,
+    partitions: Arc<Mutex<HashMap<String, Vec<FlowHistoryPartition>>>>,
 }
 
 impl InMemoryEventStore {
@@ -151,6 +152,57 @@ impl FlowEventStore for InMemoryEventStore {
             .lock()
             .await
             .insert(checkpoint.run_id.clone(), checkpoint.clone());
+        Ok(())
+    }
+
+    async fn list_history_partitions(&self, run_id: &str) -> Result<Vec<FlowHistoryPartition>> {
+        if self.runs.lock().await.get(run_id).is_none() {
+            return Err(FlowError::RunNotFound(run_id.to_string()));
+        }
+        Ok(self
+            .partitions
+            .lock()
+            .await
+            .get(run_id)
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    async fn save_history_partition(&self, partition: &FlowHistoryPartition) -> Result<()> {
+        partition.validate()?;
+        let runs = self.runs.lock().await;
+        let history = runs
+            .get(&partition.run_id)
+            .ok_or_else(|| FlowError::RunNotFound(partition.run_id.clone()))?;
+        let tip = history
+            .last()
+            .ok_or_else(|| FlowError::RunNotFound(partition.run_id.clone()))?
+            .sequence;
+        if partition.last_sequence > tip {
+            return Err(FlowError::Store(format!(
+                "history partition for {} cannot seal beyond tip {tip}",
+                partition.run_id
+            )));
+        }
+        drop(runs);
+        let mut partitions = self.partitions.lock().await;
+        let entries = partitions.entry(partition.run_id.clone()).or_default();
+        if let Some(last) = entries.last() {
+            if partition.ordinal != last.ordinal + 1
+                || partition.first_sequence != last.last_sequence + 1
+            {
+                return Err(FlowError::Store(format!(
+                    "history partition for {} must continue the sealed index",
+                    partition.run_id
+                )));
+            }
+        } else if partition.ordinal != 0 || partition.first_sequence != 1 {
+            return Err(FlowError::Store(format!(
+                "first history partition for {} must start at ordinal 0 sequence 1",
+                partition.run_id
+            )));
+        }
+        entries.push(partition.clone());
         Ok(())
     }
 }

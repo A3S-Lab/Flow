@@ -14,7 +14,8 @@ use crate::model::{project_run, validate_run_id, FlowEvent, FlowEventEnvelope, H
 use super::{
     next_event_sequence,
     retention::{plan_history_retention, required_linked_flow_run_id, FlowHistoryRetentionPolicy},
-    validate_candidate_event, FlowEventStore, FlowProjectionCheckpoint, FlowStoreCapabilities,
+    validate_candidate_event, FlowEventStore, FlowHistoryPartition, FlowProjectionCheckpoint,
+    FlowStoreCapabilities,
 };
 
 /// JSONL-backed event store for local durable runs.
@@ -62,6 +63,29 @@ impl LocalFileEventStore {
             )));
         }
         Ok(self.root.join(format!("{run_id}.checkpoint.json")))
+    }
+
+    fn partitions_path(&self, run_id: &str) -> Result<PathBuf> {
+        if !is_safe_run_id(run_id) {
+            return Err(FlowError::Store(format!(
+                "run id {run_id:?} is not safe for local file storage"
+            )));
+        }
+        Ok(self.root.join(format!("{run_id}.partitions.json")))
+    }
+
+    async fn load_partitions_inner(&self, run_id: &str) -> Result<Vec<FlowHistoryPartition>> {
+        let path = self.partitions_path(run_id)?;
+        let bytes = match tokio::fs::read(&path).await {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(FlowError::Io(error)),
+        };
+        let partitions: Vec<FlowHistoryPartition> = serde_json::from_slice(&bytes)?;
+        for partition in &partitions {
+            partition.validate()?;
+        }
+        Ok(partitions)
     }
 
     async fn load_inner(
@@ -284,6 +308,12 @@ impl LocalFileEventStore {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(err) => return Err(FlowError::Io(err)),
             }
+            let partitions = self.partitions_path(run_id)?;
+            match tokio::fs::remove_file(partitions).await {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => return Err(FlowError::Io(err)),
+            }
         }
 
         plan.report.deleted_run_ids = removed;
@@ -384,6 +414,52 @@ impl FlowEventStore for LocalFileEventStore {
         let path = self.checkpoint_path(&checkpoint.run_id)?;
         let temporary = path.with_extension("checkpoint.json.tmp");
         let bytes = serde_json::to_vec(checkpoint)?;
+        tokio::fs::write(&temporary, bytes).await?;
+        tokio::fs::rename(&temporary, &path).await?;
+        Ok(())
+    }
+
+    async fn list_history_partitions(&self, run_id: &str) -> Result<Vec<FlowHistoryPartition>> {
+        let _guard = self.lock.lock().await;
+        let _ = self.list_inner(run_id, false).await?;
+        self.load_partitions_inner(run_id).await
+    }
+
+    async fn save_history_partition(&self, partition: &FlowHistoryPartition) -> Result<()> {
+        partition.validate()?;
+        let _guard = self.lock.lock().await;
+        let history = self.list_inner(&partition.run_id, false).await?;
+        let tip = history
+            .last()
+            .ok_or_else(|| FlowError::RunNotFound(partition.run_id.clone()))?
+            .sequence;
+        if partition.last_sequence > tip {
+            return Err(FlowError::Store(format!(
+                "history partition for {} cannot seal beyond tip {tip}",
+                partition.run_id
+            )));
+        }
+        let mut partitions = self.load_partitions_inner(&partition.run_id).await?;
+        if let Some(last) = partitions.last() {
+            if partition.ordinal != last.ordinal + 1
+                || partition.first_sequence != last.last_sequence + 1
+            {
+                return Err(FlowError::Store(format!(
+                    "history partition for {} must continue the sealed index",
+                    partition.run_id
+                )));
+            }
+        } else if partition.ordinal != 0 || partition.first_sequence != 1 {
+            return Err(FlowError::Store(format!(
+                "first history partition for {} must start at ordinal 0 sequence 1",
+                partition.run_id
+            )));
+        }
+        partitions.push(partition.clone());
+        tokio::fs::create_dir_all(&self.root).await?;
+        let path = self.partitions_path(&partition.run_id)?;
+        let temporary = path.with_extension("partitions.json.tmp");
+        let bytes = serde_json::to_vec(&partitions)?;
         tokio::fs::write(&temporary, bytes).await?;
         tokio::fs::rename(&temporary, &path).await?;
         Ok(())

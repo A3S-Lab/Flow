@@ -224,6 +224,12 @@ async fn prune_sqlite_history(
         .await?;
         execute_sqlite(
             transaction,
+            sql_query::<()>("DELETE FROM flow_history_partitions WHERE run_id = ")
+                .bind(run_id.clone()),
+        )
+        .await?;
+        execute_sqlite(
+            transaction,
             sql_query::<()>("DELETE FROM flow_events WHERE run_id = ").bind(run_id.clone()),
         )
         .await?;

@@ -16,8 +16,8 @@ use crate::model::{
 
 use super::{
     migrate_postgres_flow, next_event_sequence, scheduled_wakeup_from_row, scheduled_wakeup_key,
-    validate_event_payload, verify_postgres_flow, FlowEventStore, FlowProjectionCheckpoint,
-    FlowStoreCapabilities, MAX_FLOW_HISTORY_PAGE_SIZE,
+    validate_event_payload, verify_postgres_flow, FlowEventStore, FlowHistoryPartition,
+    FlowProjectionCheckpoint, FlowStoreCapabilities, MAX_FLOW_HISTORY_PAGE_SIZE,
 };
 
 mod retention;
@@ -437,6 +437,122 @@ impl FlowEventStore for PostgresEventStore {
                  snapshot_json = EXCLUDED.snapshot_json, \
                  updated_at = EXCLUDED.updated_at",
                 ),
+            )
+            .await
+            .map_err(postgres_orm_error)?;
+        Ok(())
+    }
+
+    async fn list_history_partitions(&self, run_id: &str) -> Result<Vec<FlowHistoryPartition>> {
+        let database = Database::new(PostgresDialect, self.executor.clone());
+        let exists = database
+            .fetch_all_as(
+                sql_query::<i64>("SELECT 1 FROM flow_events WHERE run_id = ")
+                    .bind(run_id)
+                    .append(" LIMIT 1"),
+            )
+            .await
+            .map_err(postgres_orm_error)?
+            .rows;
+        if exists.is_empty() {
+            return Err(FlowError::RunNotFound(run_id.to_string()));
+        }
+        database
+            .fetch_all_as(
+                sql_query::<(String, i64, i64, i64, String, String, i64, String)>(
+                    "SELECT run_id, ordinal, first_sequence, last_sequence, first_event_id, \
+                     last_event_id, event_count, content_sha256 \
+                     FROM flow_history_partitions WHERE run_id = ",
+                )
+                .bind(run_id)
+                .append(" ORDER BY ordinal ASC"),
+            )
+            .await
+            .map_err(postgres_orm_error)?
+            .rows
+            .into_iter()
+            .map(decode_postgres_history_partition)
+            .collect()
+    }
+
+    async fn save_history_partition(&self, partition: &FlowHistoryPartition) -> Result<()> {
+        partition.validate()?;
+        let ordinal = i64::from(partition.ordinal);
+        let first_sequence = i64::try_from(partition.first_sequence).map_err(|error| {
+            FlowError::Store(format!(
+                "history partition first sequence {} exceeds PostgreSQL bigint range: {error}",
+                partition.first_sequence
+            ))
+        })?;
+        let last_sequence = i64::try_from(partition.last_sequence).map_err(|error| {
+            FlowError::Store(format!(
+                "history partition last sequence {} exceeds PostgreSQL bigint range: {error}",
+                partition.last_sequence
+            ))
+        })?;
+        let event_count = i64::try_from(partition.event_count).map_err(|error| {
+            FlowError::Store(format!(
+                "history partition event count {} exceeds PostgreSQL bigint range: {error}",
+                partition.event_count
+            ))
+        })?;
+        let database = Database::new(PostgresDialect, self.executor.clone());
+        let tip = database
+            .fetch_all_as(
+                sql_query::<i64>("SELECT sequence FROM flow_events WHERE run_id = ")
+                    .bind(partition.run_id.clone())
+                    .append(" ORDER BY sequence DESC LIMIT 1"),
+            )
+            .await
+            .map_err(postgres_orm_error)?
+            .rows
+            .into_iter()
+            .next()
+            .ok_or_else(|| FlowError::RunNotFound(partition.run_id.clone()))?;
+        if last_sequence > tip {
+            return Err(FlowError::Store(format!(
+                "history partition for {} cannot seal beyond tip {tip}",
+                partition.run_id
+            )));
+        }
+        let existing = self.list_history_partitions(&partition.run_id).await?;
+        if let Some(last) = existing.last() {
+            if partition.ordinal != last.ordinal + 1
+                || partition.first_sequence != last.last_sequence + 1
+            {
+                return Err(FlowError::Store(format!(
+                    "history partition for {} must continue the sealed index",
+                    partition.run_id
+                )));
+            }
+        } else if partition.ordinal != 0 || partition.first_sequence != 1 {
+            return Err(FlowError::Store(format!(
+                "first history partition for {} must start at ordinal 0 sequence 1",
+                partition.run_id
+            )));
+        }
+        database
+            .execute(
+                sql_query::<()>(
+                    "INSERT INTO flow_history_partitions \
+                 (run_id, ordinal, first_sequence, last_sequence, first_event_id, last_event_id, event_count, content_sha256) VALUES (",
+                )
+                .bind(partition.run_id.clone())
+                .append(", ")
+                .bind(ordinal)
+                .append(", ")
+                .bind(first_sequence)
+                .append(", ")
+                .bind(last_sequence)
+                .append(", ")
+                .bind(partition.first_event_id.to_string())
+                .append(", ")
+                .bind(partition.last_event_id.to_string())
+                .append(", ")
+                .bind(event_count)
+                .append(", ")
+                .bind(partition.content_sha256.clone())
+                .append(")"),
             )
             .await
             .map_err(postgres_orm_error)?;
@@ -922,6 +1038,62 @@ fn active_hook_from_row(
             payload: None,
         },
     })
+}
+
+fn decode_postgres_history_partition(
+    (
+        run_id,
+        ordinal,
+        first_sequence,
+        last_sequence,
+        first_event_id,
+        last_event_id,
+        event_count,
+        content_sha256,
+    ): (String, i64, i64, i64, String, String, i64, String),
+) -> Result<FlowHistoryPartition> {
+    let ordinal = u32::try_from(ordinal).map_err(|error| {
+        FlowError::Store(format!(
+            "invalid PostgreSQL history partition ordinal {ordinal}: {error}"
+        ))
+    })?;
+    let first_sequence = u64::try_from(first_sequence).map_err(|error| {
+        FlowError::Store(format!(
+            "invalid PostgreSQL history partition first sequence {first_sequence}: {error}"
+        ))
+    })?;
+    let last_sequence = u64::try_from(last_sequence).map_err(|error| {
+        FlowError::Store(format!(
+            "invalid PostgreSQL history partition last sequence {last_sequence}: {error}"
+        ))
+    })?;
+    let event_count = u64::try_from(event_count).map_err(|error| {
+        FlowError::Store(format!(
+            "invalid PostgreSQL history partition event count {event_count}: {error}"
+        ))
+    })?;
+    let first_event_id = first_event_id.parse().map_err(|error| {
+        FlowError::Store(format!(
+            "invalid PostgreSQL history partition first event id {first_event_id}: {error}"
+        ))
+    })?;
+    let last_event_id = last_event_id.parse().map_err(|error| {
+        FlowError::Store(format!(
+            "invalid PostgreSQL history partition last event id {last_event_id}: {error}"
+        ))
+    })?;
+    let partition = FlowHistoryPartition {
+        run_id,
+        ordinal,
+        first_sequence,
+        last_sequence,
+        first_event_id,
+        last_event_id,
+        event_count,
+        content_sha256,
+    };
+    partition.validate()?;
+    Ok(partition)
 }
 
 fn decode_postgres_checkpoint(

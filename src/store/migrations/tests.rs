@@ -42,6 +42,8 @@ const PROJECTION_CHECKPOINTS_CHECKSUM: &str =
     "b69612dd86dcc58c2ecae0424d9d19ba36cdd04e80c4727c2b07fac1786c3861";
 const PROJECTION_CHECKPOINT_DIGEST_CHECKSUM: &str =
     "988c3793d7c15867b66c12e6e176f4812eff9d35542906d3c78f95ccd10b0ade";
+const HISTORY_PARTITIONS_CHECKSUM: &str =
+    "613e69a8190c542ec41c2121e25ff50ff7e867470473c6629fa4e1ad79c5a702";
 #[cfg(feature = "postgres")]
 const POSTGRES_TASKS_CHECKSUM: &str =
     "6e73f57af6f836508a12b66eb8a00130ca0fbc62c99ca1a0bfa8c36f0b9d5b93";
@@ -137,6 +139,10 @@ fn sqlite_migrations_keep_every_published_checksum() {
                 "a3s-flow-0009-projection-checkpoint-digest".into(),
                 PROJECTION_CHECKPOINT_DIGEST_CHECKSUM.into(),
             ),
+            (
+                "a3s-flow-0010-history-partitions".into(),
+                HISTORY_PARTITIONS_CHECKSUM.into(),
+            ),
         ]
     );
 }
@@ -178,6 +184,10 @@ fn postgres_migrations_keep_every_published_checksum() {
             (
                 "a3s-flow-0010-projection-checkpoint-digest".into(),
                 PROJECTION_CHECKPOINT_DIGEST_CHECKSUM.into(),
+            ),
+            (
+                "a3s-flow-0011-history-partitions".into(),
+                HISTORY_PARTITIONS_CHECKSUM.into(),
             ),
         ]
     );

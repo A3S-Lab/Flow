@@ -16,6 +16,7 @@ use uuid::Uuid;
 pub const MAX_FLOW_HISTORY_PAGE_SIZE: usize = 1_000;
 
 mod checkpoint;
+mod history_partition;
 mod local_file;
 mod memory;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -29,6 +30,8 @@ mod retention;
 mod sqlite;
 
 pub use checkpoint::FlowProjectionCheckpoint;
+pub(crate) use history_partition::history_content_digest;
+pub use history_partition::{FlowHistoryArchiveSeal, FlowHistoryPartition};
 pub use local_file::LocalFileEventStore;
 pub use memory::InMemoryEventStore;
 #[cfg(feature = "postgres")]
@@ -290,6 +293,24 @@ pub trait FlowEventStore: Send + Sync {
     async fn save_checkpoint(&self, _checkpoint: &FlowProjectionCheckpoint) -> Result<()> {
         Err(FlowError::Store(
             "projection checkpoints are unsupported by this event store".to_string(),
+        ))
+    }
+
+    /// List sealed history partitions for `run_id` in ordinal order.
+    ///
+    /// The default keeps custom stores source-compatible by reporting no
+    /// partitions. Built-in stores override this with durable partition indexes.
+    async fn list_history_partitions(&self, _run_id: &str) -> Result<Vec<FlowHistoryPartition>> {
+        Ok(Vec::new())
+    }
+
+    /// Persist one sealed history partition.
+    ///
+    /// Custom stores must override this method to claim partition support; the
+    /// default fails closed.
+    async fn save_history_partition(&self, _partition: &FlowHistoryPartition) -> Result<()> {
+        Err(FlowError::Store(
+            "history partitions are unsupported by this event store".to_string(),
         ))
     }
 
