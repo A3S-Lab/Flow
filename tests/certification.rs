@@ -4,7 +4,7 @@
 use a3s_flow::{
     FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore, FlowRuntime, FlowTask,
     FlowTaskQueue, FlowWorkerCapabilities, InMemoryEventStore, InMemoryFlowTaskQueue,
-    LocalFileFlowTaskQueue, RuntimeCommand, WorkflowInvocation, WorkflowSpec,
+    LocalFileFlowTaskQueue, RetryPolicy, RuntimeCommand, WorkflowInvocation, WorkflowSpec,
     FLOW_EVENT_ENVELOPE_SCHEMA_VERSION, FLOW_WORKER_PROTOCOL,
 };
 use async_trait::async_trait;
@@ -175,4 +175,80 @@ async fn chaos_mixed_worker_protocol_negotiation_fails_closed() {
     required.protocol = "a3s.flow.worker.v0".to_string();
     let error = worker.ensure_compatible(&required).unwrap_err();
     assert!(matches!(error, FlowError::UnsupportedWorkerProtocol { .. }));
+}
+
+#[tokio::test]
+async fn chaos_stale_activity_fencing_token_cannot_complete() {
+    let store = InMemoryEventStore::new();
+    let run_id = "chaos-activity-fence";
+    store
+        .append(
+            run_id,
+            FlowEvent::RunCreated {
+                spec: WorkflowSpec::rust_embedded(
+                    "cert.chaos.activity",
+                    "1",
+                    "tests::certification",
+                    "main",
+                ),
+                input: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+    store.append(run_id, FlowEvent::RunStarted).await.unwrap();
+    store
+        .append(
+            run_id,
+            FlowEvent::ActivityCreated {
+                activity_id: "send".to_string(),
+                activity_name: "send".to_string(),
+                input: json!({}),
+                retry: RetryPolicy::default(),
+                timeout_ms: None,
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            run_id,
+            FlowEvent::ActivityStarted {
+                activity_id: "send".to_string(),
+                attempt: 1,
+                attempt_id: "attempt-1".to_string(),
+                idempotency_key: "key-1".to_string(),
+                fencing_token: "fence-1".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            run_id,
+            FlowEvent::ActivityLeaseAcquired {
+                activity_id: "send".to_string(),
+                attempt: 1,
+                attempt_id: "attempt-1".to_string(),
+                fencing_token: "fence-2".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+    let error = store
+        .append(
+            run_id,
+            FlowEvent::ActivityCompleted {
+                activity_id: "send".to_string(),
+                attempt_id: "attempt-1".to_string(),
+                fencing_token: "fence-1".to_string(),
+                output: json!(true),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&error, FlowError::InvalidTransition(message) if message.contains("fencing identity does not match")),
+        "expected stale fencing rejection, got {error:?}"
+    );
 }
