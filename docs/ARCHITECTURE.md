@@ -428,17 +428,17 @@ cleanup code can observe `WorkflowContext::scope_cancelled` and continue.
 returns `ScopeConflict`. Run-level `run_cancellation_requested` also marks every
 open scope cancelled during projection.
 
-## Structured Select And Race
+## Structured Select, Race, And Join
 
 `RuntimeCommand::Select` records a durable wait over two or more timer or
-signal arms. `SelectMode::Race` (default) completes when the first arm finishes
-and cancels sibling waits. `SelectMode::JoinAll` via `WorkflowContext::join`
-completes only after every arm finishes and does not cancel siblings early.
 signal arms. Projection materializes each arm as a normal wait or signal wait
-tagged with the select identity. When the first arm completes, the engine
-appends `select_completed` with the winning arm id and cancels sibling waits.
-Workflow code observes the winner through `WorkflowContext::select_winner`.
-Redrive while the select is open is idempotent; changing the arm set is
+tagged with the select identity. `SelectMode::Race` (default) completes when
+the first arm finishes, appends `select_completed` with the winning arm id, and
+cancels sibling waits. `SelectMode::JoinAll` via `WorkflowContext::join`
+completes only after every arm finishes, records `select_completed` without a
+winner, and does not cancel siblings early. Workflow code observes race winners
+through `select_winner` and join completion through `select_joined`. Redrive
+while the select is open is idempotent; changing the arm set or mode is
 rejected as non-deterministic replay.
 
 ## Continue-As-New History Segmentation
