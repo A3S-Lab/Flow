@@ -851,11 +851,13 @@ overflow. Heartbeat, reclaim, dead-letter, and acknowledgement statements
 contend on the same task row, so exactly one current lease transition wins.
 
 The PostgreSQL process-death gate leases a real task in a subprocess, commits an
-idempotent side effect, pauses before `step_completed`, and kills that process.
-A newly connected queue and event store then expire the old lease, reject its
-stale token, redeliver the same step attempt, persist one completion, and drain
-the task. This complements the competing-worker and heartbeat tests with
-process-level replay evidence.
+idempotent side effect, pauses before `step_completed` or `activity_completed`,
+and kills that process. A newly connected queue and event store then expire the
+old lease, reject its stale token, redeliver the same step or activity attempt
+(rotating the activity fencing token via `activity_lease_acquired`), persist one
+completion, and drain the task. This complements the competing-worker and
+heartbeat tests with process-level replay evidence at both Step and Activity
+boundaries.
 
 ## Observability Boundary
 

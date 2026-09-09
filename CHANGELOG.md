@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Closed the FLOW-R2 Activity kill/disconnect evidence gap: crash recovery now
+  redelivers a running activity after `activity_completed` persistence loss
+  (`tests/crash_recovery.rs`), and the PostgreSQL process-death gate covers
+  both Step and Activity completion boundaries with lease fencing and
+  same-attempt replay (`tests/postgres_process_recovery.rs`).
+
 - Require `A3S_FLOW_POSTGRES_LOCAL=1` (or `A3S_FLOW_POSTGRES_SLO_STRICT=1`) before
   enforcing published SQL scale SLO budgets in `--release`, so bridged remotes
   such as Windows host → WSL2 Docker still record samples without false

@@ -1,8 +1,8 @@
 use a3s_flow::{
-    CancellationRequest, FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore,
-    FlowRuntime, FlowTask, FlowWorker, InMemoryEventStore, InMemoryFlowTaskQueue, RetryPolicy,
-    RuntimeCommand, StepInvocation, StepStatus, WorkflowInvocation, WorkflowRunStatus,
-    WorkflowSpec, WorkflowTerminalOutcome,
+    ActivityInvocation, ActivityStatus, CancellationRequest, FlowEngine, FlowError, FlowEvent,
+    FlowEventEnvelope, FlowEventStore, FlowRuntime, FlowTask, FlowWorker, InMemoryEventStore,
+    InMemoryFlowTaskQueue, RetryPolicy, RuntimeCommand, StepInvocation, StepStatus,
+    WorkflowInvocation, WorkflowRunStatus, WorkflowSpec, WorkflowTerminalOutcome,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -206,8 +206,62 @@ impl FlowEventStore for CrashBeforeStepCompletionStore {
     }
 }
 
+struct CrashBeforeActivityCompletionStore {
+    inner: InMemoryEventStore,
+    armed: AtomicBool,
+}
+
+impl CrashBeforeActivityCompletionStore {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryEventStore::new(),
+            armed: AtomicBool::new(true),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowEventStore for CrashBeforeActivityCompletionStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        if matches!(
+            &event,
+            FlowEvent::ActivityCompleted { activity_id, .. } if activity_id == "durable-effect"
+        ) && self.armed.swap(false, Ordering::SeqCst)
+        {
+            return Err(FlowError::Store(
+                "injected crash before activity completion became durable".into(),
+            ));
+        }
+        self.inner
+            .append_if_sequence(run_id, expected_sequence, event)
+            .await
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
 #[derive(Default)]
 struct DurableEffectRuntime {
+    effect_invocations: AtomicUsize,
+}
+
+#[derive(Default)]
+struct DurableActivityEffectRuntime {
     effect_invocations: AtomicUsize,
 }
 
@@ -298,6 +352,102 @@ impl FlowRuntime for DurableEffectRuntime {
         self.effect_invocations.fetch_add(1, Ordering::SeqCst);
         Ok(json!({"effectId": "stable-effect"}))
     }
+}
+
+#[async_trait]
+impl FlowRuntime for DurableActivityEffectRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let context = invocation.context();
+        match context.activity_output("durable-effect") {
+            Some(output) => Ok(context.complete(output.clone())),
+            None => Ok(context.schedule_activity_with_retry(
+                "durable-effect",
+                "persistDurableEffect",
+                json!({"effectId": "stable-effect"}),
+                RetryPolicy::none(),
+            )),
+        }
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        Ok(json!(null))
+    }
+
+    async fn run_activity(
+        &self,
+        _invocation: ActivityInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        self.effect_invocations.fetch_add(1, Ordering::SeqCst);
+        Ok(json!({"effectId": "stable-effect"}))
+    }
+}
+
+#[tokio::test]
+async fn running_activity_is_redelivered_after_completion_persistence_is_lost() {
+    let run_id = "activity-crash-recovery";
+    let store = Arc::new(CrashBeforeActivityCompletionStore::new());
+    let runtime = Arc::new(DurableActivityEffectRuntime::default());
+    let engine = FlowEngine::new(store.clone(), runtime.clone());
+
+    let failure = engine
+        .start_with_id(run_id, workflow_spec(), json!({}))
+        .await
+        .expect_err("the injected persistence loss must interrupt the first engine");
+    assert!(matches!(failure, FlowError::Store(_)));
+    let interrupted = engine.snapshot(run_id).await.expect("running snapshot");
+    assert_eq!(interrupted.status, WorkflowRunStatus::Running);
+    assert_eq!(
+        interrupted.activities["durable-effect"].status,
+        ActivityStatus::Running
+    );
+    assert_eq!(interrupted.activities["durable-effect"].attempt, 1);
+    assert_eq!(runtime.effect_invocations.load(Ordering::SeqCst), 1);
+
+    drop(engine);
+    let restarted = FlowEngine::new(store.clone(), runtime.clone());
+    restarted
+        .start_with_id(run_id, workflow_spec(), json!({}))
+        .await
+        .expect("restarted engine must redeliver the running activity");
+
+    assert_eq!(
+        restarted
+            .snapshot(run_id)
+            .await
+            .expect("completed snapshot")
+            .status,
+        WorkflowRunStatus::Completed
+    );
+    assert_eq!(runtime.effect_invocations.load(Ordering::SeqCst), 2);
+    let history = store.list(run_id).await.expect("recovered history");
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| matches!(event.event, FlowEvent::ActivityStarted { .. }))
+            .count(),
+        1,
+        "redelivery must reuse the interrupted attempt instead of consuming retry budget"
+    );
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| matches!(event.event, FlowEvent::ActivityLeaseAcquired { .. }))
+            .count(),
+        1,
+        "replacement ownership must rotate the fencing token for the same attempt"
+    );
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| matches!(event.event, FlowEvent::ActivityCompleted { .. }))
+            .count(),
+        1
+    );
+    let recovered = restarted.snapshot(run_id).await.expect("final snapshot");
+    assert_eq!(recovered.activities["durable-effect"].attempt, 1);
 }
 
 #[tokio::test]

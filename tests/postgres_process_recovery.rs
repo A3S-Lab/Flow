@@ -1,9 +1,10 @@
 #![cfg(feature = "postgres")]
 
 use a3s_flow::{
-    FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore, FlowRuntime, FlowTask,
-    FlowTaskQueue, FlowWorker, PostgresEventStore, PostgresFlowTaskQueue, RetryPolicy,
-    RuntimeCommand, StepInvocation, WorkflowInvocation, WorkflowRunStatus, WorkflowSpec,
+    ActivityInvocation, FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore,
+    FlowRuntime, FlowTask, FlowTaskQueue, FlowWorker, PostgresEventStore, PostgresFlowTaskQueue,
+    RetryPolicy, RuntimeCommand, StepInvocation, WorkflowInvocation, WorkflowRunStatus,
+    WorkflowSpec,
 };
 use async_trait::async_trait;
 use chrono::{Duration as ChronoDuration, Utc};
@@ -17,12 +18,16 @@ use tokio::process::Command;
 use uuid::Uuid;
 
 const PROBE_TEST: &str = "postgres_worker_death_probe";
+const ACTIVITY_PROBE_TEST: &str = "postgres_worker_activity_death_probe";
 const PROBE_PARENT_ENV: &str = "A3S_FLOW_PROCESS_PROBE_PARENT";
 const PROBE_POSTGRES_ENV: &str = "A3S_FLOW_PROCESS_PROBE_POSTGRES";
 const PROBE_QUEUE_ENV: &str = "A3S_FLOW_PROCESS_PROBE_QUEUE";
 const PROBE_RUN_ENV: &str = "A3S_FLOW_PROCESS_PROBE_RUN";
 const PROBE_STATE_ENV: &str = "A3S_FLOW_PROCESS_PROBE_STATE";
 const PROBE_MARKER_ENV: &str = "A3S_FLOW_PROCESS_PROBE_MARKER";
+const PROBE_MODE_ENV: &str = "A3S_FLOW_PROCESS_PROBE_MODE";
+const PROBE_MODE_STEP: &str = "step";
+const PROBE_MODE_ACTIVITY: &str = "activity";
 
 fn postgres_url_from_env() -> Option<String> {
     std::env::var("A3S_FLOW_POSTGRES_URL")
@@ -39,15 +44,40 @@ fn workflow_spec() -> WorkflowSpec {
     )
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProcessRecoveryMode {
+    Step,
+    Activity,
+}
+
+impl ProcessRecoveryMode {
+    fn from_env() -> Self {
+        if std::env::var(PROBE_MODE_ENV).as_deref() == Ok(PROBE_MODE_ACTIVITY) {
+            Self::Activity
+        } else {
+            Self::Step
+        }
+    }
+
+    fn as_env(self) -> &'static str {
+        match self {
+            Self::Step => PROBE_MODE_STEP,
+            Self::Activity => PROBE_MODE_ACTIVITY,
+        }
+    }
+}
+
 #[derive(Clone)]
 struct ProcessRecoveryRuntime {
     state_dir: PathBuf,
+    mode: ProcessRecoveryMode,
 }
 
 impl ProcessRecoveryRuntime {
-    fn new(state_dir: impl Into<PathBuf>) -> Self {
+    fn new(state_dir: impl Into<PathBuf>, mode: ProcessRecoveryMode) -> Self {
         Self {
             state_dir: state_dir.into(),
+            mode,
         }
     }
 
@@ -58,29 +88,11 @@ impl ProcessRecoveryRuntime {
     fn attempts_path(&self) -> PathBuf {
         self.state_dir.join("physical-attempts.txt")
     }
-}
 
-#[async_trait]
-impl FlowRuntime for ProcessRecoveryRuntime {
-    async fn run_workflow(
+    async fn commit_durable_effect(
         &self,
-        invocation: WorkflowInvocation,
-    ) -> a3s_flow::Result<RuntimeCommand> {
-        let context = invocation.context();
-        match context.step_output("durable-effect") {
-            Some(output) => Ok(context.complete(output.clone())),
-            None => Ok(context.schedule_step_with_retry(
-                "durable-effect",
-                "commitDurableEffect",
-                json!({
-                    "idempotencyKey": format!("{}:durable-effect", context.run_id()),
-                }),
-                RetryPolicy::none(),
-            )),
-        }
-    }
-
-    async fn run_step(&self, invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        input: &serde_json::Value,
+    ) -> a3s_flow::Result<serde_json::Value> {
         tokio::fs::create_dir_all(&self.state_dir).await?;
         let mut attempts = tokio::fs::OpenOptions::new()
             .create(true)
@@ -99,12 +111,7 @@ impl FlowRuntime for ProcessRecoveryRuntime {
         {
             Ok(mut effect) => {
                 effect
-                    .write_all(
-                        invocation.input["idempotencyKey"]
-                            .as_str()
-                            .unwrap()
-                            .as_bytes(),
-                    )
+                    .write_all(input["idempotencyKey"].as_str().unwrap().as_bytes())
                     .await?;
                 effect.flush().await?;
                 effect.sync_data().await?;
@@ -113,6 +120,51 @@ impl FlowRuntime for ProcessRecoveryRuntime {
             Err(error) => return Err(FlowError::Io(error)),
         }
         Ok(json!({ "committed": true }))
+    }
+}
+
+#[async_trait]
+impl FlowRuntime for ProcessRecoveryRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let context = invocation.context();
+        match self.mode {
+            ProcessRecoveryMode::Activity => match context.activity_output("durable-effect") {
+                Some(output) => Ok(context.complete(output.clone())),
+                None => Ok(context.schedule_activity_with_retry(
+                    "durable-effect",
+                    "commitDurableEffect",
+                    json!({
+                        "idempotencyKey": format!("{}:durable-effect", context.run_id()),
+                    }),
+                    RetryPolicy::none(),
+                )),
+            },
+            ProcessRecoveryMode::Step => match context.step_output("durable-effect") {
+                Some(output) => Ok(context.complete(output.clone())),
+                None => Ok(context.schedule_step_with_retry(
+                    "durable-effect",
+                    "commitDurableEffect",
+                    json!({
+                        "idempotencyKey": format!("{}:durable-effect", context.run_id()),
+                    }),
+                    RetryPolicy::none(),
+                )),
+            },
+        }
+    }
+
+    async fn run_step(&self, invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        self.commit_durable_effect(&invocation.input).await
+    }
+
+    async fn run_activity(
+        &self,
+        invocation: ActivityInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        self.commit_durable_effect(&invocation.input).await
     }
 }
 
@@ -137,6 +189,9 @@ impl FlowEventStore for PauseBeforeCompletionStore {
         if matches!(
             &event,
             FlowEvent::StepCompleted { step_id, .. } if step_id == "durable-effect"
+        ) || matches!(
+            &event,
+            FlowEvent::ActivityCompleted { activity_id, .. } if activity_id == "durable-effect"
         ) {
             publish_marker(&self.marker, run_id, expected_sequence, &self.lease_id).await?;
             pending::<()>().await;
@@ -179,12 +234,23 @@ async fn publish_marker(
 #[tokio::test]
 #[ignore = "private subprocess used only by the PostgreSQL process-death gate"]
 async fn postgres_worker_death_probe() {
+    run_process_death_probe().await;
+}
+
+#[tokio::test]
+#[ignore = "private subprocess used only by the PostgreSQL activity process-death gate"]
+async fn postgres_worker_activity_death_probe() {
+    run_process_death_probe().await;
+}
+
+async fn run_process_death_probe() {
     assert_eq!(std::env::var(PROBE_PARENT_ENV).as_deref(), Ok("1"));
     let postgres_url = std::env::var(PROBE_POSTGRES_ENV).unwrap();
     let queue_name = std::env::var(PROBE_QUEUE_ENV).unwrap();
     let run_id = std::env::var(PROBE_RUN_ENV).unwrap();
     let state_dir = PathBuf::from(std::env::var(PROBE_STATE_ENV).unwrap());
     let marker = PathBuf::from(std::env::var(PROBE_MARKER_ENV).unwrap());
+    let mode = ProcessRecoveryMode::from_env();
     let queue = PostgresFlowTaskQueue::connect_with_queue(&postgres_url, queue_name)
         .await
         .unwrap();
@@ -195,7 +261,10 @@ async fn postgres_worker_death_probe() {
         marker,
         lease_id: lease.lease_id,
     });
-    let engine = FlowEngine::new(paused, Arc::new(ProcessRecoveryRuntime::new(state_dir)));
+    let engine = FlowEngine::new(
+        paused,
+        Arc::new(ProcessRecoveryRuntime::new(state_dir, mode)),
+    );
     let worker = FlowWorker::new(engine, Arc::new(queue));
     worker.handle(lease.task).await.unwrap();
     panic!("process-death probe returned before being killed for run {run_id}");
@@ -203,6 +272,15 @@ async fn postgres_worker_death_probe() {
 
 #[tokio::test]
 async fn postgres_worker_recovers_after_process_death_reconnect_and_lease_expiry() {
+    run_process_death_recovery(ProcessRecoveryMode::Step).await;
+}
+
+#[tokio::test]
+async fn postgres_worker_recovers_after_activity_process_death_reconnect_and_lease_expiry() {
+    run_process_death_recovery(ProcessRecoveryMode::Activity).await;
+}
+
+async fn run_process_death_recovery(mode: ProcessRecoveryMode) {
     let Some(postgres_url) = postgres_url_from_env() else {
         eprintln!("skipping PostgreSQL process-death test; set A3S_FLOW_POSTGRES_URL");
         return;
@@ -238,9 +316,13 @@ async fn postgres_worker_recovers_after_process_death_reconnect_and_lease_expiry
         .await
         .unwrap();
 
+    let probe_test = match mode {
+        ProcessRecoveryMode::Step => PROBE_TEST,
+        ProcessRecoveryMode::Activity => ACTIVITY_PROBE_TEST,
+    };
     let mut command = Command::new(std::env::current_exe().unwrap());
     command
-        .arg(PROBE_TEST)
+        .arg(probe_test)
         .arg("--exact")
         .arg("--ignored")
         .arg("--nocapture")
@@ -251,6 +333,7 @@ async fn postgres_worker_recovers_after_process_death_reconnect_and_lease_expiry
         .env(PROBE_RUN_ENV, &run_id)
         .env(PROBE_STATE_ENV, state.path())
         .env(PROBE_MARKER_ENV, &marker)
+        .env(PROBE_MODE_ENV, mode.as_env())
         .kill_on_drop(true);
     let mut probe = command.spawn().unwrap();
     wait_for_marker(&mut probe, &marker).await;
@@ -264,12 +347,24 @@ async fn postgres_worker_recovers_after_process_death_reconnect_and_lease_expiry
     let status = probe.wait().await.unwrap();
     assert!(!status.success());
     let interrupted_history = store.list(&run_id).await.unwrap();
-    assert!(interrupted_history
-        .iter()
-        .any(|event| matches!(event.event, FlowEvent::StepStarted { .. })));
-    assert!(!interrupted_history
-        .iter()
-        .any(|event| matches!(event.event, FlowEvent::StepCompleted { .. })));
+    match mode {
+        ProcessRecoveryMode::Step => {
+            assert!(interrupted_history
+                .iter()
+                .any(|event| matches!(event.event, FlowEvent::StepStarted { .. })));
+            assert!(!interrupted_history
+                .iter()
+                .any(|event| matches!(event.event, FlowEvent::StepCompleted { .. })));
+        }
+        ProcessRecoveryMode::Activity => {
+            assert!(interrupted_history
+                .iter()
+                .any(|event| matches!(event.event, FlowEvent::ActivityStarted { .. })));
+            assert!(!interrupted_history
+                .iter()
+                .any(|event| matches!(event.event, FlowEvent::ActivityCompleted { .. })));
+        }
+    }
 
     let reconnected_queue = Arc::new(
         PostgresFlowTaskQueue::connect_with_queue(&postgres_url, &queue_name)
@@ -292,7 +387,7 @@ async fn postgres_worker_recovers_after_process_death_reconnect_and_lease_expiry
     let reconnected_store = Arc::new(PostgresEventStore::connect(&postgres_url).await.unwrap());
     let replacement_engine = FlowEngine::new(
         reconnected_store.clone(),
-        Arc::new(ProcessRecoveryRuntime::new(state.path())),
+        Arc::new(ProcessRecoveryRuntime::new(state.path(), mode)),
     );
     let replacement = FlowWorker::new(replacement_engine.clone(), reconnected_queue.clone());
     replacement
@@ -306,21 +401,50 @@ async fn postgres_worker_recovers_after_process_death_reconnect_and_lease_expiry
     assert_eq!(reconnected_queue.len().await.unwrap(), 0);
     assert_eq!(reconnected_queue.inflight_len().await.unwrap(), 0);
     let recovered_history = reconnected_store.list(&run_id).await.unwrap();
-    assert_eq!(
-        recovered_history
-            .iter()
-            .filter(|event| matches!(event.event, FlowEvent::StepStarted { .. }))
-            .count(),
-        1,
-        "replacement must redeliver the interrupted attempt instead of consuming retry budget"
-    );
-    assert_eq!(
-        recovered_history
-            .iter()
-            .filter(|event| matches!(event.event, FlowEvent::StepCompleted { .. }))
-            .count(),
-        1
-    );
+    match mode {
+        ProcessRecoveryMode::Step => {
+            assert_eq!(
+                recovered_history
+                    .iter()
+                    .filter(|event| matches!(event.event, FlowEvent::StepStarted { .. }))
+                    .count(),
+                1,
+                "replacement must redeliver the interrupted attempt instead of consuming retry budget"
+            );
+            assert_eq!(
+                recovered_history
+                    .iter()
+                    .filter(|event| matches!(event.event, FlowEvent::StepCompleted { .. }))
+                    .count(),
+                1
+            );
+        }
+        ProcessRecoveryMode::Activity => {
+            assert_eq!(
+                recovered_history
+                    .iter()
+                    .filter(|event| matches!(event.event, FlowEvent::ActivityStarted { .. }))
+                    .count(),
+                1,
+                "replacement must redeliver the interrupted activity attempt instead of consuming retry budget"
+            );
+            assert_eq!(
+                recovered_history
+                    .iter()
+                    .filter(|event| matches!(event.event, FlowEvent::ActivityLeaseAcquired { .. }))
+                    .count(),
+                1,
+                "replacement ownership must rotate the fencing token for the same attempt"
+            );
+            assert_eq!(
+                recovered_history
+                    .iter()
+                    .filter(|event| matches!(event.event, FlowEvent::ActivityCompleted { .. }))
+                    .count(),
+                1
+            );
+        }
+    }
     assert_eq!(
         tokio::fs::read_to_string(state.path().join("physical-attempts.txt"))
             .await
