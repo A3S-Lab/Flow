@@ -174,6 +174,11 @@ pub enum FlowEvent {
         /// Content-addressed dataset reference.
         dataset: super::ExternalDatasetRef,
     },
+    /// Records one durable contribution into a named per-item aggregate.
+    ItemAggregateRecorded {
+        /// Aggregate identity, item identity, and value.
+        contribution: super::ItemAggregateContribution,
+    },
     /// Creates a durable step invocation.
     StepCreated {
         /// Replay-stable identity of the step.
@@ -470,6 +475,7 @@ impl FlowEvent {
             Self::CompensationMarkerRecorded { .. } => "flow.compensation.marker.recorded",
             Self::CompensationMarkerCompleted { .. } => "flow.compensation.marker.completed",
             Self::ExternalDatasetAttached { .. } => "flow.dataset.attached",
+            Self::ItemAggregateRecorded { .. } => "flow.aggregate.item.recorded",
             Self::StepCreated { .. } => "flow.step.created",
             Self::StepStarted { .. } => "flow.step.started",
             Self::StepCompleted { .. } => "flow.step.completed",

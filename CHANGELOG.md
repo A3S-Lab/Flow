@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added durable per-item aggregates through `ItemAggregateContribution`,
+  `RuntimeCommand::RecordItemAggregate`, `FlowEvent::ItemAggregateRecorded`, and
+  `WorkflowContext::{record_item_aggregate,item_aggregate_has,item_aggregate_values}`.
+  Contributions are idempotent on `(aggregate_id, item_id)` and reject value
+  drift, so map/fan-out results can be folded without silently dropping items.
+
 - Added host-owned external dataset references through
   `ExternalDatasetRef`, `RuntimeCommand::AttachExternalDataset`,
   `FlowEvent::ExternalDatasetAttached`, and

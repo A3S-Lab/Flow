@@ -346,6 +346,13 @@ updates, or automatic undo.
 host storage; it only makes the reference durable, idempotent, and
 conflict-safe so large map/fan-out plans can stay outside the event log.
 
+## Per-Item Aggregates
+
+`RecordItemAggregate` persists one `(aggregate_id, item_id, value)` contribution
+in durable order. Replaying the same contribution is idempotent; changing the
+value fails closed. Workflows use aggregates to fold map/child outcomes without
+embedding a second product-specific reducer in the kernel.
+
 ## Named Workflow Signals
 
 Signals are durable asynchronous messages, not callback tokens. A

@@ -521,6 +521,41 @@ impl<'a> WorkflowContext<'a> {
             })
     }
 
+    /// Record one durable contribution into a named per-item aggregate.
+    pub fn record_item_aggregate(
+        &self,
+        contribution: crate::model::ItemAggregateContribution,
+    ) -> RuntimeCommand {
+        RuntimeCommand::RecordItemAggregate { contribution }
+    }
+
+    /// Return whether an aggregate item has a durable recorded contribution.
+    pub fn item_aggregate_has(&self, aggregate_id: &str, item_id: &str) -> bool {
+        self.history().iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                FlowEvent::ItemAggregateRecorded { contribution }
+                    if contribution.aggregate_id == aggregate_id
+                        && contribution.item_id == item_id
+            )
+        })
+    }
+
+    /// Return recorded aggregate item values in durable order.
+    pub fn item_aggregate_values(&self, aggregate_id: &str) -> Vec<JsonValue> {
+        self.history()
+            .iter()
+            .filter_map(|envelope| match &envelope.event {
+                FlowEvent::ItemAggregateRecorded { contribution }
+                    if contribution.aggregate_id == aggregate_id =>
+                {
+                    Some(contribution.value.clone())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Persist a child-operation reference and replay.
     pub fn link_child_operation(&self, child: ChildOperationReference) -> RuntimeCommand {
         RuntimeCommand::LinkChildOperation { child }

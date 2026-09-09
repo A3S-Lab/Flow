@@ -143,13 +143,12 @@ sibling waits are cancelled durably. Dynamic bounded child-workflow maps are
 also implemented: `MapChildWorkflows` persists an ordered plan, activates at
 most `concurrency` open children at a time (≤ `MAX_CHILD_WORKFLOW_BATCH_SIZE`),
 recovers partial windows without duplicate requests, and completes only after
-every planned child resolves. External dataset references, per-item aggregation
-helpers beyond parent-owned outcomes remain open R4 work. Durable compensation
-markers are implemented as replay-visible obligations: workflows record and
-complete markers idempotently, then schedule ordinary compensating steps.
-External dataset references are also implemented so runs can attach
-content-addressed host CAS pointers without embedding item payloads. Per-item
-aggregation helpers beyond parent-owned child outcomes remain open R4 work.
+every planned child resolves. External dataset references attach host-owned
+content-addressed CAS pointers without embedding item payloads. Per-item
+aggregates record durable `(aggregate_id, item_id)` contributions for folding
+map results. Durable compensation markers record and complete saga-style
+obligations idempotently so workflows can schedule ordinary cleanup steps.
+Structured join-all beyond select/race remains optional follow-on R4 work.
 
 The repository-owned authoring boundary now has a stateless Rust counterpart to
 the CLI and Skill: `canonical_workflow_authoring_snapshot` preserves the

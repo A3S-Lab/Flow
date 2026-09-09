@@ -4,10 +4,10 @@ use super::{
     validate_run_id, ActivityStatus, CancellationRequestSnapshot, CancellationScopeSnapshot,
     CancellationScopeStatus, ChildWorkflowMapSnapshot, ChildWorkflowMapStatus,
     ChildWorkflowSnapshot, CompensationMarkerSnapshot, CompensationMarkerStatus, FlowEvent,
-    FlowEventEnvelope, HookSnapshot, HookStatus, SelectArm, SelectSnapshot, SelectStatus,
-    SignalWaitSnapshot, SignalWaitStatus, StepFailureAction, StepSnapshot, StepStatus,
-    WaitSnapshot, WaitStatus, WorkflowContinuation, WorkflowRunSnapshot, WorkflowRunStatus,
-    WorkflowSignalSnapshot, WorkflowTerminalOutcome, WorkflowUpdateSnapshot,
+    FlowEventEnvelope, HookSnapshot, HookStatus, ItemAggregateSnapshot, SelectArm, SelectSnapshot,
+    SelectStatus, SignalWaitSnapshot, SignalWaitStatus, StepFailureAction, StepSnapshot,
+    StepStatus, WaitSnapshot, WaitStatus, WorkflowContinuation, WorkflowRunSnapshot,
+    WorkflowRunStatus, WorkflowSignalSnapshot, WorkflowTerminalOutcome, WorkflowUpdateSnapshot,
 };
 
 mod activity;
@@ -571,6 +571,31 @@ pub(crate) fn project_run_from_snapshot(
                 snapshot
                     .external_datasets
                     .insert(dataset.dataset_id.clone(), dataset.clone());
+            }
+            FlowEvent::ItemAggregateRecorded { contribution } => {
+                if snapshot.status == WorkflowRunStatus::Pending {
+                    return Err(FlowError::InvalidTransition(
+                        "item_aggregate_recorded cannot precede run_started".to_string(),
+                    ));
+                }
+                contribution.validate()?;
+                let aggregate = snapshot
+                    .item_aggregates
+                    .entry(contribution.aggregate_id.clone())
+                    .or_insert_with(|| ItemAggregateSnapshot {
+                        aggregate_id: contribution.aggregate_id.clone(),
+                        entries: Vec::new(),
+                    });
+                if aggregate.get(&contribution.item_id).is_some() {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "item_aggregate_recorded duplicates aggregate {} item {}",
+                        contribution.aggregate_id, contribution.item_id
+                    )));
+                }
+                aggregate.entries.push(super::ItemAggregateEntry {
+                    item_id: contribution.item_id.clone(),
+                    value: contribution.value.clone(),
+                });
             }
             FlowEvent::SignalWaitCreated {
                 wait_id,

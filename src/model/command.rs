@@ -603,6 +603,11 @@ pub enum RuntimeCommand {
         /// Content-addressed dataset reference.
         dataset: crate::model::ExternalDatasetRef,
     },
+    /// Record one durable contribution into a named per-item aggregate.
+    RecordItemAggregate {
+        /// Aggregate identity, item identity, and value.
+        contribution: crate::model::ItemAggregateContribution,
+    },
     /// Persist a parent-to-child operation reference before replaying.
     LinkChildOperation {
         /// Stable reference to the externally managed child operation.

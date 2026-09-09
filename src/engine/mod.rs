@@ -575,6 +575,36 @@ impl FlowEngine {
                         Err(err) => return Err(err),
                     }
                 }
+                RuntimeCommand::RecordItemAggregate { contribution } => {
+                    contribution.validate()?;
+                    if let Some(existing) = snapshot
+                        .item_aggregate(&contribution.aggregate_id)
+                        .and_then(|aggregate| aggregate.get(&contribution.item_id))
+                    {
+                        if existing != &contribution.value {
+                            return Err(FlowError::NonDeterministic {
+                                run_id: run_id.to_string(),
+                                reason: format!(
+                                    "item aggregate {} item {} differs from the durable contribution",
+                                    contribution.aggregate_id, contribution.item_id
+                                ),
+                            });
+                        }
+                        continue;
+                    }
+                    match self
+                        .record_event_at(
+                            run_id,
+                            snapshot.last_sequence,
+                            FlowEvent::ItemAggregateRecorded { contribution },
+                        )
+                        .await
+                    {
+                        Ok(_) => continue,
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
                 RuntimeCommand::LinkChildOperation { child } => {
                     child.validate()?;
                     if let Some(existing) = snapshot.child_operation(&child.reference_id) {
