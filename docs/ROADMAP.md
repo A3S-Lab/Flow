@@ -147,6 +147,9 @@ every planned child resolves. External dataset references, per-item aggregation
 helpers beyond parent-owned outcomes remain open R4 work. Durable compensation
 markers are implemented as replay-visible obligations: workflows record and
 complete markers idempotently, then schedule ordinary compensating steps.
+External dataset references are also implemented so runs can attach
+content-addressed host CAS pointers without embedding item payloads. Per-item
+aggregation helpers beyond parent-owned child outcomes remain open R4 work.
 
 The repository-owned authoring boundary now has a stateless Rust counterpart to
 the CLI and Skill: `canonical_workflow_authoring_snapshot` preserves the

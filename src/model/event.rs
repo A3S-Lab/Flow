@@ -169,6 +169,11 @@ pub enum FlowEvent {
         #[serde(default, skip_serializing_if = "JsonValue::is_null")]
         outcome: JsonValue,
     },
+    /// Attaches a host-owned external dataset reference to the run.
+    ExternalDatasetAttached {
+        /// Content-addressed dataset reference.
+        dataset: super::ExternalDatasetRef,
+    },
     /// Creates a durable step invocation.
     StepCreated {
         /// Replay-stable identity of the step.
@@ -464,6 +469,7 @@ impl FlowEvent {
             Self::UpdateApplied { .. } => "flow.update.applied",
             Self::CompensationMarkerRecorded { .. } => "flow.compensation.marker.recorded",
             Self::CompensationMarkerCompleted { .. } => "flow.compensation.marker.completed",
+            Self::ExternalDatasetAttached { .. } => "flow.dataset.attached",
             Self::StepCreated { .. } => "flow.step.created",
             Self::StepStarted { .. } => "flow.step.started",
             Self::StepCompleted { .. } => "flow.step.completed",

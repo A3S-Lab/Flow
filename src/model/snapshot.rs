@@ -8,10 +8,10 @@ use crate::runtime_build::RuntimeBuildId;
 
 use super::{
     CancellationRequestSnapshot, CancellationScopeSnapshot, ChildOperationReference,
-    ChildWorkflowMapSnapshot, ChildWorkflowSnapshot, CompensationMarkerSnapshot, JsonValue,
-    RetryPolicy, SelectSnapshot, SignalWaitSnapshot, SignalWaitStatus, WorkflowContinuation,
-    WorkflowProgress, WorkflowSignalSnapshot, WorkflowSpec, WorkflowTerminalOutcome,
-    WorkflowUpdateSnapshot,
+    ChildWorkflowMapSnapshot, ChildWorkflowSnapshot, CompensationMarkerSnapshot,
+    ExternalDatasetRef, JsonValue, RetryPolicy, SelectSnapshot, SignalWaitSnapshot,
+    SignalWaitStatus, WorkflowContinuation, WorkflowProgress, WorkflowSignalSnapshot, WorkflowSpec,
+    WorkflowTerminalOutcome, WorkflowUpdateSnapshot,
 };
 
 /// Materialized lifecycle state of a workflow run.
@@ -465,6 +465,9 @@ pub struct WorkflowRunSnapshot {
     /// Durable compensation markers indexed by stable marker identifiers.
     #[serde(default)]
     pub compensation_markers: BTreeMap<String, CompensationMarkerSnapshot>,
+    /// Host-owned external dataset references indexed by dataset identity.
+    #[serde(default)]
+    pub external_datasets: BTreeMap<String, ExternalDatasetRef>,
     /// Final JSON output for a successfully completed run.
     pub output: Option<JsonValue>,
     /// Terminal error for a failed run.
@@ -507,6 +510,7 @@ impl WorkflowRunSnapshot {
             selects: BTreeMap::new(),
             child_workflow_maps: BTreeMap::new(),
             compensation_markers: BTreeMap::new(),
+            external_datasets: BTreeMap::new(),
             output: None,
             error: None,
             terminal_outcome: None,
@@ -638,6 +642,11 @@ impl WorkflowRunSnapshot {
     /// Return a durable compensation marker by its stable identity.
     pub fn compensation_marker(&self, marker_id: &str) -> Option<&CompensationMarkerSnapshot> {
         self.compensation_markers.get(marker_id)
+    }
+
+    /// Return a host-owned external dataset reference by dataset identity.
+    pub fn external_dataset(&self, dataset_id: &str) -> Option<&ExternalDatasetRef> {
+        self.external_datasets.get(dataset_id)
     }
 
     /// Return open compensation markers in durable insertion order.

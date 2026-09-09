@@ -548,6 +548,33 @@ impl FlowEngine {
                         Err(err) => return Err(err),
                     }
                 }
+                RuntimeCommand::AttachExternalDataset { dataset } => {
+                    dataset.validate()?;
+                    if let Some(existing) = snapshot.external_dataset(&dataset.dataset_id) {
+                        if existing != &dataset {
+                            return Err(FlowError::NonDeterministic {
+                                run_id: run_id.to_string(),
+                                reason: format!(
+                                    "external dataset {} differs from the durable reference",
+                                    dataset.dataset_id
+                                ),
+                            });
+                        }
+                        continue;
+                    }
+                    match self
+                        .record_event_at(
+                            run_id,
+                            snapshot.last_sequence,
+                            FlowEvent::ExternalDatasetAttached { dataset },
+                        )
+                        .await
+                    {
+                        Ok(_) => continue,
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
                 RuntimeCommand::LinkChildOperation { child } => {
                     child.validate()?;
                     if let Some(existing) = snapshot.child_operation(&child.reference_id) {

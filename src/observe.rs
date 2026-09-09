@@ -595,6 +595,7 @@ fn event_status(event: &FlowEvent) -> Option<&'static str> {
         FlowEvent::UpdateApplied { .. } => Some("applied"),
         FlowEvent::CompensationMarkerRecorded { .. } => Some("recorded"),
         FlowEvent::CompensationMarkerCompleted { .. } => Some("completed"),
+        FlowEvent::ExternalDatasetAttached { .. } => Some("attached"),
         FlowEvent::StepCreated { .. } => Some("pending"),
         FlowEvent::StepStarted { .. } => Some("running"),
         FlowEvent::StepCompleted { .. } => Some("completed"),
@@ -702,6 +703,10 @@ fn event_subject(event: &FlowEvent) -> Option<A3sFlowEventSubject> {
         FlowEvent::CompensationMarkerCompleted { marker_id, .. } => Some(A3sFlowEventSubject {
             kind: "compensation_marker".to_string(),
             id: marker_id.clone(),
+        }),
+        FlowEvent::ExternalDatasetAttached { dataset } => Some(A3sFlowEventSubject {
+            kind: "external_dataset".to_string(),
+            id: dataset.dataset_id.clone(),
         }),
         FlowEvent::WaitCreated { wait_id, .. } | FlowEvent::WaitCompleted { wait_id } => {
             Some(A3sFlowEventSubject {

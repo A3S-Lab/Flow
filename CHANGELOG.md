@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added host-owned external dataset references through
+  `ExternalDatasetRef`, `RuntimeCommand::AttachExternalDataset`,
+  `FlowEvent::ExternalDatasetAttached`, and
+  `WorkflowContext::{attach_external_dataset,external_dataset}`. Attachments are
+  idempotent for identical digests and reject digest/count drift so large
+  fan-out plans can stay out of the event log.
+
 - Added durable compensation markers through
   `RuntimeCommand::{RecordCompensationMarker,CompleteCompensationMarker}`,
   `FlowEvent::{CompensationMarkerRecorded,CompensationMarkerCompleted}`, and

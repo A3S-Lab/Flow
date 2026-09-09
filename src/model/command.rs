@@ -598,6 +598,11 @@ pub enum RuntimeCommand {
         #[serde(default, skip_serializing_if = "JsonValue::is_null")]
         outcome: JsonValue,
     },
+    /// Attach a host-owned external dataset reference to the run.
+    AttachExternalDataset {
+        /// Content-addressed dataset reference.
+        dataset: crate::model::ExternalDatasetRef,
+    },
     /// Persist a parent-to-child operation reference before replaying.
     LinkChildOperation {
         /// Stable reference to the externally managed child operation.

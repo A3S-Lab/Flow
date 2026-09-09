@@ -339,6 +339,13 @@ markers so replay can schedule ordinary compensating steps, complete the marker
 idempotently, and reject payload drift. Markers are not patch markers, progress
 updates, or automatic undo.
 
+## External Dataset References
+
+`AttachExternalDataset` records an `ExternalDatasetRef` (`dataset_id`,
+`content_digest`, `item_count`) in history. Flow does not fetch or validate
+host storage; it only makes the reference durable, idempotent, and
+conflict-safe so large map/fan-out plans can stay outside the event log.
+
 ## Named Workflow Signals
 
 Signals are durable asynchronous messages, not callback tokens. A

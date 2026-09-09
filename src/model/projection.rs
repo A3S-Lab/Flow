@@ -555,6 +555,23 @@ pub(crate) fn project_run_from_snapshot(
                     Some(outcome.clone())
                 };
             }
+            FlowEvent::ExternalDatasetAttached { dataset } => {
+                if snapshot.status == WorkflowRunStatus::Pending {
+                    return Err(FlowError::InvalidTransition(
+                        "external_dataset_attached cannot precede run_started".to_string(),
+                    ));
+                }
+                dataset.validate()?;
+                if let Some(existing) = snapshot.external_datasets.get(&dataset.dataset_id) {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "external_dataset_attached duplicates dataset {}",
+                        existing.dataset_id
+                    )));
+                }
+                snapshot
+                    .external_datasets
+                    .insert(dataset.dataset_id.clone(), dataset.clone());
+            }
             FlowEvent::SignalWaitCreated {
                 wait_id,
                 signal_name,

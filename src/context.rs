@@ -499,6 +499,28 @@ impl<'a> WorkflowContext<'a> {
             .collect()
     }
 
+    /// Attach a host-owned external dataset reference and replay.
+    pub fn attach_external_dataset(
+        &self,
+        dataset: crate::model::ExternalDatasetRef,
+    ) -> RuntimeCommand {
+        RuntimeCommand::AttachExternalDataset { dataset }
+    }
+
+    /// Return an attached external dataset reference from history, when present.
+    pub fn external_dataset(&self, dataset_id: &str) -> Option<&crate::model::ExternalDatasetRef> {
+        self.history()
+            .iter()
+            .find_map(|envelope| match &envelope.event {
+                FlowEvent::ExternalDatasetAttached { dataset }
+                    if dataset.dataset_id == dataset_id =>
+                {
+                    Some(dataset)
+                }
+                _ => None,
+            })
+    }
+
     /// Persist a child-operation reference and replay.
     pub fn link_child_operation(&self, child: ChildOperationReference) -> RuntimeCommand {
         RuntimeCommand::LinkChildOperation { child }
