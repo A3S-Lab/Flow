@@ -183,9 +183,12 @@ and custom queues fail closed unless they explicitly provide the same contract.
 Redrive identities are stable across local crash windows, while PostgreSQL
 redrive copies and removes a dead-letter row in one transaction. Worker drain
 now has a bounded fairness/backpressure hook through
-`FlowWorker::run_until_idle_bounded(limit)`, while protocol negotiation,
-queue-admission backpressure, processor fairness across tenants, and hosted
-visibility remain open R5 work. The first versioned worker handshake is now
+`FlowWorker::run_until_idle_bounded(limit)`, while queue-admission backpressure
+is available through optional `with_max_pending` budgets that return
+`FlowError::QueueBackpressure` when pending depth is full. Protocol negotiation
+remains available through `FlowWorkerCapabilities`. Processor fairness across
+tenants remains open R5 work; Cloud still owns tenant queue admission and fleet
+policy. The first versioned worker handshake is now
 available through `FlowWorkerCapabilities`; it fails closed on protocol or
 required task/guarantee mismatches, while Cloud still owns queue admission and
 fleet policy.
