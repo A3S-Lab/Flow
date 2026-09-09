@@ -1071,27 +1071,29 @@ its callback even though Flow redacts it from error diagnostics.
 
 ## Compensation
 
-A3S Flow does not have a special compensation command. Model compensation as
-ordinary durable steps that the workflow schedules after it observes a domain
-failure output.
+A3S Flow records compensation as durable markers plus ordinary steps. Markers
+do not execute undo logic; they make saga-style obligations visible to replay.
 
 Recommended shape:
 
-1. Side-effecting steps return domain results for recoverable business outcomes,
+1. After a forward side effect succeeds, record a compensation marker with a
+   stable `marker_id`, the forward-work identity in `compensates`, and any
+   details needed later (for example a reservation id).
+2. Side-effecting steps return domain results for recoverable business outcomes,
    such as `{ "ok": false, "reason": "card_declined" }`.
-2. Reserve `Err(...)` from `run_step` for infrastructure or programmer errors
+3. Reserve `Err(...)` from `run_step` for infrastructure or programmer errors
    that should retry or fail the run.
-3. When replay observes a recoverable failure output, schedule a compensating
-   step such as `void_authorization` or `release_inventory`.
-4. Complete with a final output that includes the original failure and the
+4. When replay observes a recoverable failure, read open markers, schedule
+   compensating steps such as `void_authorization` or `release_inventory`, then
+   `complete_compensation_marker` with the cleanup outcome.
+5. Complete with a final output that includes the original failure and the
    compensation result.
 
-This keeps every side effect in the event history and avoids trying to run new
-workflow decisions after the run has already reached a terminal failure state.
+Marker record/complete commands are idempotent for identical payloads and reject
+drift. This keeps every side effect and obligation in the event history without
+trying to run new workflow decisions after a terminal failure.
 
-See `examples/compensation.rs` for a checkout workflow that reserves inventory,
-observes a declined payment as a domain result, releases the reservation, and
-then completes with a compensated outcome.
+See `examples/compensation.rs` and `tests/compensation_markers.rs`.
 
 ## Run Inspection
 

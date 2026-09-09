@@ -7,8 +7,8 @@ use uuid::Uuid;
 use crate::error::{FlowError, Result};
 use crate::model::{
     project_run, validate_child_workflow_command, ChildWorkflowCommand, FlowEvent,
-    FlowEventEnvelope, HookStatus, RuntimeCommand, ScheduledWakeup, StepStatus, WaitStatus,
-    WorkflowRunSnapshot, WorkflowRunStatus, WorkflowSpec,
+    FlowEventEnvelope, HookStatus, JsonValue, RuntimeCommand, ScheduledWakeup, StepStatus,
+    WaitStatus, WorkflowRunSnapshot, WorkflowRunStatus, WorkflowSpec,
 };
 use crate::observe::{FlowEventObserver, NoopFlowEventObserver};
 use crate::runtime::{FlowRuntime, WorkflowInvocation};
@@ -479,6 +479,71 @@ impl FlowEngine {
                         .await
                     {
                         Ok(_) => {}
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
+                RuntimeCommand::RecordCompensationMarker { marker } => {
+                    marker.validate()?;
+                    if let Some(existing) = snapshot.compensation_marker(&marker.marker_id) {
+                        if !existing.matches_record(&marker) {
+                            return Err(FlowError::NonDeterministic {
+                                run_id: run_id.to_string(),
+                                reason: format!(
+                                    "compensation marker {} differs from the durable marker",
+                                    marker.marker_id
+                                ),
+                            });
+                        }
+                        continue;
+                    }
+                    match self
+                        .record_event_at(
+                            run_id,
+                            snapshot.last_sequence,
+                            FlowEvent::CompensationMarkerRecorded { marker },
+                        )
+                        .await
+                    {
+                        Ok(_) => continue,
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
+                RuntimeCommand::CompleteCompensationMarker { marker_id, outcome } => {
+                    match snapshot.compensation_marker(&marker_id) {
+                        None => {
+                            return Err(FlowError::InvalidTransition(format!(
+                                "cannot complete unknown compensation marker {marker_id}"
+                            )));
+                        }
+                        Some(existing)
+                            if existing.status
+                                == crate::model::CompensationMarkerStatus::Completed =>
+                        {
+                            let existing_outcome =
+                                existing.outcome.clone().unwrap_or(JsonValue::Null);
+                            if existing_outcome != outcome {
+                                return Err(FlowError::NonDeterministic {
+                                    run_id: run_id.to_string(),
+                                    reason: format!(
+                                        "compensation marker {marker_id} completion outcome differs"
+                                    ),
+                                });
+                            }
+                            continue;
+                        }
+                        Some(_) => {}
+                    }
+                    match self
+                        .record_event_at(
+                            run_id,
+                            snapshot.last_sequence,
+                            FlowEvent::CompensationMarkerCompleted { marker_id, outcome },
+                        )
+                        .await
+                    {
+                        Ok(_) => continue,
                         Err(err) if is_event_conflict(&err) => continue,
                         Err(err) => return Err(err),
                     }

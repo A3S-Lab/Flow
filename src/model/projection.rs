@@ -3,10 +3,11 @@ use crate::error::{FlowError, Result};
 use super::{
     validate_run_id, ActivityStatus, CancellationRequestSnapshot, CancellationScopeSnapshot,
     CancellationScopeStatus, ChildWorkflowMapSnapshot, ChildWorkflowMapStatus,
-    ChildWorkflowSnapshot, FlowEvent, FlowEventEnvelope, HookSnapshot, HookStatus, SelectArm,
-    SelectSnapshot, SelectStatus, SignalWaitSnapshot, SignalWaitStatus, StepFailureAction,
-    StepSnapshot, StepStatus, WaitSnapshot, WaitStatus, WorkflowContinuation, WorkflowRunSnapshot,
-    WorkflowRunStatus, WorkflowSignalSnapshot, WorkflowTerminalOutcome, WorkflowUpdateSnapshot,
+    ChildWorkflowSnapshot, CompensationMarkerSnapshot, CompensationMarkerStatus, FlowEvent,
+    FlowEventEnvelope, HookSnapshot, HookStatus, SelectArm, SelectSnapshot, SelectStatus,
+    SignalWaitSnapshot, SignalWaitStatus, StepFailureAction, StepSnapshot, StepStatus,
+    WaitSnapshot, WaitStatus, WorkflowContinuation, WorkflowRunSnapshot, WorkflowRunStatus,
+    WorkflowSignalSnapshot, WorkflowTerminalOutcome, WorkflowUpdateSnapshot,
 };
 
 mod activity;
@@ -504,6 +505,55 @@ pub(crate) fn project_run_from_snapshot(
                     applied_at: envelope.timestamp,
                     applied_sequence: envelope.sequence,
                 });
+            }
+            FlowEvent::CompensationMarkerRecorded { marker } => {
+                if snapshot.status == WorkflowRunStatus::Pending {
+                    return Err(FlowError::InvalidTransition(
+                        "compensation_marker_recorded cannot precede run_started".to_string(),
+                    ));
+                }
+                marker.validate()?;
+                if snapshot
+                    .compensation_markers
+                    .contains_key(&marker.marker_id)
+                {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "compensation_marker_recorded duplicates marker {}",
+                        marker.marker_id
+                    )));
+                }
+                snapshot.compensation_markers.insert(
+                    marker.marker_id.clone(),
+                    CompensationMarkerSnapshot {
+                        marker_id: marker.marker_id.clone(),
+                        compensates: marker.compensates.clone(),
+                        details: marker.details.clone(),
+                        status: CompensationMarkerStatus::Open,
+                        outcome: None,
+                    },
+                );
+            }
+            FlowEvent::CompensationMarkerCompleted { marker_id, outcome } => {
+                let marker = snapshot
+                    .compensation_markers
+                    .get_mut(marker_id)
+                    .ok_or_else(|| {
+                        FlowError::InvalidTransition(format!(
+                            "compensation_marker_completed references unknown marker {marker_id}"
+                        ))
+                    })?;
+                if marker.status != CompensationMarkerStatus::Open {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "compensation_marker_completed cannot follow {:?} for marker {marker_id}",
+                        marker.status
+                    )));
+                }
+                marker.status = CompensationMarkerStatus::Completed;
+                marker.outcome = if outcome.is_null() {
+                    None
+                } else {
+                    Some(outcome.clone())
+                };
             }
             FlowEvent::SignalWaitCreated {
                 wait_id,

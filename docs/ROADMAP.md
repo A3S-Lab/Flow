@@ -144,8 +144,9 @@ also implemented: `MapChildWorkflows` persists an ordered plan, activates at
 most `concurrency` open children at a time (≤ `MAX_CHILD_WORKFLOW_BATCH_SIZE`),
 recovers partial windows without duplicate requests, and completes only after
 every planned child resolves. External dataset references, per-item aggregation
-helpers beyond parent-owned outcomes, and durable compensation markers remain
-open R4 work.
+helpers beyond parent-owned outcomes remain open R4 work. Durable compensation
+markers are implemented as replay-visible obligations: workflows record and
+complete markers idempotently, then schedule ordinary compensating steps.
 
 The repository-owned authoring boundary now has a stateless Rust counterpart to
 the CLI and Skill: `canonical_workflow_authoring_snapshot` preserves the

@@ -421,6 +421,84 @@ impl<'a> WorkflowContext<'a> {
         RuntimeCommand::RecordProgress { progress }
     }
 
+    /// Record a durable compensation obligation and replay.
+    pub fn record_compensation_marker(
+        &self,
+        marker: crate::model::CompensationMarker,
+    ) -> RuntimeCommand {
+        RuntimeCommand::RecordCompensationMarker { marker }
+    }
+
+    /// Mark a compensation obligation finished and replay.
+    pub fn complete_compensation_marker(
+        &self,
+        marker_id: impl Into<String>,
+        outcome: JsonValue,
+    ) -> RuntimeCommand {
+        RuntimeCommand::CompleteCompensationMarker {
+            marker_id: marker_id.into(),
+            outcome,
+        }
+    }
+
+    /// Return a durable compensation marker recorded in history, when present.
+    pub fn compensation_marker(
+        &self,
+        marker_id: &str,
+    ) -> Option<crate::model::CompensationMarkerSnapshot> {
+        let mut recorded = None;
+        for envelope in self.history() {
+            match &envelope.event {
+                FlowEvent::CompensationMarkerRecorded { marker }
+                    if marker.marker_id == marker_id =>
+                {
+                    recorded = Some(crate::model::CompensationMarkerSnapshot {
+                        marker_id: marker.marker_id.clone(),
+                        compensates: marker.compensates.clone(),
+                        details: marker.details.clone(),
+                        status: crate::model::CompensationMarkerStatus::Open,
+                        outcome: None,
+                    });
+                }
+                FlowEvent::CompensationMarkerCompleted {
+                    marker_id: id,
+                    outcome,
+                } if id == marker_id => {
+                    if let Some(marker) = recorded.as_mut() {
+                        marker.status = crate::model::CompensationMarkerStatus::Completed;
+                        marker.outcome = if outcome.is_null() {
+                            None
+                        } else {
+                            Some(outcome.clone())
+                        };
+                    }
+                }
+                _ => {}
+            }
+        }
+        recorded
+    }
+
+    /// Return open compensation marker ids in history order.
+    pub fn open_compensation_marker_ids(&self) -> Vec<&str> {
+        let mut open = Vec::new();
+        let mut completed = std::collections::BTreeSet::new();
+        for envelope in self.history() {
+            match &envelope.event {
+                FlowEvent::CompensationMarkerRecorded { marker } => {
+                    open.push(marker.marker_id.as_str());
+                }
+                FlowEvent::CompensationMarkerCompleted { marker_id, .. } => {
+                    completed.insert(marker_id.as_str());
+                }
+                _ => {}
+            }
+        }
+        open.into_iter()
+            .filter(|marker_id| !completed.contains(marker_id))
+            .collect()
+    }
+
     /// Persist a child-operation reference and replay.
     pub fn link_child_operation(&self, child: ChildOperationReference) -> RuntimeCommand {
         RuntimeCommand::LinkChildOperation { child }

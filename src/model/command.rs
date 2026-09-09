@@ -585,6 +585,19 @@ pub enum RuntimeCommand {
         /// Progress value exposed through inspection and observation APIs.
         progress: WorkflowProgress,
     },
+    /// Record a durable saga-style compensation obligation.
+    RecordCompensationMarker {
+        /// Obligation identity, forward-work identity, and details.
+        marker: crate::model::CompensationMarker,
+    },
+    /// Mark a previously recorded compensation obligation as finished.
+    CompleteCompensationMarker {
+        /// Stable identity of the completed marker.
+        marker_id: String,
+        /// Optional structured compensation outcome.
+        #[serde(default, skip_serializing_if = "JsonValue::is_null")]
+        outcome: JsonValue,
+    },
     /// Persist a parent-to-child operation reference before replaying.
     LinkChildOperation {
         /// Stable reference to the externally managed child operation.

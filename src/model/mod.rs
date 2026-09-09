@@ -2,6 +2,7 @@ mod activity_timeout;
 mod child_map;
 mod child_workflow;
 mod command;
+mod compensation;
 mod event;
 mod hook;
 mod inspection;
@@ -27,6 +28,7 @@ pub use command::{
     RuntimeKind, RuntimeSpec, StepCommand, StepFailureAction, WorkflowSpec,
     MAX_CHILD_WORKFLOW_BATCH_SIZE,
 };
+pub use compensation::{CompensationMarker, CompensationMarkerSnapshot, CompensationMarkerStatus};
 pub use event::{
     FlowEvent, FlowEventEnvelope, FLOW_EVENT_ENVELOPE_SCHEMA_VERSION, MAX_FLOW_EVENT_BYTES,
 };

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added durable compensation markers through
+  `RuntimeCommand::{RecordCompensationMarker,CompleteCompensationMarker}`,
+  `FlowEvent::{CompensationMarkerRecorded,CompensationMarkerCompleted}`, and
+  `WorkflowContext::{record_compensation_marker,complete_compensation_marker,
+  compensation_marker,open_compensation_marker_ids}`. Markers record saga-style
+  obligations without executing cleanup; replay remains idempotent and rejects
+  payload drift.
+
 - Added dynamic bounded child-workflow maps through
   `RuntimeCommand::MapChildWorkflows`, `FlowEvent::{ChildWorkflowMapOpened,
   ChildWorkflowMapCompleted}`, and

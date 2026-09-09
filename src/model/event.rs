@@ -156,6 +156,19 @@ pub enum FlowEvent {
         /// JSON output returned by the update handler.
         output: JsonValue,
     },
+    /// Records a durable compensation obligation for later cleanup.
+    CompensationMarkerRecorded {
+        /// Obligation identity, forward-work identity, and details.
+        marker: super::CompensationMarker,
+    },
+    /// Records that a compensation obligation finished.
+    CompensationMarkerCompleted {
+        /// Stable identity of the completed marker.
+        marker_id: String,
+        /// Optional structured compensation outcome.
+        #[serde(default, skip_serializing_if = "JsonValue::is_null")]
+        outcome: JsonValue,
+    },
     /// Creates a durable step invocation.
     StepCreated {
         /// Replay-stable identity of the step.
@@ -449,6 +462,8 @@ impl FlowEvent {
             Self::SignalWaitCreated { .. } => "flow.signal.wait.created",
             Self::SignalWaitCompleted { .. } => "flow.signal.wait.completed",
             Self::UpdateApplied { .. } => "flow.update.applied",
+            Self::CompensationMarkerRecorded { .. } => "flow.compensation.marker.recorded",
+            Self::CompensationMarkerCompleted { .. } => "flow.compensation.marker.completed",
             Self::StepCreated { .. } => "flow.step.created",
             Self::StepStarted { .. } => "flow.step.started",
             Self::StepCompleted { .. } => "flow.step.completed",

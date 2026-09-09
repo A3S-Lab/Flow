@@ -331,6 +331,14 @@ When every planned child has a terminal outcome, Flow appends
 `child_workflow_map_completed`. Redrive with the same plan is idempotent; plan
 or concurrency drift fails closed. Run cancellation marks an open map cancelled.
 
+## Durable Compensation Markers
+
+`RecordCompensationMarker` / `CompleteCompensationMarker` persist saga-style
+obligations without executing cleanup. Projection exposes open and completed
+markers so replay can schedule ordinary compensating steps, complete the marker
+idempotently, and reject payload drift. Markers are not patch markers, progress
+updates, or automatic undo.
+
 ## Named Workflow Signals
 
 Signals are durable asynchronous messages, not callback tokens. A
