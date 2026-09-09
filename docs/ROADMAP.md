@@ -216,7 +216,8 @@ The first `FLOW-R6` certification harness is also present:
 `tests/certification.rs` freezes worker/task/envelope protocol fixtures under
 `tests/fixtures/protocol/`, fails closed on mixed-version worker negotiation and
 stale/forged lease acknowledgements, and verifies tip-pinned archive export
-correctness for a 10_000-event history. TypeScript consumes the same fixtures in
+correctness for a 10_000-event history. It also rejects stale activity fencing
+tokens at the append boundary. TypeScript consumes the same fixtures in
 `packages/ui/tests/protocol-fixtures.test.ts`. Full real-provider chaos, package,
 and security automation gates remain open certification work.
 
