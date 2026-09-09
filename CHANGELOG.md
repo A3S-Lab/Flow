@@ -1,0 +1,915 @@
+# Changelog
+
+## Unreleased
+
+- Extended opaque processor-partition fairness to `PostgresFlowTaskQueue` with
+  migration `a3s-flow-0012-task-partition-key`, `with_partition_fairness`, and
+  the same `enqueue_for_partition` contract used by in-memory and local-file
+  queues.
+
+- Extended the FLOW-R6 certification recipe to include retained pre-v1 history
+  upgrade tests (`cargo test --test pre_v1_history`) alongside protocol
+  fixtures and TypeScript parity checks. Added `just release-certification` to
+  fold in local package verification and the bounded advisory reachability
+  check without requiring CI.
+
+- Added the first FLOW-R6 certification harness through `tests/certification.rs`
+  and frozen protocol fixtures under `tests/fixtures/protocol/`. The suite
+  locks worker capability, task, and event-envelope wire shapes, fails closed
+  on mixed-version negotiation and stale/forged lease acknowledgements, and
+  verifies tip-pinned archive export for a 10_000-event history. TypeScript
+  consumes the same fixtures via `packages/ui/tests/protocol-fixtures.test.ts`.
+  Operators can run `just certification` and follow the cookbook certification
+  gates section.
+
+- Added opaque processor-partition fairness through
+  `FlowTaskQueue::enqueue_for_partition`, `FlowTaskQueue::partition_fairness`,
+  `InMemoryFlowTaskQueue::with_partition_fairness`, and
+  `LocalFileFlowTaskQueue::with_partition_fairness`. Fair queues lease
+  round-robin across host-supplied partition keys (or targeted run IDs) so one
+  partition cannot monopolize FIFO dispatch; Cloud still owns tenant identity.
+
+- Added physical run sharding through `FlowRunShardLayout`,
+  `InMemoryEventStore::with_shard_count`, `LocalFileEventStore::with_shard_count`,
+  and `FlowStoreCapabilities::physical_run_sharding`. Runs hash stably onto
+  independent shard maps or `sNN/` directories while cross-shard linked-run and
+  hook-token checks remain store-wide.
+
+- Added structured join-all through `SelectMode::JoinAll`, `WorkflowContext::join`,
+  and `WorkflowContext::select_joined`. A join waits until every timer/signal arm
+  completes without cancelling siblings early; race mode remains the default for
+  existing select histories.
+
+- Added queue-admission backpressure through `FlowError::QueueBackpressure`,
+  `FlowTaskQueue::max_pending_tasks`, `ensure_queue_admission`, and
+  `with_max_pending` on in-memory, local-file, and PostgreSQL task queues.
+  Pending depth budgets refuse enqueue without inventing tenant fairness or
+  fleet placement policy.
+
+- Added the tip-anchored visibility projection contract through
+  `FlowVisibilityProjection`, `FlowVisibilityProgress`,
+  `FlowVisibilitySuspensionCounts`, `FLOW_VISIBILITY_PROJECTION_SCHEMA_VERSION`,
+  and `FlowEngine::visibility_projection`. Hosts rebuild search/ops indexes from
+  tip-validated snapshots or paged history without indexing workflow
+  input/output/step payloads or treating the index as a second execution history.
+
+- Added ambient W3C Trace Context propagation through `FlowTraceContext`,
+  `with_trace_context` / `without_trace_context` / `current_trace_context`, and
+  optional `trace_context` on workflow/step/activity/query/update invocations.
+  Hosts bind context for a drive without writing it into replay history;
+  `A3sFlowEvent` and the a3s-event sink mirror `traceparent` / `tracestate` when
+  ambient context is present.
+
+- Added durable per-item aggregates through `ItemAggregateContribution`,
+  `RuntimeCommand::RecordItemAggregate`, `FlowEvent::ItemAggregateRecorded`, and
+  `WorkflowContext::{record_item_aggregate,item_aggregate_has,item_aggregate_values}`.
+  Contributions are idempotent on `(aggregate_id, item_id)` and reject value
+  drift, so map/fan-out results can be folded without silently dropping items.
+
+- Added host-owned external dataset references through
+  `ExternalDatasetRef`, `RuntimeCommand::AttachExternalDataset`,
+  `FlowEvent::ExternalDatasetAttached`, and
+  `WorkflowContext::{attach_external_dataset,external_dataset}`. Attachments are
+  idempotent for identical digests and reject digest/count drift so large
+  fan-out plans can stay out of the event log.
+
+- Added durable compensation markers through
+  `RuntimeCommand::{RecordCompensationMarker,CompleteCompensationMarker}`,
+  `FlowEvent::{CompensationMarkerRecorded,CompensationMarkerCompleted}`, and
+  `WorkflowContext::{record_compensation_marker,complete_compensation_marker,
+  compensation_marker,open_compensation_marker_ids}`. Markers record saga-style
+  obligations without executing cleanup; replay remains idempotent and rejects
+  payload drift.
+
+- Added dynamic bounded child-workflow maps through
+  `RuntimeCommand::MapChildWorkflows`, `FlowEvent::{ChildWorkflowMapOpened,
+  ChildWorkflowMapCompleted}`, and
+  `WorkflowContext::{map_child_workflows,child_workflow_map_completed}`. A map
+  declares an ordered plan up to `MAX_CHILD_WORKFLOW_MAP_SIZE` and activates at
+  most `concurrency` open children at a time, so partial fan-out recovery stays
+  deterministic and no planned child is silently dropped. Update-forced replay
+  may observe an open map while children are suspended, so plan drift fails
+  closed instead of being ignored.
+
+- Added structured select/race through `RuntimeCommand::Select`,
+  `SelectArm::{timer,signal}`, `FlowEvent::{SelectCreated,SelectCompleted}`, and
+  `WorkflowContext::{select,select_winner}`. The first completed timer or signal
+  arm wins; sibling waits are cancelled durably without silently dropping work.
+
+- Added durable cancellation scopes through `RuntimeCommand::{OpenScope,
+  CompleteScope, CancelScope}`, `FlowEvent::{ScopeOpened, ScopeCompleted,
+  ScopeCancelled}`, `FlowEngine::cancel_scope`, and
+  `WorkflowContext::{open_scope,scope_cancelled,...}`. Timer waits inherit the
+  innermost open scope; cancelling a scope (or requesting run cancellation)
+  cancels owned waits without requiring a distinct wait identity for cleanup.
+
+- Added typed synchronous workflow updates through `WorkflowSpec::with_update`,
+  `WorkflowUpdate`, `UpdateInvocation`, `FlowRuntime::run_update`, and
+  `FlowEngine::apply_update`. Updates are declared on the immutable run spec,
+  fenced by runtime-build admission, idempotent on `(update_id, name, input)`,
+  conflict-safe on payload drift, and force one workflow replay after the
+  durable `update_applied` event so suspended runs can observe the new history.
+
+- Added typed read-only workflow queries through `WorkflowSpec::with_query`,
+  `QueryInvocation`, `FlowRuntime::run_query`, and `FlowEngine::query`. Queries
+  are declared on the immutable run spec, fenced by runtime-build admission,
+  fail closed for undeclared names, and never append history.
+
+- Added tip-pinned history archive ownership seals through
+  `FlowEngine::export_history_archive` and
+  `FlowEngine::verify_history_archive_seal`. Seals digest ordered event IDs
+  independently of page size so hosts can verify contiguous exports without
+  Flow owning archive storage or retention policy.
+
+- Added sealed `FlowHistoryPartition` indexes for contiguous history ranges,
+  with `FlowEngine::seal_history_partition` / `list_history_partitions` and
+  durable persistence in memory, local-file, SQLite, and PostgreSQL stores.
+  Partitions never rewrite the append-only event log; retention deletes their
+  index rows with the owning run.
+
+- Published initial Flow kernel scale SLO targets for append, tip-validated
+  checkpoint reads, bounded history pages, and tip-pinned archive export.
+
+- Added cross-language canonical operation encoding through
+  `canonical_workflow_authoring_operation` and
+  `canonicalizeFlowCliWorkflowUpdate(s)`. Equivalent operation JSON now has
+  one stable byte form (including omitted add-node configuration and omitted
+  top-level move parents), so hosts can derive idempotency keys before
+  appending a streamed patch.
+
+- Added a bounded, stateless Rust workflow-authoring API for Cloud and other
+  hosts: canonical snapshot validation, strict JSON operation parsing, immutable
+  single-operation application, explicit draft versus executable admission, and
+  preservation of unknown DSL extensions. Hosts retain authorization, product
+  node catalogs, persistence, and publication policy.
+
+- Added `WorkflowAuthoringSession` and the iterator-based batch helper so Rust
+  hosts can consume bounded operation streams incrementally, preserve the last
+  successful candidate after a rejected operation, and canonicalize only once
+  at the publication boundary.
+
+- Aligned the TypeScript and Rust authoring contracts on the 255-byte UTF-8
+  identity/endpoint limit across JSON arrays, direct calls, and NDJSON streams.
+
+- Made JSON DSL and authoring decoding reject duplicate object keys at every
+  nesting level, removing ambiguous last-key-wins input before canonicalization
+  and digesting. The TypeScript document/CLI decoder now enforces the same
+  duplicate-key and 256-level nesting boundary, and direct/JSON-array update
+  APIs enforce the one-megabyte per-operation budget at runtime.
+
+- Added file-backed NDJSON operation streams with `--operations @<file>`, so
+  generated patches can be streamed without shell argument-size limits.
+
+- Added stable-ID-preserving `move-node` workflow authoring operations for
+  moving public nodes between the top-level graph and iteration/loop scopes;
+  internal start placement and parent-cycle checks remain enforced.
+
+- Added registry-driven scoped workflow node creation to the CLI and typed
+  JSON/NDJSON update operations. `--parent`/`parentId` now place public nodes
+  and matching container-start nodes safely, while incomplete container edits
+  remain candidate-only until final validation and atomic publication.
+
+- Unified the 10,000-operation authoring bound across JSON-array parsing,
+  direct typed update calls, and NDJSON streams, with the limits exported for
+  host adapters that need to preflight a request.
+
+- Made NDJSON framing account for UTF-8 bytes incrementally, avoiding repeated
+  re-encoding of a growing unterminated line while retaining the same strict
+  size and malformed-input checks.
+
+- Applied the NDJSON byte budget to ignored whitespace records as well as JSON
+  operations, with consistent limit diagnostics for complete and unterminated
+  lines.
+
+- Made workflow sources and mixed text/byte authoring streams decode as strict
+  UTF-8, preventing replacement characters or stranded decoder state from
+  being published silently.
+
+- Corrected incremental UTF-8 byte accounting across split multibyte chunks at
+  the exact NDJSON record limit, without double-counting decoder-held tails.
+
+- Extended the packaged CLI smoke path to create, compile, and clean up a
+  container-scoped workflow, covering the same parent placement contract used
+  by the Codex Skill.
+
+- Made inline update flags fail closed when they do not belong to the selected
+  operation, so automation cannot silently lose an edge, node, or scope option.
+
+- Added command-level option allowlists to the framework-backed CLI, rejecting
+  flags that belong to another command before any workflow file is read.
+
+- Preserved stable Step/Activity attempt, attempt ID, and idempotency-key
+  correlation in `A3sFlowEvent` and A3S Event metadata without increasing metric
+  label cardinality.
+
+- Added `FlowEngine::export_history_pages` for bounded, tip-pinned, contiguous
+  history export through a host-owned callback without materializing a full run
+  log.
+
+- Added the versioned `FlowWorkerCapabilities` handshake and stable task-kind
+  identifiers. Hosts can reject protocol or capability mismatches before a
+  worker leases work; Cloud-owned admission and fleet policy remain outside
+  Flow.
+
+- Added `FlowWorker::run_until_idle_bounded` so compatibility hosts can impose
+  an explicit fairness/backpressure budget; zero limits fail before leasing.
+
+- Added `FlowTaskQueue::redrive_dead_lettered` for administrative recovery of
+  poison tasks. Local queues use a stable crash-safe pending identity, while
+  PostgreSQL performs the pending copy and dead-letter removal atomically;
+  custom queues fail closed until they implement the contract.
+
+- Fixed incremental projection to match full replay for multi-event tails and
+  derived suspended states. SQLite and PostgreSQL append transactions now
+  advance an integrity-checked projection checkpoint from the validated event
+  tail, rebuilding once from authoritative history when the cache is stale or
+  missing; checkpoint writes remain best-effort acceleration metadata.
+
+- Added durable `FlowProjectionCheckpoint` support to the memory, local-file,
+  SQLite, and PostgreSQL stores plus `FlowEngine::checkpoint`. Checkpoints are
+  validated by run identity, sequence, and tip event ID; stale or corrupt
+  metadata is ignored and authoritative history replay is used instead;
+  checkpoint snapshots carry a SHA-256 integrity digest, and custom stores
+  must explicitly implement checkpoint persistence.
+
+- Added explicit Activity unknown-outcome events and fenced host
+  reconciliation through `FlowError::UnknownOutcome`, `ActivityResolution`,
+  and `FlowEngine::resolve_unknown_activity`; ambiguous provider responses now
+  suspend without an automatic duplicate retry.
+- Added per-attempt Activity `timeout_ms` deadlines. Deadlines are derived from
+  the durable attempt-start timestamp, reused on redelivery, and convert an
+  elapsed attempt into the same explicit unknown state for host reconciliation.
+
+- Added an explicit, persisted event-envelope schema version with a
+  backwards-compatible decoder for retained pre-version histories and fail-closed
+  rejection of unsupported future versions across projection and SQL stores.
+- Added replay-stable workflow logical time and UUIDv5 deterministic identity
+  helpers, plus an attempt-scoped step idempotency key in Rust and native
+  TypeScript invocation contracts.
+- Added an explicit `FlowStoreCapabilities` contract so Cloud admission can
+  distinguish compatibility stores from stores with atomic append, indexed
+  wakeups, and cross-process coordination guarantees.
+- Added a one-megabyte encoded event payload budget with a typed
+  `PayloadTooLarge` rejection; hosts should use content-addressed blob
+  references for larger inputs, outputs, and checkpoints.
+- Added explicit non-retryable step failures and durable `step_non_retryable`
+  markers so permanent application errors bypass retry budgets while retaining
+  replay and recovery semantics.
+- Added a first-class Activity ledger with durable attempt, idempotency, and
+  fencing identities, retry/non-retryable lifecycle events, cancellation
+  projection, lease reacquisition, and an engine heartbeat/checkpoint API.
+  Existing Step runtimes remain source-compatible through the default
+  `run_activity` adapter.
+- Unified Rust and TypeScript workflow execution digests under format `v2`,
+  including JavaScript number rendering, UTF-16 key ordering, safe-integer and
+  nesting guards, and cross-language golden vectors.
+- Made engine transitions projection-validated and expected-sequence based for
+  built-in stores, and made hook-token creation an atomic claim in the memory,
+  local-file, SQLite, and PostgreSQL adapters.
+- Durably settle every open sibling before a terminal concurrent-batch outcome,
+  emit an explicit `step_cancelled` marker for unknown external effects, and
+  recover interrupted settlement after a host crash; indexed stores include an
+  additive wakeup-cleanup migration.
+- Isolated post-commit observer panics and bounded observer delays, delivered
+  fan-out sinks concurrently, and released terminal workflow identities from
+  the A3S event bridge cache.
+- Anchored retry deadlines at the effective failure clock and rejected direct
+  resumption of open timer waits before their persisted deadline.
+- Added a complete manifest-contract inspector for the React authoring panel,
+  including node metadata, typed ports, output definitions, field visibility,
+  value state, and the original manifest properties with secret redaction.
+- Unified conditional field visibility and partial build-config overrides across
+  form generation, validation, previews, and serialized workflow documents.
+- Improved large Playground graphs with visible-element rendering,
+  `content-visibility` containment for long panels, adaptive minimap pausing,
+  and a reproducible 100/500/1,000-node p50/p95/p99 benchmark harness for the
+  Worker and WebAssembly layout path.
+- Added deterministic A3S Test coverage for the complete designer and custom
+  node catalog, including localized A3S UI controls and browser error checks.
+- Made the A3S UI select adapter progressively usable while its browser runtime
+  loads, preserving first-click, pointer, keyboard, focus, and disabled states
+  in embedded workflow configuration panels.
+- Prevented runtime option-selection re-targeting without swallowing an
+  immediate intentional trigger click.
+- Restored closed disclosure panels to the native hidden layout contract so
+  deeply nested value-source controls remain reachable in short settings
+  panes.
+- Kept select and variable suggestion overlays above the node-panel scroll
+  boundary, with viewport-aware flipping, clamping, and scroll repositioning.
+- Fixed workflow code-editor viewports so long JSON and expression values keep
+  their text aligned with line numbers while scrolling inside a bounded editor.
+- Fixed indexed batch and child-workflow editors so text, expression, JSON, and
+  policy changes update the selected member instead of being silently ignored.
+- Hardened narrow Flow inspectors so editable descriptions, composite fields,
+  contract metadata, code-editor chrome, and mobile playground actions remain
+  readable and inside the viewport.
+
+## 1.1.0 - 2026-08-25
+
+- Hardened custom workflow-node authoring with deeply immutable manifests,
+  shared composite-field validation, exact host capability publication checks,
+  and a complete Playground sample containing every built-in, internal, and
+  registered host node type. Added per-node valid and invalid configuration
+  coverage, Rust DSL custom-node round-trip and digest coverage, and a
+  deterministic A3S Test suite for custom-node search and addition.
+- Enforced the A3S UI form-control contract across every node configuration
+  panel, localized workflow-specific composite controls, and fixed empty file
+  values that were previously displayed as selected files. The component
+  matrix now rejects visible inputs, selects, and textareas that drift from
+  the shared A3S UI primitives.
+- Added `RetryPolicy::exponential` with a finite attempt budget, a maximum
+  delay cap, and deterministic full jitter derived from immutable run, step,
+  and failed-attempt identities. Delayed retries now calculate their next
+  deadline from the engine's supplied clock, fixed policies preserve their
+  existing serialized history shape, and the Rust/TypeScript contracts reject
+  invalid or unrepresentable policies before step execution.
+- Added bounded concurrent first-class child workflow batches through
+  `ChildWorkflowCommand` and `start_child_workflows`. Flow validates the whole
+  batch before mutation, persists every sibling request before child replay,
+  recovers partially appended request sets without duplication, advances open
+  siblings concurrently, propagates cancellation to each child, and commits
+  parent outcomes in durable request order. Native TypeScript authoring types,
+  protocol coverage, architecture guidance, and a runnable example track the
+  additive command.
+
+## 1.0.0 - 2026-08-19
+
+- Declared Rust 1.88 as the minimum supported Rust version, added dedicated
+  all-target/all-feature MSRV gates to `main` and release CI, enabled
+  all-feature docs.rs builds, forbade unsafe code in the crate, and made MSRV
+  failures emit bounded, actionable CI annotations. The release lockfile is now
+  committed so `--locked` gates are reproducible from clean checkouts.
+- Added explicit API stability and security policies for the `1.0.0` line,
+  covering SemVer, durable and wire compatibility, extensible public types,
+  downstream lockstep validation, private vulnerability reporting, and
+  evidence required for dependency-advisory exceptions.
+- Documented the complete all-feature public Rust API and made missing
+  documentation a crate-level compile error for both the library and native
+  compiler binary.
+- Marked extensible engine, lifecycle, task, DSL, and error enums as
+  non-exhaustive ahead of the `1.0.0` compatibility freeze. The closed native
+  runtime v1 discriminator remains exhaustive and requires protocol versioning
+  for future expansion.
+- Made extensible construction DTOs non-exhaustive and added explicit
+  constructors for runtime invocations, durable event envelopes, and queue
+  leases. Versioned native compiler/runtime v1 envelopes remain intentionally
+  frozen wire shapes.
+- Made public snapshots, summaries, inspection and audit records, scheduler
+  results, and worker outcomes non-exhaustive read-only projections. Added
+  constructors for workflow identity and custom-store hook/wakeup projections.
+- Added scheduled and release-blocking RustSec audits plus dependency license,
+  source, ban, and wildcard-policy checks. The sole lockfile advisory exception
+  now has a fail-closed all-feature/all-target reachability proof and a written
+  removal condition.
+- Froze the final pre-1.0 public API baseline at an immutable commit and made
+  CI and release checks force stable-compatible SemVer rules against it, so a
+  `1.0.0` version bump cannot hide a breaking API lint. The latest published
+  release remains a second baseline for APIs added later in the `1.x` line.
+- Added immutable histories produced by `v0.5.0` and `v0.13.1` and made the v1
+  gate deterministically resume their interrupted steps. Added real SQLite and
+  PostgreSQL upgrades from every distinct supported pre-v1 migration prefix,
+  pinned all published migration checksums, verified failed migrations roll
+  back without losing history, and documented the backup-based rollback path.
+
+- Made `start_with_id` validate persisted start authority before runtime-build
+  admission. Exact retries can now acknowledge a fully terminal root or
+  continuation chain without loading its old build, while pending root writes
+  and active-leaf replay remain fenced and missing continuation successors are
+  repaired from their durable predecessor links before leaf admission.
+- Made parent reconciliation inspect and repair an existing child continuation
+  chain before applying child runtime-build admission. A parent-only worker can
+  now persist an already terminal child leaf's outcome after a crash, while an
+  active leaf still fails closed on its exact child build without mutating
+  parent or child history.
+- Made the release workflow rerun all-target, all-feature Clippy and strict
+  all-feature rustdoc checks before publishing, matching the documented SDK
+  completion gates instead of relying only on the preceding `main` workflow.
+- Made package qualification compile every target and feature from Cargo's
+  normalized publish artifact against crates.io dependencies, preventing a
+  Git-only development dependency from producing an unusable public crate.
+- Made cleanup-aware cancellation repair a successor missing after a committed
+  continue-as-new link before applying runtime-build admission. Already
+  terminal leaves can now acknowledge a late cancellation request without
+  replay code, while non-terminal leaves remain fenced before the request or
+  workflow replay mutates their history.
+- Made matching Signal redelivery repair and drive a missing continue-as-new
+  successor instead of acknowledging it while the new leaf was only running.
+  Redelivery now applies runtime-build admission whenever the recovered leaf is
+  non-terminal, while fully terminal leaf inspection remains admission-free.
+- Made stable wait and targeted scheduler redelivery repair a missing
+  continue-as-new successor after `wait_completed` and the predecessor link
+  were already durable. Timer worker outcomes now report the active leaf in
+  `run_ids`, while `resumed_waits` remains tied to the task that committed the
+  completion event; fully terminal redelivery still needs no runtime-build
+  admission.
+- Made stable-ID hook resume and disposal redelivery repair a missing
+  continue-as-new successor after the resolution and predecessor link were
+  already durable. Worker outcomes now report the active leaf in `run_ids`
+  while keeping `resumed_hook` or `disposed_hook` tied to the stream that owns
+  the committed resolution event.
+- Made `DriveRun` worker outcomes report the active continuation leaf returned
+  by `FlowEngine::drive` instead of the closed predecessor supplied as the task
+  target. The original target remains available through `FlowTaskOutcome::task`.
+- Made `DriveRun` recover a pending run whose `run_started` append was lost
+  after `run_created`. Replacement workers now persist the missing lifecycle
+  event before invoking workflow code, without consuming the workflow replay
+  budget or extending a terminal stream that won a sequence race.
+- Hardened named-signal replay validation so `signal_wait_completed` cannot
+  skip an older waiting consumer or an older unconsumed delivery of the same
+  signal name. Corrupt or out-of-band histories now fail closed instead of
+  projecting a state that violates the engine's documented FIFO contract.
+- Made targeted scheduler worker outcomes report only wait completions that
+  their task committed. Concurrent `ResumeScheduledRun` tasks still
+  acknowledge and drive the same run, but no longer claim one durable
+  `wait_completed` event twice; the public engine API continues to return the
+  wakeups that were due when handling began.
+- Made Signal worker outcomes reflect the task that actually committed
+  `signal_received`. Matching delivery-ID redelivery still acknowledges the
+  task, follows continue-as-new descendants, and drives interrupted recovery,
+  while sequential or concurrent retries no longer claim the same durable
+  delivery twice. The reported run ID identifies the stream containing the
+  receipt even when signal handling immediately continues as new.
+- Made Hook worker outcomes reflect the task that actually committed
+  `hook_received` or `hook_disposed`. Matching stable-ID redelivery still
+  acknowledges the task and drives interrupted recovery, while concurrent
+  token lookups converge on one reported resolution instead of claiming the
+  same durable event twice.
+- Made wait-timer redelivery idempotent after wait completion or run
+  termination. Concurrent compatibility-wide due scans now report only waits
+  whose completion they committed, and workers acknowledge stale
+  `ResumeWait` tasks without falsely reporting a resumed timer. Engine timer
+  and delayed-retry operations now live in a dedicated scheduling module.
+- Hardened local JSONL audit recovery. `LocalFileA3sFlowEventSink` now preserves
+  a complete final record missing its newline, discards only an unterminated
+  malformed tail before the next append, and rejects terminated or interior
+  corruption without extending the damaged log. The event store and audit sink
+  share the same tail-classification and durable-append implementation.
+- Added bounded, typed `WorkflowPatchId` markers to `WorkflowSpec`. Marker sets
+  are sorted and persisted atomically in `run_created`, legacy histories default
+  to no markers, compatible runtimes can replay old and new branches through
+  `WorkflowContext::has_patch_marker`, and idempotent starts reject marker
+  drift.
+- Added bounded continue-as-new history segmentation. A terminal predecessor
+  event persists the generated successor and new input before the engine
+  idempotently creates a fresh run with the exact inherited spec. Drive follows
+  the active leaf, replacement workers repair the cross-stream crash window,
+  root-scoped host controls follow that leaf, cycles and runaway chains fail
+  closed, retention protects complete lineages, and SQLite/PostgreSQL
+  migrations close indexed hooks and wakeups.
+- Added first-class child workflow lifecycle and cancellation propagation.
+  Parent-first request events persist generated child identity, exact spec/input,
+  and `RequestCancellation` or `Abandon` policy; replacement workers repair
+  child-creation and parent-resolution crash windows, follow child
+  continue-as-new chains to their terminal leaf, reject drift/cycles/runaway
+  nesting, and retain complete child/continuation ownership components.
+- Added first-class durable named workflow signals. Immutable specs declare
+  accepted names; caller-owned delivery IDs queue before or after stable waits,
+  pair in FIFO order, survive replacement workers and continue-as-new recovery,
+  expose typed payload and inspection APIs, and remain explicitly
+  host-authorized.
+- Added native workflow app DSL and extracted graph import. The public model retains
+  unknown vendor fields, classifies DSL version compatibility, validates
+  deterministic top-level and iteration/loop scopes before execution, and
+  derives a semantic digest that ignores canvas layout.
+- Added programmatic DAG constructors so authoritative host formats can reuse
+  the same structural compiler without serializing through another parser.
+- Defined the ownership boundary explicitly: Flow owns workflow syntax and generic
+  DAG invariants; hosts own node implementations, capabilities, credentials,
+  tenancy, and publication policy.
+
+## 0.13.1 - 2026-08-15
+
+- Release note: `0.13.0` was not published to crates.io or GitHub Releases
+  after its release workflow stopped at package verification. `0.13.1`
+  supersedes that unpublished tag and contains the changes below.
+- Isolated package verification in a dedicated clean release job so it cannot
+  inherit workspace state or resource pressure from the full release test
+  matrix.
+- Added the installable `a3s-flow-native-compiler` with closed capabilities,
+  dependency-manifest, and compile commands backed by Bun. The compiler builds
+  standalone workflow/step artifacts, reports its exact Bun content identity,
+  derives dependencies from Bun's metafile, includes applicable package, lock,
+  Bun, and TypeScript configuration files, and supervises Bun so cancellation
+  terminates and reaps the descendant process. A separate liveness guard cleans
+  compiler bootstrap/metafile workspaces after normal completion or abrupt
+  wrapper termination.
+- Added opt-in `NativeTsDependencyMode::CompilerManifest`. Flow validates a
+  bounded, versioned, strictly sorted dependency manifest; canonicalizes every
+  file under the working directory; hashes the complete logical source graph;
+  and binds the local artifact key to the compiler-owned backend identity. Cold
+  compilation rescans the manifest and rejects dependency-set, content, or
+  compiler-identity drift before atomic publication. The default
+  `EntrypointOnly` policy preserves existing compiler compatibility.
+- Fixed Windows native artifacts to use the required `.exe` filename and moved
+  64 KiB async fingerprint buffers to the heap. This prevents stack overflow on
+  small current-thread runtime stacks while retaining bounded streaming and is
+  guarded by a preflight-future size regression.
+- Added an opt-in real Bun preflight/cache/execution integration test, automated
+  it on Linux and Windows CI, and made it a release prerequisite. Also added
+  compiler/backend protocol tests, unsafe manifest-path validation,
+  imported-source cache invalidation, post-compile drift regressions,
+  Linux-target compile checking, and released-API SemVer checks.
+
+## 0.12.0 - 2026-08-10
+
+- Aligned optional task management with `a3s-boot` 0.2.0 and SQLite/PostgreSQL
+  persistence with `a3s-orm` 0.3.0.
+- Raised the crate version to 0.12.0 for the dependency compatibility boundary.
+
+## 0.11.0 - 2026-08-09
+
+- Added typed `RuntimeBuildId` pinning to `WorkflowSpec` and strict
+  `RuntimeBuildCompatibility` admission on every path that can replay workflow
+  code. Unconfigured engines accept only legacy unpinned histories; configured
+  engines require the current or an explicitly compatible build and reject
+  unpinned histories unless a bounded migration enables them.
+- Added exact-build task dispatch through `RuntimeBuildTaskRouter`. Scheduler
+  ticks resolve each run's persisted build, preflight every route before the
+  first enqueue, and fail closed on ordinary queues instead of sending pinned
+  work to an arbitrary worker. `BootFlowTaskManager` advertises the
+  compatibility set of its engine.
+- Preserved recovery semantics across bad routing: an incompatible worker
+  appends no history and does not acknowledge its lease, allowing a compatible
+  worker to reclaim and complete the same task. Added coverage for legacy
+  deserialization, admission, multi-build scheduling, missing-route atomic
+  preflight, direct target validation, Boot compatibility, and requeue
+  recovery.
+
+## 0.10.16 - 2026-08-09
+
+- Made run/hook-identified resume and disposal safe for durable Outbox
+  redelivery. Repeating the same payload or disposal now succeeds without
+  appending another resolution event, including after terminal completion and
+  after a resolution event commits before workflow drive acknowledgement.
+- Added typed `HookConflict` failures for payload drift and opposite terminal
+  resolutions. A received hook cannot be reported as disposed, and a disposed
+  or cancelled hook cannot accept a late direct resume.
+- Added focused crash, concurrent-delivery, payload-drift, terminal-redelivery,
+  and resolution-race coverage. Public token lookup remains intentionally
+  active-only; durable consumers retain stable run and hook identities.
+
+## 0.10.15 - 2026-08-08
+
+- Stream Native TypeScript entrypoints through bounded 64 KiB buffers while
+  deriving both the public source hash and the publication snapshot
+  fingerprint, avoiding source-size-proportional memory during preflight.
+- Standardize stable hash length prefixes as little-endian `u64` values. This
+  preserves existing 64-bit source and cache hashes while making the identity
+  format consistent on 32-bit targets, with a fixed golden source-hash test.
+- Define `WorkflowSpec.version` as the deployment revision for imported files,
+  compiler configuration, lockfiles, generated inputs, and other inputs outside
+  the configured entrypoint. Added an end-to-end cache test proving that such
+  changes select a new artifact after an explicit version bump.
+
+## 0.10.14 - 2026-08-08
+
+- Bind every cold Native TypeScript compilation to a stable entrypoint source
+  snapshot. Flow now fingerprints a metadata-stable read before deriving the
+  cache key and verifies the same content and stable file metadata after the
+  compiler exits.
+- Reject source replacements observed during compilation and remove the
+  temporary output instead of publishing an artifact built from changed source
+  under the previous source hash.
+
+## 0.10.13 - 2026-08-08
+
+- Added persistent integrity manifests for Native TypeScript cache entries.
+  Cache hits now require a regular executable whose length, content
+  fingerprint, and cache identity match the atomically published manifest;
+  damaged files, malformed manifests, and removed execution permissions trigger
+  a cold recompile before reuse.
+- Publish each executable and manifest as one atomically renamed cache-entry
+  directory, quarantine invalid entries during repair, and converge concurrent
+  repair attempts on one valid entry. Compiler and artifact fingerprints stream
+  through bounded buffers and are memoized against stable file metadata.
+
+## 0.10.12 - 2026-08-08
+
+- Fingerprint the resolved Native TypeScript compiler executable as part of the
+  artifact cache identity. Replacing compiler contents at the same configured
+  path now triggers a cold compile instead of reusing output from the previous
+  compiler revision, while the public source hash remains portable.
+- Memoize compiler content fingerprints against stable file metadata and
+  resolve bare compiler commands through `PATH`, preserving hot-cache replay
+  performance while detecting in-place upgrades in long-running hosts.
+
+## 0.10.11 - 2026-08-08
+
+- Added opt-in cold-compilation and per-invocation timeouts through
+  `NativeTsRuntime::with_compile_timeout` and
+  `NativeTsRuntime::with_invocation_timeout`. Timeout failures terminate and
+  reap the direct child, and cold-compile failures remove partial artifacts.
+- Made runtime request writes concurrent with stdout/stderr reads and process
+  waiting. The invocation timeout now covers the complete stdin request,
+  bounded output capture, and child exit, including artifacts that never read
+  enough stdin to let the host finish writing.
+
+## 0.10.10 - 2026-08-08
+
+- Bounded stdout and stderr capture for Native TypeScript compiler and runtime
+  artifact processes. The defaults cap each stdout pipe at 8 MiB and each
+  stderr pipe at 256 KiB; hosts can override both through
+  `NativeTsRuntime::with_output_limits`.
+- Terminate and reap a direct child as soon as either stream crosses its limit,
+  preventing untrusted compiler or workflow output from growing host memory
+  without bound. Added process-level coverage for all four stream paths and an
+  exact-boundary regression.
+
+## 0.10.9 - 2026-08-08
+
+- Tied Native TypeScript compiler and runtime artifact processes to their
+  owning async futures. Boot timeouts, lease loss, host shutdown, or caller
+  cancellation now terminate the direct child instead of leaving it running.
+- Added cancellation-safe cleanup for partially written temporary compile
+  artifacts and process-level regressions that abort both preflight and runtime
+  invocation futures, prove child termination, and verify cache cleanup.
+
+## 0.10.8 - 2026-08-08
+
+- Separated the portable Native TypeScript source hash from the local artifact
+  cache identity. Cache paths now also cover the configured compiler command,
+  resolved working directory, absolute entrypoint, runtime protocol, and host
+  OS/architecture.
+- Prevented runtimes that share a cache directory but use different compilers
+  or compile environments from reusing each other's native artifacts. Added a
+  two-compiler regression that proves independent compilation, stable source
+  hashes, distinct artifact paths, and correct runtime invocation.
+
+## 0.10.7 - 2026-08-08
+
+- Prevented concurrent Native TypeScript preflights from treating a partially
+  written compiler output as a cache hit. Each compile now writes a unique
+  same-directory temporary artifact and atomically publishes it only after the
+  compiler succeeds.
+- Removed temporary compiler outputs after failures and publish races, and
+  added a slow-compiler regression proving concurrent preflight, cache reuse,
+  final artifact invocation, and cleanup behavior.
+
+## 0.10.6 - 2026-08-08
+
+- Resolved relative Native TypeScript compiler, cache, and working-directory
+  paths against the host process directory before launching compiler or runtime
+  subprocesses. Entrypoints and artifacts are now passed as absolute paths, so
+  a relative runtime working directory cannot be applied twice by the child.
+- Added end-to-end regression coverage that preflights, caches, and invokes a
+  workflow with relative compiler, cache, and working-directory configuration.
+
+## 0.10.5 - 2026-08-08
+
+- Prevented idempotent start recovery from appending `run_started` after a run
+  was cancelled, failed, or otherwise terminalized between the durable
+  `run_created` event and the original start write.
+- Added fault-injection coverage for a lost `run_started` write followed by
+  immediate cancellation and a later `start_with_id` retry, proving the
+  terminal history remains valid and the workflow runtime is not invoked.
+
+## 0.10.4 - 2026-08-08
+
+- Recovered the crash boundary between a durable final `step_failed` event and
+  its run-level `run_retry_exhausted` event. The next drive now reconstructs
+  the terminal transition before invoking workflow code, without rerunning the
+  failed step or changing its attempt and error.
+- Preserved fail-run ordering when a cancellation request races with recovery
+  after the final step failure, and added fault-injection coverage for both
+  restart paths.
+## 0.10.3 - 2026-08-08
+
+- Hardened event projection so persisted step attempts must advance exactly one
+  number at a time, retry and failure events must match the running attempt,
+  and retry versus terminal failure events must respect the configured attempt
+  budget.
+- Rejected persisted retry events whose `retry_after` shape conflicts with an
+  immediate or delayed policy, as well as unrepresentable persisted retry
+  delays.
+- Required `run_retry_exhausted` to preserve the failed step's error and
+  failure action, preventing corrupt histories from terminating a step that
+  explicitly opted into workflow recovery.
+- Added a focused corrupt-history regression suite for retry projection
+  invariants.
+
+## 0.10.2 - 2026-08-08
+
+- Replaced unchecked retry-delay casts and UTC date addition with validated,
+  checked deadline construction. Single and batch commands now reject delays
+  that cannot produce a UTC deadline before persisting a step or invoking its
+  side effect, preventing negative-delay wraparound and process panics.
+- Preserved lease-age ordering across the full Chrono timestamp range by
+  saturating out-of-nanosecond-range cutoffs for local-file and A3S ORM-backed
+  PostgreSQL queues. Minimum cutoffs retain current leases and maximum cutoffs
+  reclaim them without arithmetic overflow.
+- Added single-step, batch-step, local queue, and real PostgreSQL boundary
+  coverage for extreme retry delays and UTC lease cutoffs.
+
+## 0.10.1 - 2026-08-08
+
+- Hardened `LocalFileFlowTaskQueue` acknowledgements and heartbeats by
+  validating every caller-provided lease ID as a canonical queue-generated
+  fencing-token file name before resolving an inflight path. Absolute paths,
+  parent traversal, path separators, and malformed tokens now return
+  `FlowError::LeaseLost` without moving or deleting any file.
+- Added regression coverage that preserves external files and queue-root files
+  under hostile lease IDs while retaining valid heartbeat rotation and
+  acknowledgement behavior.
+
+## 0.10.0 - 2026-08-08
+
+- Added `FlowTask::ResumeScheduledRun { run_id, now }` and
+  `FlowEngine::resume_scheduled_run(...)` for targeted timer and delayed-retry
+  handling. `FlowScheduler` now groups every due wake-up by run and dispatches
+  one stable task per affected run, including a whole batch of due retry
+  siblings.
+- Removed the second global due-wakeup query from the scheduler-to-worker path.
+  Workers replay only the targeted run, classify its still-due waits and
+  retries in `FlowTaskOutcome`, resume waits, and drive all due retry siblings
+  together. The global `ResumeDueWaits` and `ResumeDueRetries` variants remain
+  supported for queue compatibility.
+- Extended A3S Boot logical deduplication with stable per-run scheduling IDs
+  that ignore the volatile scan timestamp, distinguish different runs, and
+  retain the latest successor while a matching task is active.
+- Added scheduler grouping, targeted-worker isolation, stable JSON protocol,
+  single-query end-to-end, and active Boot successor regression coverage.
+
+## 0.9.0 - 2026-08-07
+
+- Added public `ScheduledWakeup` and `ScheduledWakeupKind` records plus
+  store-level due and next-wakeup queries. Custom, in-memory, and local-file
+  stores retain replay-compatible defaults, while engine and scheduler paths
+  can delegate scheduling discovery to accelerated stores.
+- Added A3S ORM-managed `flow_scheduled_wakeups` projections for SQLite and
+  PostgreSQL. Due waits, delayed retries, and the earliest timed suspension now
+  use indexed, parameterized queries instead of replaying every workflow
+  history; one scheduler tick discovers waits and retries with a single store
+  query.
+- Added checksummed migration backfills and transactional event triggers for
+  wait, retry, cancellation, and terminal lifecycles. Fixed-width UTC
+  nanosecond keys preserve exact deadline ordering, and the PostgreSQL upgrade
+  migration locks legacy writers while reconciling the earlier active-hook
+  projection before installing the new trigger.
+- Added store-delegation coverage, SQLite lifecycle and upgrade tests, and real
+  PostgreSQL legacy-schema, direct-writer, nanosecond-boundary, cancellation,
+  and terminal-cleanup tests.
+
+## 0.8.0 - 2026-08-07
+
+- Added A3S ORM-managed `flow_active_hooks` projections for SQLite and
+  PostgreSQL. Callback-token lookup and active-hook listing now use indexed,
+  parameterized store queries instead of replaying every workflow history.
+- Added checksummed migrations that backfill active hooks from existing event
+  histories and database triggers that keep the projection synchronized for
+  current and rolling-upgrade writers while the append-only event stream
+  remains authoritative.
+- Enforced active callback-token uniqueness inside database transactions.
+  SQLite immediate transactions and PostgreSQL token-scoped advisory locks now
+  return typed `HookTokenConflict` errors under concurrent writers; defensive
+  triggers reject legacy-writer races without leaking the bearer token.
+- Added SQLite migration, scalar-metadata, lifecycle, and two-connection race
+  tests, a store-query delegation test, and real PostgreSQL concurrency and
+  legacy-trigger coverage, including large bearer tokens through a PostgreSQL
+  equality hash index.
+
+## 0.7.1 - 2026-08-07
+
+- Redacted callback bearer tokens from both `Display` and `Debug` diagnostics
+  for missing-token and active-token-conflict errors while retaining the
+  original values in typed `FlowError` variants for programmatic handling.
+- Redacted the defensive multiple-active-match error used when a corrupted or
+  custom event store violates hook-token uniqueness, and added regression tests
+  for missing, disposed, conflicting, and duplicate-token paths.
+
+## 0.7.0 - 2026-08-07
+
+- Added `BootFlowTaskPolicy` and `BootFlowTaskDeduplication` so a Flow host can
+  map typed retry, execution timeout, stalled-job tolerance, terminal-record
+  cleanup, and logical-target deduplication settings onto every scheduler job.
+- Added `BootFlowTaskManager::job_options_for(...)` and
+  `enqueue_with_options(...)`. Hosts can inspect the generated Boot options or
+  submit the complete `QueueJobOptions` surface, including a caller-assigned job
+  ID, without weakening the scheduler-wide policy boundary.
+- Logical deduplication IDs now ignore volatile scan timestamps and hook
+  payloads, hash callback tokens instead of exposing them in queue metadata,
+  and retain the latest drive or due-scan request while a matching job is
+  active.
+- Added policy, deduplication, explicit-job-ID, and token-redaction regression
+  coverage plus a runnable `boot_task_policy` example.
+
+## 0.6.1 - 2026-08-07
+
+- Made `InMemoryEventStore` and `LocalFileEventStore` reject a
+  `ChildOperationLinked.flow_run_id` unless that same-store Flow run already
+  exists, matching the SQLite and PostgreSQL append contract for both ordinary
+  and expected-sequence writes.
+- Extended the backend-independent retention planner to local JSONL history.
+  Local cleanup now preserves a terminal child while any connected parent or
+  child is non-terminal or recent, and removes the component only when every
+  linked history is eligible.
+- Added focused reference-integrity and linked local-retention regression tests
+  and expanded the runnable `local_retention` example.
+
+## 0.6.0 - 2026-08-07
+
+- Added audit-safe whole-history retention to `SqliteEventStore`, including
+  durable holds, explicit run scopes, parent-child component protection,
+  SHA-256 tombstones, run-ID reuse prevention, and atomic rollback when a
+  retention write fails.
+- Added an upgrade-safe A3S ORM migration for existing SQLite event databases
+  and moved retention eligibility into one backend-independent planner shared
+  by SQLite and PostgreSQL.
+- Added SQLite retention tests for restart persistence, cutoff and scope
+  behavior, migration from the 0.5 schema, and transaction rollback, plus a
+  runnable `sqlite_retention` example.
+
+## 0.5.0 - 2026-08-07
+
+- Added cleanup-aware durable cancellation. `request_cancellation` records a
+  durable request, projects `Cancelling`, makes work opened before the request
+  non-actionable, and replays host-owned idempotent cleanup before `RuntimeCommand::Cancel`
+  commits the single terminal outcome. Immediate `force_cancel` and the
+  compatibility `cancel` method remain explicit cleanup-skipping controls.
+- Added durable progress updates and child-operation references through both
+  replay commands and host APIs. Stable identities reject drift and survive
+  process replacement in projected snapshots and Native TypeScript history.
+- Added `WorkflowTerminalOutcome` so generic failure, cancellation, timeout,
+  retry exhaustion, and explicit non-resumable host shutdown remain typed.
+- Added PostgreSQL whole-history retention on A3S ORM transactions. Durable
+  audit holds and connected parent-child runs prevent unsafe deletion; every
+  deletion leaves a SHA-256 tombstone and tombstoned run IDs cannot be reused.
+  Partial event-stream compaction remains intentionally unsupported.
+- Added a real PostgreSQL subprocess fault gate that kills a worker after an
+  idempotent side effect but before step completion, then proves lease expiry,
+  stale-token fencing, reconnect, same-attempt replay, and one logical effect.
+
+- Added the optional `boot` integration and `BootFlowTaskManager`. Flow
+  schedulers now target an enqueue-only dispatcher, while A3S Boot can own
+  processor registration, queue job state, worker lifecycle, and shutdown.
+- Replaced the SQLx storage path with `a3s-orm` executors, transactions, typed
+  row decoding, and checksummed migrations for SQLite and PostgreSQL event
+  stores and the PostgreSQL compatibility task queue. Custom PostgreSQL hosts
+  now inject `PostgresExecutor` through `from_executor(...)` instead of an SQLx
+  pool.
+- Added renewable task leases with rotating fencing tokens across the in-memory,
+  local-file, and PostgreSQL queues. Heartbeats refresh lease age, stale
+  acknowledgements now return `FlowError::LeaseLost`, and configured workers
+  drop in-progress handling futures when a heartbeat detects lease loss.
+- Added PostgreSQL competing-worker and stale-completion coverage to prove that
+  `FOR UPDATE SKIP LOCKED` leases distinct tasks and an expired worker cannot
+  acknowledge a task after it has been reclaimed.
+
+## 0.4.3 - 2026-07-22
+
+- Recover a local JSONL history after a process dies during its final append.
+  A complete final envelope that only lacks its newline is preserved, while an
+  unterminated malformed tail is ignored on read and truncated before the next
+  append. Corruption in a newline-terminated record still fails closed. Event
+  envelopes and their newline are now submitted as one buffered append before
+  flush and data sync.
+- Run `ScheduleSteps` siblings concurrently after all step identities and
+  attempts are durably recorded. Each outcome is committed as its sibling
+  settles, so completed work survives another sibling hanging or a process
+  interruption. Immediate retries fan out again, delayed retries remain
+  resumable as one durable sibling set, and dropping the drive future aborts
+  its in-process sibling tasks without weakening at-least-once restart
+  recovery. A retry whose deadline is due now runs immediately even when a
+  sibling has a later deadline; the future sibling remains suspended and is
+  neither executed early nor joined into the due attempt set.
+
+## 0.4.2 - 2026-07-15
+
+- Redeliver a running step after engine restart when its side effect may have
+  completed before `StepCompleted` was persisted. Recovery reuses the same
+  attempt number, preserving retry budgets and explicit at-least-once semantics.
+- Reject no-progress replay commands that reschedule an already completed or
+  failed step. A single terminal step, or a batch containing only terminal
+  steps, now returns an immediate invalid-transition error instead of replaying
+  unchanged history up to the iteration limit. Partially completed durable
+  batches can still schedule their unfinished steps.
+
+## 0.4.1 - 2026-07-06
+
+- Added the optional `a3s-event` feature.
+- Added `A3sEventBusFlowEventSink` for publishing committed Flow events through
+  A3S Event providers while keeping Flow event storage authoritative.
+- Documented A3S Event integration in the README and cookbook.
+- Added coverage that publishes Flow events into an `a3s_event::EventBus` backed
+  by the in-memory provider.
+
+## 0.4.0 - 2026-07-06
+
+This release promotes A3S Flow into the durable Rust workflow SDK for A3S.
+
+Highlights:
+
+- Added an event-sourced workflow engine with deterministic replay, durable
+  step outputs, waits, hooks, retries, cancellation, and compensation-friendly
+  run history.
+- Added local JSONL, SQLite, and Postgres event stores, plus local and Postgres
+  task queues for worker-based execution.
+- Added scheduler and worker helpers for suspended runs, task leasing,
+  wake-up delay calculation, and recovery after host restarts.
+- Added run inspection APIs for summaries, open suspensions, next wake-up time,
+  active hooks, and event history.
+- Added typed serde helpers for step payloads, workflow input, workflow output,
+  and hook metadata.
+- Added a native TypeScript authoring contract, runtime bridge, preflight
+  validation, and runnable TypeScript workflow examples.
+- Added observability primitives, fan-out observers, bridge observers, and a
+  local audit log example.
