@@ -8,6 +8,8 @@
   on mixed-version negotiation and stale/forged lease acknowledgements, and
   verifies tip-pinned archive export for a 10_000-event history. TypeScript
   consumes the same fixtures via `packages/ui/tests/protocol-fixtures.test.ts`.
+  Operators can run `just certification` and follow the cookbook certification
+  gates section.
 
 - Added opaque processor-partition fairness through
   `FlowTaskQueue::enqueue_for_partition`, `FlowTaskQueue::partition_fairness`,

@@ -19,6 +19,11 @@ diff-check:
 test:
     cargo test --all-targets
 
+# Run FLOW-R6 certification harness and TypeScript protocol fixture parity
+certification:
+    cargo test --test certification
+    node packages/ui/node_modules/vitest/vitest.mjs run packages/ui/tests/protocol-fixtures.test.ts
+
 # Type-check the crate
 check:
     cargo check --all-targets
