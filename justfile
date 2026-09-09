@@ -25,8 +25,12 @@ certification:
     cargo test --test pre_v1_history
     node packages/ui/node_modules/vitest/vitest.mjs run packages/ui/tests/protocol-fixtures.test.ts
 
-# Certification plus local package verification (no CI required)
-release-certification: certification package-dry-run
+# Certification plus local package and advisory verification (no CI required)
+release-certification: certification package-dry-run advisory-check
+
+# Verify the bounded advisory exception remains inactive
+advisory-check:
+    pwsh -NoProfile -File ./.github/scripts/check-advisory-reachability.ps1
 
 # Type-check the crate
 check:

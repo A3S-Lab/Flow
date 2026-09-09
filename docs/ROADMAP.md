@@ -223,8 +223,8 @@ tokens at the append boundary. TypeScript consumes the same fixtures in
 `tests/fixtures/pre_v1/` are exercised by the certification recipe via
 `cargo test --test pre_v1_history`. Operators can also run
 `just release-certification` to include local `cargo package --locked`
-verification. Full real-provider chaos and security automation gates remain
-open certification work.
+verification and the bounded advisory reachability check. Full real-provider
+chaos gates remain open certification work.
 
 ## 4. Implementation rules
 

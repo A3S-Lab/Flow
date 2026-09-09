@@ -1448,7 +1448,8 @@ export for a 10_000-event history. The UI package reads the same JSON fixtures
 so TypeScript and Rust share one wire authority. Retained pre-v1 histories under
 `tests/fixtures/pre_v1/` must continue to deserialize and resume on the current
 kernel. `just release-certification` also runs the local
-`cargo package --locked` verification script.
+`cargo package --locked` verification script and the bounded advisory
+reachability check.
 
 When changing wire shapes, regenerate the fixtures and update both the Rust and
 TypeScript consumers in the same change. Host-owned chaos against real Postgres
