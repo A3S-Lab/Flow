@@ -109,6 +109,12 @@ type PlaygroundHeaderProps = {
   onOpenDocument: () => void;
   onValidate: () => void;
   onRunToggle: () => void;
+  hostMode?: boolean;
+  proposalDigest?: string;
+  hostBusy?: boolean;
+  onHostSave?: () => void;
+  onHostApprove?: () => void;
+  onHostAddStep?: () => void;
 };
 
 export function WorkflowPlaygroundHeader({
@@ -130,6 +136,12 @@ export function WorkflowPlaygroundHeader({
   onOpenDocument,
   onValidate,
   onRunToggle,
+  hostMode = false,
+  proposalDigest,
+  hostBusy = false,
+  onHostSave,
+  onHostApprove,
+  onHostAddStep,
 }: PlaygroundHeaderProps) {
   const menuRef = useDismissibleDetails();
 
@@ -143,14 +155,80 @@ export function WorkflowPlaygroundHeader({
         <div>
           <strong>{workflowName}</strong>
           <small>
-            <span>{copy.localDraft}</span>
+            <span>
+              {hostMode
+                ? locale === 'zh'
+                  ? '宿主权威'
+                  : 'Host authority'
+                : copy.localDraft}
+            </span>
             <i />
-            <em>{saveState === 'saving' ? copy.saving : copy.saved}</em>
+            <em>
+              {hostMode
+                ? proposalDigest
+                  ? String(proposalDigest).slice(0, 18)
+                  : locale === 'zh'
+                    ? '加载中'
+                    : 'loading'
+                : saveState === 'saving'
+                  ? copy.saving
+                  : copy.saved}
+            </em>
           </small>
         </div>
       </div>
 
       <div className="a3s-workflow-header__actions">
+        {hostMode && proposalDigest ? (
+          <code
+            aria-label="proposal_digest"
+            data-testid="host-proposal-digest"
+            title={String(proposalDigest)}
+            style={{
+              fontSize: 12,
+              maxWidth: 220,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {String(proposalDigest)}
+          </code>
+        ) : null}
+        {hostMode && onHostSave ? (
+          <button
+            className="is-primary"
+            data-testid="host-save"
+            disabled={hostBusy || running}
+            onClick={onHostSave}
+            type="button"
+          >
+            <NotePencil aria-hidden="true" />
+            <span>{locale === 'zh' ? '保存到宿主' : 'Save to host'}</span>
+          </button>
+        ) : null}
+        {hostMode && onHostApprove ? (
+          <button
+            data-testid="host-approve"
+            disabled={hostBusy || running}
+            onClick={onHostApprove}
+            type="button"
+          >
+            <CheckCircle aria-hidden="true" weight="fill" />
+            <span>{locale === 'zh' ? '批准' : 'Approve'}</span>
+          </button>
+        ) : null}
+        {hostMode && onHostAddStep ? (
+          <button
+            data-testid="host-add-step"
+            disabled={hostBusy || running}
+            onClick={onHostAddStep}
+            type="button"
+          >
+            <Plus aria-hidden="true" />
+            <span>{locale === 'zh' ? '新增步骤' : 'Add step'}</span>
+          </button>
+        ) : null}
         <label className="a3s-workflow-version">
           <span className="a3s-visually-hidden">{copy.version}</span>
           <select
@@ -185,18 +263,20 @@ export function WorkflowPlaygroundHeader({
           )}
           <span>{copy.validate}</span>
         </button>
-        <button
-          className={running ? 'is-stop' : 'is-primary'}
-          onClick={onRunToggle}
-          type="button"
-        >
-          {running ? (
-            <Stop aria-hidden="true" weight="fill" />
-          ) : (
-            <Play aria-hidden="true" weight="fill" />
-          )}
-          <span>{running ? copy.stop : copy.run}</span>
-        </button>
+        {!hostMode ? (
+          <button
+            className={running ? 'is-stop' : 'is-primary'}
+            onClick={onRunToggle}
+            type="button"
+          >
+            {running ? (
+              <Stop aria-hidden="true" weight="fill" />
+            ) : (
+              <Play aria-hidden="true" weight="fill" />
+            )}
+            <span>{running ? copy.stop : copy.run}</span>
+          </button>
+        ) : null}
         <details className="a3s-workflow-header__menu" ref={menuRef}>
           <summary aria-label={copy.moreActions} title={copy.moreActions}>
             <DotsThree aria-hidden="true" weight="bold" />
@@ -210,7 +290,7 @@ export function WorkflowPlaygroundHeader({
               <span>{copy.openDocument}</span>
             </button>
             <button
-              disabled={running}
+              disabled={running || hostMode}
               onClick={(event) => runMenuAction(event, onReset)}
               type="button"
             >

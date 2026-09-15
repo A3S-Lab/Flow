@@ -15,6 +15,11 @@ import {
 import { workflowExamplesCopy } from './WorkflowPlayground.examples.copy';
 import { WorkflowPlaygroundExamples } from './WorkflowPlaygroundExamples';
 import { createPlaygroundNodeCatalog } from './WorkflowPlayground.custom-nodes';
+import {
+  createHostInjectedExample,
+  readHostModeConfig,
+  type HostModeConfig,
+} from './WorkflowPlayground.host';
 import { pageHref, playgroundHref } from './WorkflowPlayground.routes';
 import { flowNodeGroups, type FlowWebsiteLocale } from './flow-node-catalog';
 
@@ -89,6 +94,7 @@ export type WorkflowPlaygroundSurfaceProps = {
   backHref: string;
   catalog: A3SFlowDagNodeCatalog;
   example: WorkflowExampleDefinition;
+  hostMode?: HostModeConfig | null;
 };
 
 type WorkflowPlaygroundRouteProps = {
@@ -109,12 +115,31 @@ export function WorkflowPlaygroundRoute({
   const defaultVersion = site.multiVersion.default ?? version;
   const versions = site.multiVersion.versions ?? [version];
   const search = usePlaygroundSearch();
+  let hostMode: HostModeConfig | null = null;
+  let hostModeError: string | null = null;
+  try {
+    hostMode = readHostModeConfig(search);
+  } catch (error) {
+    hostModeError =
+      error instanceof Error ? error.message : 'INVALID_INPUT: host mode';
+  }
   const requestedExampleId = new URLSearchParams(search).get('example');
-  const selectedExample = findWorkflowExample(examples, requestedExampleId);
+  const selectedExample = hostMode
+    ? createHostInjectedExample(locale)
+    : findWorkflowExample(examples, requestedExampleId);
   const examplesHref = playgroundHref(locale, version, defaultVersion);
 
   if (import.meta.env.SSG_MD) {
     return <MarkdownPlayground examples={examples} locale={locale} />;
+  }
+
+  if (hostModeError) {
+    return (
+      <main data-flow-playground="" data-testid="host-mode-error">
+        <h1>{locale === 'zh' ? '宿主模式失败' : 'Host mode failed'}</h1>
+        <p>{hostModeError}</p>
+      </main>
+    );
   }
 
   if (!selectedExample) {
@@ -157,11 +182,14 @@ export function WorkflowPlaygroundRoute({
   }
 
   return (
-    <ReactFlowProvider key={`${locale}:${selectedExample.id}`}>
+    <ReactFlowProvider
+      key={`${locale}:${selectedExample.id}:${hostMode?.runId ?? 'local'}`}
+    >
       <Surface
         backHref={examplesHref}
         catalog={catalog}
         example={selectedExample}
+        hostMode={hostMode}
       />
     </ReactFlowProvider>
   );
