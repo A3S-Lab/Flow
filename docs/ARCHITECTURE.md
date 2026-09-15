@@ -510,6 +510,31 @@ for programmatic routing, while `Display` and `Debug` diagnostics redact it.
 In-memory, local-file, and custom stores default to replay; the SQLite and
 PostgreSQL adapters answer from an A3S ORM-managed indexed projection.
 
+### Same-run replan around active hooks
+
+Hosts that revise a proposal or schedule another planning step inside one run
+must compose around these command rules rather than expecting in-place mutation:
+
+- Ordinary `drive` short-circuits while any hook is `Active` and does not call
+  `run_workflow` unless the caller forces one replay after an update. Dispose
+  or receive the open hook before expecting new durable commands.
+- Replaying `CreateHook` for an active hook requires the same token and
+  metadata as history. Preview-only fields therefore cannot be updated through
+  a second `CreateHook` on that identity.
+- `CreateHook` against a hook that is already `Received` or `Disposed` does
+  not reopen that id. Allocate a new stable hook id (for example
+  `approval.r{n}`) after disposal.
+- Terminal steps cannot be rescheduled under the same id without progress.
+  Later planning passes need a new step id (for example
+  `plan.r{edit_revision}`).
+- `hook_payload(hook_id)` returns the first durable `HookReceived` payload for
+  that id. Live edited proposals belong on a host-owned authority surface, not
+  on the original hook payload alone.
+
+Flow does not currently ship a first-class same-run replan helper; host
+composition is the supported path. See the signals-and-hooks guide for the
+recommended pattern.
+
 Scheduled discovery follows the same compatible store boundary.
 `FlowEventStore::list_due_wakeups()` and `next_scheduled_wakeup()` replay all
 histories by default, while SQLite and PostgreSQL answer from an indexed

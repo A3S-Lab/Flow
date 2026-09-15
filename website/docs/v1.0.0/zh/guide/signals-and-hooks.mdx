@@ -151,6 +151,29 @@ if ctx.hook_disposed("approval") {
 
 重复撤回同一个 Hook 是幂等的。已经接收载荷的 Hook 不能再撤回，撤回后的令牌也不能接受迟到回调。
 
+## 同一 run 内再编排（宿主模式）
+
+宿主有时需要在审批 Hook 仍打开时，于**同一 run** 内修订 proposal，或再调度一轮规划 Step。Flow **不提供**「就地改 Hook / 复用同一 Step」的一等 API；耐久命令模型保持严格，宿主在外围组合。
+
+此处相关的引擎不变量：
+
+| 事实 | 后果 |
+| ---- | ---- |
+| 只要存在 **Active** Hook，普通 `drive` 只返回当前快照，**不会**调用 `run_workflow`（除非调用方在 update 后强制一次重放）。 | 在 Active Hook 被接收或撤回之前，无法追加新的 Step 或 Hook。 |
+| 对 **Active** Hook 重放 `CreateHook` 时，token 与 metadata 必须与历史逐字节一致。 | 预览或仅 UI 字段不能靠对同一 id 再发不同的 `CreateHook`「更新」。 |
+| Hook 已是 **Received** 或 **Disposed** 时，对该 id 的 `CreateHook` 是空操作（`continue`）。 | 已撤回的 `approval` 不能再打开；应分配新的稳定 id，例如 `approval.r{n}`。 |
+| 已达终态的 Step 不能在无 progress 的情况下用同一 id 重新调度。 | 后续规划轮次使用新的 step id，例如 `plan.r{edit_revision}`。 |
+| `hook_payload(hook_id)` 取该 id 的**第一条**耐久 `HookReceived` 载荷。 | 不要把原始 hook 载荷当作可编辑的实时 proposal。编辑权威应落在宿主自有面（ledger overlay、proposal 查询等）。 |
+
+推荐的同一 run 再编排组合方式：
+
+1. 结构编辑不要走 resume。Resume 仍表示「用业务载荷完成该 Hook」，不是「修补 proposal 元数据」。
+2. 若不需要新的工作流命令，把编辑后的 proposal 存在宿主状态，并保持现有 Active Hook 继续等待。
+3. 需要新规划 Step 时：先 `dispose_hook` 当前 Active 审批（让 `drive` 能再次调用 `run_workflow`），再调度**新的** plan step id，然后用**新的**审批 id 与 token 调用 `CreateHook`。
+4. 权威 proposal 由宿主 API 从最新 plan step 输出加上宿主 overlay 重建——不要只依赖第一次 hook 载荷。
+
+该模式**不会**放宽引擎不变量。若日后提供一等「同 run 再编排」辅助 API，也只会是同一规则上的可选语法糖。
+
 ## 上线前检查
 
 - `WorkflowSpec` 明确列出每个允许的信号名。
@@ -158,6 +181,7 @@ if ctx.hook_disposed("approval") {
 - 等待 ID、Hook ID 和令牌在重放时保持不变。
 - 回调处理器先完成签名校验和授权，再调用 Flow。
 - 可靠消费者保存运行 ID 与 Hook ID，用于确认结果不明时的重投。
+- 同一 run 再编排时先撤回 Active 审批，并分配新的 step/hook 身份；编辑权威留在宿主 proposal 面。
 - 监控活动 Hook 数量、最早创建时间、冲突数和无法解析的令牌。
 
 完整程序可运行 `cargo run --example workflow_signals`、`cargo run --example hook_approval` 和 `cargo run --example hook_disposal`。

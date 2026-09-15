@@ -151,6 +151,39 @@ if ctx.hook_disposed("approval") {
 
 Repeated disposal is idempotent. A hook that already received a payload cannot be disposed, and a disposed token cannot accept a late callback.
 
+## Same-run replan (host pattern)
+
+Hosts sometimes need to revise a proposal or schedule another planning step
+**inside the same run** while an approval hook is still open. Flow does not
+offer a first-class “mutate this hook / reuse this step” API for that case.
+The durable command model stays strict; hosts compose around it.
+
+Engine invariants that matter here:
+
+| Fact | Consequence |
+| ---- | ----------- |
+| While any hook is **Active**, ordinary `drive` returns the current snapshot and does **not** call `run_workflow` (unless the caller forces one replay after an update). | New steps or hooks cannot be appended until the active hook is received or disposed. |
+| Replaying `CreateHook` for an **Active** hook requires token and metadata to match history byte-for-byte. | Preview or UI-only fields must not be “updated” by issuing a different `CreateHook` for the same id. |
+| `CreateHook` for a hook that is already **Received** or **Disposed** is a no-op on that id (`continue`). | A disposed `approval` id cannot be reopened; allocate a new stable id such as `approval.r{n}`. |
+| A step that already reached a terminal state cannot be rescheduled under the same id without progress. | Use a new step id such as `plan.r{edit_revision}` for a later planning pass. |
+| `hook_payload(hook_id)` returns the **first** durable `HookReceived` payload for that id. | Do not treat the original hook payload as the live edited proposal. Keep edit authority on a host-owned surface (ledger overlay, proposal query, or equivalent). |
+
+Recommended host composition for same-run replan:
+
+1. Keep structural edits off the resume path. Resume still means “complete this
+   hook with a business payload,” not “patch proposal metadata.”
+2. For soft edits that do not need a new workflow command, store the edited
+   proposal in host state and keep the existing Active hook waiting.
+3. When a new planning step is required: `dispose_hook` the current Active
+   approval (so `drive` can call `run_workflow` again), schedule a **new** plan
+   step id, then `CreateHook` with a **new** approval id and token.
+4. Expose the authoritative proposal through a host API rebuilt from the latest
+   plan-step output plus any host overlay—not from the first hook payload alone.
+
+This pattern does **not** relax engine invariants. A future first-class
+same-run replan helper, if added, would be optional sugar on top of the same
+rules.
+
 ## Production checklist
 
 - Declare every accepted signal name on `WorkflowSpec`.
@@ -158,6 +191,8 @@ Repeated disposal is idempotent. A hook that already received a payload cannot b
 - Keep wait IDs, hook IDs, and tokens unchanged across replay.
 - Authenticate and authorize callbacks before invoking Flow.
 - Retain run and hook IDs for reliable redelivery after token resolution.
+- For same-run replan, dispose the active approval and allocate new step/hook
+  identities; keep edit authority on a host-owned proposal surface.
 - Monitor active hook count, oldest hook age, conflicts, and unresolved tokens.
 
 Run `cargo run --example workflow_signals`, `cargo run --example hook_approval`, and `cargo run --example hook_disposal` for complete programs.

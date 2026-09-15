@@ -1040,6 +1040,27 @@ token, so late callbacks after disposal return `HookTokenNotFound`. Flow keeps
 the original bearer token inside typed lookup/conflict errors for programmatic
 handling, but their `Display` and `Debug` diagnostics always redact it.
 
+### Same-run replan while an approval is open
+
+Do not try to patch an Active hook’s metadata, reopen a disposed hook id, or
+reschedule a terminal plan step under the same identity. Those paths hit the
+replay and transition rules above.
+
+When the host must keep the run and still schedule another planning pass:
+
+1. Keep soft edits in host-owned state while the Active approval continues to
+   wait. Do not send resume just to refresh preview fields.
+2. For a hard replan, dispose the current Active approval so `drive` can call
+   `run_workflow` again.
+3. Schedule a new plan step id (for example `plan.r{edit_revision}`), then
+   create a new approval hook id and token (for example `approval.r{n}`).
+4. Serve the authoritative proposal from host state rebuilt from the latest
+   plan-step output plus any overlay. `hook_payload("approval")` stays pinned
+   to the first `HookReceived` for that id and is not an edit ledger.
+
+This is host composition, not an engine relaxation. See
+`website/docs/v1.0.0/en/guide/signals-and-hooks.mdx` for the full table.
+
 Webhook routers and approval dashboards can inspect outstanding hooks directly:
 
 ```rust
