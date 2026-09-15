@@ -17,6 +17,7 @@ import { WorkflowPlaygroundExamples } from './WorkflowPlaygroundExamples';
 import { createPlaygroundNodeCatalog } from './WorkflowPlayground.custom-nodes';
 import {
   createHostInjectedExample,
+  createHostModeCatalog,
   readHostModeConfig,
   type HostModeConfig,
 } from './WorkflowPlayground.host';
@@ -105,11 +106,6 @@ export function WorkflowPlaygroundRoute({
   surface: Surface,
 }: WorkflowPlaygroundRouteProps) {
   const locale: FlowWebsiteLocale = useLang() === 'en' ? 'en' : 'zh';
-  const catalog = useMemo(() => createPlaygroundNodeCatalog(locale), [locale]);
-  const examples = useMemo(
-    () => createWorkflowExamples(locale, catalog),
-    [catalog, locale],
-  );
   const version = useVersion();
   const { site } = useSite();
   const defaultVersion = site.multiVersion.default ?? version;
@@ -123,6 +119,18 @@ export function WorkflowPlaygroundRoute({
     hostModeError =
       error instanceof Error ? error.message : 'INVALID_INPUT: host mode';
   }
+  const baseCatalog = useMemo(() => createPlaygroundNodeCatalog(locale), [locale]);
+  const catalog = useMemo(
+    () =>
+      hostMode || hostModeError
+        ? createHostModeCatalog(baseCatalog, locale)
+        : baseCatalog,
+    [baseCatalog, hostMode, hostModeError, locale],
+  );
+  const examples = useMemo(
+    () => createWorkflowExamples(locale, catalog),
+    [catalog, locale],
+  );
   const requestedExampleId = new URLSearchParams(search).get('example');
   const selectedExample = hostMode
     ? createHostInjectedExample(locale)

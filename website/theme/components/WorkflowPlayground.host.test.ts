@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ORCHESTRATOR_AGENT_STEP_TYPE,
   applyCanvasNodeEdits,
   canvasDocumentFromProposalDto,
   refuseUninjectedPlayground,
 } from '@a3s-lab/flow-ui';
 import {
   createHostInjectedExample,
+  createHostModeCatalog,
   graphFromHostCanvas,
   hostCanvasFromGraph,
   readHostModeConfig,
@@ -22,7 +24,27 @@ describe('WorkflowPlayground host mode', () => {
       kind: 'app',
       app: { name: 'orchestrator.plan.demo', mode: 'workflow' },
       dependencies: [],
-      workflow: { graph: { nodes: [], edges: [] } },
+      workflow: {
+        graph: {
+          nodes: [
+            { id: 'start', data: { type: 'flow.start' } },
+            {
+              id: 'step-001',
+              data: {
+                type: 'orchestrator.agent_step',
+                agent_id: 'frontend-developer',
+                objective: 'review',
+                version: '1.0.0',
+              },
+            },
+            { id: 'done', data: { type: 'flow.complete' } },
+          ],
+          edges: [
+            { id: 'e1', source: 'start', target: 'step-001' },
+            { id: 'e2', source: 'step-001', target: 'done' },
+          ],
+        },
+      },
     },
     execution_digest: 'deadbeef',
     approval_hook_waiting: true,
@@ -56,8 +78,27 @@ describe('WorkflowPlayground host mode', () => {
     });
   });
 
+  it('renders host flow_dsl via orchestrator preview registry', () => {
+    const catalog = createHostModeCatalog(
+      createPlaygroundNodeCatalog('en'),
+      'en',
+    );
+    expect(catalog.registry.get(ORCHESTRATOR_AGENT_STEP_TYPE)).toBeTruthy();
+    const canvas = canvasDocumentFromProposalDto(dto);
+    const graph = graphFromHostCanvas(canvas, 'en', catalog);
+    const step = graph.nodes.find((node) => node.id === 'step-001');
+    expect(step?.data.dagNode.data.type).toBe(ORCHESTRATOR_AGENT_STEP_TYPE);
+    expect(step?.data.hostPreviewType).toBe('orchestrator.agent_step');
+    expect(step?.data.hostPlanStep).toMatchObject({ step_id: 'step-001' });
+    expect(step?.data.hostExecutionDigest).toBe('deadbeef');
+    expect(graph.edges.map((edge) => edge.id)).toEqual(['e1', 'e2']);
+  });
+
   it('seeds a plan-authority graph and round-trips edits', () => {
-    const catalog = createPlaygroundNodeCatalog('en');
+    const catalog = createHostModeCatalog(
+      createPlaygroundNodeCatalog('en'),
+      'en',
+    );
     const canvas = canvasDocumentFromProposalDto(dto);
     const graph = graphFromHostCanvas(canvas, 'en', catalog);
     expect(graph.nodes.some((node) => node.id === 'step-001')).toBe(true);

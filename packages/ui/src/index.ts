@@ -8,5 +8,6 @@ export * from './integrations/a3s-flow-node-manifest';
 export * from './integrations/a3s-flow-validation';
 export * from './integrations/host-canvas';
 export * from './integrations/host-client';
+export * from './integrations/orchestrator-host-preview';
 export * from './integrations/workflow-node-form';
 export * from './integrations/workflow-node-manifest';

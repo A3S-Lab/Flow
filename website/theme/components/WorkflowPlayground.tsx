@@ -883,7 +883,11 @@ function WorkflowPlaygroundSurface({
         saveState={saveState}
         version={version}
         versions={versions}
-        workflowName={example.title}
+        workflowName={
+          hostMode && hostCanvas?.preview_only?.execution_digest
+            ? `${example.title} · ${String(hostCanvas.preview_only.execution_digest).slice(0, 12)}`
+            : example.title
+        }
       />
       {hostLoadError ? (
         <p data-testid="host-load-error" role="alert">
