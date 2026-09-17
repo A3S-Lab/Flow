@@ -251,7 +251,9 @@ targets when `A3S_FLOW_POSTGRES_URL` is configured under `--release` with
 test process). Real-provider chaos gates live in `tests/postgres_chaos.rs` and
 run through `just postgres-certification` (concurrent writers, exclusive hook
 claims, lease fencing, competing workers, idempotent dead-letter redrive, and
-backend-disconnect reconnect without history rewrite).
+backend-disconnect reconnect without history rewrite). Offline SQLite mirrors
+the concurrent-writer one-winner gate in `tests/sqlite_chaos.rs`
+(`sqlite_chaos_concurrent_writers_have_one_winner`).
 
 ## 4. Implementation rules
 
