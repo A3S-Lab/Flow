@@ -354,6 +354,55 @@ impl FlowEventStore for CrashBeforeActivityUnknownStore {
     }
 }
 
+struct CrashBeforeActivityHeartbeatStore {
+    inner: InMemoryEventStore,
+    armed: AtomicBool,
+}
+
+impl CrashBeforeActivityHeartbeatStore {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryEventStore::new(),
+            armed: AtomicBool::new(true),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowEventStore for CrashBeforeActivityHeartbeatStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        if matches!(
+            &event,
+            FlowEvent::ActivityHeartbeat { activity_id, .. } if activity_id == "durable-effect"
+        ) && self.armed.swap(false, Ordering::SeqCst)
+        {
+            return Err(FlowError::Store(
+                "injected crash before activity heartbeat became durable".into(),
+            ));
+        }
+        self.inner
+            .append_if_sequence(run_id, expected_sequence, event)
+            .await
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
 #[derive(Default)]
 struct DurableEffectRuntime {
     effect_invocations: AtomicUsize,
@@ -770,6 +819,107 @@ async fn heartbeat_checkpoint_survives_completion_persistence_loss_and_redeliver
         history
             .iter()
             .filter(|event| matches!(event.event, FlowEvent::ActivityCompleted { .. }))
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn lost_activity_heartbeat_append_does_not_invent_checkpoint_and_retry_succeeds() {
+    let run_id = "activity-heartbeat-append-crash";
+    let store = Arc::new(CrashBeforeActivityHeartbeatStore::new());
+    let runtime = Arc::new(HeartbeatThenCrashActivityRuntime {
+        started: Arc::new(Notify::new()),
+        release: Arc::new(Notify::new()),
+        redelivered: Arc::new(Notify::new()),
+        release_redelivery: Arc::new(Notify::new()),
+        effect_invocations: AtomicUsize::new(0),
+    });
+    let engine = Arc::new(FlowEngine::new(store.clone(), runtime.clone()));
+    let task_engine = Arc::clone(&engine);
+    let drive = tokio::spawn(async move {
+        task_engine
+            .start_with_id(run_id, workflow_spec(), json!({}))
+            .await
+    });
+
+    runtime.started.notified().await;
+    let running = engine.snapshot(run_id).await.expect("running snapshot");
+    let activity = running.activities.get("durable-effect").unwrap();
+    let fence = activity.fencing_token.clone();
+    let attempt_id = activity.attempt_id.clone();
+
+    let lost = engine
+        .heartbeat_activity(
+            run_id,
+            "durable-effect",
+            activity.attempt,
+            &attempt_id,
+            &fence,
+            Some(json!({ "cursor": 7 })),
+        )
+        .await
+        .expect_err("first heartbeat append must fail closed");
+    assert!(matches!(lost, FlowError::Store(_)));
+    let after_loss = engine.snapshot(run_id).await.expect("post-loss snapshot");
+    assert_eq!(
+        after_loss.activities["durable-effect"].status,
+        ActivityStatus::Running
+    );
+    assert_eq!(
+        after_loss.activities["durable-effect"].checkpoint, None,
+        "a lost heartbeat append must not invent durable checkpoint state"
+    );
+    assert_eq!(after_loss.activities["durable-effect"].fencing_token, fence);
+    assert_eq!(
+        store
+            .list(run_id)
+            .await
+            .expect("history")
+            .iter()
+            .filter(|event| matches!(event.event, FlowEvent::ActivityHeartbeat { .. }))
+            .count(),
+        0
+    );
+
+    engine
+        .heartbeat_activity(
+            run_id,
+            "durable-effect",
+            activity.attempt,
+            &attempt_id,
+            &fence,
+            Some(json!({ "cursor": 7 })),
+        )
+        .await
+        .expect("identical heartbeat retry must become durable");
+    let after_retry = engine.snapshot(run_id).await.expect("post-retry snapshot");
+    assert_eq!(
+        after_retry.activities["durable-effect"].checkpoint,
+        Some(json!({ "cursor": 7 }))
+    );
+    assert_eq!(after_retry.activities["durable-effect"].fencing_token, fence);
+
+    runtime.release.notify_one();
+    drive
+        .await
+        .unwrap()
+        .expect("activity must complete after durable heartbeat retry");
+    let completed = engine.snapshot(run_id).await.expect("completed snapshot");
+    assert_eq!(completed.status, WorkflowRunStatus::Completed);
+    assert_eq!(completed.activities["durable-effect"].attempt, 1);
+    assert_eq!(
+        completed.activities["durable-effect"].attempt_id,
+        attempt_id
+    );
+    assert_eq!(runtime.effect_invocations.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        store
+            .list(run_id)
+            .await
+            .expect("history")
+            .iter()
+            .filter(|event| matches!(event.event, FlowEvent::ActivityHeartbeat { .. }))
             .count(),
         1
     );

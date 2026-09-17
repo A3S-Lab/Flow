@@ -85,7 +85,10 @@ into Flow. Kernel evidence for kill/disconnect at Activity create→start, heart
 checkpoint, unknown-outcome, and completion boundaries is covered by
 `tests/crash_recovery.rs` (in-memory persistence loss) and
 `tests/postgres_process_recovery.rs` (real PostgreSQL process death on both
-Step and Activity completion boundaries).
+Step and Activity completion boundaries). In-memory evidence now also covers
+the ActivityHeartbeat append boundary: a lost first heartbeat invents no
+checkpoint, and an identical same-fence retry becomes durable
+(`lost_activity_heartbeat_append_does_not_invent_checkpoint_and_retry_succeeds`).
 
 All built-in stores also enforce `MAX_FLOW_EVENT_BYTES` (currently one MiB) at
 the validated append boundary; oversized payloads fail closed before mutation.
