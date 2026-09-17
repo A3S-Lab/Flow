@@ -1,3 +1,5 @@
+#[cfg(feature = "postgres")]
+use a3s_flow::PostgresEventStore;
 #[cfg(feature = "sqlite")]
 use a3s_flow::SqliteEventStore;
 use a3s_flow::{
@@ -227,6 +229,39 @@ async fn sqlite_append_advances_projection_cache_atomically() {
 
     let checkpoint = store
         .load_checkpoint("sqlite-append-cache")
+        .await
+        .unwrap()
+        .expect("SQL append should persist the projection cache");
+    assert_eq!(checkpoint.last_sequence, 3);
+    assert!(checkpoint.snapshot.waits.contains_key("pause"));
+}
+
+#[cfg(feature = "postgres")]
+#[tokio::test]
+async fn postgres_append_advances_projection_cache_atomically() {
+    let Ok(database_url) = std::env::var("A3S_FLOW_POSTGRES_URL") else {
+        eprintln!("skipping postgres append cache test; set A3S_FLOW_POSTGRES_URL");
+        return;
+    };
+    let store = PostgresEventStore::connect(&database_url).await.unwrap();
+    let run_id = format!(
+        "postgres-append-cache-{}",
+        uuid::Uuid::new_v4().as_simple()
+    );
+    seed_running_run(&store, &run_id).await;
+    store
+        .append(
+            &run_id,
+            FlowEvent::WaitCreated {
+                wait_id: "pause".to_string(),
+                resume_at: "2030-01-01T00:00:00Z".parse().unwrap(),
+            },
+        )
+        .await
+        .unwrap();
+
+    let checkpoint = store
+        .load_checkpoint(&run_id)
         .await
         .unwrap()
         .expect("SQL append should persist the projection cache");

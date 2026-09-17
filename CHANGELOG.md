@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fixed SQL projection-cache races after append (#64): SQLite and PostgreSQL
+  still refresh disposable checkpoints off the history transaction, but now
+  await the tip-aligned `save_checkpoint` before append returns so
+  `load_checkpoint` cannot miss the cache solely due to scheduling. Checkpoint
+  persistence failures still do not fail the durable append
+  (`sqlite_append_advances_projection_cache_atomically`,
+  `postgres_append_advances_projection_cache_atomically`).
+
 - Added FLOW-R2 heartbeat/checkpoint crash recovery: durable activity checkpoints
   survive `activity_completed` persistence loss, redelivery rotates the lease
   fence while rejecting the pre-crash token, and the same attempt completes
