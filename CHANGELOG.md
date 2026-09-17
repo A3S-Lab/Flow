@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed native TypeScript concurrent cache publication (#74): serialize
+  `ArtifactCache::publish` so a concurrent repair cannot discard another
+  publisher's just-written Valid entry after a stale Invalid inspect
+  (`concurrent_repair_converges_on_one_valid_cache_entry`).
+
 - Added FLOW-R3 SQLite concurrent-writer evidence (#70): tempfile SQLite races
   two `append_if_sequence` writers at the same tip and proves exactly one
   winner plus one `EventConflict`
