@@ -253,7 +253,10 @@ run through `just postgres-certification` (concurrent writers, exclusive hook
 claims, lease fencing, competing workers, idempotent dead-letter redrive, and
 backend-disconnect reconnect without history rewrite). Offline SQLite mirrors
 the concurrent-writer one-winner gate in `tests/sqlite_chaos.rs`
-(`sqlite_chaos_concurrent_writers_have_one_winner`).
+(`sqlite_chaos_concurrent_writers_have_one_winner`). LocalFile covers the same
+in-process CAS invariant for its declared `atomic_validated_append` capability
+in `tests/local_file_chaos.rs`
+(`local_file_chaos_concurrent_writers_have_one_winner`).
 
 ## 4. Implementation rules
 
