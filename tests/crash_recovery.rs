@@ -898,7 +898,10 @@ async fn lost_activity_heartbeat_append_does_not_invent_checkpoint_and_retry_suc
         after_retry.activities["durable-effect"].checkpoint,
         Some(json!({ "cursor": 7 }))
     );
-    assert_eq!(after_retry.activities["durable-effect"].fencing_token, fence);
+    assert_eq!(
+        after_retry.activities["durable-effect"].fencing_token,
+        fence
+    );
 
     runtime.release.notify_one();
     drive
