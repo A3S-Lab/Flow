@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added FLOW-R3 PostgreSQL tip-monotonic checkpoint evidence (#80): a stale
+  lower-sequence `save_checkpoint` cannot replace a newer tip
+  (`postgres_checkpoint_save_ignores_stale_sequence`), matching the existing
+  InMemory and SQLite gates.
+
 - Extended FLOW-R2 PostgreSQL Activity process-death evidence (#78): real worker
   death at `ActivityStarted`, `ActivityHeartbeat`, and `ActivityUnknown` append
   boundaries invents no interrupted event; lease expiry + replacement recovers
@@ -38,7 +43,8 @@
   `postgres_append_advances_projection_cache_atomically`). Built-in stores also
   keep checkpoint saves tip-monotonic so a concurrent stale save cannot replace
   a newer tip (`checkpoint_save_ignores_stale_sequence`,
-  `sqlite_checkpoint_save_ignores_stale_sequence`).
+  `sqlite_checkpoint_save_ignores_stale_sequence`,
+  `postgres_checkpoint_save_ignores_stale_sequence`).
 
 - Closed the FLOW-R2 ActivityHeartbeat append crash window (#66): an injected
   loss of the first `ActivityHeartbeat` append invents no checkpoint; an
