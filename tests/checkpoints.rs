@@ -215,6 +215,44 @@ async fn checkpoint_save_ignores_stale_sequence() {
 
 #[cfg(feature = "sqlite")]
 #[tokio::test]
+async fn sqlite_checkpoint_save_ignores_stale_sequence() {
+    let directory = tempfile::tempdir().unwrap();
+    let database_url = format!("sqlite://{}", directory.path().join("flow.db").display());
+    let store = Arc::new(SqliteEventStore::connect(&database_url).await.unwrap());
+    seed_running_run(store.as_ref(), "sqlite-stale-checkpoint").await;
+    let engine = FlowEngine::new(store.clone(), Arc::new(TestRuntime));
+    let older = engine.checkpoint("sqlite-stale-checkpoint").await.unwrap();
+    assert_eq!(older.last_sequence, 2);
+
+    store
+        .append(
+            "sqlite-stale-checkpoint",
+            FlowEvent::WaitCreated {
+                wait_id: "pause".to_string(),
+                resume_at: "2030-01-01T00:00:00Z".parse().unwrap(),
+            },
+        )
+        .await
+        .unwrap();
+    let newer = store
+        .load_checkpoint("sqlite-stale-checkpoint")
+        .await
+        .unwrap()
+        .expect("append should persist the newer tip checkpoint");
+    assert_eq!(newer.last_sequence, 3);
+
+    store.save_checkpoint(&older).await.unwrap();
+    let loaded = store
+        .load_checkpoint("sqlite-stale-checkpoint")
+        .await
+        .unwrap()
+        .expect("newer tip must survive a stale checkpoint save");
+    assert_eq!(loaded.last_sequence, 3);
+    assert!(loaded.snapshot.waits.contains_key("pause"));
+}
+
+#[cfg(feature = "sqlite")]
+#[tokio::test]
 async fn sqlite_checkpoint_survives_store_reopen() {
     let directory = tempfile::tempdir().unwrap();
     let database_url = format!("sqlite://{}", directory.path().join("flow.db").display());
