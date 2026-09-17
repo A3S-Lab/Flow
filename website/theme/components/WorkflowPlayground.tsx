@@ -163,7 +163,14 @@ function WorkflowPlaygroundSurface({
     });
   const [hostCanvas, setHostCanvas] = useState<HostCanvasDocument | null>(null);
   const [hostBusy, setHostBusy] = useState(false);
-  const [editRevision, setEditRevision] = useState(1);
+  // Persist across Playground reloads so host "must increase" stays satisfied.
+  const [editRevision, setEditRevision] = useState(() => {
+    if (!hostMode?.runId || typeof sessionStorage === 'undefined') return 1;
+    const key = `flow.host.editRevision.${hostMode.runId}`;
+    const raw = sessionStorage.getItem(key);
+    const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+    return Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+  });
   const [hostLoadError, setHostLoadError] = useState<string | null>(null);
   const { fitBounds, getNodesBounds, screenToFlowPosition, setViewport } =
     useReactFlow<PlaygroundCanvasNode, PlaygroundEdge>();
@@ -1026,7 +1033,16 @@ function WorkflowPlaygroundSurface({
         } else {
           setHostCanvas(nextCanvas);
         }
-        setEditRevision((current) => current + 1);
+        setEditRevision((current) => {
+          const next = current + 1;
+          if (hostMode?.runId && typeof sessionStorage !== 'undefined') {
+            sessionStorage.setItem(
+              `flow.host.editRevision.${hostMode.runId}`,
+              String(next),
+            );
+          }
+          return next;
+        });
         setAnnouncement(
           `${decision.status ?? result.status}${
             decision.message ? `: ${decision.message}` : ''

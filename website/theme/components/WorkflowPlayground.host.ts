@@ -223,9 +223,20 @@ export function graphFromHostCanvas(
   locale: FlowWebsiteLocale,
   catalog: A3SFlowDagNodeCatalog,
 ): PlaygroundGraphState {
+  const planSteps = Array.isArray(canvas.plan.steps)
+    ? (canvas.plan.steps as JsonObject[])
+    : [];
   try {
     const fromDsl = graphFromHostFlowDsl(canvas, locale, catalog);
-    if (fromDsl) return fromDsl;
+    if (fromDsl) {
+      // DSL is preview-only. When the operator adds plan steps, the DSL graph
+      // still reflects the last host projection and would drop the edit —
+      // prefer AgentPlan authority whenever it has more steps than DSL.
+      const dslPlanSteps = fromDsl.nodes.filter(
+        (node) => node.data?.hostPlanStep,
+      ).length;
+      if (dslPlanSteps >= planSteps.length) return fromDsl;
+    }
   } catch {
     // Fall back to plan projection when DSL types are incomplete.
   }
