@@ -51,8 +51,10 @@
   is published at ≤ 10 ms after measured certification on PostgreSQL 16.
 
 - Moved disposable PostgreSQL/SQLite projection checkpoint cache writes off the
-  append commit path so history durability latency no longer waits on
-  acceleration metadata.
+  history transaction so durability latency no longer waits on acceleration
+  metadata inside the append commit. Later refined by #64 to await the
+  tip-aligned cache write after commit (still outside the history transaction)
+  and to keep checkpoint upserts tip-monotonic.
 
 - Added `ShardedFlowEventStore` for host-composed physical run sharding: one
   unsharded backend per `FlowRunShardLayout` shard, store-wide linked-run and
