@@ -456,8 +456,15 @@ impl FlowEventStore for LocalFileEventStore {
     async fn save_checkpoint(&self, checkpoint: &FlowProjectionCheckpoint) -> Result<()> {
         checkpoint.validate()?;
         let _guard = self.lock.lock().await;
-        tokio::fs::create_dir_all(self.shard_dir(&checkpoint.run_id)?).await?;
         let path = self.checkpoint_path(&checkpoint.run_id)?;
+        if let Ok(bytes) = tokio::fs::read(&path).await {
+            if let Ok(existing) = serde_json::from_slice::<FlowProjectionCheckpoint>(&bytes) {
+                if checkpoint.last_sequence < existing.last_sequence {
+                    return Ok(());
+                }
+            }
+        }
+        tokio::fs::create_dir_all(self.shard_dir(&checkpoint.run_id)?).await?;
         let temporary = path.with_extension("checkpoint.json.tmp");
         let bytes = serde_json::to_vec(checkpoint)?;
         tokio::fs::write(&temporary, bytes).await?;

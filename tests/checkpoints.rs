@@ -181,6 +181,38 @@ async fn local_file_checkpoint_survives_store_reopen() {
     );
 }
 
+#[tokio::test]
+async fn checkpoint_save_ignores_stale_sequence() {
+    let store = Arc::new(InMemoryEventStore::new());
+    seed_running_run(store.as_ref(), "stale-checkpoint").await;
+    let engine = FlowEngine::new(store.clone(), Arc::new(TestRuntime));
+    let older = engine.checkpoint("stale-checkpoint").await.unwrap();
+    assert_eq!(older.last_sequence, 2);
+
+    store
+        .append(
+            "stale-checkpoint",
+            FlowEvent::WaitCreated {
+                wait_id: "pause".to_string(),
+                resume_at: "2030-01-01T00:00:00Z".parse().unwrap(),
+            },
+        )
+        .await
+        .unwrap();
+    let newer = engine.checkpoint("stale-checkpoint").await.unwrap();
+    assert_eq!(newer.last_sequence, 3);
+    assert!(newer.snapshot.waits.contains_key("pause"));
+
+    store.save_checkpoint(&older).await.unwrap();
+    let loaded = store
+        .load_checkpoint("stale-checkpoint")
+        .await
+        .unwrap()
+        .expect("checkpoint should remain after ignoring a stale save");
+    assert_eq!(loaded.last_sequence, 3);
+    assert!(loaded.snapshot.waits.contains_key("pause"));
+}
+
 #[cfg(feature = "sqlite")]
 #[tokio::test]
 async fn sqlite_checkpoint_survives_store_reopen() {

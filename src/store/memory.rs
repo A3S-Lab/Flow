@@ -214,8 +214,13 @@ impl FlowEventStore for InMemoryEventStore {
         if !state.run_exists(&checkpoint.run_id) {
             return Err(FlowError::RunNotFound(checkpoint.run_id.clone()));
         }
-        state
-            .shard_mut(&checkpoint.run_id)
+        let shard = state.shard_mut(&checkpoint.run_id);
+        if let Some(existing) = shard.checkpoints.get(&checkpoint.run_id) {
+            if checkpoint.last_sequence < existing.last_sequence {
+                return Ok(());
+            }
+        }
+        shard
             .checkpoints
             .insert(checkpoint.run_id.clone(), checkpoint.clone());
         Ok(())
