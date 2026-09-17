@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Extended FLOW-R2 PostgreSQL Activity process-death evidence (#78): real worker
+  death at `ActivityStarted`, `ActivityHeartbeat`, and `ActivityUnknown` append
+  boundaries invents no interrupted event; lease expiry + replacement recovers
+  with the same fencing/idempotency rules as the in-memory crash suite
+  (`tests/postgres_activity_boundary_process_recovery.rs`). Completion-boundary
+  coverage remains in `tests/postgres_process_recovery.rs`.
+
 - Fixed native TypeScript concurrent cache publication (#74): serialize
   `ArtifactCache::publish` so a concurrent repair cannot discard another
   publisher's just-written Valid entry after a stale Invalid inspect
