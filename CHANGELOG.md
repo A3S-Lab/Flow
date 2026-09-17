@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Extended FLOW-R2 PostgreSQL Activity process-death evidence (#83): after a
+  durable heartbeat, worker death before `ActivityCompleted` keeps the
+  checkpoint, rotates the lease fence on replacement, rejects the stale fence,
+  and completes once
+  (`postgres_worker_recovers_after_activity_heartbeat_then_completion_process_death`).
+
 - Added FLOW-R3 PostgreSQL tip-monotonic checkpoint evidence (#80): a stale
   lower-sequence `save_checkpoint` cannot replace a newer tip
   (`postgres_checkpoint_save_ignores_stale_sequence`), matching the existing

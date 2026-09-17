@@ -28,6 +28,8 @@ use uuid::Uuid;
 const START_PROBE_TEST: &str = "postgres_activity_start_death_probe";
 const HEARTBEAT_PROBE_TEST: &str = "postgres_activity_heartbeat_death_probe";
 const UNKNOWN_PROBE_TEST: &str = "postgres_activity_unknown_death_probe";
+const HEARTBEAT_THEN_COMPLETION_PROBE_TEST: &str =
+    "postgres_activity_heartbeat_then_completion_death_probe";
 const PROBE_PARENT_ENV: &str = "A3S_FLOW_ACTIVITY_BOUNDARY_PROBE_PARENT";
 const PROBE_POSTGRES_ENV: &str = "A3S_FLOW_ACTIVITY_BOUNDARY_PROBE_POSTGRES";
 const PROBE_QUEUE_ENV: &str = "A3S_FLOW_ACTIVITY_BOUNDARY_PROBE_QUEUE";
@@ -56,6 +58,8 @@ enum CrashBoundary {
     Started,
     Heartbeat,
     Unknown,
+    /// Durable heartbeat first, then crash before ActivityCompleted.
+    CompletionAfterHeartbeat,
 }
 
 impl CrashBoundary {
@@ -63,6 +67,7 @@ impl CrashBoundary {
         match std::env::var(PROBE_BOUNDARY_ENV).as_deref() {
             Ok("heartbeat") => Self::Heartbeat,
             Ok("unknown") => Self::Unknown,
+            Ok("completion-after-heartbeat") => Self::CompletionAfterHeartbeat,
             _ => Self::Started,
         }
     }
@@ -72,6 +77,7 @@ impl CrashBoundary {
             Self::Started => "started",
             Self::Heartbeat => "heartbeat",
             Self::Unknown => "unknown",
+            Self::CompletionAfterHeartbeat => "completion-after-heartbeat",
         }
     }
 
@@ -80,6 +86,7 @@ impl CrashBoundary {
             Self::Started => START_PROBE_TEST,
             Self::Heartbeat => HEARTBEAT_PROBE_TEST,
             Self::Unknown => UNKNOWN_PROBE_TEST,
+            Self::CompletionAfterHeartbeat => HEARTBEAT_THEN_COMPLETION_PROBE_TEST,
         }
     }
 
@@ -93,6 +100,9 @@ impl CrashBoundary {
             }
             Self::Unknown => {
                 matches!(event, FlowEvent::ActivityUnknown { activity_id, .. } if activity_id == "durable-effect")
+            }
+            Self::CompletionAfterHeartbeat => {
+                matches!(event, FlowEvent::ActivityCompleted { activity_id, .. } if activity_id == "durable-effect")
             }
         }
     }
@@ -156,6 +166,10 @@ impl BoundaryRecoveryRuntime {
 
     fn attempts_path(&self) -> PathBuf {
         self.state_dir.join("physical-attempts.txt")
+    }
+
+    fn release_path(&self) -> PathBuf {
+        self.state_dir.join("release-after-heartbeat")
     }
 
     async fn attempt_count(&self) -> usize {
@@ -261,6 +275,33 @@ impl FlowRuntime for BoundaryRecoveryRuntime {
                 self.write_durable_effect(&invocation.input).await?;
                 Ok(json!({ "committed": true }))
             }
+            CrashBoundary::CompletionAfterHeartbeat => {
+                self.record_attempt().await?;
+                let attempts = self.attempt_count().await;
+                let wait_marker = if attempts == 1 {
+                    Some(self.release_path())
+                } else if attempts == 2 {
+                    Some(self.state_dir.join("release-redelivery"))
+                } else {
+                    None
+                };
+                if let Some(release) = wait_marker {
+                    let deadline = Instant::now() + Duration::from_secs(60);
+                    loop {
+                        if release.is_file() {
+                            break;
+                        }
+                        assert!(
+                            Instant::now() < deadline,
+                            "release marker {} never appeared",
+                            release.display()
+                        );
+                        tokio::time::sleep(Duration::from_millis(25)).await;
+                    }
+                }
+                self.write_durable_effect(&invocation.input).await?;
+                Ok(json!({ "committed": true, "cursor": 42 }))
+            }
         }
     }
 }
@@ -317,6 +358,12 @@ async fn postgres_activity_heartbeat_death_probe() {
 #[tokio::test]
 #[ignore = "private subprocess used only by the PostgreSQL activity-unknown process-death gate"]
 async fn postgres_activity_unknown_death_probe() {
+    run_activity_boundary_probe().await;
+}
+
+#[tokio::test]
+#[ignore = "private subprocess used only by the PostgreSQL heartbeat-then-completion process-death gate"]
+async fn postgres_activity_heartbeat_then_completion_death_probe() {
     run_activity_boundary_probe().await;
 }
 
@@ -379,6 +426,54 @@ async fn run_activity_boundary_probe() {
                 tokio::time::sleep(Duration::from_millis(25)).await;
             }
         }
+        CrashBoundary::CompletionAfterHeartbeat => {
+            let task = lease.task.clone();
+            let drive = tokio::spawn(async move { worker.handle(task).await });
+            let deadline = Instant::now() + Duration::from_secs(60);
+            let mut heartbeated = false;
+            loop {
+                let snapshot = engine.snapshot(&run_id).await.unwrap();
+                if !heartbeated
+                    && snapshot
+                        .activities
+                        .get("durable-effect")
+                        .is_some_and(|activity| activity.status == ActivityStatus::Running)
+                {
+                    let activity = snapshot.activities.get("durable-effect").unwrap();
+                    engine
+                        .heartbeat_activity(
+                            &run_id,
+                            "durable-effect",
+                            activity.attempt,
+                            &activity.attempt_id,
+                            &activity.fencing_token,
+                            Some(json!({ "cursor": 42 })),
+                        )
+                        .await
+                        .expect("heartbeat checkpoint must become durable before completion crash");
+                    assert_eq!(
+                        engine.snapshot(&run_id).await.unwrap().activities["durable-effect"]
+                            .checkpoint,
+                        Some(json!({ "cursor": 42 }))
+                    );
+                    tokio::fs::write(state_dir.join("release-after-heartbeat"), b"1")
+                        .await
+                        .unwrap();
+                    heartbeated = true;
+                }
+                if drive.is_finished() {
+                    let outcome = drive.await.unwrap();
+                    panic!(
+                        "drive finished before completion-after-heartbeat boundary: {outcome:?}"
+                    );
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "completion-after-heartbeat probe did not reach its crash boundary"
+                );
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        }
         CrashBoundary::Started | CrashBoundary::Unknown => {
             worker.handle(lease.task).await.unwrap();
             panic!("activity-boundary probe returned before being killed for run {run_id}");
@@ -399,6 +494,11 @@ async fn postgres_worker_recovers_after_activity_heartbeat_process_death() {
 #[tokio::test]
 async fn postgres_worker_recovers_after_activity_unknown_process_death() {
     run_activity_boundary_recovery(CrashBoundary::Unknown).await;
+}
+
+#[tokio::test]
+async fn postgres_worker_recovers_after_activity_heartbeat_then_completion_process_death() {
+    run_activity_boundary_recovery(CrashBoundary::CompletionAfterHeartbeat).await;
 }
 
 async fn run_activity_boundary_recovery(boundary: CrashBoundary) {
@@ -469,6 +569,8 @@ async fn run_activity_boundary_recovery(boundary: CrashBoundary) {
     let status = probe.wait().await.unwrap();
     assert!(!status.success());
     let interrupted_history = store.list(&run_id).await.unwrap();
+    let mut pre_crash_fence = None;
+    let mut pre_crash_attempt_id = None;
     match boundary {
         CrashBoundary::Started => {
             assert!(interrupted_history.iter().any(|event| {
@@ -500,6 +602,40 @@ async fn run_activity_boundary_recovery(boundary: CrashBoundary) {
                 matches!(event.event, FlowEvent::ActivityCompleted { ref activity_id, .. } if activity_id == "durable-effect")
             }));
         }
+        CrashBoundary::CompletionAfterHeartbeat => {
+            assert!(interrupted_history.iter().any(|event| {
+                matches!(event.event, FlowEvent::ActivityStarted { ref activity_id, .. } if activity_id == "durable-effect")
+            }));
+            assert!(interrupted_history.iter().any(|event| {
+                matches!(event.event, FlowEvent::ActivityHeartbeat { ref activity_id, .. } if activity_id == "durable-effect")
+            }));
+            assert!(!interrupted_history.iter().any(|event| {
+                matches!(event.event, FlowEvent::ActivityCompleted { ref activity_id, .. } if activity_id == "durable-effect")
+            }));
+            let interrupted = FlowEngine::new(
+                Arc::new(PostgresEventStore::connect(&postgres_url).await.unwrap()),
+                Arc::new(BoundaryRecoveryRuntime::new(state.path(), boundary)),
+            )
+            .snapshot(&run_id)
+            .await
+            .unwrap();
+            assert_eq!(
+                interrupted.activities["durable-effect"].status,
+                ActivityStatus::Running
+            );
+            assert_eq!(
+                interrupted.activities["durable-effect"].checkpoint,
+                Some(json!({ "cursor": 42 })),
+                "durable heartbeat checkpoint must survive the completion crash window"
+            );
+            pre_crash_fence = Some(
+                interrupted.activities["durable-effect"]
+                    .fencing_token
+                    .clone(),
+            );
+            pre_crash_attempt_id =
+                Some(interrupted.activities["durable-effect"].attempt_id.clone());
+        }
     }
 
     let reconnected_queue = Arc::new(
@@ -526,11 +662,65 @@ async fn run_activity_boundary_recovery(boundary: CrashBoundary) {
         Arc::new(BoundaryRecoveryRuntime::new(state.path(), boundary)),
     );
     let replacement = FlowWorker::new(replacement_engine.clone(), reconnected_queue.clone());
-    replacement
-        .run_once()
-        .await
-        .unwrap()
-        .expect("replayed task");
+    if boundary == CrashBoundary::CompletionAfterHeartbeat {
+        let pre_crash_fence = pre_crash_fence.expect("pre-crash fencing token");
+        let attempt_id = pre_crash_attempt_id.expect("pre-crash attempt id");
+        let drive = tokio::spawn(async move { replacement.run_once().await });
+        let deadline = Instant::now() + Duration::from_secs(60);
+        loop {
+            let history = reconnected_store.list(&run_id).await.unwrap();
+            if history.iter().any(|event| {
+                matches!(
+                    event.event,
+                    FlowEvent::ActivityLeaseAcquired {
+                        ref activity_id,
+                        ..
+                    } if activity_id == "durable-effect"
+                )
+            }) {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "replacement did not rotate the activity lease before deadline"
+            );
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        let leased = replacement_engine.snapshot(&run_id).await.unwrap();
+        assert_eq!(
+            leased.activities["durable-effect"].checkpoint,
+            Some(json!({ "cursor": 42 }))
+        );
+        assert_ne!(
+            leased.activities["durable-effect"].fencing_token,
+            pre_crash_fence
+        );
+        let stale = replacement_engine
+            .heartbeat_activity(
+                &run_id,
+                "durable-effect",
+                1,
+                &attempt_id,
+                &pre_crash_fence,
+                Some(json!({ "cursor": 99 })),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(stale, FlowError::InvalidTransition(ref message) if message.contains("stale")),
+            "{stale:?}"
+        );
+        tokio::fs::write(state.path().join("release-redelivery"), b"1")
+            .await
+            .unwrap();
+        drive.await.unwrap().unwrap().expect("replayed task");
+    } else {
+        replacement
+            .run_once()
+            .await
+            .unwrap()
+            .expect("replayed task");
+    }
 
     let snapshot = replacement_engine.snapshot(&run_id).await.unwrap();
     assert_eq!(snapshot.status, WorkflowRunStatus::Completed);
@@ -635,6 +825,42 @@ async fn run_activity_boundary_recovery(boundary: CrashBoundary) {
                 1,
                 "replacement ownership must rotate the fencing token for the same attempt"
             );
+            assert_eq!(
+                tokio::fs::read_to_string(state.path().join("physical-attempts.txt"))
+                    .await
+                    .unwrap()
+                    .lines()
+                    .filter(|line| !line.is_empty())
+                    .count(),
+                2
+            );
+        }
+        CrashBoundary::CompletionAfterHeartbeat => {
+            assert_eq!(
+                recovered_history
+                    .iter()
+                    .filter(|event| {
+                        matches!(event.event, FlowEvent::ActivityHeartbeat { ref activity_id, .. } if activity_id == "durable-effect")
+                    })
+                    .count(),
+                1
+            );
+            assert_eq!(
+                recovered_history
+                    .iter()
+                    .filter(|event| {
+                        matches!(event.event, FlowEvent::ActivityLeaseAcquired { ref activity_id, .. } if activity_id == "durable-effect")
+                    })
+                    .count(),
+                1,
+                "replacement ownership must rotate the fencing token for the same attempt"
+            );
+            assert_eq!(
+                snapshot.activities["durable-effect"].checkpoint,
+                Some(json!({ "cursor": 42 })),
+                "durable heartbeat checkpoint must remain visible after replacement completion"
+            );
+            assert_eq!(snapshot.activities["durable-effect"].attempt, 1);
             assert_eq!(
                 tokio::fs::read_to_string(state.path().join("physical-attempts.txt"))
                     .await
