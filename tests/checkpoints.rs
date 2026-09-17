@@ -314,10 +314,7 @@ async fn postgres_append_advances_projection_cache_atomically() {
         return;
     };
     let store = PostgresEventStore::connect(&database_url).await.unwrap();
-    let run_id = format!(
-        "postgres-append-cache-{}",
-        uuid::Uuid::new_v4().as_simple()
-    );
+    let run_id = format!("postgres-append-cache-{}", uuid::Uuid::new_v4().as_simple());
     seed_running_run(&store, &run_id).await;
     store
         .append(
