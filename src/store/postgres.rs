@@ -896,7 +896,8 @@ async fn save_postgres_checkpoint(
          last_event_id = EXCLUDED.last_event_id, \
          snapshot_sha256 = EXCLUDED.snapshot_sha256, \
          snapshot_json = EXCLUDED.snapshot_json, \
-         updated_at = EXCLUDED.updated_at",
+         updated_at = EXCLUDED.updated_at \
+         WHERE EXCLUDED.last_sequence >= flow_projection_checkpoints.last_sequence",
     )
     .compile(&PostgresDialect)
     .map_err(postgres_query_error)?;

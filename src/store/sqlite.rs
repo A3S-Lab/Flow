@@ -814,7 +814,8 @@ async fn save_sqlite_checkpoint(
          last_event_id = excluded.last_event_id, \
          snapshot_sha256 = excluded.snapshot_sha256, \
          snapshot_json = excluded.snapshot_json, \
-         updated_at = excluded.updated_at",
+         updated_at = excluded.updated_at \
+         WHERE excluded.last_sequence >= flow_projection_checkpoints.last_sequence",
     )
     .compile(&SqliteDialect)
     .map_err(sqlite_query_error)?;

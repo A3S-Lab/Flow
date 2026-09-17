@@ -8,7 +8,9 @@
   `load_checkpoint` cannot miss the cache solely due to scheduling. Checkpoint
   persistence failures still do not fail the durable append
   (`sqlite_append_advances_projection_cache_atomically`,
-  `postgres_append_advances_projection_cache_atomically`).
+  `postgres_append_advances_projection_cache_atomically`). Built-in stores also
+  keep checkpoint saves tip-monotonic so a concurrent stale save cannot replace
+  a newer tip (`checkpoint_save_ignores_stale_sequence`).
 
 - Added FLOW-R2 heartbeat/checkpoint crash recovery: durable activity checkpoints
   survive `activity_completed` persistence loss, redelivery rotates the lease
