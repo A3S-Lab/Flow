@@ -13,10 +13,19 @@
   a newer tip (`checkpoint_save_ignores_stale_sequence`,
   `sqlite_checkpoint_save_ignores_stale_sequence`).
 
-- Added FLOW-R2 heartbeat/checkpoint crash recovery: durable activity checkpoints
-  survive `activity_completed` persistence loss, redelivery rotates the lease
-  fence while rejecting the pre-crash token, and the same attempt completes
+- Closed the FLOW-R2 ActivityHeartbeat append crash window (#66): an injected
+  loss of the first `ActivityHeartbeat` append invents no checkpoint; an
+  identical same-fence retry becomes durable and the attempt completes without
+  lease rotation
+  (`lost_activity_heartbeat_append_does_not_invent_checkpoint_and_retry_succeeds`).
+
+- Clarified FLOW-R2 heartbeat/completion crash recovery: durable activity
+  checkpoints survive `activity_completed` persistence loss, redelivery rotates
+  the lease fence while rejecting the pre-crash token, and the same attempt
+  completes
   (`heartbeat_checkpoint_survives_completion_persistence_loss_and_redelivery`).
+  That gate covers the completion boundary after a successful heartbeat, not
+  the heartbeat append itself.
 
 - Added FLOW-R4 map partial-window crash recovery and FLOW-R2 unknown-outcome
   persistence-loss evidence: map concurrency windows recover without duplicate
