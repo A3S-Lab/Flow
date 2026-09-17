@@ -7,6 +7,11 @@
   publisher's just-written Valid entry after a stale Invalid inspect
   (`concurrent_repair_converges_on_one_valid_cache_entry`).
 
+- Added FLOW-R3 LocalFile concurrent-writer evidence (#72): tempfile LocalFile
+  races two `append_if_sequence` writers at the same tip and proves exactly one
+  winner plus one `EventConflict`
+  (`local_file_chaos_concurrent_writers_have_one_winner`).
+
 - Added FLOW-R3 SQLite concurrent-writer evidence (#70): tempfile SQLite races
   two `append_if_sequence` writers at the same tip and proves exactly one
   winner plus one `EventConflict`
