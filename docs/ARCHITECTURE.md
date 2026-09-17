@@ -855,8 +855,13 @@ idempotent side effect, pauses before `step_completed` or `activity_completed`,
 and kills that process. A newly connected queue and event store then expire the
 old lease, reject its stale token, redeliver the same step or activity attempt
 (rotating the activity fencing token via `activity_lease_acquired`), persist one
-completion, and drain the task. This complements the competing-worker and
-heartbeat tests with process-level replay evidence at both Step and Activity
+completion, and drain the task. Companion gates in
+`tests/postgres_activity_boundary_process_recovery.rs` apply the same real
+process-death pattern at `activity_started`, `activity_heartbeat`, and
+`activity_unknown` append boundaries: the interrupted event is never invented,
+lease expiry redelivers with fencing rules matching the in-memory crash suite,
+and exactly one durable completion remains. This complements the competing-worker and
+heartbeat tests with process-level replay evidence across Step and Activity
 boundaries.
 
 ## Observability Boundary

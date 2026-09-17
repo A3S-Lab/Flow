@@ -83,9 +83,12 @@ fault-injection coverage across every external connector boundary; those must
 be delivered by Cloud integrations without moving tenant or product policy
 into Flow. Kernel evidence for kill/disconnect at Activity create→start, heartbeat/
 checkpoint, unknown-outcome, and completion boundaries is covered by
-`tests/crash_recovery.rs` (in-memory persistence loss) and
-`tests/postgres_process_recovery.rs` (real PostgreSQL process death on both
-Step and Activity completion boundaries). In-memory evidence now also covers
+`tests/crash_recovery.rs` (in-memory persistence loss),
+`tests/postgres_process_recovery.rs` (real PostgreSQL process death on Step and
+Activity completion boundaries), and
+`tests/postgres_activity_boundary_process_recovery.rs` (real PostgreSQL process
+death on Activity create→start, heartbeat, and unknown-outcome append
+boundaries). In-memory evidence now also covers
 the ActivityHeartbeat append boundary: a lost first heartbeat invents no
 checkpoint, and an identical same-fence retry becomes durable
 (`lost_activity_heartbeat_append_does_not_invent_checkpoint_and_retry_succeeds`).
