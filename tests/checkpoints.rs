@@ -308,6 +308,50 @@ async fn sqlite_append_advances_projection_cache_atomically() {
 
 #[cfg(feature = "postgres")]
 #[tokio::test]
+async fn postgres_checkpoint_save_ignores_stale_sequence() {
+    let Ok(database_url) = std::env::var("A3S_FLOW_POSTGRES_URL") else {
+        eprintln!("skipping postgres stale checkpoint test; set A3S_FLOW_POSTGRES_URL");
+        return;
+    };
+    let store = Arc::new(PostgresEventStore::connect(&database_url).await.unwrap());
+    let run_id = format!(
+        "postgres-stale-checkpoint-{}",
+        uuid::Uuid::new_v4().as_simple()
+    );
+    seed_running_run(store.as_ref(), &run_id).await;
+    let engine = FlowEngine::new(store.clone(), Arc::new(TestRuntime));
+    let older = engine.checkpoint(&run_id).await.unwrap();
+    assert_eq!(older.last_sequence, 2);
+
+    store
+        .append(
+            &run_id,
+            FlowEvent::WaitCreated {
+                wait_id: "pause".to_string(),
+                resume_at: "2030-01-01T00:00:00Z".parse().unwrap(),
+            },
+        )
+        .await
+        .unwrap();
+    let newer = store
+        .load_checkpoint(&run_id)
+        .await
+        .unwrap()
+        .expect("append should persist the newer tip checkpoint");
+    assert_eq!(newer.last_sequence, 3);
+
+    store.save_checkpoint(&older).await.unwrap();
+    let loaded = store
+        .load_checkpoint(&run_id)
+        .await
+        .unwrap()
+        .expect("newer tip must survive a stale checkpoint save");
+    assert_eq!(loaded.last_sequence, 3);
+    assert!(loaded.snapshot.waits.contains_key("pause"));
+}
+
+#[cfg(feature = "postgres")]
+#[tokio::test]
 async fn postgres_append_advances_projection_cache_atomically() {
     let Ok(database_url) = std::env::var("A3S_FLOW_POSTGRES_URL") else {
         eprintln!("skipping postgres append cache test; set A3S_FLOW_POSTGRES_URL");
