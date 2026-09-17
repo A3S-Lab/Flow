@@ -860,7 +860,10 @@ completion, and drain the task. Companion gates in
 process-death pattern at `activity_started`, `activity_heartbeat`, and
 `activity_unknown` append boundaries: the interrupted event is never invented,
 lease expiry redelivers with fencing rules matching the in-memory crash suite,
-and exactly one durable completion remains. This complements the competing-worker and
+and exactly one durable completion remains. A completion-after-heartbeat variant
+proves a durable heartbeat checkpoint survives process death before
+`activity_completed`, lease rotation rejects the stale fence, and replacement
+completes once. This complements the competing-worker and
 heartbeat tests with process-level replay evidence across Step and Activity
 boundaries.
 
