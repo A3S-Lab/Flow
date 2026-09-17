@@ -30,19 +30,19 @@ Every command emits JSON. Exit code `0` means the command succeeded. Exit code `
 
 ## Command reference
 
-| Command                 | Purpose                                    | Main output                                                    |
-| ----------------------- | ------------------------------------------ | -------------------------------------------------------------- |
-| `nodes`                 | List the 18 public manifests               | Engine version, DSL version, count, and full catalog           |
-| `node <type>`           | Inspect one manifest                       | Fields, defaults, ports, runtime binding, and durable identity |
-| `new <type> --id <id>`  | Create a node from manifest defaults       | A node object ready for the graph                              |
-| `sample`                | Emit a minimal executable document         | Start, task, and completion nodes with edges                   |
-| `create <file>`         | Atomically create a validated sample file  | Full document, plan, counts, and semantic digests              |
-| `read <file>`           | Validate and summarize an existing file    | Full document, plan, counts, and semantic digests              |
-| `update <file>`         | Apply one or more graph/app edits atomically | Changed IDs plus the new validated summary                    |
-| `delete <file> --force` | Explicitly remove one workflow file        | `{ deleted: true/false }`                                     |
-| `validate <file>`       | Check the document, DAG, and node settings | Compatibility, counts, or path-specific issues                 |
-| `compile <file>`        | Compile deterministic order                | Top-level and container-scoped plans                           |
-| `digest <file>`         | Compute semantic identity                  | Document and graph digests                                     |
+| Command                 | Purpose                                      | Main output                                                    |
+| ----------------------- | -------------------------------------------- | -------------------------------------------------------------- |
+| `nodes`                 | List the 18 public manifests                 | Engine version, DSL version, count, and full catalog           |
+| `node <type>`           | Inspect one manifest                         | Fields, defaults, ports, runtime binding, and durable identity |
+| `new <type> --id <id>`  | Create a node from manifest defaults         | A node object ready for the graph                              |
+| `sample`                | Emit a minimal executable document           | Start, task, and completion nodes with edges                   |
+| `create <file>`         | Atomically create a validated sample file    | Full document, plan, counts, and semantic digests              |
+| `read <file>`           | Validate and summarize an existing file      | Full document, plan, counts, and semantic digests              |
+| `update <file>`         | Apply one or more graph/app edits atomically | Changed IDs plus the new validated summary                     |
+| `delete <file> --force` | Explicitly remove one workflow file          | `{ deleted: true/false }`                                      |
+| `validate <file>`       | Check the document, DAG, and node settings   | Compatibility, counts, or path-specific issues                 |
+| `compile <file>`        | Compile deterministic order                  | Top-level and container-scoped plans                           |
+| `digest <file>`         | Compute semantic identity                    | Document and graph digests                                     |
 
 Use `--pretty` for readable output and `--output <file>` to write JSON to a file. Pass `-` as the input path to read standard input. `--include-internal` applies to catalog inspection and exposes `iteration-start` and `loop-start`. Those internal types belong only inside matching containers and cannot be created as public nodes with `new`.
 
@@ -84,7 +84,7 @@ writer whose base document has changed. The candidate is validated before the
 atomic replace, so a rejected or conflicting edit leaves the original file
 unchanged. Add `--dry-run` to receive the candidate summary without writing it.
 Both transports and direct typed callers share a 10,000-operation bound; each
-NDJSON record—including an ignored whitespace record—is limited to 1 MiB.
+NDJSON record - including an ignored whitespace record - is limited to 1 MiB.
 Workflow files and byte/text stream chunks use fatal UTF-8 decoding, so
 malformed input is rejected before a candidate can be published.
 Operation-specific flags are rejected when they do not match the selected

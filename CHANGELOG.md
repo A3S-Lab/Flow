@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Fixed SQL projection-cache races after append (#64): SQLite and PostgreSQL
+  still refresh disposable checkpoints off the history transaction, but now
+  await the tip-aligned `save_checkpoint` before append returns so
+  `load_checkpoint` cannot miss the cache solely due to scheduling. Checkpoint
+  persistence failures still do not fail the durable append
+  (`sqlite_append_advances_projection_cache_atomically`,
+  `postgres_append_advances_projection_cache_atomically`). Built-in stores also
+  keep checkpoint saves tip-monotonic so a concurrent stale save cannot replace
+  a newer tip (`checkpoint_save_ignores_stale_sequence`,
+  `sqlite_checkpoint_save_ignores_stale_sequence`).
+
 - Added FLOW-R2 heartbeat/checkpoint crash recovery: durable activity checkpoints
   survive `activity_completed` persistence loss, redelivery rotates the lease
   fence while rejecting the pre-crash token, and the same attempt completes
@@ -40,8 +51,10 @@
   is published at ≤ 10 ms after measured certification on PostgreSQL 16.
 
 - Moved disposable PostgreSQL/SQLite projection checkpoint cache writes off the
-  append commit path so history durability latency no longer waits on
-  acceleration metadata.
+  history transaction so durability latency no longer waits on acceleration
+  metadata inside the append commit. Later refined by #64 to await the
+  tip-aligned cache write after commit (still outside the history transaction)
+  and to keep checkpoint upserts tip-monotonic.
 
 - Added `ShardedFlowEventStore` for host-composed physical run sharding: one
   unsharded backend per `FlowRunShardLayout` shard, store-wide linked-run and
@@ -356,6 +369,26 @@
 - Hardened narrow Flow inspectors so editable descriptions, composite fields,
   contract metadata, code-editor chrome, and mobile playground actions remain
   readable and inside the viewport.
+## 2.0.0 - 2026-09-17
+
+### Breaking
+
+- Extended the closed native TypeScript protocol discriminator with
+  `NativeRuntimeKind::Activity`. Per `docs/API_STABILITY.md`, that enum is not
+  `#[non_exhaustive]`; hosts and adapters that match on it must take a major
+  bump and handle the new activity invocation kind. Related public command,
+  event, suspension, and DSL error enums gained variants and therefore shifted
+  discriminants for numeric casts.
+
+### Fixed
+
+- Sanitized PostgreSQL pre-v1 upgrade fixture successor run IDs so release tags
+  with `.` cannot produce `InvalidRunId` during schema upgrade gates.
+- Bumped rustls to `0.23.45` and chacha20 to `0.10.2` for `RUSTSEC-2026-0285`
+  and the yanked chacha20 advisory path.
+- Removed a forbidden colon from ZH CLI reference prose so website content lint
+  passes.
+
 
 ## 1.1.0 - 2026-08-25
 

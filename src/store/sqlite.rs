@@ -164,10 +164,11 @@ impl SqliteEventStore {
             .await;
         let (envelope, checkpoint) = map_sqlite_transaction(result)?;
         if let Some(checkpoint) = checkpoint {
-            let store = self.clone();
-            tokio::spawn(async move {
-                let _ = store.save_checkpoint(&checkpoint).await;
-            });
+            // Disposable acceleration stays off the history transaction, but the
+            // append caller must observe a tip-aligned cache attempt before
+            // return. Fire-and-forget races load_checkpoint and can lose to a
+            // later overwrite. Checkpoint failures must not fail the append.
+            let _ = self.save_checkpoint(&checkpoint).await;
         }
         Ok(envelope)
     }
@@ -813,7 +814,8 @@ async fn save_sqlite_checkpoint(
          last_event_id = excluded.last_event_id, \
          snapshot_sha256 = excluded.snapshot_sha256, \
          snapshot_json = excluded.snapshot_json, \
-         updated_at = excluded.updated_at",
+         updated_at = excluded.updated_at \
+         WHERE excluded.last_sequence >= flow_projection_checkpoints.last_sequence",
     )
     .compile(&SqliteDialect)
     .map_err(sqlite_query_error)?;

@@ -95,14 +95,16 @@ built-in store. `FlowEngine::checkpoint` materializes a projection and stores
 the last sequence plus event ID; reads use it only when both anchors still
 match the append-only history, and treat missing, corrupt, or stale metadata as
 an automatic replay fallback. SQLite and PostgreSQL append paths project the
-validated single-event tail so the steady-state append path stays independent
-of full-history length, then refresh the disposable checkpoint cache after the
-history commit so acceleration metadata cannot inflate append latency; a stale
-or missing cache rebuilds once from authoritative history and then converges.
-This is an acceleration layer, never a history rewrite or an independent source
-of truth. Checkpointed reads can replay only the validated event tail through
-indexed `list_after` queries, and a SHA-256 snapshot digest detects cache
-corruption. `FlowEngine::history_page` and
+validated single-event tail so the steady-state history commit stays independent
+of full-history length, then await a tip-aligned disposable checkpoint write
+after that commit so callers observe a cache attempt before append returns
+without folding acceleration metadata into the history transaction. Checkpoint
+saves are tip-monotonic: a concurrent lower-sequence save cannot replace a
+newer tip. A stale or missing cache rebuilds once from authoritative history
+and then converges. This is an acceleration layer, never a history rewrite or
+an independent source of truth. Checkpointed reads can replay only the
+validated event tail through indexed `list_after` queries, and a SHA-256
+snapshot digest detects cache corruption. `FlowEngine::history_page` and
 `MAX_FLOW_HISTORY_PAGE_SIZE` provide the bounded cursor primitive that Cloud
 can use to build export/archive projections.
 

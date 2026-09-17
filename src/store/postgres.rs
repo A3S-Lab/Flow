@@ -175,12 +175,12 @@ impl PostgresEventStore {
             .await;
         let (envelope, checkpoint) = map_postgres_transaction(result)?;
         if let Some(checkpoint) = checkpoint {
-            // Disposable acceleration stays off the append commit path so history
-            // latency is independent of checkpoint cache writes.
-            let store = self.clone();
-            tokio::spawn(async move {
-                let _ = store.save_checkpoint(&checkpoint).await;
-            });
+            // Disposable acceleration stays off the history transaction so
+            // durability latency is independent of cache writes, but the append
+            // caller must observe a tip-aligned cache attempt before return.
+            // Fire-and-forget races load_checkpoint and can lose to a later
+            // overwrite. Checkpoint failures must not fail the append.
+            let _ = self.save_checkpoint(&checkpoint).await;
         }
         Ok(envelope)
     }
@@ -896,7 +896,8 @@ async fn save_postgres_checkpoint(
          last_event_id = EXCLUDED.last_event_id, \
          snapshot_sha256 = EXCLUDED.snapshot_sha256, \
          snapshot_json = EXCLUDED.snapshot_json, \
-         updated_at = EXCLUDED.updated_at",
+         updated_at = EXCLUDED.updated_at \
+         WHERE EXCLUDED.last_sequence >= flow_projection_checkpoints.last_sequence",
     )
     .compile(&PostgresDialect)
     .map_err(postgres_query_error)?;
