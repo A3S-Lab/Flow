@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added FLOW-R3 SQLite concurrent-writer evidence (#70): tempfile SQLite races
+  two `append_if_sequence` writers at the same tip and proves exactly one
+  winner plus one `EventConflict`
+  (`sqlite_chaos_concurrent_writers_have_one_winner`).
+
 - Fixed SQL projection-cache races after append (#64): SQLite and PostgreSQL
   still refresh disposable checkpoints off the history transaction, but now
   await the tip-aligned `save_checkpoint` before append returns so
