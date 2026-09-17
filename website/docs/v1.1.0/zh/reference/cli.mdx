@@ -84,7 +84,7 @@ JSON 数组、NDJSON 流和 typed 直接调用共享最多 10,000 条 operation�
 使用 `--add-node` 时可通过 `--parent <container-id>` 把公开节点放入已有的
 `iteration` 或 `loop` 作用域。新容器只有在匹配的内部起点和至少一个可执行子节点
 都加入后才能发布，因此应把这些依赖操作放在同一个 JSON operation 数组或 NDJSON
-流中；JSON operation 使用 `parentId`。注册表契约是唯一依据：`iteration` 只能接收
+流中；JSON operation 使用 `parentId`。注册表契约是唯一依据。`iteration` 只能接收
 `iteration-start`，`loop` 只能接收 `loop-start`。不完整的中间容器只存在于候选副本中，
 不会写入磁盘。
 

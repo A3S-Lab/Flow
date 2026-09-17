@@ -356,6 +356,26 @@
 - Hardened narrow Flow inspectors so editable descriptions, composite fields,
   contract metadata, code-editor chrome, and mobile playground actions remain
   readable and inside the viewport.
+## 2.0.0 - 2026-09-17
+
+### Breaking
+
+- Extended the closed native TypeScript protocol discriminator with
+  `NativeRuntimeKind::Activity`. Per `docs/API_STABILITY.md`, that enum is not
+  `#[non_exhaustive]`; hosts and adapters that match on it must take a major
+  bump and handle the new activity invocation kind. Related public command,
+  event, suspension, and DSL error enums gained variants and therefore shifted
+  discriminants for numeric casts.
+
+### Fixed
+
+- Sanitized PostgreSQL pre-v1 upgrade fixture successor run IDs so release tags
+  with `.` cannot produce `InvalidRunId` during schema upgrade gates.
+- Bumped rustls to `0.23.45` and chacha20 to `0.10.2` for `RUSTSEC-2026-0285`
+  and the yanked chacha20 advisory path.
+- Removed a forbidden colon from ZH CLI reference prose so website content lint
+  passes.
+
 
 ## 1.1.0 - 2026-08-25
 

@@ -443,7 +443,7 @@ async fn postgres_upgrades_every_supported_pre_v1_schema_baseline() {
             .append(
                 &run_id,
                 FlowEvent::RunContinuedAsNew {
-                    successor_run_id: format!("{run_id}-successor"),
+                    successor_run_id: format!("{run_id}-successor").replace('.', "-"),
                     input: json!({ "generation": 1 }),
                 },
             )

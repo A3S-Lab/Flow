@@ -92,7 +92,7 @@ Add Flow and an async runtime:
 
 ```toml
 [dependencies]
-a3s-flow = "=1.1.0"
+a3s-flow = "=2.0.0"
 async-trait = "0.1"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt"] }
@@ -397,7 +397,7 @@ dependency graph before and after atomic publication.
 Install the compiler and provide Bun on `PATH` (or set `A3S_FLOW_BUN`):
 
 ```sh
-cargo install a3s-flow --version 1.1.0 --locked \
+cargo install a3s-flow --version 2.0.0 --locked \
   --bin a3s-flow-native-compiler
 
 a3s-flow-native-compiler capabilities
@@ -478,10 +478,10 @@ gate, package contents, and an end-to-end Bun workflow on Linux and Windows.
 
 ## Release status
 
-The crate currently declares version `1.1.0`. This compatible minor release
-adds bounded concurrent child-workflow batches, bounded exponential retries,
-and hardened custom workflow-node authoring while preserving the Flow 1.x
-runtime, replay, and persistence contracts.
+The crate currently declares version `2.0.0`. This major release documents the
+closed native TypeScript `NativeRuntimeKind::Activity` protocol extension and
+related public enum discriminant shifts while preserving Flow's durable replay
+and persistence contracts for compatible 2.x hosts.
 
 Reusable workflow-authoring components, React and Vue hooks, the CLI, and the
 Skill are maintained in this repository. Hosted tenancy, authorization,
