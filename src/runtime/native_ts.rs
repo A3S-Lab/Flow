@@ -47,6 +47,9 @@ struct CachedCompilerIdentity {
 #[derive(Debug, Clone, Default)]
 pub(super) struct ArtifactCache {
     validated: Arc<Mutex<HashMap<PathBuf, CachedArtifactValidation>>>,
+    /// Serializes publish/discard so concurrent repairs cannot quarantine a
+    /// just-published Valid entry after a stale Invalid inspect (TOCTOU).
+    publish: Arc<Mutex<()>>,
 }
 
 #[derive(Debug, Clone)]
@@ -342,6 +345,7 @@ impl ArtifactCache {
         entry: &Path,
         cache_key: &str,
     ) -> Result<()> {
+        let _publish = self.publish.lock().await;
         let mut last_rename_error = None;
         for _ in 0..MAX_PUBLISH_ATTEMPTS {
             match tokio::fs::rename(temporary, entry).await {
