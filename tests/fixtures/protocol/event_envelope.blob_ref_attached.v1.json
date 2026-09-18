@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "run_id": "cert-run",
+  "sequence": 2,
+  "event_id": "22222222-2222-4222-8222-222222222222",
+  "timestamp": "2026-01-01T00:00:01Z",
+  "event": {
+    "type": "blob_ref_attached",
+    "blob": {
+      "blob_id": "payload",
+      "content_digest": "sha256:cert",
+      "codec": "gzip",
+      "byte_length": 64
+    }
+  }
+}
