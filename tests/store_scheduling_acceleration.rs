@@ -323,3 +323,108 @@ async fn scheduler_and_worker_query_due_wakeups_once_end_to_end() {
     );
     assert_eq!(store.due_queries.load(Ordering::SeqCst), 1);
 }
+
+struct BoundedScheduleStore {
+    inner: InMemoryEventStore,
+}
+
+#[async_trait]
+impl FlowEventStore for BoundedScheduleStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner
+            .append_if_sequence(run_id, expected_sequence, event)
+            .await
+    }
+
+    async fn list(&self, _run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        Err(FlowError::Store(
+            "unbounded history read is not allowed for schedule resume".into(),
+        ))
+    }
+
+    async fn list_after(
+        &self,
+        _run_id: &str,
+        _sequence: u64,
+    ) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        Err(FlowError::Store(
+            "unbounded history tail read is not allowed for schedule resume".into(),
+        ))
+    }
+
+    async fn list_page(
+        &self,
+        run_id: &str,
+        after_sequence: u64,
+        limit: usize,
+    ) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        let history = self.inner.list(run_id).await?;
+        Ok(history
+            .into_iter()
+            .filter(|envelope| envelope.sequence > after_sequence)
+            .take(limit)
+            .collect())
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+
+    async fn latest_event(&self, run_id: &str) -> a3s_flow::Result<Option<(u64, Uuid)>> {
+        self.inner.latest_event(run_id).await
+    }
+}
+
+#[tokio::test]
+async fn resume_not_yet_due_run_uses_snapshot_instead_of_full_history() {
+    let store = Arc::new(BoundedScheduleStore {
+        inner: InMemoryEventStore::new(),
+    });
+    let run_id = "schedule-not-due";
+    store
+        .append(
+            run_id,
+            FlowEvent::RunCreated {
+                spec: WorkflowSpec::rust_embedded(
+                    "test.schedule-not-due",
+                    "1",
+                    "tests::store_scheduling_acceleration",
+                    "main",
+                ),
+                input: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+    store.append(run_id, FlowEvent::RunStarted).await.unwrap();
+    store
+        .append(
+            run_id,
+            FlowEvent::WaitCreated {
+                wait_id: "later".into(),
+                resume_at: timestamp("2030-01-01T00:00:00Z"),
+            },
+        )
+        .await
+        .unwrap();
+
+    let engine = FlowEngine::new(store, Arc::new(UnusedRuntime));
+    let due = engine
+        .resume_scheduled_run(run_id, timestamp("2026-08-07T00:00:00Z"))
+        .await
+        .expect("a not-yet-due resume must project from pages, not unbounded list");
+    assert!(due.is_empty());
+    assert_eq!(
+        engine.snapshot(run_id).await.unwrap().status,
+        WorkflowRunStatus::Suspended
+    );
+}
