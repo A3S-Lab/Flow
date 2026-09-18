@@ -271,13 +271,17 @@ impl<'a> WorkflowContext<'a> {
         self.activity_output(activity_id).is_some()
     }
 
-    /// Returns the terminal error of a step that exhausted its retries.
+    /// Returns the terminal error of a step that failed permanently
+    /// (`StepFailed` after retry exhaustion, or `StepNonRetryable`).
     pub fn step_failed(&self, step_id: &str) -> Option<&str> {
         self.history()
             .iter()
             .rev()
             .find_map(|envelope| match &envelope.event {
                 FlowEvent::StepFailed {
+                    step_id: id, error, ..
+                }
+                | FlowEvent::StepNonRetryable {
                     step_id: id, error, ..
                 } if id == step_id => Some(error.as_str()),
                 _ => None,

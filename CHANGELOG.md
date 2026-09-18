@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed FLOW-R4 tip `StepNonRetryable` / `StepFailed` DriveRun recovery beside an
+  open timer, and made `WorkflowContext::step_failed` observe `StepNonRetryable`
+  (symmetric with `activity_failed`) so `continue_workflow_on_failure` workflows
+  can recover after a crash between the durable tip and observation
+  (`step_non_retryable_recovery_wakes_via_drive_while_unscoped_timer_is_open`).
+
 - Updated the frozen public-API baseline SHA after `FlowEvent::BlobRefAttached`
   so CI `release-type: minor` checks against the current 2.x contract instead of
   a stale pre-blob-ref revision that false-failed every tip PR on enum

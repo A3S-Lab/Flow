@@ -158,8 +158,9 @@ The runtime returns exactly one command:
   run by default. If a host stops between the durable final `step_failed` and
   `run_retry_exhausted` events, the next drive completes that terminal
   transition before invoking the workflow runtime. When the step retry policy
-  uses `continue_workflow_on_failure()`, the engine records
-  `step_failed` and replays so workflow code can observe `step_failed(...)`.
+  uses `continue_workflow_on_failure()`, the engine records the durable terminal
+  step event (`step_failed` or `step_non_retryable`) and replays so workflow
+  code can observe `step_failed(...)` (which covers both tips).
 - `schedule_steps`: the engine validates a stable batch of unique step IDs, then
   applies the same durable step lifecycle to each step before replaying. If a
   sibling exhausts a fail-run policy, unsettled sibling futures are aborted and
