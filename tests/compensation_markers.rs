@@ -243,3 +243,149 @@ async fn compensation_marker_completion_is_idempotent() {
         .unwrap()
         .is_completed());
 }
+
+/// Workflow-emitted CompensationMarkerRecorded must be observable via ordinary
+/// `drive()` recovery when an unscoped timer would otherwise short-circuit.
+struct CompensationMarkerBesideOpenWaitRuntime {
+    record_phase: std::sync::atomic::AtomicBool,
+}
+
+#[async_trait]
+impl FlowRuntime for CompensationMarkerBesideOpenWaitRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        use std::sync::atomic::Ordering;
+        let ctx = invocation.context();
+        if ctx.compensation_marker("reserve").is_some() {
+            return Ok(ctx.complete(json!({ "recorded": true })));
+        }
+        if ctx.wait_status("outer").is_none() {
+            return Ok(ctx.wait_until("outer", "2030-01-01T00:00:00Z".parse().unwrap()));
+        }
+        if self.record_phase.load(Ordering::SeqCst) && ctx.update("arm").is_some() {
+            return Ok(ctx.record_compensation_marker(CompensationMarker::new(
+                "reserve",
+                "reserve-inventory",
+                json!({ "reservationId": "resv-probe" }),
+            )));
+        }
+        Ok(ctx.wait_until("outer", "2030-01-01T00:00:00Z".parse().unwrap()))
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<JsonValue> {
+        unreachable!("compensation-beside-wait runtime does not schedule steps")
+    }
+
+    async fn run_update(
+        &self,
+        _invocation: a3s_flow::UpdateInvocation,
+    ) -> a3s_flow::Result<JsonValue> {
+        Ok(json!({ "armed": true }))
+    }
+}
+
+struct CrashAfterCompensationMarkerRecordedStore {
+    inner: a3s_flow::InMemoryEventStore,
+    armed: std::sync::atomic::AtomicBool,
+}
+
+impl CrashAfterCompensationMarkerRecordedStore {
+    fn new() -> Self {
+        Self {
+            inner: a3s_flow::InMemoryEventStore::new(),
+            armed: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+}
+
+#[async_trait]
+impl a3s_flow::FlowEventStore for CrashAfterCompensationMarkerRecordedStore {
+    async fn append(
+        &self,
+        run_id: &str,
+        event: a3s_flow::FlowEvent,
+    ) -> a3s_flow::Result<a3s_flow::FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: a3s_flow::FlowEvent,
+    ) -> a3s_flow::Result<a3s_flow::FlowEventEnvelope> {
+        use std::sync::atomic::Ordering;
+        let envelope = self
+            .inner
+            .append_if_sequence(run_id, expected_sequence, event.clone())
+            .await?;
+        if matches!(
+            event,
+            a3s_flow::FlowEvent::CompensationMarkerRecorded { ref marker, .. }
+                if marker.marker_id == "reserve"
+        ) && self.armed.swap(false, Ordering::SeqCst)
+        {
+            return Err(FlowError::Store(
+                "injected crash after CompensationMarkerRecorded before observation drive".into(),
+            ));
+        }
+        Ok(envelope)
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<a3s_flow::FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
+#[tokio::test]
+async fn compensation_marker_recorded_recovery_wakes_via_drive_while_unscoped_timer_is_open() {
+    use std::sync::atomic::Ordering;
+
+    let store = Arc::new(CrashAfterCompensationMarkerRecordedStore::new());
+    let runtime = Arc::new(CompensationMarkerBesideOpenWaitRuntime {
+        record_phase: std::sync::atomic::AtomicBool::new(false),
+    });
+    let engine = FlowEngine::new(store.clone(), runtime.clone());
+    engine
+        .start_with_id(
+            "comp-marker-drive",
+            checkout_spec().with_update("arm"),
+            json!({}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        engine.snapshot("comp-marker-drive").await.unwrap().status,
+        WorkflowRunStatus::Suspended
+    );
+
+    runtime.record_phase.store(true, Ordering::SeqCst);
+    store.armed.store(true, Ordering::SeqCst);
+    let interrupted = engine
+        .apply_update(
+            "comp-marker-drive",
+            a3s_flow::WorkflowUpdate::new("arm-1", "arm", json!({})),
+        )
+        .await
+        .expect_err("crash after durable CompensationMarkerRecorded must interrupt");
+    assert!(matches!(interrupted, FlowError::Store(_)));
+
+    let mid = engine.snapshot("comp-marker-drive").await.unwrap();
+    assert!(!mid.status.is_terminal());
+    assert!(mid.compensation_marker("reserve").unwrap().is_open());
+    assert_eq!(mid.waits["outer"].status, a3s_flow::WaitStatus::Waiting);
+
+    let recovered = engine.drive("comp-marker-drive").await.unwrap();
+    assert_eq!(
+        recovered.status,
+        WorkflowRunStatus::Completed,
+        "drive must observe tip CompensationMarkerRecorded beside an open unscoped timer"
+    );
+    assert_eq!(recovered.output, Some(json!({ "recorded": true })));
+}

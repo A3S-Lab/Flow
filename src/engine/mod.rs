@@ -253,7 +253,7 @@ impl FlowEngine {
         force_workflow_replay: bool,
     ) -> Result<WorkflowRunSnapshot> {
         let mut force_replay = force_workflow_replay;
-        let mut observed_tip_scope_lifecycle = force_workflow_replay;
+        let mut observed_tip_workflow_emission = force_workflow_replay;
         let mut sequence_before_workflow = None;
         let mut yielded_due_retry_at = None;
         let mut replay_iterations = 0;
@@ -269,20 +269,17 @@ impl FlowEngine {
                     .await?;
                 continue;
             }
-            // DriveRun recovery after workflow CancelScope / CompleteScope: a tip
-            // scope lifecycle event needs one observation even while an unscoped
-            // timer stays open. Host cancel_scope already forces replay; this
-            // mirrors that for ordinary drive() without re-forcing later iterations.
-            if !observed_tip_scope_lifecycle {
-                observed_tip_scope_lifecycle = true;
-                if history.last().is_some_and(|envelope| {
-                    matches!(
-                        envelope.event,
-                        FlowEvent::ScopeOpened { .. }
-                            | FlowEvent::ScopeCancelled { .. }
-                            | FlowEvent::ScopeCompleted { .. }
-                    )
-                }) {
+            // DriveRun recovery after a workflow emission that appends then continues:
+            // the tip needs one observation even while an unscoped timer stays open.
+            // Host force APIs (update/hook/signal/cancel_scope) already force replay;
+            // this mirrors that for ordinary drive() without re-forcing later iterations.
+            // Suspension tips (wait/hook/select create) are intentionally excluded.
+            if !observed_tip_workflow_emission {
+                observed_tip_workflow_emission = true;
+                if history
+                    .last()
+                    .is_some_and(|envelope| tip_requires_workflow_observation(&envelope.event))
+                {
                     force_replay = true;
                 }
             }
@@ -1160,4 +1157,23 @@ impl FlowEngine {
             }
         }
     }
+}
+
+/// Tip events emitted by workflow commands that append then continue (not
+/// suspend). Ordinary DriveRun recovery must observe them once beside open
+/// waits; intentional suspension tips are excluded.
+fn tip_requires_workflow_observation(event: &FlowEvent) -> bool {
+    matches!(
+        event,
+        FlowEvent::ScopeOpened { .. }
+            | FlowEvent::ScopeCancelled { .. }
+            | FlowEvent::ScopeCompleted { .. }
+            | FlowEvent::CompensationMarkerRecorded { .. }
+            | FlowEvent::CompensationMarkerCompleted { .. }
+            | FlowEvent::ChildOperationLinked { .. }
+            | FlowEvent::RunProgressRecorded { .. }
+            | FlowEvent::BlobRefAttached { .. }
+            | FlowEvent::ExternalDatasetAttached { .. }
+            | FlowEvent::ItemAggregateRecorded { .. }
+    )
 }
