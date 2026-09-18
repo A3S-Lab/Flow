@@ -11,7 +11,8 @@ impl FlowEngine {
     /// different payload or a different terminal hook resolution is rejected
     /// explicitly instead of being mistaken for the committed outcome. When
     /// the resolved run continued as new, matching redelivery follows and
-    /// repairs its active successor.
+    /// repairs its active successor. Receipt forces workflow replay so an open
+    /// timer or signal wait cannot hide the callback.
     pub async fn resume_hook(
         &self,
         run_id: &str,
@@ -92,7 +93,7 @@ impl FlowEngine {
                 }
             }
 
-            match self.drive(run_id).await {
+            match self.drive_forcing_workflow_replay(run_id).await {
                 Ok(snapshot) => return Ok(hook_resolution(run_id, hook_id, snapshot, resumed)),
                 Err(error) if is_event_conflict(&error) => continue,
                 Err(error) => return Err(error),
@@ -109,7 +110,8 @@ impl FlowEngine {
     /// idempotent when the hook was already disposed. A received or cancelled
     /// hook conflicts with disposal and cannot be reported as successful. When
     /// the resolved run continued as new, matching redelivery follows and
-    /// repairs its active successor.
+    /// repairs its active successor. Disposal forces workflow replay so an
+    /// open timer or signal wait cannot hide the withdrawal.
     pub async fn dispose_hook(&self, run_id: &str, hook_id: &str) -> Result<()> {
         self.dispose_hook_if_active(run_id, hook_id).await?;
         Ok(())
@@ -174,7 +176,7 @@ impl FlowEngine {
                 }
             }
 
-            match self.drive(run_id).await {
+            match self.drive_forcing_workflow_replay(run_id).await {
                 Ok(snapshot) => return Ok(hook_resolution(run_id, hook_id, snapshot, disposed)),
                 Err(error) if is_event_conflict(&error) => continue,
                 Err(error) => return Err(error),

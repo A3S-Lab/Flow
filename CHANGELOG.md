@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed FLOW-R4 hook resolution while another suspension stays open (#99): `resume_hook`
+  and `dispose_hook` force workflow replay so a durable receipt cannot be hidden
+  by an open timer or signal wait
+  (`hook_receipt_wakes_workflow_while_timer_wait_is_open`,
+  `hook_disposal_wakes_workflow_while_timer_wait_is_open`).
+
 - Fixed FLOW-R4 scope-cancel redelivery after receipt-before-drive crashes (#97):
   an identical `cancel_scope` retry forces workflow replay when
   `ScopeCancelled` is durable but the run is still non-terminal
