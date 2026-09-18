@@ -1,6 +1,7 @@
 use a3s_flow::{
-    FlowBlobEncryption, FlowBlobRef, FlowEngine, FlowError, FlowRuntime, JsonValue, RuntimeCommand,
-    StepInvocation, WorkflowInvocation, WorkflowRunStatus, WorkflowSpec, MAX_FLOW_EVENT_BYTES,
+    ActivityInvocation, FlowBlobEncryption, FlowBlobRef, FlowEngine, FlowError, FlowRuntime,
+    JsonValue, RetryPolicy, RuntimeCommand, StepInvocation, WorkflowInvocation, WorkflowRunStatus,
+    WorkflowSpec, MAX_FLOW_EVENT_BYTES,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -137,6 +138,61 @@ async fn step_output_blob_ref_marker_persists_under_event_budget() {
         parsed,
         Some(
             FlowBlobRef::new("payload", "sha256:step-out")
+                .with_codec("identity")
+                .with_byte_length(8_000_000)
+        )
+    );
+}
+
+#[tokio::test]
+async fn activity_output_blob_ref_marker_persists_under_event_budget() {
+    struct ActivityBlobRuntime;
+    #[async_trait]
+    impl FlowRuntime for ActivityBlobRuntime {
+        async fn run_workflow(
+            &self,
+            invocation: WorkflowInvocation,
+        ) -> a3s_flow::Result<RuntimeCommand> {
+            let ctx = invocation.context();
+            match ctx.activity_output("load") {
+                Some(output) => Ok(ctx.complete(output.clone())),
+                None => Ok(ctx.schedule_activity_with_retry(
+                    "load",
+                    "loadBlob",
+                    json!({}),
+                    RetryPolicy::none(),
+                )),
+            }
+        }
+
+        async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<JsonValue> {
+            unreachable!()
+        }
+
+        async fn run_activity(
+            &self,
+            _invocation: ActivityInvocation,
+        ) -> a3s_flow::Result<JsonValue> {
+            Ok(FlowBlobRef::new("payload", "sha256:activity-out")
+                .with_codec("identity")
+                .with_byte_length(8_000_000)
+                .to_output_value())
+        }
+    }
+
+    let engine = FlowEngine::in_memory(Arc::new(ActivityBlobRuntime));
+    let run_id = engine
+        .start_with_id("blob-activity", blob_spec(), json!({}))
+        .await
+        .unwrap();
+    let snapshot = engine.snapshot(&run_id).await.unwrap();
+    assert_eq!(snapshot.status, WorkflowRunStatus::Completed);
+    let output = snapshot.output.as_ref().unwrap();
+    let parsed = FlowBlobRef::try_from_output_value(output).unwrap();
+    assert_eq!(
+        parsed,
+        Some(
+            FlowBlobRef::new("payload", "sha256:activity-out")
                 .with_codec("identity")
                 .with_byte_length(8_000_000)
         )
