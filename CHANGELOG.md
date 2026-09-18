@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added FLOW-R4 select completion interruption evidence (#92): losing
+  `SelectCompleted` after a durable winning `WaitCompleted` recovers with
+  exactly one select completion, cancelled losing arms, and no duplicate
+  winners (`select_recovers_after_select_completed_persistence_is_lost`).
+
 - Added FLOW-R4 typed content-addressed blob references (#88): `FlowBlobRef` /
   `FlowBlobEncryption`, `RuntimeCommand::AttachBlobRef`,
   `FlowEvent::BlobRefAttached`, and `$flow_blob_ref` step/activity/run output

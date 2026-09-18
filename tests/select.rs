@@ -1,10 +1,12 @@
 use a3s_flow::{
-    FlowEngine, FlowError, FlowEventStore, FlowRuntime, InMemoryEventStore, JsonValue,
-    QueryInvocation, RuntimeCommand, SelectArm, WorkflowInvocation, WorkflowSignal, WorkflowSpec,
+    FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore, FlowRuntime,
+    InMemoryEventStore, JsonValue, QueryInvocation, RuntimeCommand, SelectArm, WaitStatus,
+    WorkflowInvocation, WorkflowSignal, WorkflowSpec,
 };
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use serde_json::json;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 struct SelectRuntime;
@@ -135,4 +137,111 @@ async fn select_command_is_idempotent_and_rejects_arm_drift() {
         })
         .unwrap();
     assert_eq!(created.len(), 3);
+}
+
+struct CrashBeforeSelectCompletedStore {
+    inner: InMemoryEventStore,
+    armed: AtomicBool,
+}
+
+impl CrashBeforeSelectCompletedStore {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryEventStore::new(),
+            armed: AtomicBool::new(true),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowEventStore for CrashBeforeSelectCompletedStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        if matches!(
+            &event,
+            FlowEvent::SelectCompleted {
+                select_id,
+                winning_arm_id: Some(winner),
+                ..
+            } if select_id == "race" && winner == "fast"
+        ) && self.armed.swap(false, Ordering::SeqCst)
+        {
+            return Err(FlowError::Store(
+                "injected crash before select completion became durable".into(),
+            ));
+        }
+        self.inner
+            .append_if_sequence(run_id, expected_sequence, event)
+            .await
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
+#[tokio::test]
+async fn select_recovers_after_select_completed_persistence_is_lost() {
+    let run_id = "select-completed-crash";
+    let store = Arc::new(CrashBeforeSelectCompletedStore::new());
+    let engine = FlowEngine::new(store.clone(), Arc::new(SelectRuntime));
+
+    engine
+        .start_with_id(run_id, select_spec(), json!({}))
+        .await
+        .unwrap();
+    let interrupted = engine
+        .resume_wait(run_id, "fast")
+        .await
+        .expect_err("losing SelectCompleted must interrupt the first resume");
+    assert!(matches!(interrupted, FlowError::Store(_)));
+
+    let mid = engine.snapshot(run_id).await.unwrap();
+    assert!(!mid.status.is_terminal());
+    assert!(mid.select("race").unwrap().is_open());
+    assert_eq!(mid.waits.get("fast").unwrap().status, WaitStatus::Completed);
+    assert_eq!(mid.waits.get("slow").unwrap().status, WaitStatus::Waiting);
+
+    drop(engine);
+    let restarted = FlowEngine::new(store.clone(), Arc::new(SelectRuntime));
+    restarted.drive(run_id).await.unwrap();
+    let recovered = restarted.snapshot(run_id).await.unwrap();
+    assert!(recovered.status.is_terminal());
+    assert_eq!(recovered.output, Some(json!({ "winner": "fast" })));
+    assert!(recovered.select("race").unwrap().is_completed());
+    assert_eq!(
+        recovered.select("race").unwrap().winning_arm_id.as_deref(),
+        Some("fast")
+    );
+    assert_eq!(
+        recovered.waits.get("slow").unwrap().status,
+        WaitStatus::Cancelled
+    );
+
+    let history = store.list(run_id).await.unwrap();
+    let select_completions = history
+        .iter()
+        .filter(|envelope| {
+            matches!(
+                &envelope.event,
+                FlowEvent::SelectCompleted {
+                    select_id,
+                    winning_arm_id: Some(winner),
+                } if select_id == "race" && winner == "fast"
+            )
+        })
+        .count();
+    assert_eq!(select_completions, 1);
 }
