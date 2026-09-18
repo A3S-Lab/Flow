@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added FLOW-R4 PostgreSQL durable-interruption evidence (#82): partial
+  `ChildWorkflowRequested` / `ChildWorkflowResolved` append failures on a real
+  Postgres store recover without duplicate or lost children for map windows,
+  batches, and parent resolution
+  (`tests/postgres_child_workflow_interruption.rs`).
+
 - Extended FLOW-R2 PostgreSQL Activity process-death evidence (#83): after a
   durable heartbeat, worker death before `ActivityCompleted` keeps the
   checkpoint, rotates the lease fence on replacement, rejects the stale fence,
