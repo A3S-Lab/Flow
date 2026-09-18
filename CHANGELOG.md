@@ -12,7 +12,8 @@
   `FlowEvent::BlobRefAttached`, and `$flow_blob_ref` step/activity/run output
   markers so large payloads can stay under `MAX_FLOW_EVENT_BYTES` without Flow
   fetching host CAS bytes
-  (`tests/blob_refs.rs`). Frozen R6 protocol fixture
+  (`tests/blob_refs.rs`, including step and activity `$flow_blob_ref` markers).
+  Frozen R6 protocol fixture
   `event_envelope.blob_ref_attached.v1.json` locks the wire shape.
 
 - Added FLOW-R4 PostgreSQL durable-interruption evidence for concurrent
