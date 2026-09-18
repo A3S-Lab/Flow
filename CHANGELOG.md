@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed FLOW-R4 delayed retries while another suspension stays open (#105): a due
+  step retry still runs when a timer, hook, or signal wait is open, and a
+  forced replay cannot spin on a not-yet-due step
+  (`due_retry_runs_while_another_timer_is_open`).
+
 - Fixed FLOW-R4 timer resume while another suspension stays open (#103): `resume_wait`
   forces workflow replay so a fired timer cannot be hidden by another open
   timer, hook, or signal wait

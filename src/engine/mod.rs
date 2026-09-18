@@ -252,6 +252,8 @@ impl FlowEngine {
         ancestry: &BTreeSet<String>,
         force_workflow_replay: bool,
     ) -> Result<WorkflowRunSnapshot> {
+        let mut force_replay = force_workflow_replay;
+        let mut sequence_before_workflow = None;
         let mut replay_iterations = 0;
         'replay: while replay_iterations < self.max_replay_iterations {
             let history = self.store.list(run_id).await?;
@@ -318,10 +320,16 @@ impl FlowEngine {
                 Err(err) if is_event_conflict(&err) => continue,
                 Err(err) => return Err(err),
             }
-            // Updates can change the next command while a timer, hook, or signal
-            // wait remains open. Callers that just mutated history with an update
-            // force one workflow replay past this short-circuit.
-            if !force_workflow_replay
+            // A caller that just mutated history can force one workflow replay.
+            // Later iterations replay only when that pass appended history or a
+            // retry is already due, so an open timer cannot hide either case
+            // and a not-yet-due step cannot spin the replay budget.
+            let progressed =
+                sequence_before_workflow.is_some_and(|sequence| snapshot.last_sequence > sequence);
+            let due_retry = !snapshot.due_retries(now).is_empty();
+            if !force_replay
+                && !progressed
+                && !due_retry
                 && (snapshot
                     .waits
                     .values()
@@ -338,6 +346,8 @@ impl FlowEngine {
             {
                 return Ok(snapshot);
             }
+            force_replay = false;
+            sequence_before_workflow = Some(snapshot.last_sequence);
 
             let command = self
                 .runtime
