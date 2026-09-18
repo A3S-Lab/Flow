@@ -1,7 +1,7 @@
 use a3s_flow::{
-    FlowEngine, FlowError, FlowRuntime, FlowScheduler, FlowTask, FlowTaskQueue, FlowWorker,
-    InMemoryFlowTaskQueue, RetryPolicy, RuntimeCommand, StepInvocation, WorkflowInvocation,
-    WorkflowRunStatus, WorkflowSpec,
+    FlowEngine, FlowError, FlowEvent, FlowRuntime, FlowScheduler, FlowTask, FlowTaskQueue,
+    FlowWorker, InMemoryFlowTaskQueue, RetryPolicy, RuntimeCommand, StepInvocation,
+    WorkflowInvocation, WorkflowRunStatus, WorkflowSpec, WorkflowUpdate,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
@@ -334,4 +334,66 @@ async fn scheduler_groups_due_retry_siblings_into_one_run_task() {
         engine.snapshot(&run_id).await.unwrap().status,
         WorkflowRunStatus::Completed
     );
+}
+
+struct WaitBesideOpenTimerRuntime;
+
+#[async_trait]
+impl FlowRuntime for WaitBesideOpenTimerRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let context = invocation.context();
+        if context.wait_completed("due") {
+            return Ok(context.complete(json!("due")));
+        }
+        let armed = invocation
+            .history
+            .iter()
+            .any(|envelope| matches!(&envelope.event, FlowEvent::WaitCreated { wait_id, .. } if wait_id == "due"));
+        if context.update("arm").is_some() && !armed {
+            return Ok(context.wait_until("due", Utc::now() - ChronoDuration::seconds(5)));
+        }
+        Ok(context.wait_until("hold", "2030-01-01T00:00:00Z".parse().unwrap()))
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        unreachable!("wait-beside-timer runtime does not schedule steps")
+    }
+
+    async fn run_update(
+        &self,
+        _invocation: a3s_flow::UpdateInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        Ok(json!({ "armed": true }))
+    }
+}
+
+#[tokio::test]
+async fn due_wait_wakes_workflow_while_another_timer_is_open() {
+    let engine = FlowEngine::in_memory(Arc::new(WaitBesideOpenTimerRuntime));
+    engine
+        .start_with_id("wait-beside-timer", spec().with_update("arm"), json!({}))
+        .await
+        .unwrap();
+    let armed = engine
+        .apply_update(
+            "wait-beside-timer",
+            WorkflowUpdate::new("arm-1", "arm", json!({})),
+        )
+        .await
+        .unwrap();
+    assert_eq!(armed.snapshot.status, WorkflowRunStatus::Suspended);
+    assert!(armed.snapshot.waits["hold"].status == a3s_flow::WaitStatus::Waiting);
+    assert!(armed.snapshot.waits["due"].status == a3s_flow::WaitStatus::Waiting);
+
+    engine
+        .resume_wait("wait-beside-timer", "due")
+        .await
+        .unwrap();
+
+    let snapshot = engine.snapshot("wait-beside-timer").await.unwrap();
+    assert_eq!(snapshot.status, WorkflowRunStatus::Completed);
+    assert_eq!(snapshot.output, Some(json!("due")));
 }

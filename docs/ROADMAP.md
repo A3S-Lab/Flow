@@ -173,6 +173,8 @@ non-terminal
 Hook receipt and disposal also force replay when another suspension remains
 open (`hook_receipt_wakes_workflow_while_timer_wait_is_open`). Signal delivery
 does the same for a paired wait (`signal_delivery_wakes_workflow_while_timer_wait_is_open`).
+Timer resume does the same for a fired wait
+(`due_wait_wakes_workflow_while_another_timer_is_open`).
 Run cancellation marks open scopes cancelled. Structured select/race is
 also implemented for timer and signal arms: the first completed arm wins and
 sibling waits are cancelled durably; losing `SelectCompleted` after a durable

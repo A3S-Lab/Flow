@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed FLOW-R4 timer resume while another suspension stays open (#103): `resume_wait`
+  forces workflow replay so a fired timer cannot be hidden by another open
+  timer, hook, or signal wait
+  (`due_wait_wakes_workflow_while_another_timer_is_open`).
+
 - Fixed FLOW-R4 signal delivery while another suspension stays open (#101): `send_signal`
   forces workflow replay so a paired signal cannot be hidden by an open timer
   or hook (`signal_delivery_wakes_workflow_while_timer_wait_is_open`).
