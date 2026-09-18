@@ -2,7 +2,7 @@ use a3s_flow::{
     ActiveHookSnapshot, FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore,
     FlowRuntime, FlowTask, FlowWorker, HookStatus, InMemoryEventStore, RuntimeBuildCompatibility,
     RuntimeBuildId, RuntimeCommand, StepInvocation, WorkflowInvocation, WorkflowRunStatus,
-    WorkflowSpec,
+    WorkflowSpec, WorkflowUpdate,
 };
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -459,6 +459,103 @@ async fn opposite_terminal_hook_resolutions_are_rejected() {
         .await
         .unwrap_err();
     assert_hook_conflict(dispose_error, "was already resumed");
+}
+
+struct HookBesideOpenWaitRuntime;
+
+#[async_trait]
+impl FlowRuntime for HookBesideOpenWaitRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let context = invocation.context();
+        if context.hook_payload(HOOK_ID).is_some() {
+            return Ok(context.complete(json!("received")));
+        }
+        if context.hook_disposed(HOOK_ID) {
+            return Ok(context.complete(json!("disposed")));
+        }
+        let hook_open = invocation
+            .history
+            .iter()
+            .any(|envelope| matches!(envelope.event, FlowEvent::HookCreated { .. }));
+        if context.update("open-hook").is_some() && !hook_open {
+            return Ok(context.create_hook(HOOK_ID, "approval-token", json!({})));
+        }
+        Ok(context.wait_until("pause", "2030-01-01T00:00:00Z".parse().unwrap()))
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<Value> {
+        unreachable!("hook-beside-wait runtime does not schedule steps")
+    }
+
+    async fn run_update(&self, _invocation: a3s_flow::UpdateInvocation) -> a3s_flow::Result<Value> {
+        Ok(json!({ "opened": true }))
+    }
+}
+
+fn hook_beside_wait_spec() -> WorkflowSpec {
+    spec().with_update("open-hook")
+}
+
+#[tokio::test]
+async fn hook_receipt_wakes_workflow_while_timer_wait_is_open() {
+    let engine = FlowEngine::in_memory(Arc::new(HookBesideOpenWaitRuntime));
+    engine
+        .start_with_id("hook-beside-wait", hook_beside_wait_spec(), json!({}))
+        .await
+        .unwrap();
+
+    let opened = engine
+        .apply_update(
+            "hook-beside-wait",
+            WorkflowUpdate::new("open-1", "open-hook", json!({})),
+        )
+        .await
+        .unwrap();
+    assert_eq!(opened.snapshot.status, WorkflowRunStatus::Suspended);
+    assert_eq!(opened.snapshot.hooks[HOOK_ID].status, HookStatus::Active);
+
+    engine
+        .resume_hook("hook-beside-wait", HOOK_ID, approved_payload())
+        .await
+        .unwrap();
+
+    let snapshot = engine.snapshot("hook-beside-wait").await.unwrap();
+    assert_eq!(snapshot.status, WorkflowRunStatus::Completed);
+    assert_eq!(snapshot.output, Some(json!("received")));
+    assert_eq!(snapshot.hooks[HOOK_ID].status, HookStatus::Received);
+}
+
+#[tokio::test]
+async fn hook_disposal_wakes_workflow_while_timer_wait_is_open() {
+    let engine = FlowEngine::in_memory(Arc::new(HookBesideOpenWaitRuntime));
+    engine
+        .start_with_id(
+            "hook-beside-wait-dispose",
+            hook_beside_wait_spec(),
+            json!({}),
+        )
+        .await
+        .unwrap();
+    engine
+        .apply_update(
+            "hook-beside-wait-dispose",
+            WorkflowUpdate::new("open-1", "open-hook", json!({})),
+        )
+        .await
+        .unwrap();
+
+    engine
+        .dispose_hook("hook-beside-wait-dispose", HOOK_ID)
+        .await
+        .unwrap();
+
+    let snapshot = engine.snapshot("hook-beside-wait-dispose").await.unwrap();
+    assert_eq!(snapshot.status, WorkflowRunStatus::Completed);
+    assert_eq!(snapshot.output, Some(json!("disposed")));
+    assert_eq!(snapshot.hooks[HOOK_ID].status, HookStatus::Disposed);
 }
 
 #[path = "hook_idempotency/worker_outcomes.rs"]
