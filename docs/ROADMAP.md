@@ -185,6 +185,13 @@ stays open (`child_resolution_wakes_parent_while_another_timer_is_open`).
 Child-map completion does the same after `ChildWorkflowMapCompleted`
 (`map_completion_wakes_parent_while_another_timer_is_open`), while map window
 advancement still does not force parent replay.
+Graceful `RunCompleted` / `RunContinuedAsNew` now also fail closed on an open
+signal wait (`projection_prevents_run_completed_from_abandoning_an_open_signal_wait`)
+and on an still-open child-workflow map
+(`projection_rejects_graceful_terminals_with_an_open_child_workflow_map`),
+alongside the existing in-flight step/activity gate. Timers and hooks remain
+intentionally abandonable on continue-as-new (SQL indexes close with the
+segment).
 SQLite and Postgres scheduled-wakeup indexes include a delayed activity
 retry the same way they include a delayed step retry, and the next activity
 attempt removes it (`sqlite_delayed_activity_retry_is_a_scheduled_wakeup`).
@@ -280,7 +287,9 @@ without embedding those carriers in replay history. The first visibility
 projection contract is also implemented: `FlowEngine::visibility_projection`
 returns a tip-anchored, schema-versioned summary rebuildable from history or a
 tip-validated snapshot/checkpoint digest, without copying workflow payloads into
-the index.
+the index. Hosts that retained a tip-validated checkpoint can rebuild that
+summary via `FlowVisibilityProjection::from_snapshot` without paging the full
+log (`visibility_projection_rebuilds_from_tip_validated_checkpoint_without_full_history`).
 
 The first `FLOW-R6` certification harness is also present:
 `tests/certification.rs` freezes worker/task/envelope protocol fixtures under
