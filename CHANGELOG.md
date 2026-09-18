@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed FLOW-R4 unknown-activity reconciliation while another suspension stays
+  open (#113): `resolve_unknown_activity` forces workflow replay so a durable
+  completion, failure, or retry cannot be hidden by an open timer, hook, or
+  signal wait
+  (`unknown_activity_resolution_wakes_workflow_while_timer_wait_is_open`).
+
 - Fixed FLOW-R4 scheduled wakeup identity collision for step and activity
   retries (#111): activity retries use reserved wakeup kind `1` so a shared
   subject id cannot overwrite a step retry

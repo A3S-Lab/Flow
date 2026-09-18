@@ -27,7 +27,9 @@ impl FlowEngine {
     /// The caller must use the attempt and idempotency identities exposed in
     /// [`ActivitySnapshot`](crate::ActivitySnapshot) to query the provider.
     /// Resolution is fenced by the current attempt token and is safe to retry
-    /// after an event-sequence conflict.
+    /// after an event-sequence conflict. A newly committed resolution forces
+    /// one workflow replay so an open timer, hook, or signal wait cannot hide
+    /// the durable outcome.
     pub async fn resolve_unknown_activity(
         &self,
         run_id: &str,
@@ -90,7 +92,11 @@ impl FlowEngine {
                 .record_event_at(run_id, snapshot.last_sequence, event)
                 .await
             {
-                Ok(_) => return Ok(()),
+                Ok(_) => match self.drive_forcing_workflow_replay(run_id).await {
+                    Ok(_) => return Ok(()),
+                    Err(error) if super::validation::is_event_conflict(&error) => continue,
+                    Err(error) => return Err(error),
+                },
                 Err(error) if super::validation::is_event_conflict(&error) => continue,
                 Err(error) => return Err(error),
             }

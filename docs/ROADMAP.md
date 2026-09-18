@@ -184,6 +184,9 @@ attempt removes it (`sqlite_delayed_activity_retry_is_a_scheduled_wakeup`).
 Activity retries use reserved wakeup kind `1` so they cannot collide with a
 step retry that shares the same subject id
 (`sqlite_step_and_activity_retries_with_same_id_both_remain_indexed`).
+Unknown-activity reconciliation also forces replay when another suspension
+remains open
+(`unknown_activity_resolution_wakes_workflow_while_timer_wait_is_open`).
 Run cancellation marks open scopes cancelled. Structured select/race is
 also implemented for timer and signal arms: the first completed arm wins and
 sibling waits are cancelled durably; losing `SelectCompleted` after a durable
