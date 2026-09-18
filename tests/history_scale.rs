@@ -187,6 +187,101 @@ async fn history_partitions_seal_contiguous_ranges_without_gaps_or_overlap() {
     assert!(past_tip.to_string().contains("beyond history tip"));
 }
 
+struct PrefixOnlyPageStore {
+    inner: InMemoryEventStore,
+}
+
+#[async_trait]
+impl FlowEventStore for PrefixOnlyPageStore {
+    async fn append(
+        &self,
+        run_id: &str,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<a3s_flow::FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<a3s_flow::FlowEventEnvelope> {
+        self.inner
+            .append_if_sequence(run_id, expected_sequence, event)
+            .await
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<a3s_flow::FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+
+    async fn list_after(
+        &self,
+        _run_id: &str,
+        _sequence: u64,
+    ) -> a3s_flow::Result<Vec<a3s_flow::FlowEventEnvelope>> {
+        Err(FlowError::Store("unbounded history tail read".to_string()))
+    }
+
+    async fn list_page(
+        &self,
+        run_id: &str,
+        after_sequence: u64,
+        limit: usize,
+    ) -> a3s_flow::Result<Vec<a3s_flow::FlowEventEnvelope>> {
+        let history = self.inner.list(run_id).await?;
+        Ok(history
+            .into_iter()
+            .filter(|envelope| envelope.sequence > after_sequence)
+            .take(limit)
+            .collect())
+    }
+
+    async fn list_history_partitions(
+        &self,
+        run_id: &str,
+    ) -> a3s_flow::Result<Vec<a3s_flow::FlowHistoryPartition>> {
+        self.inner.list_history_partitions(run_id).await
+    }
+
+    async fn save_history_partition(
+        &self,
+        partition: &a3s_flow::FlowHistoryPartition,
+    ) -> a3s_flow::Result<()> {
+        self.inner.save_history_partition(partition).await
+    }
+}
+
+#[tokio::test]
+async fn history_partition_seal_reads_only_the_requested_prefix() {
+    let store = Arc::new(PrefixOnlyPageStore {
+        inner: InMemoryEventStore::new(),
+    });
+    seed_three_events(store.as_ref(), "prefix-seal").await;
+    store
+        .append(
+            "prefix-seal",
+            FlowEvent::RunProgressRecorded {
+                progress: WorkflowProgress::new("tail", 1),
+            },
+        )
+        .await
+        .unwrap();
+    let engine = FlowEngine::new(store, Arc::new(TestRuntime));
+    let sealed = engine
+        .seal_history_partition("prefix-seal", 2)
+        .await
+        .expect("sealing a prefix must not read the unbounded tail");
+    assert_eq!(sealed.first_sequence, 1);
+    assert_eq!(sealed.last_sequence, 2);
+    assert_eq!(sealed.event_count, 2);
+}
+
 #[tokio::test]
 async fn local_file_history_partitions_survive_reopen() {
     let directory = tempfile::tempdir().unwrap();

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 history partition sealing so the requested range is read in
+  bounded pages. Sealing a prefix no longer loads the unbounded tail via
+  `list_after` (`history_partition_seal_reads_only_the_requested_prefix`).
+
 - Fixed FLOW-R3 tip-pinned archive export and seal verification so the
   content digest is hashed one history page at a time instead of cloning the
   full log into one allocation (`load_tip_pinned_archive_export_stays_correct_for_ten_thousand_events`).

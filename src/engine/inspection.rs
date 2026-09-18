@@ -323,7 +323,9 @@ impl FlowEngine {
     ///
     /// Partitions are immutable indexes over the authoritative event log. The
     /// next seal must continue immediately after the previous partition without
-    /// gaps or overlap, and may not extend past the durable tip.
+    /// gaps or overlap, and may not extend past the durable tip. The sealed
+    /// range is read in bounded pages so a long tail after `through_sequence`
+    /// is not loaded.
     pub async fn seal_history_partition(
         &self,
         run_id: &str,
@@ -364,14 +366,77 @@ impl FlowEngine {
             None => (0, 1),
         };
 
-        let events = self
-            .store
-            .list_after(run_id, first_sequence.saturating_sub(1))
-            .await?
-            .into_iter()
-            .filter(|envelope| envelope.sequence <= through_sequence)
-            .collect::<Vec<_>>();
-        let partition = FlowHistoryPartition::from_events(run_id, ordinal, &events)?;
+        let mut after_sequence = first_sequence.saturating_sub(1);
+        let mut digest = HistoryContentHasher::new();
+        let mut first_event_id = None;
+        let mut last_event_id = None;
+        let mut event_count = 0u64;
+        while after_sequence < through_sequence {
+            let remaining = usize::try_from(through_sequence - after_sequence).map_err(|_| {
+                FlowError::Store(format!(
+                    "history partition sequence overflow for workflow run {run_id}"
+                ))
+            })?;
+            let limit = remaining.min(MAX_FLOW_HISTORY_PAGE_SIZE);
+            let page = self.history_page(run_id, after_sequence, limit).await?;
+            if page.is_empty() {
+                return Err(FlowError::Store(format!(
+                    "history partition for {run_id} ended before sequence {through_sequence}"
+                )));
+            }
+            let mut expected = after_sequence.checked_add(1).ok_or_else(|| {
+                FlowError::Store(format!(
+                    "history partition sequence overflow for workflow run {run_id}"
+                ))
+            })?;
+            for envelope in &page {
+                if envelope.sequence != expected {
+                    return Err(FlowError::Store(format!(
+                        "history partition for {run_id} is not contiguous at sequence {}; expected {expected}",
+                        envelope.sequence
+                    )));
+                }
+                if first_event_id.is_none() {
+                    first_event_id = Some(envelope.event_id);
+                }
+                last_event_id = Some(envelope.event_id);
+                expected = expected.checked_add(1).ok_or_else(|| {
+                    FlowError::Store(format!(
+                        "history partition sequence overflow for workflow run {run_id}"
+                    ))
+                })?;
+                event_count = event_count.checked_add(1).ok_or_else(|| {
+                    FlowError::Store(format!(
+                        "history partition event count overflow for workflow run {run_id}"
+                    ))
+                })?;
+            }
+            let page_last = page.last().expect("non-empty page").sequence;
+            digest.update(&page);
+            after_sequence = page_last;
+            if page.len() < limit && after_sequence < through_sequence {
+                return Err(FlowError::Store(format!(
+                    "history partition for {run_id} returned a short page before sequence {through_sequence}"
+                )));
+            }
+        }
+        let first_event_id = first_event_id.ok_or_else(|| {
+            FlowError::Store(format!("history partition for {run_id} cannot be empty"))
+        })?;
+        let last_event_id = last_event_id.ok_or_else(|| {
+            FlowError::Store(format!("history partition for {run_id} cannot be empty"))
+        })?;
+        let partition = FlowHistoryPartition {
+            run_id: run_id.to_string(),
+            ordinal,
+            first_sequence,
+            last_sequence: through_sequence,
+            first_event_id,
+            last_event_id,
+            event_count,
+            content_sha256: digest.finalize(),
+        };
+        partition.validate()?;
         if partition.first_sequence != first_sequence || partition.last_sequence != through_sequence
         {
             return Err(FlowError::Store(format!(
