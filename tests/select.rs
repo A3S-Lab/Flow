@@ -113,7 +113,7 @@ async fn select_completes_when_a_signal_arm_wins_and_cancels_timers() {
 }
 
 #[tokio::test]
-async fn select_command_is_idempotent_and_rejects_arm_drift() {
+async fn select_command_is_idempotent_while_open() {
     let store = Arc::new(InMemoryEventStore::new());
     let engine = FlowEngine::new(store.clone(), Arc::new(SelectRuntime));
     engine
@@ -137,6 +137,74 @@ async fn select_command_is_idempotent_and_rejects_arm_drift() {
         })
         .unwrap();
     assert_eq!(created.len(), 3);
+}
+
+struct ArmIdentityDriftRuntime {
+    drift: AtomicBool,
+}
+
+#[async_trait]
+impl FlowRuntime for ArmIdentityDriftRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let ctx = invocation.context();
+        if ctx.select_joined("both") {
+            return Ok(RuntimeCommand::Complete {
+                output: json!({ "joined": true }),
+            });
+        }
+        let first = Utc::now() - Duration::seconds(2);
+        let second = Utc::now() - Duration::seconds(1);
+        let arms = if self.drift.load(Ordering::SeqCst) {
+            vec![
+                SelectArm::timer("a-renamed", first),
+                SelectArm::timer("b", second),
+            ]
+        } else {
+            vec![
+                SelectArm::timer("a", first),
+                SelectArm::timer("b", second),
+            ]
+        };
+        Ok(ctx.join("both", arms))
+    }
+
+    async fn run_step(&self, _invocation: a3s_flow::StepInvocation) -> a3s_flow::Result<JsonValue> {
+        Err(FlowError::Runtime("steps unused".into()))
+    }
+
+    async fn run_query(&self, _invocation: QueryInvocation) -> a3s_flow::Result<JsonValue> {
+        Err(FlowError::Runtime("queries unused".into()))
+    }
+}
+
+fn join_drift_spec() -> WorkflowSpec {
+    WorkflowSpec::rust_embedded("join.drift", "1", "tests::join", "main")
+}
+
+#[tokio::test]
+async fn open_select_rejects_arm_identity_drift() {
+    let runtime = Arc::new(ArmIdentityDriftRuntime {
+        drift: AtomicBool::new(false),
+    });
+    let engine = FlowEngine::new(Arc::new(InMemoryEventStore::new()), runtime.clone());
+    engine
+        .start_with_id("join-arm-drift", join_drift_spec(), json!({}))
+        .await
+        .unwrap();
+    runtime.drift.store(true, Ordering::SeqCst);
+    // Forced timer resume replays while JoinAll stays open; arm identity drift
+    // must fail closed even though timer resume_at recomputation is tolerated.
+    let err = engine
+        .resume_wait("join-arm-drift", "a")
+        .await
+        .expect_err("arm identity drift must fail closed");
+    assert!(matches!(err, FlowError::InvalidTransition(_)));
+    assert!(err
+        .to_string()
+        .contains("definition differs from the durable select"));
 }
 
 struct CrashBeforeSelectCompletedStore {
