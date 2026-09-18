@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed FLOW-R4 scope-cancel redelivery after receipt-before-drive crashes (#97):
+  an identical `cancel_scope` retry forces workflow replay when
+  `ScopeCancelled` is durable but the run is still non-terminal
+  (`scope_cancel_redelivery_recovers_after_scope_cancelled_before_drive_completes`).
+
 - Fixed FLOW-R4 update redelivery after receipt-before-drive crashes (#95):
   identical `update_id` retries force workflow replay so a durable
   `UpdateApplied` can still complete the run when an open wait would otherwise

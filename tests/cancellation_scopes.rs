@@ -1,10 +1,11 @@
 use a3s_flow::{
-    CancellationRequest, FlowEngine, FlowError, FlowEventStore, FlowRuntime, InMemoryEventStore,
-    JsonValue, QueryInvocation, RuntimeCommand, WorkflowInvocation, WorkflowSpec,
+    CancellationRequest, FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore,
+    FlowRuntime, InMemoryEventStore, JsonValue, QueryInvocation, RuntimeCommand,
+    WorkflowInvocation, WorkflowRunStatus, WorkflowSpec,
 };
 use async_trait::async_trait;
 use serde_json::json;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 struct ScopeRuntime {
@@ -150,4 +151,103 @@ async fn run_cancellation_cancels_open_scopes() {
         .await
         .unwrap();
     assert!(snapshot.scope("payment").unwrap().is_cancelled());
+}
+
+struct CrashBeforeScopeDriveStore {
+    inner: InMemoryEventStore,
+    armed: AtomicBool,
+}
+
+impl CrashBeforeScopeDriveStore {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryEventStore::new(),
+            armed: AtomicBool::new(true),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowEventStore for CrashBeforeScopeDriveStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        if matches!(event, FlowEvent::RunCompleted { .. })
+            && self.armed.swap(false, Ordering::SeqCst)
+        {
+            return Err(FlowError::Store(
+                "injected crash before scope-cancel drive became durable".into(),
+            ));
+        }
+        self.inner
+            .append_if_sequence(run_id, expected_sequence, event)
+            .await
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
+#[tokio::test]
+async fn scope_cancel_redelivery_recovers_after_scope_cancelled_before_drive_completes() {
+    let run_id = "scope-receipt-before-drive";
+    let store = Arc::new(CrashBeforeScopeDriveStore::new());
+    let engine = FlowEngine::new(
+        store.clone(),
+        Arc::new(ScopeRuntime {
+            workflow_calls: AtomicUsize::new(0),
+        }),
+    );
+    engine
+        .start_with_id(run_id, scope_spec(), json!({}))
+        .await
+        .unwrap();
+
+    let interrupted = engine
+        .cancel_scope(run_id, "payment", Some("customer aborted".into()))
+        .await
+        .expect_err("losing RunCompleted after ScopeCancelled must interrupt");
+    assert!(matches!(interrupted, FlowError::Store(_)));
+
+    let mid = engine.snapshot(run_id).await.unwrap();
+    assert!(!mid.status.is_terminal());
+    assert!(mid.scope("payment").unwrap().is_cancelled());
+
+    let recovered = engine
+        .cancel_scope(run_id, "payment", Some("customer aborted".into()))
+        .await
+        .unwrap();
+    assert_eq!(recovered.status, WorkflowRunStatus::Completed);
+    assert_eq!(recovered.output, Some(json!({ "cancelled": true })));
+
+    let history = store.list(run_id).await.unwrap();
+    assert_eq!(
+        history
+            .iter()
+            .filter(|envelope| matches!(
+                &envelope.event,
+                FlowEvent::ScopeCancelled { scope_id, .. } if scope_id == "payment"
+            ))
+            .count(),
+        1
+    );
+    assert_eq!(
+        history
+            .iter()
+            .filter(|envelope| matches!(envelope.event, FlowEvent::RunCompleted { .. }))
+            .count(),
+        1
+    );
 }

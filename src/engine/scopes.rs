@@ -9,6 +9,8 @@ impl FlowEngine {
     /// Retrying with the same run, scope, and reason is idempotent. Changing the
     /// reason after a durable cancellation is an explicit conflict. Completing a
     /// scope and later cancelling it is rejected as an invalid transition.
+    /// A durable cancellation whose follow-up drive was lost still forces
+    /// workflow replay on retry so the run is not left non-terminal.
     pub async fn cancel_scope(
         &self,
         run_id: &str,
@@ -44,7 +46,17 @@ impl FlowEngine {
                                 .to_string(),
                         });
                     }
-                    return Ok(leaf);
+                    if leaf.status.is_terminal() {
+                        return Ok(leaf);
+                    }
+                    // ScopeCancelled is durable, but the follow-up drive may
+                    // have been lost. Force replay so the workflow can observe
+                    // the cancellation instead of returning the interrupted leaf.
+                    match self.drive_forcing_workflow_replay(run_id).await {
+                        Ok(snapshot) => return Ok(snapshot),
+                        Err(error) if is_event_conflict(&error) => continue,
+                        Err(error) => return Err(error),
+                    }
                 }
                 Some(existing) if existing.status == CancellationScopeStatus::Completed => {
                     return Err(FlowError::InvalidTransition(format!(
