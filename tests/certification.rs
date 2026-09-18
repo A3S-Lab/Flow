@@ -92,6 +92,29 @@ fn protocol_fixtures_preserve_event_envelope_schema_version() {
 }
 
 #[test]
+fn protocol_fixtures_preserve_blob_ref_attached_wire_shape() {
+    let envelope: FlowEventEnvelope =
+        serde_json::from_value(read_fixture("event_envelope.blob_ref_attached.v1.json")).unwrap();
+    assert_eq!(envelope.schema_version, FLOW_EVENT_ENVELOPE_SCHEMA_VERSION);
+    envelope.validate_schema_version().unwrap();
+    assert_eq!(envelope.run_id, "cert-run");
+    assert_eq!(envelope.sequence, 2);
+    match &envelope.event {
+        FlowEvent::BlobRefAttached { blob } => {
+            assert_eq!(blob.blob_id, "payload");
+            assert_eq!(blob.content_digest, "sha256:cert");
+            assert_eq!(blob.codec.as_deref(), Some("gzip"));
+            assert_eq!(blob.byte_length, Some(64));
+        }
+        other => panic!("expected blob_ref_attached, got {other:?}"),
+    }
+    assert_eq!(
+        serde_json::to_value(&envelope).unwrap(),
+        read_fixture("event_envelope.blob_ref_attached.v1.json")
+    );
+}
+
+#[test]
 fn protocol_fixtures_preserve_visibility_projection_wire_shape() {
     let projection: a3s_flow::FlowVisibilityProjection =
         serde_json::from_value(read_fixture("visibility_projection.v1.json")).unwrap();
