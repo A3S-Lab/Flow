@@ -570,6 +570,127 @@ async fn due_retry_runs_while_another_timer_is_open() {
     assert_eq!(snapshot.output, Some(json!({ "attempt": 2 })));
 }
 
+struct StepBesideOpenTimerRuntime;
+
+#[async_trait]
+impl FlowRuntime for StepBesideOpenTimerRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let context = invocation.context();
+        if let Some(output) = context.step_output("work") {
+            return Ok(context.complete(output.clone()));
+        }
+        let stepped = invocation.history.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                FlowEvent::StepCreated { step_id, .. } if step_id == "work"
+            )
+        });
+        if context.update("arm").is_some() && !stepped {
+            return Ok(context.schedule_step("work", "workStep", json!({})));
+        }
+        Ok(context.wait_until("hold", "2030-01-01T00:00:00Z".parse().unwrap()))
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        Ok(json!({ "done": true }))
+    }
+
+    async fn run_update(
+        &self,
+        _invocation: a3s_flow::UpdateInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        Ok(json!({ "armed": true }))
+    }
+}
+
+struct CrashAfterStepCompletedStore {
+    inner: InMemoryEventStore,
+    armed: AtomicBool,
+}
+
+impl CrashAfterStepCompletedStore {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryEventStore::new(),
+            armed: AtomicBool::new(false),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowEventStore for CrashAfterStepCompletedStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        let envelope = self
+            .inner
+            .append_if_sequence(run_id, expected_sequence, event.clone())
+            .await?;
+        if matches!(
+            event,
+            FlowEvent::StepCompleted { ref step_id, .. } if step_id == "work"
+        ) && self.armed.swap(false, Ordering::SeqCst)
+        {
+            return Err(FlowError::Store(
+                "injected crash after StepCompleted before observation drive".into(),
+            ));
+        }
+        Ok(envelope)
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
+#[tokio::test]
+async fn step_completed_recovery_wakes_via_drive_while_unscoped_timer_is_open() {
+    let store = Arc::new(CrashAfterStepCompletedStore::new());
+    let engine = FlowEngine::new(store.clone(), Arc::new(StepBesideOpenTimerRuntime));
+    engine
+        .start_with_id("step-completed-drive", spec().with_update("arm"), json!({}))
+        .await
+        .unwrap();
+    engine.drive("step-completed-drive").await.unwrap();
+
+    store.armed.store(true, Ordering::SeqCst);
+    let interrupted = engine
+        .apply_update(
+            "step-completed-drive",
+            WorkflowUpdate::new("arm-1", "arm", json!({})),
+        )
+        .await
+        .expect_err("crash after durable StepCompleted must interrupt");
+    assert!(matches!(interrupted, FlowError::Store(_)));
+
+    let mid = engine.snapshot("step-completed-drive").await.unwrap();
+    assert!(!mid.status.is_terminal());
+    assert_eq!(mid.steps["work"].status, a3s_flow::StepStatus::Completed);
+    assert_eq!(mid.waits["hold"].status, WaitStatus::Waiting);
+
+    let recovered = engine.drive("step-completed-drive").await.unwrap();
+    assert_eq!(
+        recovered.output,
+        Some(json!({ "done": true })),
+        "drive must observe tip StepCompleted beside an open unscoped timer"
+    );
+    assert_eq!(recovered.status, WorkflowRunStatus::Completed);
+}
+
 fn sleeping_child_spec() -> WorkflowSpec {
     WorkflowSpec::rust_embedded(
         "scheduler.sleeping-child",

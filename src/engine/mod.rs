@@ -1164,8 +1164,8 @@ impl FlowEngine {
 /// DriveRun recovery must observe them once beside open waits. Includes workflow
 /// emissions (scopes, select completion, compensation, attachments) and host
 /// resolution tips (`WaitCompleted`, `SignalWaitCompleted`, `HookReceived`,
-/// `HookDisposed`, `UpdateApplied`, `ActivityCompleted`) that host delivery/
-/// resume APIs already force.
+/// `HookDisposed`, `UpdateApplied`, `ActivityCompleted`, `StepCompleted`) that
+/// host delivery/resume APIs or in-drive settlement already force.
 /// Intentional suspension tips (wait/hook/select create) remain excluded.
 fn tip_requires_workflow_observation(event: &FlowEvent) -> bool {
     matches!(
@@ -1180,6 +1180,7 @@ fn tip_requires_workflow_observation(event: &FlowEvent) -> bool {
             | FlowEvent::HookDisposed { .. }
             | FlowEvent::UpdateApplied { .. }
             | FlowEvent::ActivityCompleted { .. }
+            | FlowEvent::StepCompleted { .. }
             | FlowEvent::CompensationMarkerRecorded { .. }
             | FlowEvent::CompensationMarkerCompleted { .. }
             | FlowEvent::ChildOperationLinked { .. }
