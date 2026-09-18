@@ -100,6 +100,85 @@ where
     })
 }
 
+/// Decode JSONL until `limit` included records are collected, then stop reading.
+///
+/// `include` decides whether a decoded record belongs in the page. Records that
+/// fail `include` still count toward `records_decoded` so callers can prove the
+/// scan advanced past a cursor without buffering the remainder of the file.
+pub(crate) async fn load_jsonl_page<T, P>(
+    file: File,
+    path: &Path,
+    record_kind: &str,
+    mut include: P,
+    limit: usize,
+) -> Result<(Vec<T>, usize)>
+where
+    T: DeserializeOwned,
+    P: FnMut(&T) -> bool,
+{
+    if limit == 0 {
+        return Err(FlowError::Store(
+            "JSONL page limit must be at least 1".to_string(),
+        ));
+    }
+
+    let mut reader = BufReader::new(file);
+    let mut records = Vec::with_capacity(limit.min(64));
+    let mut records_decoded = 0usize;
+    let mut line_no = 0usize;
+    let mut buffer = Vec::new();
+
+    loop {
+        if records.len() >= limit {
+            break;
+        }
+        buffer.clear();
+        let bytes_read = reader.read_until(b'\n', &mut buffer).await?;
+        if bytes_read == 0 {
+            break;
+        }
+        line_no += 1;
+        let terminated = buffer.last() == Some(&b'\n');
+        let line = if terminated {
+            &buffer[..buffer.len() - 1]
+        } else {
+            buffer.as_slice()
+        };
+
+        if line.iter().all(u8::is_ascii_whitespace) {
+            if !terminated {
+                // Match load_jsonl: an unterminated blank tail is ignored for
+                // read-only page scans; writers repair before the next append.
+                break;
+            }
+            continue;
+        }
+
+        let record = match serde_json::from_slice::<T>(line) {
+            Ok(record) => record,
+            Err(_) if !terminated => {
+                // Torn final record: stop without including it.
+                break;
+            }
+            Err(error) => {
+                return Err(FlowError::Store(format!(
+                    "failed to decode {record_kind} line {line_no} from {}: {error}",
+                    path.display()
+                )));
+            }
+        };
+        records_decoded = records_decoded.saturating_add(1);
+        if include(&record) {
+            records.push(record);
+        }
+        if !terminated {
+            break;
+        }
+    }
+
+    Ok((records, records_decoded))
+}
+
 pub(crate) async fn repair_jsonl_tail(path: &Path, repair: JsonlTailRepair) -> Result<()> {
     match repair {
         JsonlTailRepair::None => Ok(()),
@@ -149,4 +228,54 @@ fn checked_file_offset(current: u64, bytes_read: usize, path: &Path) -> Result<u
             path.display()
         ))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::Deserialize;
+    use tokio::io::AsyncWriteExt;
+
+    #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+    struct SeqRecord {
+        sequence: u64,
+    }
+
+    async fn write_seq_jsonl(path: &Path, count: u64) {
+        let mut file = File::create(path).await.expect("create jsonl");
+        for sequence in 1..=count {
+            let line = serde_json::to_vec(&SeqRecord { sequence }).expect("encode");
+            file.write_all(&line).await.expect("write");
+            file.write_all(b"\n").await.expect("newline");
+        }
+        file.flush().await.expect("flush");
+    }
+
+    #[tokio::test]
+    async fn load_jsonl_page_stops_decoding_after_limit_is_filled() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("events.jsonl");
+        write_seq_jsonl(&path, 100).await;
+
+        let file = File::open(&path).await.expect("open");
+        let (records, records_decoded) = load_jsonl_page(
+            file,
+            &path,
+            "event",
+            |record: &SeqRecord| record.sequence > 50,
+            10,
+        )
+        .await
+        .expect("page");
+
+        assert_eq!(
+            records
+                .iter()
+                .map(|record| record.sequence)
+                .collect::<Vec<_>>(),
+            (51..=60).collect::<Vec<_>>()
+        );
+        // Proves early stop: a full-file load would decode all 100 records.
+        assert_eq!(records_decoded, 60);
+    }
 }

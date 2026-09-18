@@ -11,7 +11,7 @@ use crate::model::{project_run, FlowEvent, FlowEventEnvelope, HookStatus};
 use super::{
     next_event_sequence, retention::required_linked_flow_run_id, validate_candidate_event,
     FlowEventStore, FlowHistoryPartition, FlowProjectionCheckpoint, FlowRunShardLayout,
-    FlowStoreCapabilities,
+    FlowStoreCapabilities, MAX_FLOW_HISTORY_PAGE_SIZE,
 };
 
 #[derive(Debug, Default)]
@@ -174,6 +174,29 @@ impl FlowEventStore for InMemoryEventStore {
         let state = self.state.lock().await;
         match state.shard(run_id).runs.get(run_id) {
             Some(events) => Ok(events.clone()),
+            None => Err(FlowError::RunNotFound(run_id.to_string())),
+        }
+    }
+
+    async fn list_page(
+        &self,
+        run_id: &str,
+        after_sequence: u64,
+        limit: usize,
+    ) -> Result<Vec<FlowEventEnvelope>> {
+        if limit == 0 || limit > MAX_FLOW_HISTORY_PAGE_SIZE {
+            return Err(FlowError::Store(format!(
+                "history page size must be between 1 and {MAX_FLOW_HISTORY_PAGE_SIZE}, got {limit}"
+            )));
+        }
+        let state = self.state.lock().await;
+        match state.shard(run_id).runs.get(run_id) {
+            Some(events) => Ok(events
+                .iter()
+                .filter(|envelope| envelope.sequence > after_sequence)
+                .take(limit)
+                .cloned()
+                .collect()),
             None => Err(FlowError::RunNotFound(run_id.to_string())),
         }
     }

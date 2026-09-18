@@ -8,14 +8,16 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
-use crate::jsonl::{append_jsonl_record, load_jsonl, repair_jsonl_tail, LoadedJsonl};
+use crate::jsonl::{
+    append_jsonl_record, load_jsonl, load_jsonl_page, repair_jsonl_tail, LoadedJsonl,
+};
 use crate::model::{project_run, validate_run_id, FlowEvent, FlowEventEnvelope, HookStatus};
 
 use super::{
     next_event_sequence,
     retention::{plan_history_retention, required_linked_flow_run_id, FlowHistoryRetentionPolicy},
     validate_candidate_event, FlowEventStore, FlowHistoryPartition, FlowProjectionCheckpoint,
-    FlowRunShardLayout, FlowStoreCapabilities,
+    FlowRunShardLayout, FlowStoreCapabilities, MAX_FLOW_HISTORY_PAGE_SIZE,
 };
 
 /// JSONL-backed event store for local durable runs.
@@ -158,6 +160,46 @@ impl LocalFileEventStore {
         missing_is_empty: bool,
     ) -> Result<Vec<FlowEventEnvelope>> {
         Ok(self.load_inner(run_id, missing_is_empty).await?.records)
+    }
+
+    async fn list_page_inner(
+        &self,
+        run_id: &str,
+        after_sequence: u64,
+        limit: usize,
+    ) -> Result<Vec<FlowEventEnvelope>> {
+        if limit == 0 || limit > MAX_FLOW_HISTORY_PAGE_SIZE {
+            return Err(FlowError::Store(format!(
+                "history page size must be between 1 and {MAX_FLOW_HISTORY_PAGE_SIZE}, got {limit}"
+            )));
+        }
+        let path = self.run_path(run_id)?;
+        let file = match File::open(&path).await {
+            Ok(file) => file,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                return Err(FlowError::RunNotFound(run_id.to_string()));
+            }
+            Err(err) => return Err(FlowError::Io(err)),
+        };
+        let (records, _decoded) = load_jsonl_page(
+            file,
+            &path,
+            "event",
+            |envelope: &FlowEventEnvelope| envelope.sequence > after_sequence,
+            limit,
+        )
+        .await?;
+        for (index, envelope) in records.iter().enumerate() {
+            if envelope.run_id != run_id {
+                return Err(FlowError::Store(format!(
+                    "event page record {} in {} belongs to run {}, not {run_id}",
+                    index + 1,
+                    path.display(),
+                    envelope.run_id
+                )));
+            }
+        }
+        Ok(records)
     }
 
     fn validate_existing_log(&self, run_id: &str, events: &[FlowEventEnvelope]) -> Result<()> {
@@ -424,6 +466,16 @@ impl FlowEventStore for LocalFileEventStore {
     async fn list(&self, run_id: &str) -> Result<Vec<FlowEventEnvelope>> {
         let _guard = self.lock.lock().await;
         self.list_inner(run_id, false).await
+    }
+
+    async fn list_page(
+        &self,
+        run_id: &str,
+        after_sequence: u64,
+        limit: usize,
+    ) -> Result<Vec<FlowEventEnvelope>> {
+        let _guard = self.lock.lock().await;
+        self.list_page_inner(run_id, after_sequence, limit).await
     }
 
     async fn list_run_ids(&self) -> Result<Vec<String>> {
