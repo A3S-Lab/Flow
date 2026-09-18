@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed FLOW-R4 open `wait_until` redrive after forced replay (#117):
+  existing waits no longer compare recomputed `resume_at` on re-issue so updates,
+  hooks, signals, and other force-replay hosts can wake workflows that use
+  `Utc::now() + delay`; durable deadlines stay bound at `WaitCreated`
+  (`update_force_replay_tolerates_open_wait_resume_at_recomputation`,
+  `open_wait_redrive_tolerates_resume_at_recomputation`).
+
 - Fixed FLOW-R4 open JoinAll / select redrive after a forced timer resume (#115):
   open select plan matching ignores timer `resume_at` so workflows that recompute
   `Utc::now() + delay` while arms remain open no longer fail closed; arm identity,

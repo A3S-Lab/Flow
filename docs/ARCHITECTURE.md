@@ -178,11 +178,14 @@ The runtime returns exactly one command:
   outcomes with `resolve_unknown_activity()`.
 - `wait_until`: the engine persists `wait_created` and stops driving the run
   until `resume_wait()` records `wait_completed`. Redelivery for an existing
-  wait is idempotent after it completed or its run became terminal. Matching
-  redelivery repairs and drives a committed continuation leaf without appending
-  a second completion event; a fully terminal leaf does not require runtime-build
-  admission. Worker `run_ids` reports that leaf, while `resumed_waits` identifies
-  the segment-local completion only for the event-commit winner.
+  wait is idempotent after it completed or its run became terminal. Re-issuing
+  an open wait may recompute `resume_at` (`Utc::now() + delay`); the durable
+  deadline stays bound at creation and changing it requires a new wait id.
+  Matching redelivery repairs and drives a committed continuation leaf without
+  appending a second completion event; a fully terminal leaf does not require
+  runtime-build admission. Worker `run_ids` reports that leaf, while
+  `resumed_waits` identifies the segment-local completion only for the
+  event-commit winner.
 - `create_hook`: the engine persists `hook_created` and stops until
   `resume_hook()` records `hook_received` or `dispose_hook()` records
   `hook_disposed`. Replay then continues so workflow code can observe
@@ -438,8 +441,9 @@ cancels sibling waits. `SelectMode::JoinAll` via `WorkflowContext::join`
 completes only after every arm finishes, records `select_completed` without a
 winner, and does not cancel siblings early. Workflow code observes race winners
 through `select_winner` and join completion through `select_joined`. Redrive
-while the select is open is idempotent; changing the arm set or mode is
-rejected as non-deterministic replay.
+while the select is open is idempotent; changing arm identity, kind, signal
+name, or mode is rejected as non-deterministic replay. Timer `resume_at`
+recomputation is tolerated because durable waits already own the bound times.
 
 ## Continue-As-New History Segmentation
 

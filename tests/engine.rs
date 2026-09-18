@@ -43,10 +43,6 @@ fn fixed_time() -> DateTime<Utc> {
     "2026-01-01T00:00:00Z".parse().unwrap()
 }
 
-fn later_time() -> DateTime<Utc> {
-    "2026-01-01T01:00:00Z".parse().unwrap()
-}
-
 #[test]
 fn store_capabilities_are_explicit_and_engine_visible() {
     let store = InMemoryEventStore::new();

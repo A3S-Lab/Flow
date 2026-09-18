@@ -193,16 +193,11 @@ pub(super) fn ensure_wait_command_matches(
     wait: &WaitSnapshot,
     resume_at: DateTime<Utc>,
 ) -> Result<()> {
-    if wait.resume_at != resume_at {
-        return Err(FlowError::NonDeterministic {
-            run_id: run_id.to_string(),
-            reason: format!(
-                "wait {} resume_at differs: {}",
-                wait.wait_id,
-                replay_diff(&wait.resume_at, &resume_at)
-            ),
-        });
-    }
+    // Durable waits already own `resume_at` at WaitCreated. Forced replay after
+    // updates/hooks/signals commonly re-issues `wait_until` with a recomputed
+    // `Utc::now() + delay`; comparing wall-clock times would fail closed for
+    // deterministic wait identities. Changing a deadline requires a new wait id.
+    let _ = (run_id, wait, resume_at);
     Ok(())
 }
 
