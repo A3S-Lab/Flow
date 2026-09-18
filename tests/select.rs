@@ -310,3 +310,157 @@ async fn select_recovers_after_select_completed_persistence_is_lost() {
         .count();
     assert_eq!(select_completions, 1);
 }
+
+/// Tip `SelectCompleted` must be observable via ordinary `drive()` recovery when an
+/// unscoped timer would otherwise short-circuit (DriveRun path).
+struct SelectCompletedBesideOpenWaitRuntime {
+    race_phase: AtomicBool,
+}
+
+#[async_trait]
+impl FlowRuntime for SelectCompletedBesideOpenWaitRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let ctx = invocation.context();
+        if let Some(winner) = ctx.select_winner("race") {
+            return Ok(RuntimeCommand::Complete {
+                output: json!({ "winner": winner }),
+            });
+        }
+        if ctx.wait_status("outer").is_none() {
+            return Ok(ctx.wait_until("outer", "2030-01-01T00:00:00Z".parse().unwrap()));
+        }
+        let select_opened = ctx.history().iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                FlowEvent::SelectCreated { select_id, .. } if select_id == "race"
+            )
+        });
+        if self.race_phase.load(Ordering::SeqCst) && !select_opened {
+            let soon = Utc::now() - Duration::seconds(1);
+            let later = Utc::now() + Duration::hours(1);
+            return Ok(ctx.select(
+                "race",
+                vec![
+                    SelectArm::timer("fast", soon),
+                    SelectArm::timer("slow", later),
+                ],
+            ));
+        }
+        Ok(ctx.wait_until("outer", "2030-01-01T00:00:00Z".parse().unwrap()))
+    }
+
+    async fn run_step(&self, _invocation: a3s_flow::StepInvocation) -> a3s_flow::Result<JsonValue> {
+        unreachable!("select-completed-beside-wait runtime does not schedule steps")
+    }
+
+    async fn run_update(
+        &self,
+        _invocation: a3s_flow::UpdateInvocation,
+    ) -> a3s_flow::Result<JsonValue> {
+        Ok(json!({ "armed": true }))
+    }
+}
+
+struct CrashAfterSelectCompletedStore {
+    inner: InMemoryEventStore,
+    armed: AtomicBool,
+}
+
+impl CrashAfterSelectCompletedStore {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryEventStore::new(),
+            armed: AtomicBool::new(false),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowEventStore for CrashAfterSelectCompletedStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        let envelope = self
+            .inner
+            .append_if_sequence(run_id, expected_sequence, event.clone())
+            .await?;
+        if matches!(
+            event,
+            FlowEvent::SelectCompleted {
+                ref select_id,
+                ..
+            } if select_id == "race"
+        ) && self.armed.swap(false, Ordering::SeqCst)
+        {
+            return Err(FlowError::Store(
+                "injected crash after SelectCompleted before observation drive".into(),
+            ));
+        }
+        Ok(envelope)
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
+#[tokio::test]
+async fn select_completed_recovery_wakes_via_drive_while_unscoped_timer_is_open() {
+    let store = Arc::new(CrashAfterSelectCompletedStore::new());
+    let runtime = Arc::new(SelectCompletedBesideOpenWaitRuntime {
+        race_phase: AtomicBool::new(false),
+    });
+    let engine = FlowEngine::new(store.clone(), runtime.clone());
+    engine
+        .start_with_id(
+            "select-completed-drive",
+            select_spec().with_update("arm"),
+            json!({}),
+        )
+        .await
+        .unwrap();
+    engine.drive("select-completed-drive").await.unwrap();
+
+    runtime.race_phase.store(true, Ordering::SeqCst);
+    engine
+        .apply_update(
+            "select-completed-drive",
+            a3s_flow::WorkflowUpdate::new("arm-1", "arm", json!({})),
+        )
+        .await
+        .unwrap();
+
+    store.armed.store(true, Ordering::SeqCst);
+    let interrupted = engine
+        .resume_wait("select-completed-drive", "fast")
+        .await
+        .expect_err("crash after durable SelectCompleted must interrupt");
+    assert!(matches!(interrupted, FlowError::Store(_)));
+
+    let mid = engine.snapshot("select-completed-drive").await.unwrap();
+    assert!(!mid.status.is_terminal());
+    assert!(mid.select("race").unwrap().is_completed());
+    assert_eq!(mid.waits["outer"].status, WaitStatus::Waiting);
+
+    let recovered = engine.drive("select-completed-drive").await.unwrap();
+    assert_eq!(
+        recovered.output,
+        Some(json!({ "winner": "fast" })),
+        "drive must observe tip SelectCompleted beside an open unscoped timer"
+    );
+    assert!(recovered.status.is_terminal());
+}

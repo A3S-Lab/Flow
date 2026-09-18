@@ -1168,6 +1168,7 @@ fn tip_requires_workflow_observation(event: &FlowEvent) -> bool {
         FlowEvent::ScopeOpened { .. }
             | FlowEvent::ScopeCancelled { .. }
             | FlowEvent::ScopeCompleted { .. }
+            | FlowEvent::SelectCompleted { .. }
             | FlowEvent::CompensationMarkerRecorded { .. }
             | FlowEvent::CompensationMarkerCompleted { .. }
             | FlowEvent::ChildOperationLinked { .. }
