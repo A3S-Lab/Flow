@@ -167,7 +167,9 @@ workflows open/complete scopes through runtime commands, timer waits inherit the
 innermost open scope, `FlowEngine::cancel_scope` is idempotent and conflict-safe,
 and run cancellation marks open scopes cancelled. Structured select/race is
 also implemented for timer and signal arms: the first completed arm wins and
-sibling waits are cancelled durably. Dynamic bounded child-workflow maps are
+sibling waits are cancelled durably; losing `SelectCompleted` after a durable
+winning arm recovers with exactly one completion
+(`select_recovers_after_select_completed_persistence_is_lost`). Dynamic bounded child-workflow maps are
 also implemented: `MapChildWorkflows` persists an ordered plan, activates at
 most `concurrency` open children at a time (≤ `MAX_CHILD_WORKFLOW_BATCH_SIZE`),
 recovers partial windows without duplicate requests or silently lost children
