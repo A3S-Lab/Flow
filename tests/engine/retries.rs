@@ -698,7 +698,10 @@ impl FlowEventStore for CrashAfterStepNonRetryableStore {
 #[tokio::test]
 async fn step_non_retryable_recovery_wakes_via_drive_while_unscoped_timer_is_open() {
     let store = Arc::new(CrashAfterStepNonRetryableStore::new());
-    let engine = FlowEngine::new(store.clone(), Arc::new(StepNonRetryableBesideOpenTimerRuntime));
+    let engine = FlowEngine::new(
+        store.clone(),
+        Arc::new(StepNonRetryableBesideOpenTimerRuntime),
+    );
     engine
         .start_with_id(
             "step-non-retryable-drive",
