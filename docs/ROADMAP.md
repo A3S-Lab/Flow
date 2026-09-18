@@ -175,6 +175,8 @@ open (`hook_receipt_wakes_workflow_while_timer_wait_is_open`). Signal delivery
 does the same for a paired wait (`signal_delivery_wakes_workflow_while_timer_wait_is_open`).
 Timer resume does the same for a fired wait
 (`due_wait_wakes_workflow_while_another_timer_is_open`).
+Forced replay while an open wait remains also tolerates `resume_at`
+recomputation (`update_force_replay_tolerates_open_wait_resume_at_recomputation`).
 A due step retry also runs while another suspension stays open
 (`due_retry_runs_while_another_timer_is_open`), including while a child
 workflow stays open (`due_retry_runs_while_a_child_workflow_is_open`).
@@ -206,7 +208,11 @@ map results. Durable compensation markers record and complete saga-style
 obligations idempotently so workflows can schedule ordinary cleanup steps.
 Structured join-all is also implemented through `SelectMode::JoinAll` and
 `WorkflowContext::join`: every arm must complete before the select closes, and
-siblings are not cancelled early. Concurrent `ScheduleSteps` terminal settlement
+siblings are not cancelled early. Open JoinAll/select redrive after a forced
+timer resume tolerates timer `resume_at` recomputation while still rejecting
+arm identity, kind, signal name, and mode drift
+(`join_all_completes_only_after_every_arm_finishes`,
+`open_select_rejects_arm_identity_drift`). Concurrent `ScheduleSteps` terminal settlement
 has PostgreSQL-gated durable-interrupt evidence: losing a peer `StepCancelled`
 append mid-settlement recovers without a stuck Running sibling or duplicate side
 effects (`tests/postgres_batch_settlement_interruption.rs`). Large history

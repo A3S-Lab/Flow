@@ -119,7 +119,6 @@ async fn replay_rejects_existing_step_retry_policy_drift() {
 
 struct WaitDefinitionRuntime {
     resume_at: DateTime<Utc>,
-    repeat_after_completion: bool,
 }
 
 #[async_trait]
@@ -128,12 +127,7 @@ impl FlowRuntime for WaitDefinitionRuntime {
         &self,
         invocation: WorkflowInvocation,
     ) -> a3s_flow::Result<RuntimeCommand> {
-        if completed_wait(&invocation, "definition-gate") && !self.repeat_after_completion {
-            return Ok(RuntimeCommand::Complete {
-                output: json!({ "ok": true }),
-            });
-        }
-
+        let _ = invocation.context().updates().len();
         Ok(RuntimeCommand::WaitUntil {
             wait_id: "definition-gate".to_string(),
             resume_at: self.resume_at,
@@ -143,36 +137,55 @@ impl FlowRuntime for WaitDefinitionRuntime {
     async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
         unreachable!("wait definition runtime does not schedule steps")
     }
+
+    async fn run_update(
+        &self,
+        _invocation: a3s_flow::UpdateInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        Ok(json!({ "ok": true }))
+    }
 }
 
 #[tokio::test]
-async fn replay_rejects_existing_wait_resume_at_drift() {
+async fn open_wait_redrive_tolerates_resume_at_recomputation() {
     let store = Arc::new(InMemoryEventStore::new());
     let first = FlowEngine::new(
         store.clone(),
         Arc::new(WaitDefinitionRuntime {
-            resume_at: fixed_time(),
-            repeat_after_completion: false,
+            resume_at: "2030-01-01T00:00:00Z".parse().unwrap(),
         }),
     );
-    let run_id = first.start(spec(), json!({})).await.unwrap();
+    let run_id = first
+        .start(spec().with_update("bump"), json!({}))
+        .await
+        .unwrap();
+    let bound = first
+        .snapshot(&run_id)
+        .await
+        .unwrap()
+        .waits
+        .get("definition-gate")
+        .unwrap()
+        .resume_at;
 
     let second = FlowEngine::new(
         store,
         Arc::new(WaitDefinitionRuntime {
-            resume_at: later_time(),
-            repeat_after_completion: true,
+            resume_at: "2030-01-01T01:00:00Z".parse().unwrap(),
         }),
     );
-    let err = second
-        .resume_wait(&run_id, "definition-gate")
+    let applied = second
+        .apply_update(
+            &run_id,
+            a3s_flow::WorkflowUpdate::new("upd-1", "bump", json!({})),
+        )
         .await
-        .unwrap_err();
-
-    assert_nondeterministic(
-        err,
-        &run_id,
-        r#"wait definition-gate resume_at differs: history="2026-01-01T00:00:00Z"; replay="2026-01-01T01:00:00Z""#,
+        .expect("forced replay must tolerate wait resume_at recomputation");
+    assert_eq!(applied.snapshot.status, WorkflowRunStatus::Suspended);
+    assert_eq!(
+        applied.snapshot.waits["definition-gate"].resume_at,
+        bound,
+        "durable wait deadline must stay bound at creation"
     );
 }
 

@@ -1,9 +1,10 @@
 use a3s_flow::{
     FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore, FlowRuntime,
     InMemoryEventStore, JsonValue, QueryInvocation, RuntimeCommand, UpdateInvocation,
-    WorkflowInvocation, WorkflowRunStatus, WorkflowSpec, WorkflowUpdate,
+    WaitStatus, WorkflowInvocation, WorkflowRunStatus, WorkflowSpec, WorkflowUpdate,
 };
 use async_trait::async_trait;
+use chrono::{Duration as ChronoDuration, Utc};
 use serde_json::json;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -278,4 +279,67 @@ async fn update_redelivery_recovers_after_update_applied_before_drive_completes(
             .count(),
         1
     );
+}
+
+struct RelativeWaitUpdateRuntime;
+
+#[async_trait]
+impl FlowRuntime for RelativeWaitUpdateRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let context = invocation.context();
+        // Observe updates without completing so forced replay re-issues the open wait.
+        let _ = context.updates().len();
+        Ok(context.wait_until(
+            "pause",
+            Utc::now() + ChronoDuration::hours(1),
+        ))
+    }
+
+    async fn run_step(
+        &self,
+        _invocation: a3s_flow::StepInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        Err(FlowError::Runtime("steps unused".into()))
+    }
+
+    async fn run_update(&self, _invocation: UpdateInvocation) -> a3s_flow::Result<JsonValue> {
+        Ok(json!({ "ok": true }))
+    }
+}
+
+#[tokio::test]
+async fn update_force_replay_tolerates_open_wait_resume_at_recomputation() {
+    let engine = FlowEngine::new(
+        Arc::new(InMemoryEventStore::new()),
+        Arc::new(RelativeWaitUpdateRuntime),
+    );
+    engine
+        .start_with_id("update-relative-wait", update_spec(), json!({}))
+        .await
+        .unwrap();
+    let suspended = engine.snapshot("update-relative-wait").await.unwrap();
+    assert_eq!(suspended.status, WorkflowRunStatus::Suspended);
+    assert_eq!(suspended.waits["pause"].status, WaitStatus::Waiting);
+    let bound_resume_at = suspended.waits["pause"].resume_at;
+
+    // Sleep past a millisecond so Utc::now()+1h differs from the durable wait.
+    tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+
+    let applied = engine
+        .apply_update(
+            "update-relative-wait",
+            WorkflowUpdate::new("upd-rel", "bump", json!({})),
+        )
+        .await
+        .expect("forced replay must tolerate wait resume_at recomputation");
+    assert_eq!(applied.snapshot.status, WorkflowRunStatus::Suspended);
+    assert_eq!(applied.snapshot.waits["pause"].status, WaitStatus::Waiting);
+    assert_eq!(
+        applied.snapshot.waits["pause"].resume_at, bound_resume_at,
+        "durable wait deadline must stay bound at creation"
+    );
+    assert!(applied.snapshot.update("upd-rel").is_some());
 }
