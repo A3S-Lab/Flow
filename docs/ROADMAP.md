@@ -162,7 +162,9 @@ queries through `FlowRuntime::run_query` without appending history.
 forces workflow replay so suspended runs can observe the durable update.
 Undeclared names fail closed before runtime dispatch, runtime-build admission
 fences both paths the same way replay does, and update retries are idempotent
-or explicitly conflict-safe. Nested cancellation scopes are also implemented:
+or explicitly conflict-safe—including forced replay after
+`UpdateApplied`-before-drive crashes
+(`update_redelivery_recovers_after_update_applied_before_drive_completes`). Nested cancellation scopes are also implemented:
 workflows open/complete scopes through runtime commands, timer waits inherit the
 innermost open scope, `FlowEngine::cancel_scope` is idempotent and conflict-safe,
 and run cancellation marks open scopes cancelled. Structured select/race is

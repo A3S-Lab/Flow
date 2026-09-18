@@ -1,11 +1,11 @@
 use a3s_flow::{
-    FlowEngine, FlowError, FlowEvent, FlowEventStore, FlowRuntime, InMemoryEventStore, JsonValue,
-    QueryInvocation, RuntimeCommand, UpdateInvocation, WorkflowInvocation, WorkflowSpec,
-    WorkflowUpdate,
+    FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore, FlowRuntime,
+    InMemoryEventStore, JsonValue, QueryInvocation, RuntimeCommand, UpdateInvocation,
+    WorkflowInvocation, WorkflowRunStatus, WorkflowSpec, WorkflowUpdate,
 };
 use async_trait::async_trait;
 use serde_json::json;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 struct UpdateRuntime {
@@ -169,4 +169,113 @@ async fn update_drives_workflow_from_durable_history() {
     assert_eq!(outcome.output["next"], 1);
     assert_eq!(outcome.snapshot.output, Some(json!({"bumps": 1})));
     assert!(outcome.snapshot.status.is_terminal());
+}
+
+struct CrashBeforeRunCompletedStore {
+    inner: InMemoryEventStore,
+    armed: AtomicBool,
+}
+
+impl CrashBeforeRunCompletedStore {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryEventStore::new(),
+            armed: AtomicBool::new(true),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowEventStore for CrashBeforeRunCompletedStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        if matches!(event, FlowEvent::RunCompleted { .. })
+            && self.armed.swap(false, Ordering::SeqCst)
+        {
+            return Err(FlowError::Store(
+                "injected crash before update-driven completion became durable".into(),
+            ));
+        }
+        self.inner
+            .append_if_sequence(run_id, expected_sequence, event)
+            .await
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
+#[tokio::test]
+async fn update_redelivery_recovers_after_update_applied_before_drive_completes() {
+    let run_id = "update-receipt-before-drive";
+    let store = Arc::new(CrashBeforeRunCompletedStore::new());
+    seed_waiting_run(store.as_ref(), run_id).await;
+    let runtime = Arc::new(UpdateRuntime {
+        update_calls: AtomicUsize::new(0),
+        workflow_calls: AtomicUsize::new(0),
+    });
+    let engine = FlowEngine::new(store.clone(), runtime.clone());
+    let update = WorkflowUpdate::new("upd-crash", "bump", json!({"by": 1}));
+
+    let interrupted = engine
+        .apply_update(run_id, update.clone())
+        .await
+        .expect_err("losing RunCompleted after UpdateApplied must interrupt");
+    assert!(matches!(interrupted, FlowError::Store(_)));
+
+    let mid = engine.snapshot(run_id).await.unwrap();
+    assert!(!mid.status.is_terminal());
+    assert!(mid.update("upd-crash").is_some());
+    assert_eq!(runtime.update_calls.load(Ordering::SeqCst), 1);
+
+    let drift = engine
+        .apply_update(
+            run_id,
+            WorkflowUpdate::new("upd-crash", "bump", json!({"by": 2})),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(drift, FlowError::UpdateConflict { .. }));
+    assert_eq!(runtime.update_calls.load(Ordering::SeqCst), 1);
+
+    let recovered = engine.apply_update(run_id, update.clone()).await.unwrap();
+    assert_eq!(recovered.output["next"], 1);
+    assert_eq!(recovered.snapshot.status, WorkflowRunStatus::Completed);
+    assert_eq!(recovered.snapshot.output, Some(json!({"bumps": 1})));
+    assert_eq!(runtime.update_calls.load(Ordering::SeqCst), 1);
+
+    engine.apply_update(run_id, update).await.unwrap();
+    assert_eq!(runtime.update_calls.load(Ordering::SeqCst), 1);
+
+    let history = store.list(run_id).await.unwrap();
+    assert_eq!(
+        history
+            .iter()
+            .filter(|envelope| matches!(
+                &envelope.event,
+                FlowEvent::UpdateApplied { update, .. } if update.update_id == "upd-crash"
+            ))
+            .count(),
+        1
+    );
+    assert_eq!(
+        history
+            .iter()
+            .filter(|envelope| matches!(envelope.event, FlowEvent::RunCompleted { .. }))
+            .count(),
+        1
+    );
 }

@@ -12,8 +12,11 @@ impl FlowEngine {
     /// The target follows persisted continue-as-new links. Retrying with the
     /// same target run ID and `update_id` is idempotent across that descendant
     /// chain; changing the name or input is an explicit conflict. New updates
-    /// invoke `FlowRuntime::run_update` before appending history, then drive
+    /// invoke `FlowRuntime::run_update` before appending history, then force
     /// workflow replay so the durable update is visible to the next command.
+    /// Identical retries also force replay so a durable `UpdateApplied` can
+    /// still complete the run when an open wait would otherwise short-circuit
+    /// ordinary drive.
     pub async fn apply_update(
         &self,
         run_id: &str,
@@ -46,7 +49,10 @@ impl FlowEngine {
             if let Some((delivery_run_id, existing)) = existing {
                 ensure_update_matches(delivery_run_id, existing, &update)?;
                 let output = existing.output.clone();
-                match self.recover_and_drive_continuation_leaf(run_id).await {
+                // Force replay so a durable update remains visible even when
+                // timer/hook/signal suspensions would otherwise short-circuit
+                // drive (e.g. UpdateApplied committed, then terminal drive lost).
+                match self.drive_forcing_workflow_replay(run_id).await {
                     Ok(snapshot) => {
                         return Ok(WorkflowUpdateOutcome { snapshot, output });
                     }
