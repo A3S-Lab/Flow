@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 tip identity so default `latest_event` and `event_at` read
+  bounded `list_page` windows instead of unbounded `list` / `list_after`, and
+  LocalFile `latest_event` keeps only the last JSONL record
+  (`default_latest_event_and_event_at_page_instead_of_unbounded_list`,
+  `load_jsonl_last_keeps_only_the_tip`,
+  `local_file_latest_event_returns_the_tip`).
+
 - Fixed FLOW-R3 InMemory and LocalFile `list_page` so bounded history windows
   no longer route through a full-history load; LocalFile streams JSONL and
   stops once the page is filled (`load_jsonl_page_stops_decoding_after_limit_is_filled`,
