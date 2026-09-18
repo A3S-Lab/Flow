@@ -311,7 +311,8 @@ stale/forged lease acknowledgements, and verifies tip-pinned archive export
 correctness for a 10_000-event history. It also rejects stale activity fencing
 tokens at the append boundary and proves dead-letter redrive is idempotent on
 the local queue. TypeScript consumes the same fixtures in
-`packages/ui/tests/protocol-fixtures.test.ts`. Upgrade fixtures under
+`packages/ui/tests/protocol-fixtures.test.ts`, including
+`event_envelope.blob_ref_attached.v1.json`. Upgrade fixtures under
 `tests/fixtures/pre_v1/` are exercised by the certification recipe via
 `cargo test --test pre_v1_history`. Operators can also run
 `just release-certification` to include local `cargo package --locked`
