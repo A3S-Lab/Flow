@@ -171,7 +171,8 @@ and retries force replay when cancellation is durable but the run is still
 non-terminal
 (`scope_cancel_redelivery_recovers_after_scope_cancelled_before_drive_completes`).
 Hook receipt and disposal also force replay when another suspension remains
-open (`hook_receipt_wakes_workflow_while_timer_wait_is_open`).
+open (`hook_receipt_wakes_workflow_while_timer_wait_is_open`). Signal delivery
+does the same for a paired wait (`signal_delivery_wakes_workflow_while_timer_wait_is_open`).
 Run cancellation marks open scopes cancelled. Structured select/race is
 also implemented for timer and signal arms: the first completed arm wins and
 sibling waits are cancelled durably; losing `SelectCompleted` after a durable
