@@ -224,6 +224,123 @@ async fn composed_sharded_store_rejects_duplicate_hook_tokens_across_shards() {
     ));
 }
 
+#[tokio::test]
+async fn composed_sharded_linked_run_check_does_not_require_unbounded_list() {
+    struct LatestOnlyShard {
+        inner: InMemoryEventStore,
+    }
+
+    #[async_trait]
+    impl FlowEventStore for LatestOnlyShard {
+        async fn append(
+            &self,
+            run_id: &str,
+            event: FlowEvent,
+        ) -> a3s_flow::Result<a3s_flow::FlowEventEnvelope> {
+            self.inner.append(run_id, event).await
+        }
+
+        async fn append_if_sequence(
+            &self,
+            run_id: &str,
+            expected_sequence: u64,
+            event: FlowEvent,
+        ) -> a3s_flow::Result<a3s_flow::FlowEventEnvelope> {
+            self.inner
+                .append_if_sequence(run_id, expected_sequence, event)
+                .await
+        }
+
+        async fn append_shard_local_if_sequence(
+            &self,
+            run_id: &str,
+            expected_sequence: u64,
+            event: FlowEvent,
+        ) -> a3s_flow::Result<a3s_flow::FlowEventEnvelope> {
+            self.inner
+                .append_shard_local_if_sequence(run_id, expected_sequence, event)
+                .await
+        }
+
+        async fn list(&self, _run_id: &str) -> a3s_flow::Result<Vec<a3s_flow::FlowEventEnvelope>> {
+            Err(a3s_flow::FlowError::Store(
+                "unbounded history read is not allowed for linked-run checks".into(),
+            ))
+        }
+
+        async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+            self.inner.list_run_ids().await
+        }
+
+        async fn latest_event(&self, run_id: &str) -> a3s_flow::Result<Option<(u64, uuid::Uuid)>> {
+            self.inner.latest_event(run_id).await
+        }
+
+        async fn list_active_hooks(&self) -> a3s_flow::Result<Vec<a3s_flow::ActiveHookSnapshot>> {
+            Ok(Vec::new())
+        }
+
+        async fn find_active_hooks_by_token(
+            &self,
+            _token: &str,
+        ) -> a3s_flow::Result<Vec<a3s_flow::ActiveHookSnapshot>> {
+            Ok(Vec::new())
+        }
+    }
+
+    let layout = FlowRunShardLayout::new(2).unwrap();
+    let store = ShardedFlowEventStore::new(
+        layout,
+        vec![
+            Arc::new(LatestOnlyShard {
+                inner: InMemoryEventStore::new(),
+            }) as Arc<dyn FlowEventStore>,
+            Arc::new(LatestOnlyShard {
+                inner: InMemoryEventStore::new(),
+            }) as Arc<dyn FlowEventStore>,
+        ],
+    )
+    .unwrap();
+    let layout = store.shard_layout();
+    let parent = "latest-only-parent".to_string();
+    let child = (0..10_000)
+        .map(|index| format!("latest-only-child-{index}"))
+        .find(|candidate| layout.shard_index(candidate) != layout.shard_index(&parent))
+        .expect("expected a child run id on a different shard");
+
+    store
+        .append(
+            &child,
+            FlowEvent::RunCreated {
+                spec: spec(),
+                input: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &parent,
+            FlowEvent::RunCreated {
+                spec: spec(),
+                input: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+    store.append(&parent, FlowEvent::RunStarted).await.unwrap();
+    store
+        .append(
+            &parent,
+            FlowEvent::ChildOperationLinked {
+                child: ChildOperationReference::new("op", "ext", "kind")
+                    .with_flow_run_id(child.clone()),
+            },
+        )
+        .await
+        .expect("linked-run existence must use latest_event, not unbounded list");
+}
+
 #[test]
 fn composed_sharded_store_rejects_nested_or_mismatched_backends() {
     let layout = FlowRunShardLayout::new(2).unwrap();
