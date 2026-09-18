@@ -115,7 +115,9 @@ validated event tail, one `list_page` at a time (`MAX_FLOW_HISTORY_PAGE_SIZE`),
 instead of one unbounded `list_after`, and a SHA-256
 snapshot digest detects cache corruption. `FlowEngine::history_page` and
 `MAX_FLOW_HISTORY_PAGE_SIZE` provide the bounded cursor primitive that Cloud
-can use to build export/archive projections.
+can use to build export/archive projections. `FlowEngine::history` still
+returns the complete log, but it assembles that log from those pages instead
+of one unbounded `list`.
 
 `FlowEngine::export_history_pages` is the corresponding bounded streaming
 boundary. It pins an initial history tip, validates contiguous cursors, and

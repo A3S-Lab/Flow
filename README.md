@@ -337,7 +337,8 @@ cache from the validated event tail, while reads verify the latest sequence and
 event ID and fall back to authoritative history replay when metadata is stale or
 corrupt. `FlowEngine::history_page` exposes an exclusive sequence cursor with a bounded
 page size for archive/export and visibility rebuilds without loading an entire
-history into memory. Production PostgreSQL deployments run migration authority
+history into memory. `FlowEngine::history` still returns the complete log, assembled
+from those pages instead of one unbounded read. Production PostgreSQL deployments run migration authority
 separately, then admit serving workers only after verifying the
 canonical migration ledger. See [Upgrading to Flow 1.0](docs/UPGRADING_TO_V1.md).
 

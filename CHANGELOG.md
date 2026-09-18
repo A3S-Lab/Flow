@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 `FlowEngine::history` so the complete durable log is assembled
+  from bounded `list_page` windows instead of unbounded `list`
+  (`history_reads_complete_log_in_pages_instead_of_unbounded_list`).
+
 - Fixed FLOW-R4 queries so the durable history handed to the runtime is read
   in bounded `list_page` windows instead of unbounded `list`
   (`query_reads_history_in_pages_instead_of_unbounded_list`).
