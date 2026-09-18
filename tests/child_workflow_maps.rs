@@ -575,3 +575,141 @@ async fn map_completion_wakes_parent_while_another_timer_is_open() {
     assert_eq!(parent.output, Some(json!({ "joined": true })));
     assert!(parent.child_workflow_map(MAP_ID).unwrap().is_completed());
 }
+
+struct CrashAfterChildWorkflowMapCompletedStore {
+    inner: InMemoryEventStore,
+    armed: AtomicBool,
+}
+
+impl CrashAfterChildWorkflowMapCompletedStore {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryEventStore::new(),
+            armed: AtomicBool::new(false),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowEventStore for CrashAfterChildWorkflowMapCompletedStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        let envelope = self
+            .inner
+            .append_if_sequence(run_id, expected_sequence, event.clone())
+            .await?;
+        if matches!(
+            event,
+            FlowEvent::ChildWorkflowMapCompleted { ref map_id, .. } if map_id == MAP_ID
+        ) && self.armed.swap(false, Ordering::SeqCst)
+        {
+            return Err(FlowError::Store(
+                "injected crash after ChildWorkflowMapCompleted before observation drive".into(),
+            ));
+        }
+        Ok(envelope)
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
+#[tokio::test]
+async fn map_completed_recovery_wakes_via_drive_while_unscoped_timer_is_open() {
+    use chrono::{Duration, Utc};
+
+    struct MapCompleteBesideTimerRuntime;
+
+    #[async_trait]
+    impl FlowRuntime for MapCompleteBesideTimerRuntime {
+        async fn run_workflow(
+            &self,
+            invocation: WorkflowInvocation,
+        ) -> a3s_flow::Result<RuntimeCommand> {
+            let context = invocation.context();
+            if invocation.spec.name != "child-map.parent" {
+                unreachable!("unexpected child execution");
+            }
+            if context.child_workflow_map_completed(MAP_ID) {
+                return Ok(context.complete(json!({ "joined": true })));
+            }
+            Err(FlowError::Runtime(
+                "parent must not re-issue the map after children are already resolved".into(),
+            ))
+        }
+
+        async fn run_step(&self, _invocation: a3s_flow::StepInvocation) -> a3s_flow::Result<Value> {
+            unreachable!()
+        }
+    }
+
+    let store = Arc::new(CrashAfterChildWorkflowMapCompletedStore::new());
+    let plan = children(1);
+    let child_run_id = "map-completed-drive-child".to_string();
+    let events = vec![
+        FlowEvent::RunCreated {
+            spec: parent_spec(),
+            input: json!({}),
+        },
+        FlowEvent::RunStarted,
+        FlowEvent::ChildWorkflowMapOpened {
+            map_id: MAP_ID.into(),
+            children: plan.clone(),
+            concurrency: 1,
+        },
+        FlowEvent::ChildWorkflowRequested {
+            child_id: plan[0].child_id.clone(),
+            child_run_id: child_run_id.clone(),
+            spec: child_spec(),
+            input: plan[0].input.clone(),
+            cancellation_policy: a3s_flow::ChildWorkflowCancellationPolicy::default(),
+        },
+        FlowEvent::ChildWorkflowResolved {
+            child_id: plan[0].child_id.clone(),
+            outcome: WorkflowTerminalOutcome::Completed {
+                output: json!({ "ordinal": 0 }),
+            },
+        },
+        FlowEvent::WaitCreated {
+            wait_id: "poll".into(),
+            resume_at: Utc::now() + Duration::hours(1),
+        },
+    ];
+    for event in events {
+        store.append("map-completed-drive", event).await.unwrap();
+    }
+
+    store.armed.store(true, Ordering::SeqCst);
+    let engine = FlowEngine::new(store.clone(), Arc::new(MapCompleteBesideTimerRuntime));
+    let interrupted = engine
+        .drive("map-completed-drive")
+        .await
+        .expect_err("crash after durable ChildWorkflowMapCompleted must interrupt");
+    assert!(matches!(interrupted, FlowError::Store(_)));
+
+    let mid = engine.snapshot("map-completed-drive").await.unwrap();
+    assert!(!mid.status.is_terminal());
+    assert!(mid.child_workflow_map(MAP_ID).unwrap().is_completed());
+    assert_eq!(mid.waits["poll"].status, a3s_flow::WaitStatus::Waiting);
+
+    let recovered = engine.drive("map-completed-drive").await.unwrap();
+    assert_eq!(
+        recovered.output,
+        Some(json!({ "joined": true })),
+        "drive must observe tip ChildWorkflowMapCompleted beside an open unscoped timer"
+    );
+    assert_eq!(recovered.status, WorkflowRunStatus::Completed);
+}
