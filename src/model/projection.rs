@@ -109,6 +109,7 @@ pub(crate) fn project_run_from_snapshot(
                         "a cancelling run must finish as cancelled or failed".to_string(),
                     ));
                 }
+                crate::model::validate_json_blob_ref_marker(output)?;
                 ensure_no_blocking_child_workflows(&snapshot)?;
                 snapshot.status = WorkflowRunStatus::Completed;
                 snapshot.output = Some(output.clone());
@@ -572,6 +573,23 @@ pub(crate) fn project_run_from_snapshot(
                     .external_datasets
                     .insert(dataset.dataset_id.clone(), dataset.clone());
             }
+            FlowEvent::BlobRefAttached { blob } => {
+                if snapshot.status == WorkflowRunStatus::Pending {
+                    return Err(FlowError::InvalidTransition(
+                        "blob_ref_attached cannot precede run_started".to_string(),
+                    ));
+                }
+                blob.validate()?;
+                if let Some(existing) = snapshot.blob_refs.get(&blob.blob_id) {
+                    return Err(FlowError::InvalidTransition(format!(
+                        "blob_ref_attached duplicates blob {}",
+                        existing.blob_id
+                    )));
+                }
+                snapshot
+                    .blob_refs
+                    .insert(blob.blob_id.clone(), blob.clone());
+            }
             FlowEvent::ItemAggregateRecorded { contribution } => {
                 if snapshot.status == WorkflowRunStatus::Pending {
                     return Err(FlowError::InvalidTransition(
@@ -749,6 +767,7 @@ pub(crate) fn project_run_from_snapshot(
                         step.status
                     )));
                 }
+                crate::model::validate_json_blob_ref_marker(output)?;
                 step.status = StepStatus::Completed;
                 step.output = Some(output.clone());
                 step.error = None;

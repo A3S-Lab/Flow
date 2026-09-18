@@ -1,5 +1,6 @@
 mod activity_timeout;
 mod aggregate;
+mod blob;
 mod child_map;
 mod child_workflow;
 mod command;
@@ -21,6 +22,8 @@ mod visibility;
 
 pub(crate) use activity_timeout::activity_deadline;
 pub use aggregate::{ItemAggregateContribution, ItemAggregateEntry, ItemAggregateSnapshot};
+pub(crate) use blob::validate_json_blob_ref_marker;
+pub use blob::{FlowBlobEncryption, FlowBlobRef, FLOW_BLOB_REF_OUTPUT_KEY};
 pub(crate) use child_map::validate_child_workflow_map;
 pub use child_map::{
     ChildWorkflowMapSnapshot, ChildWorkflowMapStatus, MAX_CHILD_WORKFLOW_MAP_SIZE,

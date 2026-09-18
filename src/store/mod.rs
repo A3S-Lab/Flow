@@ -454,6 +454,16 @@ pub(super) fn validate_candidate_event(
 
 /// Validate the encoded size of one event before it enters durable history.
 pub(super) fn validate_event_payload(event: &FlowEvent) -> Result<()> {
+    match event {
+        FlowEvent::RunCompleted { output }
+        | FlowEvent::StepCompleted { output, .. }
+        | FlowEvent::ActivityCompleted { output, .. } => {
+            crate::model::validate_json_blob_ref_marker(output)?;
+        }
+        FlowEvent::BlobRefAttached { blob } => blob.validate()?,
+        _ => {}
+    }
+
     let payload_bytes = serde_json::to_vec(event)
         .map_err(|error| FlowError::Store(format!("failed to encode candidate event: {error}")))?
         .len();

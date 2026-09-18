@@ -576,6 +576,33 @@ impl FlowEngine {
                         Err(err) => return Err(err),
                     }
                 }
+                RuntimeCommand::AttachBlobRef { blob } => {
+                    blob.validate()?;
+                    if let Some(existing) = snapshot.blob_ref(&blob.blob_id) {
+                        if existing != &blob {
+                            return Err(FlowError::NonDeterministic {
+                                run_id: run_id.to_string(),
+                                reason: format!(
+                                    "blob {} differs from the durable reference",
+                                    blob.blob_id
+                                ),
+                            });
+                        }
+                        continue;
+                    }
+                    match self
+                        .record_event_at(
+                            run_id,
+                            snapshot.last_sequence,
+                            FlowEvent::BlobRefAttached { blob },
+                        )
+                        .await
+                    {
+                        Ok(_) => continue,
+                        Err(err) if is_event_conflict(&err) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
                 RuntimeCommand::RecordItemAggregate { contribution } => {
                     contribution.validate()?;
                     if let Some(existing) = snapshot

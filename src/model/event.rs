@@ -174,6 +174,11 @@ pub enum FlowEvent {
         /// Content-addressed dataset reference.
         dataset: super::ExternalDatasetRef,
     },
+    /// Attaches a host-owned content-addressed blob reference to the run.
+    BlobRefAttached {
+        /// Content-addressed blob reference.
+        blob: super::FlowBlobRef,
+    },
     /// Records one durable contribution into a named per-item aggregate.
     ItemAggregateRecorded {
         /// Aggregate identity, item identity, and value.
@@ -482,6 +487,7 @@ impl FlowEvent {
             Self::CompensationMarkerRecorded { .. } => "flow.compensation.marker.recorded",
             Self::CompensationMarkerCompleted { .. } => "flow.compensation.marker.completed",
             Self::ExternalDatasetAttached { .. } => "flow.dataset.attached",
+            Self::BlobRefAttached { .. } => "flow.blob.attached",
             Self::ItemAggregateRecorded { .. } => "flow.aggregate.item.recorded",
             Self::StepCreated { .. } => "flow.step.created",
             Self::StepStarted { .. } => "flow.step.started",
