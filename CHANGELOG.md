@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-- Fixed FLOW-R4 SQL scheduled wakeups for delayed activity retries: the indexed
-  wakeup projection now records `activity_retrying` the same way it records
-  `step_retrying`, including histories written before the migration
+- Fixed FLOW-R4 SQL scheduled wakeups for delayed activity retries (#109): the
+  indexed wakeup projection now records `activity_retrying` the same way it
+  records `step_retrying`, including histories written before the migration
   (`sqlite_delayed_activity_retry_is_a_scheduled_wakeup`).
 
 - Fixed FLOW-R4 delayed retries while a child workflow stays open (#107): drive no
