@@ -180,6 +180,8 @@ recomputation (`update_force_replay_tolerates_open_wait_resume_at_recomputation`
 A due step retry also runs while another suspension stays open
 (`due_retry_runs_while_another_timer_is_open`), including while a child
 workflow stays open (`due_retry_runs_while_a_child_workflow_is_open`).
+Child resolution also forces parent replay when another parent suspension
+stays open (`child_resolution_wakes_parent_while_another_timer_is_open`).
 SQLite and Postgres scheduled-wakeup indexes include a delayed activity
 retry the same way they include a delayed step retry, and the next activity
 attempt removes it (`sqlite_delayed_activity_retry_is_a_scheduled_wakeup`).

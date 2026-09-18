@@ -289,13 +289,20 @@ impl FlowEngine {
                         .reconcile_open_child_workflow_maps(&snapshot, child_depth)
                         .await
                     {
+                        // Map window advancement only requests children; do not force
+                        // parent workflow replay (open-map redrive would see plan drift).
                         Ok(true) => continue,
                         Ok(false) => {}
                         Err(err) if is_event_conflict(&err) => continue,
                         Err(err) => return Err(err),
                     }
                 }
-                child_workflows::ChildReconciliation::Replay => continue,
+                child_workflows::ChildReconciliation::Replay => {
+                    // ChildWorkflowResolved (or a conflict retry) mutated the tip;
+                    // an open parent timer must not hide that durable progress.
+                    force_replay = true;
+                    continue;
+                }
                 child_workflows::ChildReconciliation::Waiting => {
                     match self
                         .reconcile_open_child_workflow_maps(&snapshot, child_depth)
@@ -329,21 +336,28 @@ impl FlowEngine {
                 }
             }
             match self.reconcile_signal_waits(&snapshot).await {
-                Ok(true) => continue,
+                Ok(true) => {
+                    force_replay = true;
+                    continue;
+                }
                 Ok(false) => {}
                 Err(err) if is_event_conflict(&err) => continue,
                 Err(err) => return Err(err),
             }
             match self.reconcile_open_selects(&snapshot).await {
-                Ok(true) => continue,
+                Ok(true) => {
+                    force_replay = true;
+                    continue;
+                }
                 Ok(false) => {}
                 Err(err) if is_event_conflict(&err) => continue,
                 Err(err) => return Err(err),
             }
             // A caller that just mutated history can force one workflow replay.
-            // Later iterations replay only when that pass appended history or a
-            // retry is already due, so an open timer cannot hide either case
-            // and a not-yet-due step cannot spin the replay budget.
+            // Later iterations replay when child/signal/select reconciliation
+            // appended durable progress, that pass appended history, or a retry
+            // is already due, so an open timer cannot hide those cases and a
+            // not-yet-due step cannot spin the replay budget.
             let progressed =
                 sequence_before_workflow.is_some_and(|sequence| snapshot.last_sequence > sequence);
             let due_retry = !snapshot.due_retries(now).is_empty();

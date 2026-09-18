@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed FLOW-R4 child resolution while another parent suspension stays open
+  (#119): appending `ChildWorkflowResolved` forces one workflow replay so an
+  open timer, hook, or signal wait cannot hide durable child progress
+  (`child_resolution_wakes_parent_while_another_timer_is_open`). Map window
+  advancement still does not force parent replay (avoids open-map plan drift).
+
 - Fixed FLOW-R4 open `wait_until` redrive after forced replay (#117):
   existing waits no longer compare recomputed `resume_at` on re-issue so updates,
   hooks, signals, and other force-replay hosts can wake workflows that use
