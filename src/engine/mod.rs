@@ -258,7 +258,7 @@ impl FlowEngine {
         let mut yielded_due_retry_at = None;
         let mut replay_iterations = 0;
         'replay: while replay_iterations < self.max_replay_iterations {
-            let history = self.store.list(run_id).await?;
+            let history = self.read_history_pages(run_id).await?;
             let snapshot = project_run(run_id, &history)?;
             if snapshot.status.is_terminal() {
                 return Ok(snapshot);

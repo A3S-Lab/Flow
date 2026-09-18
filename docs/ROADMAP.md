@@ -166,6 +166,10 @@ The first `FLOW-R4` execution-API slices are also implemented: workflows can
 declare immutable query and update names. `FlowEngine::query` answers read-only
 queries through `FlowRuntime::run_query` without appending history. The history
 passed to the runtime is read in `list_page` windows, not one unbounded `list`.
+`FlowEngine::drive`, step/activity/update invocation history, and the same
+complete-log assembly used by `FlowEngine::history` follow that paging contract.
+Projection-only reloads (`ensure_run_started`, batch sibling cancel after a
+terminal step failure) use `snapshot` instead of replaying `list`.
 `FlowEngine::apply_update` invokes `FlowRuntime::run_update`, persists
 `update_applied` with the handler output under a caller-owned `update_id`, and
 forces workflow replay so suspended runs can observe the durable update.

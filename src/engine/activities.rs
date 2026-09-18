@@ -280,7 +280,7 @@ impl FlowEngine {
                 .activities
                 .get(&activity_id)
                 .and_then(|activity| activity.deadline);
-            let history = self.store.list(run_id).await?;
+            let history = self.read_history_pages(run_id).await?;
             let invocation = ActivityInvocation {
                 run_id: run_id.to_string(),
                 activity_id: activity_id.clone(),

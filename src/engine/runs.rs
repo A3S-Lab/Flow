@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
-use crate::model::{project_run, validate_run_id, FlowEvent, WorkflowRunStatus, WorkflowSpec};
+use crate::model::{validate_run_id, FlowEvent, WorkflowRunStatus, WorkflowSpec};
 
 use super::validation::{ensure_same_start, is_event_conflict};
 use super::FlowEngine;
@@ -100,9 +100,8 @@ impl FlowEngine {
         validate_run_id(run_id)?;
 
         for _ in 0..self.max_replay_iterations {
-            match self.store.list(run_id).await {
-                Ok(history) => {
-                    let snapshot = project_run(run_id, &history)?;
+            match self.snapshot(run_id).await {
+                Ok(snapshot) => {
                     ensure_same_start(run_id, &snapshot, spec, input)?;
                     if snapshot.status != WorkflowRunStatus::Pending {
                         return Ok(());

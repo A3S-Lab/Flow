@@ -347,6 +347,17 @@ impl FlowEventStore for PageOnlyHistoryStore {
             .await
     }
 
+    async fn append_validated_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<a3s_flow::FlowEventEnvelope> {
+        self.inner
+            .append_validated_if_sequence(run_id, expected_sequence, event)
+            .await
+    }
+
     async fn list(&self, _run_id: &str) -> a3s_flow::Result<Vec<a3s_flow::FlowEventEnvelope>> {
         Err(FlowError::Store(
             "unbounded history read is not allowed".to_string(),
@@ -411,4 +422,58 @@ async fn history_reads_complete_log_in_pages_instead_of_unbounded_list() {
     assert_eq!(history.len(), total);
     assert_eq!(history.first().expect("first event").sequence, 1);
     assert_eq!(history.last().expect("last event").sequence, total as u64);
+}
+
+struct CompleteRuntime;
+
+#[async_trait]
+impl FlowRuntime for CompleteRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        Ok(RuntimeCommand::Complete {
+            output: json!({
+                "history_len": invocation.history.len(),
+            }),
+        })
+    }
+
+    async fn run_step(
+        &self,
+        _invocation: a3s_flow::StepInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        Err(FlowError::Runtime(
+            "complete runtime does not execute steps".to_string(),
+        ))
+    }
+}
+
+#[tokio::test]
+async fn drive_reads_history_in_pages_instead_of_unbounded_list() {
+    let store = Arc::new(PageOnlyHistoryStore {
+        inner: InMemoryEventStore::new(),
+    });
+    let run_id = "drive-paged";
+    store.append(run_id, run_created()).await.unwrap();
+    store.append(run_id, FlowEvent::RunStarted).await.unwrap();
+    let extra = MAX_FLOW_HISTORY_PAGE_SIZE - 1;
+    for index in 0..extra {
+        store
+            .append(
+                run_id,
+                FlowEvent::RunProgressRecorded {
+                    progress: WorkflowProgress::new(format!("pad-{index}"), index as u64),
+                },
+            )
+            .await
+            .unwrap();
+    }
+    let engine = FlowEngine::new(store, Arc::new(CompleteRuntime));
+    let snapshot = engine
+        .drive(run_id)
+        .await
+        .expect("drive must page history instead of calling list");
+    assert_eq!(snapshot.status, a3s_flow::WorkflowRunStatus::Completed);
+    assert_eq!(snapshot.output, Some(json!({ "history_len": 2 + extra })));
 }

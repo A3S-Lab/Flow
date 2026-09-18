@@ -6,8 +6,8 @@ use tokio::task::{Id, JoinSet};
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    project_run, FlowEvent, FlowEventEnvelope, RetryPolicy, StepCommand, StepFailureAction,
-    StepStatus, WorkflowRunSnapshot,
+    FlowEvent, FlowEventEnvelope, RetryPolicy, StepCommand, StepFailureAction, StepStatus,
+    WorkflowRunSnapshot,
 };
 use crate::runtime::StepInvocation;
 
@@ -217,7 +217,7 @@ impl FlowEngine {
                 expected_sequence = started.sequence;
             }
 
-            let history = self.store.list(run_id).await?;
+            let history = self.read_history_pages(run_id).await?;
             let invocation = StepInvocation {
                 run_id: run_id.to_string(),
                 step_id: step_id.clone(),
@@ -412,7 +412,7 @@ impl FlowEngine {
         }
 
         while !active.is_empty() {
-            let history = self.store.list(run_id).await?;
+            let history = self.read_history_pages(run_id).await?;
             let mut tasks = JoinSet::new();
             let mut task_indexes = HashMap::<Id, usize>::with_capacity(active.len());
             for (index, (step, _)) in active.iter().enumerate() {
@@ -666,8 +666,7 @@ impl FlowEngine {
         expected_sequence: &mut u64,
         failing_step_id: &str,
     ) -> Result<()> {
-        let history = self.store.list(run_id).await?;
-        let snapshot = project_run(run_id, &history)?;
+        let snapshot = self.snapshot(run_id).await?;
         for step in snapshot.steps.values() {
             if !matches!(step.status, StepStatus::Pending | StepStatus::Running) {
                 continue;

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3/R4 drive and related execution paths so the history handed to
+  the runtime is assembled from bounded `list_page` windows instead of
+  unbounded `list`. Projection-only reloads (`ensure_run_started`, batch
+  sibling cancel) use `snapshot` (`drive_reads_history_in_pages_instead_of_unbounded_list`).
+
 - Fixed FLOW-R3 `FlowEngine::history` so the complete durable log is assembled
   from bounded `list_page` windows instead of unbounded `list`
   (`history_reads_complete_log_in_pages_instead_of_unbounded_list`).
