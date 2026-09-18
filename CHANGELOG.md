@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 composed sharded stores so linked-run existence checks use
+  `latest_event` instead of unbounded `list`
+  (`composed_sharded_linked_run_check_does_not_require_unbounded_list`).
+
 - Fixed FLOW-R3 SQL cold append so a missing tip checkpoint rebuilds the
   projection from bounded history pages instead of one unbounded history load
   (`fold_history_pages_loads_each_window_instead_of_one_shot`,

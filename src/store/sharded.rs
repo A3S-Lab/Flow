@@ -88,8 +88,9 @@ impl ShardedFlowEventStore {
     }
 
     async fn run_exists(store: &dyn FlowEventStore, run_id: &str) -> Result<bool> {
-        match store.list(run_id).await {
-            Ok(events) => Ok(!events.is_empty()),
+        match store.latest_event(run_id).await {
+            Ok(Some(_)) => Ok(true),
+            Ok(None) => Ok(false),
             Err(FlowError::RunNotFound(_)) => Ok(false),
             Err(error) => Err(error),
         }

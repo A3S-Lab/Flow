@@ -139,7 +139,8 @@ preserving cross-shard link and hook checks. SQL and other hosts can place one
 backend per shard through `ShardedFlowEventStore` and
 `FlowEventStore::append_shard_local_if_sequence`, which keep store-wide
 linked-run and hook-token checks on the facade while each physical database
-stays local. Multi-process atomicity of those cross-database invariants remains
+stays local. Linked-run existence uses `latest_event`, not unbounded `list`.
+Multi-process atomicity of those cross-database invariants remains
 a host concern, so composed multi-backend layouts do not claim
 `production_ready()` admission. Kernel recovery after SQL backend disconnect
 (pooled connection loss) is covered by
