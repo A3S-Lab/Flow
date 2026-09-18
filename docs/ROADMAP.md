@@ -174,16 +174,19 @@ Host scope cancel also forces replay when an unscoped timer remains open
 (`scope_cancel_wakes_workflow_while_unscoped_timer_wait_is_open`). Ordinary
 `drive()` recovery does the same when the tip event is durable progress that
 appends then continues — scope lifecycle, select completion, wait completion,
-signal-wait completion, compensation markers, child-operation
+signal-wait completion, hook receipt/disposal, compensation markers, child-operation
 links, progress, and blob/dataset/aggregate attachments
 (`workflow_scope_*_recovery_wakes_via_drive_while_unscoped_timer_is_open`,
 `select_completed_recovery_wakes_via_drive_while_unscoped_timer_is_open`,
 `wait_completed_recovery_wakes_via_drive_while_unscoped_timer_is_open`,
 `signal_wait_completed_recovery_wakes_via_drive_while_unscoped_timer_is_open`,
+`hook_received_recovery_wakes_via_drive_while_unscoped_timer_is_open`,
+`hook_disposed_recovery_wakes_via_drive_while_unscoped_timer_is_open`,
 `compensation_marker_recorded_recovery_wakes_via_drive_while_unscoped_timer_is_open`).
 Intentional suspension tips (wait/hook/select create) remain excluded.
-Hook receipt and disposal also force replay when another suspension remains
-open (`hook_receipt_wakes_workflow_while_timer_wait_is_open`). Signal delivery
+Host hook receipt and disposal also force replay when another suspension remains
+open (`hook_receipt_wakes_workflow_while_timer_wait_is_open`,
+`hook_disposal_wakes_workflow_while_timer_wait_is_open`). Signal delivery
 does the same for a paired wait (`signal_delivery_wakes_workflow_while_timer_wait_is_open`).
 Timer resume does the same for a fired wait
 (`due_wait_wakes_workflow_while_another_timer_is_open`).
