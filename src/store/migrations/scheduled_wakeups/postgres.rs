@@ -456,7 +456,7 @@ DROP TRIGGER IF EXISTS flow_scheduled_wakeups_after_activity ON flow_events;
 CREATE TRIGGER flow_scheduled_wakeups_after_activity
 AFTER INSERT ON flow_events
 FOR EACH ROW
-WHEN (NEW.event_json::jsonb ->> 'type') IN (
+WHEN ((NEW.event_json::jsonb ->> 'type') IN (
     'activity_retrying',
     'activity_started',
     'activity_completed',
@@ -464,7 +464,7 @@ WHEN (NEW.event_json::jsonb ->> 'type') IN (
     'activity_non_retryable',
     'activity_unknown',
     'activity_cancelled'
-)
+))
 EXECUTE FUNCTION a3s_flow_project_activity_retry_wakeup();
 "#;
 
@@ -641,7 +641,7 @@ DROP TRIGGER IF EXISTS flow_scheduled_wakeups_after_activity ON flow_events;
 CREATE TRIGGER flow_scheduled_wakeups_after_activity
 AFTER INSERT ON flow_events
 FOR EACH ROW
-WHEN (NEW.event_json::jsonb ->> 'type') IN (
+WHEN ((NEW.event_json::jsonb ->> 'type') IN (
     'activity_retrying',
     'activity_started',
     'activity_completed',
@@ -649,6 +649,6 @@ WHEN (NEW.event_json::jsonb ->> 'type') IN (
     'activity_non_retryable',
     'activity_unknown',
     'activity_cancelled'
-)
+))
 EXECUTE FUNCTION a3s_flow_project_activity_retry_wakeup();
 "#;
