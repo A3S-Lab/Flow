@@ -1165,8 +1165,10 @@ impl FlowEngine {
 /// emissions (scopes, select completion, compensation, attachments) and host
 /// resolution tips (`WaitCompleted`, `SignalWaitCompleted`, `HookReceived`,
 /// `HookDisposed`, `UpdateApplied`, `ActivityCompleted`, `StepCompleted`,
-/// `ChildWorkflowResolved`, `ChildWorkflowMapCompleted`) that host delivery/
-/// resume APIs, in-drive settlement, or child/map reconciliation already force.
+/// `ChildWorkflowResolved`, `ChildWorkflowMapCompleted`, and terminal activity
+/// resolution tips (`ActivityNonRetryable`, `ActivityFailed`, `ActivityCancelled`)
+/// that host delivery/resume APIs, in-drive settlement, or child/map
+/// reconciliation already force.
 /// Intentional suspension tips (wait/hook/select create) remain excluded.
 fn tip_requires_workflow_observation(event: &FlowEvent) -> bool {
     matches!(
@@ -1181,6 +1183,9 @@ fn tip_requires_workflow_observation(event: &FlowEvent) -> bool {
             | FlowEvent::HookDisposed { .. }
             | FlowEvent::UpdateApplied { .. }
             | FlowEvent::ActivityCompleted { .. }
+            | FlowEvent::ActivityNonRetryable { .. }
+            | FlowEvent::ActivityFailed { .. }
+            | FlowEvent::ActivityCancelled { .. }
             | FlowEvent::StepCompleted { .. }
             | FlowEvent::ChildWorkflowResolved { .. }
             | FlowEvent::ChildWorkflowMapCompleted { .. }
