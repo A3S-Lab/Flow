@@ -95,3 +95,37 @@ async fn visibility_projection_matches_checkpoint_snapshot_digest() {
     assert_eq!(visibility.last_event_id, checkpoint.last_event_id);
     assert_eq!(visibility.snapshot_sha256, checkpoint.snapshot_sha256);
 }
+
+#[tokio::test]
+async fn visibility_projection_rebuilds_from_tip_validated_checkpoint_without_full_history() {
+    use a3s_flow::FlowEventStore;
+
+    let store = Arc::new(a3s_flow::InMemoryEventStore::new());
+    let engine = FlowEngine::new(store.clone(), Arc::new(VisRuntime));
+    engine
+        .start_with_id("vis-checkpoint-rebuild", spec(), json!({ "n": 1 }))
+        .await
+        .unwrap();
+
+    let live = engine
+        .visibility_projection("vis-checkpoint-rebuild")
+        .await
+        .unwrap();
+    let checkpoint = engine.checkpoint("vis-checkpoint-rebuild").await.unwrap();
+    let loaded = store
+        .load_checkpoint("vis-checkpoint-rebuild")
+        .await
+        .unwrap()
+        .expect("checkpoint must be durable for host index rebuild");
+    assert_eq!(loaded.last_sequence, checkpoint.last_sequence);
+    assert_eq!(loaded.last_event_id, checkpoint.last_event_id);
+
+    // Hosts that retained a tip-validated checkpoint can rebuild the visibility
+    // contract from the cached snapshot without paging the full event log.
+    let rebuilt =
+        FlowVisibilityProjection::from_snapshot(loaded.snapshot.clone(), loaded.last_event_id)
+            .unwrap();
+    rebuilt.validate().unwrap();
+    assert_eq!(rebuilt, live);
+    assert_eq!(rebuilt.snapshot_sha256, loaded.snapshot_sha256);
+}
