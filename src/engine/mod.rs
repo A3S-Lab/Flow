@@ -278,7 +278,9 @@ impl FlowEngine {
                 if history.last().is_some_and(|envelope| {
                     matches!(
                         envelope.event,
-                        FlowEvent::ScopeCancelled { .. } | FlowEvent::ScopeCompleted { .. }
+                        FlowEvent::ScopeOpened { .. }
+                            | FlowEvent::ScopeCancelled { .. }
+                            | FlowEvent::ScopeCompleted { .. }
                     )
                 }) {
                     force_replay = true;
