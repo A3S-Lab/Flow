@@ -254,6 +254,7 @@ impl FlowEngine {
     ) -> Result<WorkflowRunSnapshot> {
         let mut force_replay = force_workflow_replay;
         let mut sequence_before_workflow = None;
+        let mut yielded_due_retry_at = None;
         let mut replay_iterations = 0;
         'replay: while replay_iterations < self.max_replay_iterations {
             let history = self.store.list(run_id).await?;
@@ -301,8 +302,27 @@ impl FlowEngine {
                         .await
                     {
                         Ok(true) => continue,
-                        Ok(false) if force_workflow_replay => {}
-                        Ok(false) => return self.snapshot(run_id).await,
+                        Ok(false) => {
+                            let progressed = sequence_before_workflow
+                                .is_some_and(|sequence| snapshot.last_sequence > sequence);
+                            let due_retry = !snapshot.due_retries(now).is_empty();
+                            let retry_appended = yielded_due_retry_at
+                                .is_some_and(|sequence| snapshot.last_sequence > sequence);
+                            if force_replay {
+                                // One caller-forced replay, consumed below.
+                            } else if due_retry
+                                && yielded_due_retry_at != Some(snapshot.last_sequence)
+                            {
+                                yielded_due_retry_at = Some(snapshot.last_sequence);
+                            } else if retry_appended && progressed {
+                                // Let the workflow observe the retry it just committed,
+                                // then stop. Unrelated progress must not re-enter a
+                                // waiting parent (map redrive would see plan drift).
+                                yielded_due_retry_at = Some(snapshot.last_sequence);
+                            } else {
+                                return self.snapshot(run_id).await;
+                            }
+                        }
                         Err(err) if is_event_conflict(&err) => continue,
                         Err(err) => return Err(err),
                     }

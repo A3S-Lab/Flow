@@ -479,3 +479,101 @@ async fn due_retry_runs_while_another_timer_is_open() {
     assert_eq!(snapshot.status, WorkflowRunStatus::Completed);
     assert_eq!(snapshot.output, Some(json!({ "attempt": 2 })));
 }
+
+fn sleeping_child_spec() -> WorkflowSpec {
+    WorkflowSpec::rust_embedded(
+        "scheduler.sleeping-child",
+        "0.1.0",
+        "tests::scheduler",
+        "child",
+    )
+}
+
+struct RetryBesideOpenChildRuntime {
+    attempts: AtomicUsize,
+}
+
+#[async_trait]
+impl FlowRuntime for RetryBesideOpenChildRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let context = invocation.context();
+        if invocation.spec.name == "scheduler.sleeping-child" {
+            return Ok(context.wait_until("child-hold", "2030-01-01T00:00:00Z".parse().unwrap()));
+        }
+        if context.step_output("flaky").is_some() {
+            return Ok(context.start_child_workflow("sleeper", sleeping_child_spec(), json!({})));
+        }
+        if context.update("arm").is_some() {
+            return Ok(context.schedule_step_with_retry(
+                "flaky",
+                "flakyStep",
+                json!({}),
+                RetryPolicy::fixed(2, Duration::from_secs(60)),
+            ));
+        }
+        Ok(context.start_child_workflow("sleeper", sleeping_child_spec(), json!({})))
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        let attempt = self.attempts.fetch_add(1, Ordering::SeqCst);
+        if attempt == 0 {
+            Err(FlowError::Runtime("first attempt failed".to_string()))
+        } else {
+            Ok(json!({ "attempt": attempt + 1 }))
+        }
+    }
+
+    async fn run_update(
+        &self,
+        _invocation: a3s_flow::UpdateInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        Ok(json!({ "armed": true }))
+    }
+}
+
+#[tokio::test]
+async fn due_retry_runs_while_a_child_workflow_is_open() {
+    let runtime = Arc::new(RetryBesideOpenChildRuntime {
+        attempts: AtomicUsize::new(0),
+    });
+    let engine = FlowEngine::in_memory(runtime.clone());
+    engine
+        .start_with_id("retry-beside-child", spec().with_update("arm"), json!({}))
+        .await
+        .unwrap();
+    assert!(engine
+        .snapshot("retry-beside-child")
+        .await
+        .unwrap()
+        .child_workflow("sleeper")
+        .unwrap()
+        .is_open());
+
+    engine
+        .apply_update(
+            "retry-beside-child",
+            WorkflowUpdate::new("arm-1", "arm", json!({})),
+        )
+        .await
+        .unwrap();
+    assert_eq!(runtime.attempts.load(Ordering::SeqCst), 1);
+
+    engine
+        .resume_scheduled_run(
+            "retry-beside-child",
+            Utc::now() + ChronoDuration::seconds(120),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(runtime.attempts.load(Ordering::SeqCst), 2);
+    let snapshot = engine.snapshot("retry-beside-child").await.unwrap();
+    assert_eq!(
+        snapshot.step_output("flaky"),
+        Some(&json!({ "attempt": 2 }))
+    );
+    assert!(snapshot.child_workflow("sleeper").unwrap().is_open());
+}

@@ -176,7 +176,8 @@ does the same for a paired wait (`signal_delivery_wakes_workflow_while_timer_wai
 Timer resume does the same for a fired wait
 (`due_wait_wakes_workflow_while_another_timer_is_open`).
 A due step retry also runs while another suspension stays open
-(`due_retry_runs_while_another_timer_is_open`).
+(`due_retry_runs_while_another_timer_is_open`), including while a child
+workflow stays open (`due_retry_runs_while_a_child_workflow_is_open`).
 Run cancellation marks open scopes cancelled. Structured select/race is
 also implemented for timer and signal arms: the first completed arm wins and
 sibling waits are cancelled durably; losing `SelectCompleted` after a durable
