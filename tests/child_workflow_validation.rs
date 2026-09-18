@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use a3s_flow::{
-    ChildWorkflowCancellationPolicy, FlowEngine, FlowError, FlowEvent, FlowEventStore, FlowRuntime,
-    InMemoryEventStore, RuntimeCommand, StepInvocation, WorkflowInvocation, WorkflowSpec,
-    WorkflowTerminalOutcome,
+    ChildWorkflowCancellationPolicy, ChildWorkflowCommand, FlowEngine, FlowError, FlowEvent,
+    FlowEventStore, FlowRuntime, InMemoryEventStore, RuntimeCommand, StepInvocation,
+    WorkflowInvocation, WorkflowSpec, WorkflowTerminalOutcome,
 };
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -158,4 +158,124 @@ async fn resolved_child_command_drift_is_reported_as_non_determinism() {
         Err(FlowError::NonDeterministic { reason, .. })
             if reason.contains("child workflow child differs")
     ));
+}
+
+#[tokio::test]
+async fn projection_rejects_graceful_terminals_with_an_open_child_workflow_map() {
+    let store = Arc::new(InMemoryEventStore::new());
+    create_started(&store, "open-map-complete").await;
+    store
+        .append(
+            "open-map-complete",
+            FlowEvent::ChildWorkflowMapOpened {
+                map_id: "batch".into(),
+                children: vec![ChildWorkflowCommand::new(
+                    "item-0000",
+                    spec(),
+                    json!({ "ordinal": 0 }),
+                )],
+                concurrency: 1,
+            },
+        )
+        .await
+        .unwrap();
+    let completed = store
+        .append(
+            "open-map-complete",
+            FlowEvent::RunCompleted { output: json!({}) },
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        completed,
+        FlowError::InvalidTransition(message)
+            if message.contains("child workflow map batch") && message.contains("open")
+    ));
+
+    create_started(&store, "open-map-can").await;
+    store
+        .append(
+            "open-map-can",
+            FlowEvent::ChildWorkflowMapOpened {
+                map_id: "batch".into(),
+                children: vec![ChildWorkflowCommand::new(
+                    "item-0000",
+                    spec(),
+                    json!({ "ordinal": 0 }),
+                )],
+                concurrency: 1,
+            },
+        )
+        .await
+        .unwrap();
+    let continued = store
+        .append(
+            "open-map-can",
+            FlowEvent::RunContinuedAsNew {
+                successor_run_id: "open-map-successor".into(),
+                input: json!({}),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        continued,
+        FlowError::InvalidTransition(message)
+            if message.contains("child workflow map batch") && message.contains("open")
+    ));
+}
+
+#[tokio::test]
+async fn projection_allows_completion_after_child_workflow_map_completes() {
+    let store = Arc::new(InMemoryEventStore::new());
+    create_started(&store, "closed-map-complete").await;
+    let plan = ChildWorkflowCommand::new("item-0000", spec(), json!({ "ordinal": 0 }));
+    store
+        .append(
+            "closed-map-complete",
+            FlowEvent::ChildWorkflowMapOpened {
+                map_id: "batch".into(),
+                children: vec![plan.clone()],
+                concurrency: 1,
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            "closed-map-complete",
+            request("item-0000", "closed-map-child", plan.input.clone()),
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            "closed-map-complete",
+            FlowEvent::ChildWorkflowResolved {
+                child_id: "item-0000".into(),
+                outcome: WorkflowTerminalOutcome::Completed {
+                    output: json!({ "ordinal": 0 }),
+                },
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            "closed-map-complete",
+            FlowEvent::ChildWorkflowMapCompleted {
+                map_id: "batch".into(),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            "closed-map-complete",
+            FlowEvent::RunCompleted {
+                output: json!({ "joined": true }),
+            },
+        )
+        .await
+        .unwrap();
 }
