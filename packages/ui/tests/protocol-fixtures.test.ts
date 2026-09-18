@@ -49,6 +49,33 @@ describe("cross-language FLOW protocol fixtures", () => {
     expect(envelope.event.spec.name).toBe("cert.protocol");
   });
 
+  it("reads the Rust blob_ref_attached envelope fixture", () => {
+    const envelope = loadFixture("event_envelope.blob_ref_attached.v1.json") as {
+      schema_version: number;
+      run_id: string;
+      sequence: number;
+      event: {
+        type: string;
+        blob: {
+          blob_id: string;
+          content_digest: string;
+          codec?: string;
+          byte_length?: number;
+        };
+      };
+    };
+    expect(envelope.schema_version).toBe(1);
+    expect(envelope.run_id).toBe("cert-run");
+    expect(envelope.sequence).toBe(2);
+    expect(envelope.event.type).toBe("blob_ref_attached");
+    expect(envelope.event.blob).toEqual({
+      blob_id: "payload",
+      content_digest: "sha256:cert",
+      codec: "gzip",
+      byte_length: 64,
+    });
+  });
+
   it("reads the Rust visibility projection fixture without payloads", () => {
     const projection = loadFixture("visibility_projection.v1.json") as {
       schema_version: number;
