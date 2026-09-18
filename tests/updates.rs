@@ -281,6 +281,94 @@ async fn update_redelivery_recovers_after_update_applied_before_drive_completes(
     );
 }
 
+struct CrashAfterUpdateAppliedStore {
+    inner: InMemoryEventStore,
+    armed: AtomicBool,
+}
+
+impl CrashAfterUpdateAppliedStore {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryEventStore::new(),
+            armed: AtomicBool::new(false),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowEventStore for CrashAfterUpdateAppliedStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        let envelope = self
+            .inner
+            .append_if_sequence(run_id, expected_sequence, event.clone())
+            .await?;
+        if matches!(
+            event,
+            FlowEvent::UpdateApplied { ref update, .. } if update.update_id == "upd-tip"
+        ) && self.armed.swap(false, Ordering::SeqCst)
+        {
+            return Err(FlowError::Store(
+                "injected crash after UpdateApplied before observation drive".into(),
+            ));
+        }
+        Ok(envelope)
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
+#[tokio::test]
+async fn update_applied_recovery_wakes_via_drive_while_unscoped_timer_is_open() {
+    let store = Arc::new(CrashAfterUpdateAppliedStore::new());
+    seed_waiting_run(store.as_ref(), "update-applied-drive").await;
+    let engine = FlowEngine::new(
+        store.clone(),
+        Arc::new(UpdateRuntime {
+            update_calls: AtomicUsize::new(0),
+            workflow_calls: AtomicUsize::new(0),
+        }),
+    );
+
+    store.armed.store(true, Ordering::SeqCst);
+    let interrupted = engine
+        .apply_update(
+            "update-applied-drive",
+            WorkflowUpdate::new("upd-tip", "bump", json!({"by": 1})),
+        )
+        .await
+        .expect_err("crash after durable UpdateApplied must interrupt");
+    assert!(matches!(interrupted, FlowError::Store(_)));
+
+    let mid = engine.snapshot("update-applied-drive").await.unwrap();
+    assert!(!mid.status.is_terminal());
+    assert!(mid.update("upd-tip").is_some());
+    assert_eq!(mid.waits["pause"].status, WaitStatus::Waiting);
+
+    // Ordinary DriveRun recovery — not apply_update retry.
+    let recovered = engine.drive("update-applied-drive").await.unwrap();
+    assert_eq!(
+        recovered.output,
+        Some(json!({"bumps": 1})),
+        "drive must observe tip UpdateApplied beside an open unscoped timer"
+    );
+    assert_eq!(recovered.status, WorkflowRunStatus::Completed);
+}
+
 struct RelativeWaitUpdateRuntime;
 
 #[async_trait]
