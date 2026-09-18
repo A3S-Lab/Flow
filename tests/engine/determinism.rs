@@ -183,8 +183,7 @@ async fn open_wait_redrive_tolerates_resume_at_recomputation() {
         .expect("forced replay must tolerate wait resume_at recomputation");
     assert_eq!(applied.snapshot.status, WorkflowRunStatus::Suspended);
     assert_eq!(
-        applied.snapshot.waits["definition-gate"].resume_at,
-        bound,
+        applied.snapshot.waits["definition-gate"].resume_at, bound,
         "durable wait deadline must stay bound at creation"
     );
 }

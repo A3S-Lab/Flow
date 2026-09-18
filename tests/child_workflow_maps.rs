@@ -521,10 +521,7 @@ async fn map_completion_wakes_parent_while_another_timer_is_open() {
             ))
         }
 
-        async fn run_step(
-            &self,
-            _invocation: a3s_flow::StepInvocation,
-        ) -> a3s_flow::Result<Value> {
+        async fn run_step(&self, _invocation: a3s_flow::StepInvocation) -> a3s_flow::Result<Value> {
             unreachable!()
         }
     }
@@ -562,7 +559,10 @@ async fn map_completion_wakes_parent_while_another_timer_is_open() {
         },
     ];
     for event in events {
-        store.append("map-complete-beside-timer", event).await.unwrap();
+        store
+            .append("map-complete-beside-timer", event)
+            .await
+            .unwrap();
     }
 
     let engine = FlowEngine::new(store, Arc::new(MapCompleteBesideTimerRuntime));

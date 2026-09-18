@@ -390,11 +390,12 @@ unless those persistence layers are approved for them.
 
 Cancellation deactivates signal waits that existed before the request; cleanup
 code may use a distinct stable wait if domain policy truly requires one. A run
-cannot continue as new while a signal wait is open or a received signal remains
-unconsumed, preventing history segmentation from silently dropping queued
-messages. Unlike hooks, signals require no pre-created bearer token and support
-repeated named deliveries. Hooks remain the right primitive for a one-shot
-externally routed callback whose public token and lifecycle must be inspected.
+cannot complete or continue as new while a signal wait is open. Continue-as-new
+also rejects an unconsumed received signal, preventing history segmentation from
+silently dropping queued messages. Unlike hooks, signals require no pre-created
+bearer token and support repeated named deliveries. Hooks remain the right
+primitive for a one-shot externally routed callback whose public token and
+lifecycle must be inspected.
 
 ## Typed Workflow Queries And Updates
 

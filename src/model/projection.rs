@@ -111,6 +111,7 @@ pub(crate) fn project_run_from_snapshot(
                 }
                 crate::model::validate_json_blob_ref_marker(output)?;
                 ensure_no_blocking_child_workflows(&snapshot)?;
+                ensure_no_open_signal_waits(&snapshot)?;
                 ensure_no_open_in_flight_work(&snapshot)?;
                 snapshot.status = WorkflowRunStatus::Completed;
                 snapshot.output = Some(output.clone());
@@ -278,15 +279,7 @@ pub(crate) fn project_run_from_snapshot(
                         "run_continued_as_new cannot abandon an open child workflow".to_string(),
                     ));
                 }
-                if snapshot
-                    .signal_waits
-                    .values()
-                    .any(|wait| wait.status == SignalWaitStatus::Waiting)
-                {
-                    return Err(FlowError::InvalidTransition(
-                        "run_continued_as_new cannot abandon an open signal wait".to_string(),
-                    ));
-                }
+                ensure_no_open_signal_waits(&snapshot)?;
                 if let Some(signal) = snapshot
                     .signals
                     .iter()
@@ -1333,18 +1326,34 @@ fn ensure_no_blocking_child_workflows(snapshot: &WorkflowRunSnapshot) -> Result<
     Ok(())
 }
 
+/// Fail closed when graceful completion or continue-as-new would abandon an
+/// open signal wait (including select signal arms projected into
+/// `signal_waits`). Unconsumed deliveries remain a continue-as-new-only rule
+/// because only segmentation must not drop a queued message for a successor.
+fn ensure_no_open_signal_waits(snapshot: &WorkflowRunSnapshot) -> Result<()> {
+    if snapshot
+        .signal_waits
+        .values()
+        .any(|wait| wait.status == SignalWaitStatus::Waiting)
+    {
+        return Err(FlowError::InvalidTransition(
+            "cannot abandon an open signal wait".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Fail closed when a graceful completion or continue-as-new would strand
 /// in-flight step/activity work that can no longer settle on a terminal run.
 ///
 /// Immediate host termination (`run_cancelled`, timeout, host shutdown) and
 /// failure terminals intentionally omit this check.
 fn ensure_no_open_in_flight_work(snapshot: &WorkflowRunSnapshot) -> Result<()> {
-    if let Some(step) = snapshot.steps.values().find(|step| {
-        matches!(
-            step.status,
-            StepStatus::Pending | StepStatus::Running
-        )
-    }) {
+    if let Some(step) = snapshot
+        .steps
+        .values()
+        .find(|step| matches!(step.status, StepStatus::Pending | StepStatus::Running))
+    {
         return Err(FlowError::InvalidTransition(format!(
             "workflow run {} cannot complete while step {} is still {:?}",
             snapshot.run_id, step.step_id, step.status

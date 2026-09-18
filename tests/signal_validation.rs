@@ -313,3 +313,19 @@ async fn projection_prevents_continue_as_new_from_abandoning_signal_state() {
         FlowError::InvalidTransition(message) if message.contains("unconsumed signal delivery-1")
     ));
 }
+
+#[tokio::test]
+async fn projection_prevents_run_completed_from_abandoning_an_open_signal_wait() {
+    let open_wait = snapshot_error(vec![
+        FlowEvent::SignalWaitCreated {
+            wait_id: "approval".to_string(),
+            signal_name: APPROVAL_SIGNAL.to_string(),
+        },
+        FlowEvent::RunCompleted { output: json!({}) },
+    ])
+    .await;
+    assert!(matches!(
+        open_wait,
+        FlowError::InvalidTransition(message) if message.contains("open signal wait")
+    ));
+}
