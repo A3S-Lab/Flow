@@ -79,7 +79,17 @@ impl FlowEngine {
         &self,
         run_id: &str,
     ) -> Result<WorkflowRunSnapshot> {
-        self.drive_at_with_child_context(run_id, Utc::now(), 0, &BTreeSet::new(), true)
+        self.drive_forcing_workflow_replay_at(run_id, Utc::now())
+            .await
+    }
+
+    /// Same as [`Self::drive_forcing_workflow_replay`] at a caller-supplied clock.
+    pub(super) async fn drive_forcing_workflow_replay_at(
+        &self,
+        run_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<WorkflowRunSnapshot> {
+        self.drive_at_with_child_context(run_id, now, 0, &BTreeSet::new(), true)
             .await
     }
 

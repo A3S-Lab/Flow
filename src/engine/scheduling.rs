@@ -14,7 +14,8 @@ impl FlowEngine {
     /// Redelivery is idempotent after the existing wait has completed or its
     /// run has become terminal. A resolved wait still drives recovery through
     /// any committed continue-as-new boundary, but no second `wait_completed`
-    /// event is appended.
+    /// event is appended. Completion forces workflow replay so another open
+    /// timer, hook, or signal wait cannot hide the fired timer.
     pub async fn resume_wait(&self, run_id: &str, wait_id: &str) -> Result<()> {
         self.resume_wait_if_open(run_id, wait_id).await?;
         Ok(())
@@ -87,10 +88,7 @@ impl FlowEngine {
                 }
             }
 
-            match self
-                .recover_and_drive_continuation_leaf_at(run_id, now)
-                .await
-            {
+            match self.drive_forcing_workflow_replay_at(run_id, now).await {
                 Ok(snapshot) => return Ok(wait_resolution(run_id, wait_id, snapshot, resumed)),
                 Err(error) if is_event_conflict(&error) => continue,
                 Err(error) => return Err(error),
