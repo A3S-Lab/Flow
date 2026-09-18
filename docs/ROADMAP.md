@@ -269,7 +269,8 @@ Rust, TypeScript, and hosted adapters.
 
 The first `FLOW-R5` queue lifecycle slice is also implemented: built-in local
 and PostgreSQL queues expose an administrative dead-letter redrive operation,
-and custom queues fail closed unless they explicitly provide the same contract.
+and custom queues fail closed unless they explicitly provide the same contract
+(`in_memory_task_queue_redrive_fails_closed_until_explicitly_implemented`).
 Redrive identities are stable across local crash windows, while PostgreSQL
 redrive copies and removes a dead-letter row in one transaction. Worker drain
 now has a bounded fairness/backpressure hook through

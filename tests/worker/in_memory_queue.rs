@@ -195,3 +195,15 @@ async fn in_memory_partition_fairness_defaults_to_run_id_buckets() {
         }
     );
 }
+
+#[tokio::test]
+async fn in_memory_task_queue_redrive_fails_closed_until_explicitly_implemented() {
+    // InMemory inherits FlowTaskQueue::redrive_dead_lettered's fail-closed default
+    // so custom queues cannot silently invent redrive without an override.
+    let queue = InMemoryFlowTaskQueue::new();
+    let error = queue.redrive_dead_lettered("lease-1").await.unwrap_err();
+    assert!(matches!(
+        error,
+        FlowError::Store(message) if message.contains("dead-letter redrive is unsupported")
+    ));
+}
