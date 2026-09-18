@@ -1013,7 +1013,10 @@ async fn signal_received_recovery_wakes_via_drive_while_unscoped_timer_is_open()
 
     let mid = engine.snapshot("signal-received-drive").await.unwrap();
     assert!(!mid.status.is_terminal());
-    assert!(mid.signals.iter().any(|signal| signal.signal_id == "delivery-1"));
+    assert!(mid
+        .signals
+        .iter()
+        .any(|signal| signal.signal_id == "delivery-1"));
     assert!(mid.signal_waits.is_empty());
     assert_eq!(mid.waits["pause"].status, a3s_flow::WaitStatus::Waiting);
 
