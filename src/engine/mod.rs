@@ -32,7 +32,7 @@ mod steps;
 mod updates;
 mod validation;
 use activities::ActivityExecutionContext;
-use child_maps::ChildMapCommandOutcome;
+use child_maps::{ChildMapCommandOutcome, ChildMapReconcile};
 use selects::SelectCommandOutcome;
 use signals::SignalWaitCommandOutcome;
 use steps::{interrupted_terminal_event, StepExecutionContext};
@@ -289,10 +289,15 @@ impl FlowEngine {
                         .reconcile_open_child_workflow_maps(&snapshot, child_depth)
                         .await
                     {
-                        // Map window advancement only requests children; do not force
+                        // Window advancement only requests children; do not force
                         // parent workflow replay (open-map redrive would see plan drift).
-                        Ok(true) => continue,
-                        Ok(false) => {}
+                        Ok(ChildMapReconcile::Advanced) => continue,
+                        Ok(ChildMapReconcile::Completed) => {
+                            // Map completion must be visible beside an open timer.
+                            force_replay = true;
+                            continue;
+                        }
+                        Ok(ChildMapReconcile::Idle) => {}
                         Err(err) if is_event_conflict(&err) => continue,
                         Err(err) => return Err(err),
                     }
@@ -308,8 +313,12 @@ impl FlowEngine {
                         .reconcile_open_child_workflow_maps(&snapshot, child_depth)
                         .await
                     {
-                        Ok(true) => continue,
-                        Ok(false) => {
+                        Ok(ChildMapReconcile::Advanced) => continue,
+                        Ok(ChildMapReconcile::Completed) => {
+                            force_replay = true;
+                            continue;
+                        }
+                        Ok(ChildMapReconcile::Idle) => {
                             let progressed = sequence_before_workflow
                                 .is_some_and(|sequence| snapshot.last_sequence > sequence);
                             let due_retry = !snapshot.due_retries(now).is_empty();

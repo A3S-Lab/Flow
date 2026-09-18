@@ -496,3 +496,82 @@ async fn partial_map_window_request_persistence_recovers_without_duplicate_or_lo
         );
     }
 }
+
+#[tokio::test]
+async fn map_completion_wakes_parent_while_another_timer_is_open() {
+    use chrono::{Duration, Utc};
+
+    struct MapCompleteBesideTimerRuntime;
+
+    #[async_trait]
+    impl FlowRuntime for MapCompleteBesideTimerRuntime {
+        async fn run_workflow(
+            &self,
+            invocation: WorkflowInvocation,
+        ) -> a3s_flow::Result<RuntimeCommand> {
+            let context = invocation.context();
+            if invocation.spec.name != "child-map.parent" {
+                unreachable!("unexpected child execution");
+            }
+            if context.child_workflow_map_completed(MAP_ID) {
+                return Ok(context.complete(json!({ "joined": true })));
+            }
+            Err(FlowError::Runtime(
+                "parent must not re-issue the map after children are already resolved".into(),
+            ))
+        }
+
+        async fn run_step(
+            &self,
+            _invocation: a3s_flow::StepInvocation,
+        ) -> a3s_flow::Result<Value> {
+            unreachable!()
+        }
+    }
+
+    let store = Arc::new(InMemoryEventStore::new());
+    let plan = children(1);
+    let child_run_id = "map-complete-child".to_string();
+    let events = vec![
+        FlowEvent::RunCreated {
+            spec: parent_spec(),
+            input: json!({}),
+        },
+        FlowEvent::RunStarted,
+        FlowEvent::ChildWorkflowMapOpened {
+            map_id: MAP_ID.into(),
+            children: plan.clone(),
+            concurrency: 1,
+        },
+        FlowEvent::ChildWorkflowRequested {
+            child_id: plan[0].child_id.clone(),
+            child_run_id: child_run_id.clone(),
+            spec: child_spec(),
+            input: plan[0].input.clone(),
+            cancellation_policy: a3s_flow::ChildWorkflowCancellationPolicy::default(),
+        },
+        FlowEvent::ChildWorkflowResolved {
+            child_id: plan[0].child_id.clone(),
+            outcome: WorkflowTerminalOutcome::Completed {
+                output: json!({ "ordinal": 0 }),
+            },
+        },
+        FlowEvent::WaitCreated {
+            wait_id: "poll".into(),
+            resume_at: Utc::now() + Duration::hours(1),
+        },
+    ];
+    for event in events {
+        store.append("map-complete-beside-timer", event).await.unwrap();
+    }
+
+    let engine = FlowEngine::new(store, Arc::new(MapCompleteBesideTimerRuntime));
+    let parent = engine.drive("map-complete-beside-timer").await.unwrap();
+    assert_eq!(
+        parent.status,
+        WorkflowRunStatus::Completed,
+        "appending ChildWorkflowMapCompleted must not be hidden by an open parent timer"
+    );
+    assert_eq!(parent.output, Some(json!({ "joined": true })));
+    assert!(parent.child_workflow_map(MAP_ID).unwrap().is_completed());
+}
