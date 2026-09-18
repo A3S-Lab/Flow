@@ -811,3 +811,117 @@ async fn child_resolution_wakes_parent_while_another_timer_is_open() {
         Some(WorkflowTerminalOutcome::Completed { .. })
     ));
 }
+
+struct CrashAfterChildWorkflowResolvedStore {
+    inner: InMemoryEventStore,
+    armed: AtomicBool,
+}
+
+impl CrashAfterChildWorkflowResolvedStore {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryEventStore::new(),
+            armed: AtomicBool::new(false),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowEventStore for CrashAfterChildWorkflowResolvedStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        let envelope = self
+            .inner
+            .append_if_sequence(run_id, expected_sequence, event.clone())
+            .await?;
+        if matches!(
+            event,
+            FlowEvent::ChildWorkflowResolved {
+                ref child_id,
+                ..
+            } if child_id == "worker"
+        ) && self.armed.swap(false, Ordering::SeqCst)
+        {
+            return Err(FlowError::Store(
+                "injected crash after ChildWorkflowResolved before observation drive".into(),
+            ));
+        }
+        Ok(envelope)
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
+#[tokio::test]
+async fn child_resolved_recovery_wakes_via_drive_while_unscoped_timer_is_open() {
+    let store = Arc::new(CrashAfterChildWorkflowResolvedStore::new());
+    let engine = FlowEngine::new(store.clone(), Arc::new(ChildResolvedBesideOpenTimerRuntime));
+    engine
+        .start_with_id(
+            "child-resolved-drive",
+            parent_spec().with_update("arm"),
+            json!({}),
+        )
+        .await
+        .unwrap();
+    let child_run_id = engine
+        .snapshot("child-resolved-drive")
+        .await
+        .unwrap()
+        .child_workflow("worker")
+        .unwrap()
+        .run_id
+        .clone();
+    engine
+        .apply_update(
+            "child-resolved-drive",
+            a3s_flow::WorkflowUpdate::new("arm-1", "arm", json!({})),
+        )
+        .await
+        .unwrap();
+    engine
+        .resume_wait(&child_run_id, "child-hold")
+        .await
+        .unwrap();
+    assert_eq!(
+        engine.snapshot(&child_run_id).await.unwrap().status,
+        WorkflowRunStatus::Completed
+    );
+
+    store.armed.store(true, Ordering::SeqCst);
+    let interrupted = engine
+        .drive("child-resolved-drive")
+        .await
+        .expect_err("crash after durable ChildWorkflowResolved must interrupt");
+    assert!(matches!(interrupted, FlowError::Store(_)));
+
+    let mid = engine.snapshot("child-resolved-drive").await.unwrap();
+    assert!(!mid.status.is_terminal());
+    assert!(matches!(
+        mid.child_workflow("worker").unwrap().outcome,
+        Some(WorkflowTerminalOutcome::Completed { .. })
+    ));
+    assert_eq!(mid.waits["poll"].status, a3s_flow::WaitStatus::Waiting);
+
+    let recovered = engine.drive("child-resolved-drive").await.unwrap();
+    assert_eq!(
+        recovered.output,
+        Some(json!({ "batch": 3 })),
+        "drive must observe tip ChildWorkflowResolved beside an open unscoped timer"
+    );
+    assert_eq!(recovered.status, WorkflowRunStatus::Completed);
+}
