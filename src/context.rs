@@ -521,6 +521,21 @@ impl<'a> WorkflowContext<'a> {
             })
     }
 
+    /// Attach a host-owned content-addressed blob reference and replay.
+    pub fn attach_blob_ref(&self, blob: crate::model::FlowBlobRef) -> RuntimeCommand {
+        RuntimeCommand::AttachBlobRef { blob }
+    }
+
+    /// Return an attached blob reference from history, when present.
+    pub fn blob_ref(&self, blob_id: &str) -> Option<&crate::model::FlowBlobRef> {
+        self.history()
+            .iter()
+            .find_map(|envelope| match &envelope.event {
+                FlowEvent::BlobRefAttached { blob } if blob.blob_id == blob_id => Some(blob),
+                _ => None,
+            })
+    }
+
     /// Record one durable contribution into a named per-item aggregate.
     pub fn record_item_aggregate(
         &self,

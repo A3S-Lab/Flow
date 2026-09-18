@@ -603,6 +603,11 @@ pub enum RuntimeCommand {
         /// Content-addressed dataset reference.
         dataset: crate::model::ExternalDatasetRef,
     },
+    /// Attach a host-owned content-addressed blob reference to the run.
+    AttachBlobRef {
+        /// Content-addressed blob reference.
+        blob: crate::model::FlowBlobRef,
+    },
     /// Record one durable contribution into a named per-item aggregate.
     RecordItemAggregate {
         /// Aggregate identity, item identity, and value.

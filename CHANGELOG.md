@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added FLOW-R4 typed content-addressed blob references (#88): `FlowBlobRef` /
+  `FlowBlobEncryption`, `RuntimeCommand::AttachBlobRef`,
+  `FlowEvent::BlobRefAttached`, and `$flow_blob_ref` step/activity/run output
+  markers so large payloads can stay under `MAX_FLOW_EVENT_BYTES` without Flow
+  fetching host CAS bytes
+  (`tests/blob_refs.rs`).
+
 - Added FLOW-R4 PostgreSQL durable-interruption evidence for concurrent
   `ScheduleSteps` terminal settlement (#86): losing the peer `StepCancelled`
   append mid-settlement recovers without a stuck Running sibling or duplicate

@@ -9,7 +9,7 @@ use crate::runtime_build::RuntimeBuildId;
 use super::{
     CancellationRequestSnapshot, CancellationScopeSnapshot, ChildOperationReference,
     ChildWorkflowMapSnapshot, ChildWorkflowSnapshot, CompensationMarkerSnapshot,
-    ExternalDatasetRef, ItemAggregateSnapshot, JsonValue, RetryPolicy, SelectSnapshot,
+    ExternalDatasetRef, FlowBlobRef, ItemAggregateSnapshot, JsonValue, RetryPolicy, SelectSnapshot,
     SignalWaitSnapshot, SignalWaitStatus, WorkflowContinuation, WorkflowProgress,
     WorkflowSignalSnapshot, WorkflowSpec, WorkflowTerminalOutcome, WorkflowUpdateSnapshot,
 };
@@ -468,6 +468,9 @@ pub struct WorkflowRunSnapshot {
     /// Host-owned external dataset references indexed by dataset identity.
     #[serde(default)]
     pub external_datasets: BTreeMap<String, ExternalDatasetRef>,
+    /// Host-owned content-addressed blob references indexed by blob identity.
+    #[serde(default)]
+    pub blob_refs: BTreeMap<String, FlowBlobRef>,
     /// Named per-item aggregates indexed by aggregate identity.
     #[serde(default)]
     pub item_aggregates: BTreeMap<String, ItemAggregateSnapshot>,
@@ -514,6 +517,7 @@ impl WorkflowRunSnapshot {
             child_workflow_maps: BTreeMap::new(),
             compensation_markers: BTreeMap::new(),
             external_datasets: BTreeMap::new(),
+            blob_refs: BTreeMap::new(),
             item_aggregates: BTreeMap::new(),
             output: None,
             error: None,
@@ -651,6 +655,11 @@ impl WorkflowRunSnapshot {
     /// Return a host-owned external dataset reference by dataset identity.
     pub fn external_dataset(&self, dataset_id: &str) -> Option<&ExternalDatasetRef> {
         self.external_datasets.get(dataset_id)
+    }
+
+    /// Return a host-owned content-addressed blob reference by blob identity.
+    pub fn blob_ref(&self, blob_id: &str) -> Option<&FlowBlobRef> {
+        self.blob_refs.get(blob_id)
     }
 
     /// Return a named per-item aggregate by identity.

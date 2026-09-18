@@ -185,7 +185,10 @@ Structured join-all is also implemented through `SelectMode::JoinAll` and
 siblings are not cancelled early. Concurrent `ScheduleSteps` terminal settlement
 has PostgreSQL-gated durable-interrupt evidence: losing a peer `StepCancelled`
 append mid-settlement recovers without a stuck Running sibling or duplicate side
-effects (`tests/postgres_batch_settlement_interruption.rs`).
+effects (`tests/postgres_batch_settlement_interruption.rs`). Large history
+payloads can record typed host-owned `FlowBlobRef` attachments and
+`$flow_blob_ref` output markers instead of inlining bytes past
+`MAX_FLOW_EVENT_BYTES` (`tests/blob_refs.rs`); Flow never fetches CAS contents.
 
 The repository-owned authoring boundary now has a stateless Rust counterpart to
 the CLI and Skill: `canonical_workflow_authoring_snapshot` preserves the
@@ -296,8 +299,9 @@ replay and audit identity.
 
 Every event and command has bounded encoded size. Large inputs, outputs,
 checkpoints, and logs use content-addressed blob references with codec and
-encryption metadata. Bearer tokens and credentials are represented by opaque
-references or one-way hashes; the host supplies the secret provider and policy.
+encryption metadata (`FlowBlobRef`, `$flow_blob_ref` markers). Bearer tokens and
+credentials are represented by opaque references or one-way hashes; the host
+supplies the secret provider and policy.
 
 ### 4.4 Compatibility
 
