@@ -112,6 +112,7 @@ pub(crate) fn project_run_from_snapshot(
                 crate::model::validate_json_blob_ref_marker(output)?;
                 ensure_no_blocking_child_workflows(&snapshot)?;
                 ensure_no_open_signal_waits(&snapshot)?;
+                ensure_no_open_child_workflow_maps(&snapshot)?;
                 ensure_no_open_in_flight_work(&snapshot)?;
                 snapshot.status = WorkflowRunStatus::Completed;
                 snapshot.output = Some(output.clone());
@@ -280,6 +281,7 @@ pub(crate) fn project_run_from_snapshot(
                     ));
                 }
                 ensure_no_open_signal_waits(&snapshot)?;
+                ensure_no_open_child_workflow_maps(&snapshot)?;
                 if let Some(signal) = snapshot
                     .signals
                     .iter()
@@ -1339,6 +1341,22 @@ fn ensure_no_open_signal_waits(snapshot: &WorkflowRunSnapshot) -> Result<()> {
         return Err(FlowError::InvalidTransition(
             "cannot abandon an open signal wait".to_string(),
         ));
+    }
+    Ok(())
+}
+
+/// Fail closed when graceful completion or continue-as-new would abandon an
+/// open child-workflow map (including plans that never activated a child).
+fn ensure_no_open_child_workflow_maps(snapshot: &WorkflowRunSnapshot) -> Result<()> {
+    if let Some(map) = snapshot
+        .child_workflow_maps
+        .values()
+        .find(|map| map.status == ChildWorkflowMapStatus::Open)
+    {
+        return Err(FlowError::InvalidTransition(format!(
+            "workflow run {} cannot complete while child workflow map {} is still open",
+            snapshot.run_id, map.map_id
+        )));
     }
     Ok(())
 }

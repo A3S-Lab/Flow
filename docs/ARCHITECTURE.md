@@ -333,6 +333,9 @@ advances the window without requiring the workflow to restate a smaller batch.
 When every planned child has a terminal outcome, Flow appends
 `child_workflow_map_completed`. Redrive with the same plan is idempotent; plan
 or concurrency drift fails closed. Run cancellation marks an open map cancelled.
+Graceful `RunCompleted` and `RunContinuedAsNew` reject an still-open map
+(`projection_rejects_graceful_terminals_with_an_open_child_workflow_map`), so
+unspawned plan entries cannot be abandoned by a terminal append.
 
 ## Durable Compensation Markers
 
