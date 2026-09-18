@@ -70,10 +70,10 @@ const POSTGRES_SCHEDULED_WAKEUPS_CANCELLATION_CHECKSUM: &str =
     "23d0a21b972d67f6edb4fe27607847bb2e743055ede9e6dbd80deb8224203cba";
 #[cfg(feature = "postgres")]
 const POSTGRES_SCHEDULED_WAKEUPS_ACTIVITY_RETRY_CHECKSUM: &str =
-    "42b506afe3a949e218ff4befff18a5d50565bd55eb37c328dc4cc0b75f2dec5d";
+    "88e78cefdb7cedc0ba855c6afd0aba9a5e12488df8e4f9667d8817bcfd284390";
 #[cfg(feature = "postgres")]
 const POSTGRES_SCHEDULED_WAKEUPS_ACTIVITY_KIND_CHECKSUM: &str =
-    "2c14298b4f3b65d0438c08f94764c52732e7c60835984e08b956db0cfa15a933";
+    "7f22e03e7d505502aca197979c88e58ee17fe11966c24f1b706ca8b60a24edb6";
 
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 const LEGACY_EVENT_JSON: [&str; 4] = [

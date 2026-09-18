@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Updated the frozen public-API baseline SHA after `FlowEvent::BlobRefAttached`
+  so CI `release-type: minor` checks against the current 2.x contract instead of
+  a stale pre-blob-ref revision that false-failed every tip PR on enum
+  discriminant drift.
+
+- Fixed PostgreSQL scheduled-wakeup migration `a3s-flow-0013` /
+  `a3s-flow-0014` trigger `WHEN` clauses: the membership test must be fully
+  inside `WHEN (...)`, otherwise Postgres rejects the migration with a syntax
+  error at `IN` (`postgres_upgrades_every_supported_pre_v1_schema_baseline`).
+
 - Fixed FLOW-R4 graceful completion fail-closed for in-flight work (#123):
   `run_completed` and `run_continued_as_new` reject histories that still have a
   Pending/Running step or Pending/Running/Unknown activity so terminal runs
