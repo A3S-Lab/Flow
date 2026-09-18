@@ -219,7 +219,7 @@ pub(super) async fn handle_flow_task(
             outcome.run_ids.push(scheduled.snapshot.run_id);
             outcome.resumed_waits = scheduled.resumed_waits;
             for wakeup in scheduled.due {
-                if wakeup.kind == crate::ScheduledWakeupKind::Retry {
+                if wakeup.kind.is_retry() {
                     outcome
                         .resumed_retries
                         .push((wakeup.run_id, wakeup.subject_id));

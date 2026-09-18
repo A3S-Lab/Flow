@@ -573,18 +573,17 @@ fn resolve_scheduled_wakeup(
             })
         }
         ScheduledWakeupKind::Retry => {
-            if let Some(step) = snapshot.steps.get(&wakeup.subject_id) {
-                if step.status != StepStatus::Pending
-                    || step.retry_after != Some(wakeup.scheduled_at)
-                {
-                    return None;
-                }
-                return Some(WorkflowRunSuspension::Retry {
-                    run_id: wakeup.run_id.clone(),
-                    step: step.clone(),
-                    due: wakeup.scheduled_at <= now,
-                });
+            let step = snapshot.steps.get(&wakeup.subject_id)?;
+            if step.status != StepStatus::Pending || step.retry_after != Some(wakeup.scheduled_at) {
+                return None;
             }
+            Some(WorkflowRunSuspension::Retry {
+                run_id: wakeup.run_id.clone(),
+                step: step.clone(),
+                due: wakeup.scheduled_at <= now,
+            })
+        }
+        ScheduledWakeupKind::ActivityRetry => {
             let activity = snapshot.activities.get(&wakeup.subject_id)?;
             if activity.status != ActivityStatus::Pending
                 || activity.retry_after != Some(wakeup.scheduled_at)

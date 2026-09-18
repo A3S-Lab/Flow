@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed FLOW-R4 scheduled wakeup identity collision for step and activity
+  retries (#111): activity retries use reserved wakeup kind `1` so a shared
+  subject id cannot overwrite a step retry
+  (`sqlite_step_and_activity_retries_with_same_id_both_remain_indexed`).
+
 - Fixed FLOW-R4 SQL scheduled wakeups for delayed activity retries (#109): the
   indexed wakeup projection now records `activity_retrying` the same way it
   records `step_retrying`, including histories written before the migration

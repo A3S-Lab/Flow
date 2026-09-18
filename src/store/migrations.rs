@@ -6,13 +6,13 @@ mod scheduled_wakeups;
 mod tests;
 #[cfg(feature = "postgres")]
 use scheduled_wakeups::{
-    POSTGRES_SCHEDULED_WAKEUPS_ACTIVITY_RETRY_SQL, POSTGRES_SCHEDULED_WAKEUPS_CANCELLATION_SQL,
-    POSTGRES_SCHEDULED_WAKEUPS_SQL,
+    POSTGRES_SCHEDULED_WAKEUPS_ACTIVITY_KIND_SQL, POSTGRES_SCHEDULED_WAKEUPS_ACTIVITY_RETRY_SQL,
+    POSTGRES_SCHEDULED_WAKEUPS_CANCELLATION_SQL, POSTGRES_SCHEDULED_WAKEUPS_SQL,
 };
 #[cfg(feature = "sqlite")]
 use scheduled_wakeups::{
-    SQLITE_SCHEDULED_WAKEUPS_ACTIVITY_RETRY_SQL, SQLITE_SCHEDULED_WAKEUPS_CANCELLATION_SQL,
-    SQLITE_SCHEDULED_WAKEUPS_SQL,
+    SQLITE_SCHEDULED_WAKEUPS_ACTIVITY_KIND_SQL, SQLITE_SCHEDULED_WAKEUPS_ACTIVITY_RETRY_SQL,
+    SQLITE_SCHEDULED_WAKEUPS_CANCELLATION_SQL, SQLITE_SCHEDULED_WAKEUPS_SQL,
 };
 
 const EVENTS_SQL: &str = r#"
@@ -533,6 +533,11 @@ pub(crate) fn sqlite_migrations() -> Vec<Migration> {
             "index delayed activity retries in the scheduled wakeup projection",
             SQLITE_SCHEDULED_WAKEUPS_ACTIVITY_RETRY_SQL,
         ),
+        Migration::new(
+            "a3s-flow-0012-activity-retry-wakeup-kind",
+            "give delayed activity retries their own scheduled wakeup kind",
+            SQLITE_SCHEDULED_WAKEUPS_ACTIVITY_KIND_SQL,
+        ),
     ]
 }
 
@@ -603,6 +608,11 @@ pub(crate) fn postgres_migrations() -> Vec<Migration> {
             "a3s-flow-0013-activity-retry-wakeup",
             "index delayed activity retries in the scheduled wakeup projection",
             POSTGRES_SCHEDULED_WAKEUPS_ACTIVITY_RETRY_SQL,
+        ),
+        Migration::new(
+            "a3s-flow-0014-activity-retry-wakeup-kind",
+            "give delayed activity retries their own scheduled wakeup kind",
+            POSTGRES_SCHEDULED_WAKEUPS_ACTIVITY_KIND_SQL,
         ),
     ]
 }

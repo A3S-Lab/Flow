@@ -467,3 +467,188 @@ WHEN (NEW.event_json::jsonb ->> 'type') IN (
 )
 EXECUTE FUNCTION a3s_flow_project_activity_retry_wakeup();
 "#;
+
+/// Separates activity retries onto reserved wakeup kind 1 so a step and an
+/// activity that share a subject id can both remain indexed.
+#[cfg(feature = "postgres")]
+pub(super) const POSTGRES_SCHEDULED_WAKEUPS_ACTIVITY_KIND_SQL: &str = r#"
+LOCK TABLE flow_events IN SHARE ROW EXCLUSIVE MODE;
+
+ALTER TABLE flow_scheduled_wakeups
+    DROP CONSTRAINT IF EXISTS flow_scheduled_wakeups_wakeup_kind_check;
+
+ALTER TABLE flow_scheduled_wakeups
+    ADD CONSTRAINT flow_scheduled_wakeups_wakeup_kind_check
+    CHECK (wakeup_kind IN (0, 1, 2));
+
+DELETE FROM flow_scheduled_wakeups WHERE wakeup_kind IN (1, 2);
+
+INSERT INTO flow_scheduled_wakeups (
+    run_id,
+    wakeup_kind,
+    subject_id,
+    scheduled_at_key,
+    created_sequence
+)
+SELECT
+    retrying.run_id,
+    2,
+    retrying.event_json::jsonb ->> 'step_id',
+    a3s_flow_normalize_wakeup_timestamp(
+        retrying.event_json::jsonb ->> 'retry_after'
+    ),
+    retrying.sequence
+FROM flow_events AS retrying
+WHERE retrying.event_json::jsonb ->> 'type' = 'step_retrying'
+  AND retrying.event_json::jsonb ->> 'retry_after' IS NOT NULL
+  AND NOT EXISTS (
+      SELECT 1
+      FROM flow_events AS later
+      WHERE later.run_id = retrying.run_id
+        AND later.sequence > retrying.sequence
+        AND (
+            (
+                later.event_json::jsonb ->> 'type' IN (
+                    'step_started',
+                    'step_completed',
+                    'step_failed',
+                    'step_cancelled',
+                    'step_retrying'
+                )
+                AND later.event_json::jsonb ->> 'step_id' =
+                    retrying.event_json::jsonb ->> 'step_id'
+            )
+            OR later.event_json::jsonb ->> 'type' IN (
+                'run_cancellation_requested',
+                'run_completed',
+                'run_failed',
+                'run_cancelled',
+                'run_timed_out',
+                'run_retry_exhausted',
+                'run_host_shutdown',
+                'run_continued_as_new'
+            )
+        )
+  );
+
+INSERT INTO flow_scheduled_wakeups (
+    run_id,
+    wakeup_kind,
+    subject_id,
+    scheduled_at_key,
+    created_sequence
+)
+SELECT
+    retrying.run_id,
+    1,
+    retrying.event_json::jsonb ->> 'activity_id',
+    a3s_flow_normalize_wakeup_timestamp(
+        retrying.event_json::jsonb ->> 'retry_after'
+    ),
+    retrying.sequence
+FROM flow_events AS retrying
+WHERE retrying.event_json::jsonb ->> 'type' = 'activity_retrying'
+  AND retrying.event_json::jsonb ->> 'retry_after' IS NOT NULL
+  AND NOT EXISTS (
+      SELECT 1
+      FROM flow_events AS later
+      WHERE later.run_id = retrying.run_id
+        AND later.sequence > retrying.sequence
+        AND (
+            (
+                later.event_json::jsonb ->> 'type' IN (
+                    'activity_started',
+                    'activity_completed',
+                    'activity_failed',
+                    'activity_non_retryable',
+                    'activity_unknown',
+                    'activity_cancelled'
+                )
+                AND later.event_json::jsonb ->> 'activity_id' =
+                    retrying.event_json::jsonb ->> 'activity_id'
+            )
+            OR (
+                later.event_json::jsonb ->> 'type' = 'activity_retrying'
+                AND later.event_json::jsonb ->> 'activity_id' =
+                    retrying.event_json::jsonb ->> 'activity_id'
+            )
+            OR later.event_json::jsonb ->> 'type' IN (
+                'run_cancellation_requested',
+                'run_completed',
+                'run_failed',
+                'run_cancelled',
+                'run_timed_out',
+                'run_retry_exhausted',
+                'run_host_shutdown',
+                'run_continued_as_new'
+            )
+        )
+  );
+
+CREATE OR REPLACE FUNCTION a3s_flow_project_activity_retry_wakeup()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    event_type TEXT := NEW.event_json::jsonb ->> 'type';
+    event_subject_id TEXT;
+BEGIN
+    IF event_type = 'activity_retrying' THEN
+        event_subject_id := NEW.event_json::jsonb ->> 'activity_id';
+        DELETE FROM flow_scheduled_wakeups
+        WHERE run_id = NEW.run_id
+          AND wakeup_kind = 1
+          AND subject_id = event_subject_id;
+
+        IF NEW.event_json::jsonb ->> 'retry_after' IS NOT NULL THEN
+            INSERT INTO flow_scheduled_wakeups (
+                run_id,
+                wakeup_kind,
+                subject_id,
+                scheduled_at_key,
+                created_sequence
+            ) VALUES (
+                NEW.run_id,
+                1,
+                event_subject_id,
+                a3s_flow_normalize_wakeup_timestamp(
+                    NEW.event_json::jsonb ->> 'retry_after'
+                ),
+                NEW.sequence
+            ) ON CONFLICT (run_id, wakeup_kind, subject_id) DO UPDATE SET
+                scheduled_at_key = EXCLUDED.scheduled_at_key,
+                created_sequence = EXCLUDED.created_sequence;
+        END IF;
+    ELSIF event_type IN (
+        'activity_started',
+        'activity_completed',
+        'activity_failed',
+        'activity_non_retryable',
+        'activity_unknown',
+        'activity_cancelled'
+    ) THEN
+        DELETE FROM flow_scheduled_wakeups
+        WHERE run_id = NEW.run_id
+          AND wakeup_kind = 1
+          AND subject_id = NEW.event_json::jsonb ->> 'activity_id';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS flow_scheduled_wakeups_after_activity ON flow_events;
+
+CREATE TRIGGER flow_scheduled_wakeups_after_activity
+AFTER INSERT ON flow_events
+FOR EACH ROW
+WHEN (NEW.event_json::jsonb ->> 'type') IN (
+    'activity_retrying',
+    'activity_started',
+    'activity_completed',
+    'activity_failed',
+    'activity_non_retryable',
+    'activity_unknown',
+    'activity_cancelled'
+)
+EXECUTE FUNCTION a3s_flow_project_activity_retry_wakeup();
+"#;

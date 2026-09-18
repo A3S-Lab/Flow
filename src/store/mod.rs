@@ -535,7 +535,7 @@ pub(crate) fn scheduled_wakeups_for_snapshot(
             if let Some(retry_after) = activity.retry_after {
                 wakeups.push(ScheduledWakeup {
                     run_id: snapshot.run_id.clone(),
-                    kind: ScheduledWakeupKind::Retry,
+                    kind: ScheduledWakeupKind::ActivityRetry,
                     subject_id: activity.activity_id.clone(),
                     scheduled_at: retry_after,
                     runtime_build_id: snapshot.spec.runtime_build_id.clone(),
