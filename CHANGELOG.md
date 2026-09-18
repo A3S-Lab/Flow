@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed FLOW-R4 delayed retries while a child workflow stays open (#107): drive no
+  longer returns before a due step or activity retry just because a child is
+  still open, and yielding for that retry cannot spin the replay budget
+  (`due_retry_runs_while_a_child_workflow_is_open`).
+
 - Fixed FLOW-R4 delayed retries while another suspension stays open (#105): a due
   step retry still runs when a timer, hook, or signal wait is open, and a
   forced replay cannot spin on a not-yet-due step
