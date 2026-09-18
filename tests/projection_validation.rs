@@ -368,3 +368,96 @@ async fn rejects_retry_exhaustion_with_a_different_error() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn projection_rejects_run_completed_with_running_step() {
+    use a3s_flow::InMemoryEventStore;
+
+    let store = InMemoryEventStore::new();
+    let run_id = "complete-with-running";
+    let spec = WorkflowSpec::rust_embedded("projection.complete", "1", "tests", "main");
+    for event in [
+        FlowEvent::RunCreated {
+            spec: spec.clone(),
+            input: json!({}),
+        },
+        FlowEvent::RunStarted,
+        FlowEvent::StepCreated {
+            step_id: "open-step".into(),
+            step_name: "openStep".into(),
+            input: json!({}),
+            retry: RetryPolicy::none(),
+        },
+        FlowEvent::StepStarted {
+            step_id: "open-step".into(),
+            attempt: 1,
+        },
+    ] {
+        store.append(run_id, event).await.unwrap();
+    }
+
+    let err = store
+        .append(run_id, FlowEvent::RunCompleted { output: json!({}) })
+        .await
+        .expect_err("RunCompleted must fail closed while a step is still Running");
+    assert!(
+        matches!(err, FlowError::InvalidTransition(_)),
+        "unexpected error: {err}"
+    );
+    assert!(
+        err.to_string().contains("open-step"),
+        "error should name the open step: {err}"
+    );
+}
+
+#[tokio::test]
+async fn projection_rejects_run_completed_with_unknown_activity() {
+    use a3s_flow::InMemoryEventStore;
+
+    let store = InMemoryEventStore::new();
+    let run_id = "complete-with-unknown-activity";
+    let spec = WorkflowSpec::rust_embedded("projection.complete", "1", "tests", "main");
+    for event in [
+        FlowEvent::RunCreated {
+            spec: spec.clone(),
+            input: json!({}),
+        },
+        FlowEvent::RunStarted,
+        FlowEvent::ActivityCreated {
+            activity_id: "charge".into(),
+            activity_name: "chargeCard".into(),
+            input: json!({}),
+            retry: RetryPolicy::none(),
+            timeout_ms: None,
+        },
+        FlowEvent::ActivityStarted {
+            activity_id: "charge".into(),
+            attempt: 1,
+            attempt_id: "attempt-1".into(),
+            idempotency_key: "idem-1".into(),
+            fencing_token: "fence-1".into(),
+        },
+        FlowEvent::ActivityUnknown {
+            activity_id: "charge".into(),
+            attempt: 1,
+            attempt_id: "attempt-1".into(),
+            fencing_token: "fence-1".into(),
+            reason: "provider timeout".into(),
+        },
+    ] {
+        store.append(run_id, event).await.unwrap();
+    }
+
+    let err = store
+        .append(run_id, FlowEvent::RunCompleted { output: json!({}) })
+        .await
+        .expect_err("RunCompleted must fail closed while an activity is Unknown");
+    assert!(
+        matches!(err, FlowError::InvalidTransition(_)),
+        "unexpected error: {err}"
+    );
+    assert!(
+        err.to_string().contains("charge"),
+        "error should name the open activity: {err}"
+    );
+}

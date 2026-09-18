@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed FLOW-R4 graceful completion fail-closed for in-flight work (#123):
+  `run_completed` and `run_continued_as_new` reject histories that still have a
+  Pending/Running step or Pending/Running/Unknown activity so terminal runs
+  cannot strand side effects (`projection_rejects_run_completed_with_running_step`,
+  `projection_rejects_run_completed_with_unknown_activity`). Immediate host
+  termination paths remain unconstrained.
+
 - Fixed FLOW-R4 child-map completion while another parent suspension stays open
   (#121): appending `ChildWorkflowMapCompleted` forces one workflow replay so
   an open timer cannot hide durable map completion
