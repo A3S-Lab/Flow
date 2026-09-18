@@ -558,5 +558,181 @@ async fn hook_disposal_wakes_workflow_while_timer_wait_is_open() {
     assert_eq!(snapshot.hooks[HOOK_ID].status, HookStatus::Disposed);
 }
 
+struct CrashAfterHookReceivedStore {
+    inner: InMemoryEventStore,
+    armed: AtomicBool,
+}
+
+impl CrashAfterHookReceivedStore {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryEventStore::new(),
+            armed: AtomicBool::new(false),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowEventStore for CrashAfterHookReceivedStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        let envelope = self
+            .inner
+            .append_if_sequence(run_id, expected_sequence, event.clone())
+            .await?;
+        if matches!(
+            event,
+            FlowEvent::HookReceived { ref hook_id, .. } if hook_id == HOOK_ID
+        ) && self.armed.swap(false, Ordering::SeqCst)
+        {
+            return Err(FlowError::Store(
+                "injected crash after HookReceived before observation drive".into(),
+            ));
+        }
+        Ok(envelope)
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
+struct CrashAfterHookDisposedStore {
+    inner: InMemoryEventStore,
+    armed: AtomicBool,
+}
+
+impl CrashAfterHookDisposedStore {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryEventStore::new(),
+            armed: AtomicBool::new(false),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowEventStore for CrashAfterHookDisposedStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        let envelope = self
+            .inner
+            .append_if_sequence(run_id, expected_sequence, event.clone())
+            .await?;
+        if matches!(
+            event,
+            FlowEvent::HookDisposed { ref hook_id, .. } if hook_id == HOOK_ID
+        ) && self.armed.swap(false, Ordering::SeqCst)
+        {
+            return Err(FlowError::Store(
+                "injected crash after HookDisposed before observation drive".into(),
+            ));
+        }
+        Ok(envelope)
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
+#[tokio::test]
+async fn hook_received_recovery_wakes_via_drive_while_unscoped_timer_is_open() {
+    let store = Arc::new(CrashAfterHookReceivedStore::new());
+    let engine = FlowEngine::new(store.clone(), Arc::new(HookBesideOpenWaitRuntime));
+    engine
+        .start_with_id("hook-received-drive", hook_beside_wait_spec(), json!({}))
+        .await
+        .unwrap();
+    engine
+        .apply_update(
+            "hook-received-drive",
+            WorkflowUpdate::new("open-1", "open-hook", json!({})),
+        )
+        .await
+        .unwrap();
+
+    store.armed.store(true, Ordering::SeqCst);
+    let interrupted = engine
+        .resume_hook("hook-received-drive", HOOK_ID, approved_payload())
+        .await
+        .expect_err("crash after durable HookReceived must interrupt");
+    assert!(matches!(interrupted, FlowError::Store(_)));
+
+    let mid = engine.snapshot("hook-received-drive").await.unwrap();
+    assert!(!mid.status.is_terminal());
+    assert_eq!(mid.hooks[HOOK_ID].status, HookStatus::Received);
+    assert_eq!(mid.waits["pause"].status, a3s_flow::WaitStatus::Waiting);
+
+    let recovered = engine.drive("hook-received-drive").await.unwrap();
+    assert_eq!(
+        recovered.output,
+        Some(json!("received")),
+        "drive must observe tip HookReceived beside an open unscoped timer"
+    );
+    assert_eq!(recovered.status, WorkflowRunStatus::Completed);
+}
+
+#[tokio::test]
+async fn hook_disposed_recovery_wakes_via_drive_while_unscoped_timer_is_open() {
+    let store = Arc::new(CrashAfterHookDisposedStore::new());
+    let engine = FlowEngine::new(store.clone(), Arc::new(HookBesideOpenWaitRuntime));
+    engine
+        .start_with_id("hook-disposed-drive", hook_beside_wait_spec(), json!({}))
+        .await
+        .unwrap();
+    engine
+        .apply_update(
+            "hook-disposed-drive",
+            WorkflowUpdate::new("open-1", "open-hook", json!({})),
+        )
+        .await
+        .unwrap();
+
+    store.armed.store(true, Ordering::SeqCst);
+    let interrupted = engine
+        .dispose_hook("hook-disposed-drive", HOOK_ID)
+        .await
+        .expect_err("crash after durable HookDisposed must interrupt");
+    assert!(matches!(interrupted, FlowError::Store(_)));
+
+    let mid = engine.snapshot("hook-disposed-drive").await.unwrap();
+    assert!(!mid.status.is_terminal());
+    assert_eq!(mid.hooks[HOOK_ID].status, HookStatus::Disposed);
+    assert_eq!(mid.waits["pause"].status, a3s_flow::WaitStatus::Waiting);
+
+    let recovered = engine.drive("hook-disposed-drive").await.unwrap();
+    assert_eq!(
+        recovered.output,
+        Some(json!("disposed")),
+        "drive must observe tip HookDisposed beside an open unscoped timer"
+    );
+    assert_eq!(recovered.status, WorkflowRunStatus::Completed);
+}
+
 #[path = "hook_idempotency/worker_outcomes.rs"]
 mod worker_outcomes;
