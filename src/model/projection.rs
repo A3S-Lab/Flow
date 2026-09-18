@@ -113,6 +113,7 @@ pub(crate) fn project_run_from_snapshot(
                 ensure_no_blocking_child_workflows(&snapshot)?;
                 ensure_no_open_signal_waits(&snapshot)?;
                 ensure_no_open_child_workflow_maps(&snapshot)?;
+                ensure_no_open_selects(&snapshot)?;
                 ensure_no_open_in_flight_work(&snapshot)?;
                 snapshot.status = WorkflowRunStatus::Completed;
                 snapshot.output = Some(output.clone());
@@ -282,6 +283,7 @@ pub(crate) fn project_run_from_snapshot(
                 }
                 ensure_no_open_signal_waits(&snapshot)?;
                 ensure_no_open_child_workflow_maps(&snapshot)?;
+                ensure_no_open_selects(&snapshot)?;
                 if let Some(signal) = snapshot
                     .signals
                     .iter()
@@ -1341,6 +1343,23 @@ fn ensure_no_open_signal_waits(snapshot: &WorkflowRunSnapshot) -> Result<()> {
         return Err(FlowError::InvalidTransition(
             "cannot abandon an open signal wait".to_string(),
         ));
+    }
+    Ok(())
+}
+
+/// Fail closed when graceful completion or continue-as-new would abandon an
+/// open structured select/race (including timer-only arms that would otherwise
+/// look abandonable as ordinary waits).
+fn ensure_no_open_selects(snapshot: &WorkflowRunSnapshot) -> Result<()> {
+    if let Some(select) = snapshot
+        .selects
+        .values()
+        .find(|select| select.status == SelectStatus::Open)
+    {
+        return Err(FlowError::InvalidTransition(format!(
+            "workflow run {} cannot complete while select {} is still open",
+            snapshot.run_id, select.select_id
+        )));
     }
     Ok(())
 }
