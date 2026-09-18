@@ -18,9 +18,9 @@ impl FlowEngine {
     /// Project the current snapshot for `run_id` from its durable history.
     ///
     /// A valid checkpoint that matches the history tip is returned as-is. A
-    /// checkpoint behind the tip is caught up by paging the contiguous tail,
-    /// not by loading that tail with unbounded `list_after`. Missing or
-    /// unusable checkpoints fall back to a full replay.
+    /// checkpoint behind the tip is caught up by paging the contiguous tail.
+    /// Missing or unusable checkpoints are rebuilt the same way, from sequence
+    /// zero, instead of loading the log with unbounded `list`.
     pub async fn snapshot(&self, run_id: &str) -> Result<WorkflowRunSnapshot> {
         if let Some(checkpoint) = self.store.load_checkpoint(run_id).await? {
             if checkpoint.validate().is_ok() {
@@ -35,7 +35,11 @@ impl FlowEngine {
                         {
                             if anchor.event_id == checkpoint.last_event_id {
                                 if let Ok(snapshot) = self
-                                    .project_checkpoint_tail(run_id, checkpoint.snapshot, sequence)
+                                    .project_pages_until(
+                                        run_id,
+                                        Some(checkpoint.snapshot),
+                                        sequence,
+                                    )
                                     .await
                                 {
                                     return Ok(snapshot);
@@ -46,49 +50,61 @@ impl FlowEngine {
                 }
             }
         }
-        let history = self.store.list(run_id).await?;
-        project_run(run_id, &history)
+        let tip_sequence = match self.store.latest_event(run_id).await? {
+            Some((sequence, _)) => sequence,
+            None => return Err(FlowError::RunNotFound(run_id.to_string())),
+        };
+        self.project_pages_until(run_id, None, tip_sequence).await
     }
 
-    /// Fold events after a validated checkpoint into `snapshot`, one bounded
-    /// page at a time, until `tip_sequence`.
-    async fn project_checkpoint_tail(
+    /// Fold history through `tip_sequence`, one bounded page at a time.
+    ///
+    /// `snapshot` is the checkpoint to continue from. `None` starts at sequence
+    /// zero and treats the first page as a full projection.
+    async fn project_pages_until(
         &self,
         run_id: &str,
-        mut snapshot: WorkflowRunSnapshot,
+        mut snapshot: Option<WorkflowRunSnapshot>,
         tip_sequence: u64,
     ) -> Result<WorkflowRunSnapshot> {
-        let mut after_sequence = snapshot.last_sequence;
+        let mut after_sequence = snapshot
+            .as_ref()
+            .map(|state| state.last_sequence)
+            .unwrap_or(0);
         while after_sequence < tip_sequence {
             let remaining = usize::try_from(tip_sequence - after_sequence).map_err(|_| {
                 FlowError::Store(format!(
-                    "checkpoint tail sequence overflow for workflow run {run_id}"
+                    "history page sequence overflow for workflow run {run_id}"
                 ))
             })?;
             let limit = remaining.min(MAX_FLOW_HISTORY_PAGE_SIZE);
             let page = self.store.list_page(run_id, after_sequence, limit).await?;
             if page.is_empty() {
                 return Err(FlowError::Store(format!(
-                    "checkpoint tail for {run_id} ended before sequence {tip_sequence}"
+                    "history page for {run_id} ended before sequence {tip_sequence}"
                 )));
             }
             let page_last = page.last().expect("non-empty page").sequence;
-            snapshot = project_run_from_snapshot(run_id, snapshot, &page)?;
+            snapshot = Some(match snapshot {
+                None => project_run(run_id, &page)?,
+                Some(current) => project_run_from_snapshot(run_id, current, &page)?,
+            });
             if page_last <= after_sequence {
                 return Err(FlowError::Store(format!(
-                    "checkpoint tail for {run_id} did not advance past sequence {after_sequence}"
+                    "history page for {run_id} did not advance past sequence {after_sequence}"
                 )));
             }
             after_sequence = page_last;
             if page.len() < limit && after_sequence < tip_sequence {
                 return Err(FlowError::Store(format!(
-                    "checkpoint tail for {run_id} returned a short page before sequence {tip_sequence}"
+                    "history page for {run_id} returned a short page before sequence {tip_sequence}"
                 )));
             }
         }
+        let snapshot = snapshot.ok_or_else(|| FlowError::RunNotFound(run_id.to_string()))?;
         if snapshot.last_sequence != tip_sequence {
             return Err(FlowError::InvalidTransition(format!(
-                "checkpoint tail for {run_id} stopped at sequence {} before tip {tip_sequence}",
+                "paged history for {run_id} stopped at sequence {} before tip {tip_sequence}",
                 snapshot.last_sequence
             )));
         }
