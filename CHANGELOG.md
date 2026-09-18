@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 InMemory and LocalFile `list_page` so bounded history windows
+  no longer route through a full-history load; LocalFile streams JSONL and
+  stops once the page is filled (`load_jsonl_page_stops_decoding_after_limit_is_filled`,
+  `in_memory_list_page_returns_exclusive_cursor_window`,
+  `local_file_list_page_returns_exclusive_cursor_window`).
+
 - Fixed FLOW-R3 default `list_active_hooks` and scheduled-wakeup replay so
   custom stores that only override `list_page` project each run from bounded
   pages instead of unbounded `list`
