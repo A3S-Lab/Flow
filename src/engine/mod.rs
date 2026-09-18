@@ -253,7 +253,7 @@ impl FlowEngine {
         force_workflow_replay: bool,
     ) -> Result<WorkflowRunSnapshot> {
         let mut force_replay = force_workflow_replay;
-        let mut observed_tip_scope_cancelled = force_workflow_replay;
+        let mut observed_tip_scope_lifecycle = force_workflow_replay;
         let mut sequence_before_workflow = None;
         let mut yielded_due_retry_at = None;
         let mut replay_iterations = 0;
@@ -269,14 +269,17 @@ impl FlowEngine {
                     .await?;
                 continue;
             }
-            // DriveRun recovery after workflow CancelScope: a tip ScopeCancelled
-            // needs one observation even while an unscoped timer stays open.
-            // Host cancel_scope already forces replay; this mirrors that for
-            // ordinary drive() without re-forcing every later iteration.
-            if !observed_tip_scope_cancelled {
-                observed_tip_scope_cancelled = true;
+            // DriveRun recovery after workflow CancelScope / CompleteScope: a tip
+            // scope lifecycle event needs one observation even while an unscoped
+            // timer stays open. Host cancel_scope already forces replay; this
+            // mirrors that for ordinary drive() without re-forcing later iterations.
+            if !observed_tip_scope_lifecycle {
+                observed_tip_scope_lifecycle = true;
                 if history.last().is_some_and(|envelope| {
-                    matches!(envelope.event, FlowEvent::ScopeCancelled { .. })
+                    matches!(
+                        envelope.event,
+                        FlowEvent::ScopeCancelled { .. } | FlowEvent::ScopeCompleted { .. }
+                    )
                 }) {
                     force_replay = true;
                 }
