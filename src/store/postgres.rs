@@ -15,9 +15,10 @@ use crate::model::{
 };
 
 use super::{
-    migrate_postgres_flow, next_event_sequence, scheduled_wakeup_from_row, scheduled_wakeup_key,
-    validate_event_payload, verify_postgres_flow, FlowEventStore, FlowHistoryPartition,
-    FlowProjectionCheckpoint, FlowStoreCapabilities, MAX_FLOW_HISTORY_PAGE_SIZE,
+    history_pages::fold_history_pages, migrate_postgres_flow, next_event_sequence,
+    scheduled_wakeup_from_row, scheduled_wakeup_key, validate_event_payload, verify_postgres_flow,
+    FlowEventStore, FlowHistoryPartition, FlowProjectionCheckpoint, FlowStoreCapabilities,
+    MAX_FLOW_HISTORY_PAGE_SIZE,
 };
 
 mod retention;
@@ -154,12 +155,16 @@ impl PostgresEventStore {
                             checkpoint.snapshot,
                             std::slice::from_ref(&envelope),
                         )?,
-                        None => {
-                            let mut history =
-                                load_postgres_history(transaction, &envelope.run_id).await?;
-                            history.push(envelope.clone());
-                            project_run(&envelope.run_id, &history)?
-                        }
+                        None => match project_postgres_history_pages(transaction, &envelope.run_id)
+                            .await?
+                        {
+                            Some(base) => project_run_from_snapshot(
+                                &envelope.run_id,
+                                base,
+                                std::slice::from_ref(&envelope),
+                            )?,
+                            None => project_run(&envelope.run_id, std::slice::from_ref(&envelope))?,
+                        },
                     };
                     insert_postgres_envelope(transaction, &envelope).await?;
                     let checkpoint = FlowProjectionCheckpoint::new(
@@ -785,22 +790,48 @@ async fn latest_postgres_sequence(transaction: &PostgresTransaction, run_id: &st
     })
 }
 
-async fn load_postgres_history(
+async fn load_postgres_history_page(
     transaction: &PostgresTransaction,
     run_id: &str,
+    after_sequence: u64,
+    limit: usize,
 ) -> Result<Vec<FlowEventEnvelope>> {
+    let sequence = i64::try_from(after_sequence).map_err(|error| {
+        FlowError::Store(format!(
+            "event sequence {after_sequence} exceeds PostgreSQL bigint range: {error}"
+        ))
+    })?;
+    let limit = i64::try_from(limit).map_err(|error| {
+        FlowError::Store(format!(
+            "history page size {limit} exceeds PostgreSQL bigint range: {error}"
+        ))
+    })?;
     fetch_all_postgres::<(String, i64, String, String, i64, String), _>(
         transaction,
         sql_query::<(String, i64, String, String, i64, String)>(
-            "SELECT run_id, sequence, event_id, timestamp, schema_version, event_json FROM flow_events WHERE run_id = ",
+            "SELECT run_id, sequence, event_id, timestamp, schema_version, event_json \
+             FROM flow_events WHERE run_id = ",
         )
         .bind(run_id)
-        .append(" ORDER BY sequence ASC"),
+        .append(" AND sequence > ")
+        .bind(sequence)
+        .append(" ORDER BY sequence ASC LIMIT ")
+        .bind(limit),
     )
     .await?
     .into_iter()
     .map(row_to_envelope)
     .collect()
+}
+
+async fn project_postgres_history_pages(
+    transaction: &PostgresTransaction,
+    run_id: &str,
+) -> Result<Option<crate::model::WorkflowRunSnapshot>> {
+    fold_history_pages(run_id, |after_sequence, limit| {
+        load_postgres_history_page(transaction, run_id, after_sequence, limit)
+    })
+    .await
 }
 
 /// Load a checkpoint only when it is anchored to the transaction's current

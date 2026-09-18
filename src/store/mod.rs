@@ -16,6 +16,7 @@ use uuid::Uuid;
 pub const MAX_FLOW_HISTORY_PAGE_SIZE: usize = 1_000;
 
 mod checkpoint;
+mod history_pages;
 mod history_partition;
 mod local_file;
 mod memory;

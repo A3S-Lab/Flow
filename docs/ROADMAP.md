@@ -106,7 +106,10 @@ an automatic replay fallback. SQLite and PostgreSQL append paths project the
 validated single-event tail so the steady-state history commit stays independent
 of full-history length, then await a tip-aligned disposable checkpoint write
 after that commit so callers observe a cache attempt before append returns
-without folding acceleration metadata into the history transaction. Checkpoint
+without folding acceleration metadata into the history transaction. When that
+cache is missing, the append transaction rebuilds the base projection one
+`list_page`-sized window at a time instead of loading the unbounded event log.
+Checkpoint
 saves are tip-monotonic: a concurrent lower-sequence save cannot replace a
 newer tip. A stale or missing cache is rebuilt by paging authoritative
 history (`list_page`) and then converges. This is an acceleration layer, never
