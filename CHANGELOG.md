@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 behind-tip snapshot catch-up so the delta after a validated
+  checkpoint is read in bounded `list_page` windows instead of one unbounded
+  `list_after`
+  (`behind_tip_snapshot_pages_a_tail_larger_than_one_history_page`).
+
 - Fixed FLOW-R3 explicit `checkpoint` refresh so a tip-matched cache is reused
   instead of replaying the full event log
   (`repeat_checkpoint_uses_the_tip_cache_instead_of_full_history`).

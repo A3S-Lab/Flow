@@ -110,8 +110,9 @@ without folding acceleration metadata into the history transaction. Checkpoint
 saves are tip-monotonic: a concurrent lower-sequence save cannot replace a
 newer tip. A stale or missing cache rebuilds once from authoritative history
 and then converges. This is an acceleration layer, never a history rewrite or
-an independent source of truth. Checkpointed reads can replay only the
-validated event tail through indexed `list_after` queries, and a SHA-256
+an independent source of truth. Checkpointed reads replay only the
+validated event tail, one `list_page` at a time (`MAX_FLOW_HISTORY_PAGE_SIZE`),
+instead of one unbounded `list_after`, and a SHA-256
 snapshot digest detects cache corruption. `FlowEngine::history_page` and
 `MAX_FLOW_HISTORY_PAGE_SIZE` provide the bounded cursor primitive that Cloud
 can use to build export/archive projections.

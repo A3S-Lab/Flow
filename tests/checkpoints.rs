@@ -459,3 +459,136 @@ async fn repeat_checkpoint_uses_the_tip_cache_instead_of_full_history() {
     assert_eq!(second.last_event_id, first.last_event_id);
     assert_eq!(second.snapshot_sha256, first.snapshot_sha256);
 }
+
+struct PageOnlyTailStore {
+    inner: InMemoryEventStore,
+    reject_unbounded: std::sync::atomic::AtomicBool,
+}
+
+#[async_trait]
+impl FlowEventStore for PageOnlyTailStore {
+    async fn append(
+        &self,
+        run_id: &str,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<a3s_flow::FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<a3s_flow::FlowEventEnvelope> {
+        self.inner
+            .append_if_sequence(run_id, expected_sequence, event)
+            .await
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<a3s_flow::FlowEventEnvelope>> {
+        if self
+            .reject_unbounded
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(FlowError::Store(
+                "unbounded history read is not allowed once a checkpoint exists".into(),
+            ));
+        }
+        self.inner.list(run_id).await
+    }
+
+    async fn list_after(
+        &self,
+        _run_id: &str,
+        _sequence: u64,
+    ) -> a3s_flow::Result<Vec<a3s_flow::FlowEventEnvelope>> {
+        Err(FlowError::Store("unbounded history tail read".to_string()))
+    }
+
+    async fn list_page(
+        &self,
+        run_id: &str,
+        after_sequence: u64,
+        limit: usize,
+    ) -> a3s_flow::Result<Vec<a3s_flow::FlowEventEnvelope>> {
+        let history = self.inner.list(run_id).await?;
+        Ok(history
+            .into_iter()
+            .filter(|envelope| envelope.sequence > after_sequence)
+            .take(limit)
+            .collect())
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+
+    async fn latest_event(&self, run_id: &str) -> a3s_flow::Result<Option<(u64, uuid::Uuid)>> {
+        self.inner.latest_event(run_id).await
+    }
+
+    async fn event_at(
+        &self,
+        run_id: &str,
+        sequence: u64,
+    ) -> a3s_flow::Result<Option<a3s_flow::FlowEventEnvelope>> {
+        Ok(self
+            .inner
+            .list(run_id)
+            .await?
+            .into_iter()
+            .find(|envelope| envelope.sequence == sequence))
+    }
+
+    async fn load_checkpoint(
+        &self,
+        run_id: &str,
+    ) -> a3s_flow::Result<Option<a3s_flow::FlowProjectionCheckpoint>> {
+        self.inner.load_checkpoint(run_id).await
+    }
+
+    async fn save_checkpoint(
+        &self,
+        checkpoint: &a3s_flow::FlowProjectionCheckpoint,
+    ) -> a3s_flow::Result<()> {
+        self.inner.save_checkpoint(checkpoint).await
+    }
+}
+
+#[tokio::test]
+async fn behind_tip_snapshot_pages_a_tail_larger_than_one_history_page() {
+    let store = Arc::new(PageOnlyTailStore {
+        inner: InMemoryEventStore::new(),
+        reject_unbounded: std::sync::atomic::AtomicBool::new(false),
+    });
+    let run_id = "checkpoint-paged-tail";
+    seed_running_run(store.as_ref(), run_id).await;
+    let engine = FlowEngine::new(store.clone(), Arc::new(TestRuntime));
+    let checkpoint = engine.checkpoint(run_id).await.unwrap();
+    assert_eq!(checkpoint.last_sequence, 2);
+
+    let tail = MAX_FLOW_HISTORY_PAGE_SIZE + 1;
+    for index in 0..tail {
+        store
+            .append(
+                run_id,
+                FlowEvent::WaitCreated {
+                    wait_id: format!("pause-{index}"),
+                    resume_at: "2030-01-01T00:00:00Z".parse().unwrap(),
+                },
+            )
+            .await
+            .unwrap();
+    }
+    store
+        .reject_unbounded
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+
+    let snapshot = engine
+        .snapshot(run_id)
+        .await
+        .expect("a behind-tip checkpoint must catch up through bounded history pages");
+    assert_eq!(snapshot.last_sequence, 2 + tail as u64);
+    assert!(snapshot.waits.contains_key(&format!("pause-{}", tail - 1)));
+}

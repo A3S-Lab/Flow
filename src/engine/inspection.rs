@@ -16,6 +16,11 @@ use super::FlowEngine;
 
 impl FlowEngine {
     /// Project the current snapshot for `run_id` from its durable history.
+    ///
+    /// A valid checkpoint that matches the history tip is returned as-is. A
+    /// checkpoint behind the tip is caught up by paging the contiguous tail,
+    /// not by loading that tail with unbounded `list_after`. Missing or
+    /// unusable checkpoints fall back to a full replay.
     pub async fn snapshot(&self, run_id: &str) -> Result<WorkflowRunSnapshot> {
         if let Some(checkpoint) = self.store.load_checkpoint(run_id).await? {
             if checkpoint.validate().is_ok() {
@@ -29,20 +34,11 @@ impl FlowEngine {
                             self.store.event_at(run_id, checkpoint.last_sequence).await
                         {
                             if anchor.event_id == checkpoint.last_event_id {
-                                if let Ok(tail) = self
-                                    .store
-                                    .list_after(run_id, checkpoint.last_sequence)
+                                if let Ok(snapshot) = self
+                                    .project_checkpoint_tail(run_id, checkpoint.snapshot, sequence)
                                     .await
                                 {
-                                    if let Ok(snapshot) = project_run_from_snapshot(
-                                        run_id,
-                                        checkpoint.snapshot.clone(),
-                                        &tail,
-                                    ) {
-                                        if snapshot.last_sequence == sequence {
-                                            return Ok(snapshot);
-                                        }
-                                    }
+                                    return Ok(snapshot);
                                 }
                             }
                         }
@@ -52,6 +48,51 @@ impl FlowEngine {
         }
         let history = self.store.list(run_id).await?;
         project_run(run_id, &history)
+    }
+
+    /// Fold events after a validated checkpoint into `snapshot`, one bounded
+    /// page at a time, until `tip_sequence`.
+    async fn project_checkpoint_tail(
+        &self,
+        run_id: &str,
+        mut snapshot: WorkflowRunSnapshot,
+        tip_sequence: u64,
+    ) -> Result<WorkflowRunSnapshot> {
+        let mut after_sequence = snapshot.last_sequence;
+        while after_sequence < tip_sequence {
+            let remaining = usize::try_from(tip_sequence - after_sequence).map_err(|_| {
+                FlowError::Store(format!(
+                    "checkpoint tail sequence overflow for workflow run {run_id}"
+                ))
+            })?;
+            let limit = remaining.min(MAX_FLOW_HISTORY_PAGE_SIZE);
+            let page = self.store.list_page(run_id, after_sequence, limit).await?;
+            if page.is_empty() {
+                return Err(FlowError::Store(format!(
+                    "checkpoint tail for {run_id} ended before sequence {tip_sequence}"
+                )));
+            }
+            let page_last = page.last().expect("non-empty page").sequence;
+            snapshot = project_run_from_snapshot(run_id, snapshot, &page)?;
+            if page_last <= after_sequence {
+                return Err(FlowError::Store(format!(
+                    "checkpoint tail for {run_id} did not advance past sequence {after_sequence}"
+                )));
+            }
+            after_sequence = page_last;
+            if page.len() < limit && after_sequence < tip_sequence {
+                return Err(FlowError::Store(format!(
+                    "checkpoint tail for {run_id} returned a short page before sequence {tip_sequence}"
+                )));
+            }
+        }
+        if snapshot.last_sequence != tip_sequence {
+            return Err(FlowError::InvalidTransition(format!(
+                "checkpoint tail for {run_id} stopped at sequence {} before tip {tip_sequence}",
+                snapshot.last_sequence
+            )));
+        }
+        Ok(snapshot)
     }
 
     /// Build a tip-anchored visibility projection for host search/ops indexes.
