@@ -194,9 +194,11 @@ Child-map completion does the same after `ChildWorkflowMapCompleted`
 (`map_completion_wakes_parent_while_another_timer_is_open`), while map window
 advancement still does not force parent replay.
 Graceful `RunCompleted` / `RunContinuedAsNew` now also fail closed on an open
-signal wait (`projection_prevents_run_completed_from_abandoning_an_open_signal_wait`)
-and on an still-open child-workflow map
+signal wait (`projection_prevents_run_completed_from_abandoning_an_open_signal_wait`),
+on an still-open child-workflow map
 (`projection_rejects_graceful_terminals_with_an_open_child_workflow_map`),
+and on an still-open structured select/race
+(`projection_rejects_graceful_terminals_with_an_open_select`),
 alongside the existing in-flight step/activity gate. Timers and hooks remain
 intentionally abandonable on continue-as-new (SQL indexes close with the
 segment).
