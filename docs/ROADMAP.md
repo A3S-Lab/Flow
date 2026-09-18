@@ -167,7 +167,10 @@ or explicitly conflict-safe—including forced replay after
 (`update_redelivery_recovers_after_update_applied_before_drive_completes`). Nested cancellation scopes are also implemented:
 workflows open/complete scopes through runtime commands, timer waits inherit the
 innermost open scope, `FlowEngine::cancel_scope` is idempotent and conflict-safe,
-and run cancellation marks open scopes cancelled. Structured select/race is
+and retries force replay when cancellation is durable but the run is still
+non-terminal
+(`scope_cancel_redelivery_recovers_after_scope_cancelled_before_drive_completes`).
+Run cancellation marks open scopes cancelled. Structured select/race is
 also implemented for timer and signal arms: the first completed arm wins and
 sibling waits are cancelled durably; losing `SelectCompleted` after a durable
 winning arm recovers with exactly one completion
