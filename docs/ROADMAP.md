@@ -174,7 +174,8 @@ Host scope cancel also forces replay when an unscoped timer remains open
 (`scope_cancel_wakes_workflow_while_unscoped_timer_wait_is_open`). Ordinary
 `drive()` recovery does the same when the tip event is durable progress that
 appends then continues — scope lifecycle, select completion, wait completion,
-signal-wait completion, hook receipt/disposal, update applied, activity/step completion,
+signal-wait completion, hook receipt/disposal, update applied, activity/step completion
+(including terminal activity resolution),
 child resolution, child-map completion, compensation markers, child-operation
 links, progress, and blob/dataset/aggregate attachments
 (`workflow_scope_*_recovery_wakes_via_drive_while_unscoped_timer_is_open`,
@@ -185,6 +186,7 @@ links, progress, and blob/dataset/aggregate attachments
 `hook_disposed_recovery_wakes_via_drive_while_unscoped_timer_is_open`,
 `update_applied_recovery_wakes_via_drive_while_unscoped_timer_is_open`,
 `activity_completed_recovery_wakes_via_drive_while_unscoped_timer_is_open`,
+`activity_non_retryable_recovery_wakes_via_drive_while_unscoped_timer_is_open`,
 `step_completed_recovery_wakes_via_drive_while_unscoped_timer_is_open`,
 `child_resolved_recovery_wakes_via_drive_while_unscoped_timer_is_open`,
 `map_completed_recovery_wakes_via_drive_while_unscoped_timer_is_open`,

@@ -644,6 +644,155 @@ async fn activity_completed_recovery_wakes_via_drive_while_unscoped_timer_is_ope
     assert_eq!(recovered.status, WorkflowRunStatus::Completed);
 }
 
+struct NonRetryableActivityBesideOpenTimerRuntime {
+    calls: AtomicUsize,
+}
+
+#[async_trait]
+impl FlowRuntime for NonRetryableActivityBesideOpenTimerRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let context = invocation.context();
+        if let Some(error) = context.activity_failed("charge") {
+            return Ok(context.complete(json!({ "failed": error })));
+        }
+        if !invocation.history.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                FlowEvent::ActivityCreated {
+                    activity_id,
+                    ..
+                } if activity_id == "charge"
+            )
+        }) {
+            return Ok(RuntimeCommand::schedule_activity(
+                "charge",
+                "chargeCard",
+                json!({ "amount": 10 }),
+            ));
+        }
+        Ok(context.wait_until("blocker", Utc::now() + ChronoDuration::hours(1)))
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        Ok(json!(null))
+    }
+
+    async fn run_activity(
+        &self,
+        _invocation: ActivityInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Err(FlowError::UnknownOutcome(
+            "provider connection lost after request".to_string(),
+        ))
+    }
+}
+
+struct CrashAfterActivityNonRetryableStore {
+    inner: InMemoryEventStore,
+    armed: AtomicBool,
+}
+
+impl CrashAfterActivityNonRetryableStore {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryEventStore::new(),
+            armed: AtomicBool::new(false),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowEventStore for CrashAfterActivityNonRetryableStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        let envelope = self
+            .inner
+            .append_if_sequence(run_id, expected_sequence, event.clone())
+            .await?;
+        if matches!(
+            event,
+            FlowEvent::ActivityNonRetryable {
+                ref activity_id,
+                ..
+            } if activity_id == "charge"
+        ) && self.armed.swap(false, Ordering::SeqCst)
+        {
+            return Err(FlowError::Store(
+                "injected crash after ActivityNonRetryable before observation drive".into(),
+            ));
+        }
+        Ok(envelope)
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
+#[tokio::test]
+async fn activity_non_retryable_recovery_wakes_via_drive_while_unscoped_timer_is_open() {
+    let store = Arc::new(CrashAfterActivityNonRetryableStore::new());
+    let runtime = Arc::new(NonRetryableActivityBesideOpenTimerRuntime {
+        calls: AtomicUsize::new(0),
+    });
+    let engine = FlowEngine::new(store.clone(), runtime);
+    engine
+        .start_with_id("activity-non-retryable-drive", spec(), json!({}))
+        .await
+        .unwrap();
+
+    store.armed.store(true, Ordering::SeqCst);
+    let interrupted = engine
+        .resolve_unknown_activity(
+            "activity-non-retryable-drive",
+            "charge",
+            ActivityResolution::NonRetryable {
+                error: "card declined".into(),
+            },
+        )
+        .await
+        .expect_err("crash after durable ActivityNonRetryable must interrupt");
+    assert!(
+        matches!(interrupted, FlowError::Store(_)),
+        "expected store crash, got {interrupted:?}"
+    );
+
+    let mid = engine
+        .snapshot("activity-non-retryable-drive")
+        .await
+        .unwrap();
+    assert!(!mid.status.is_terminal());
+    assert_eq!(
+        mid.activities["charge"].status,
+        a3s_flow::ActivityStatus::Failed
+    );
+    assert_eq!(mid.waits["blocker"].status, WaitStatus::Waiting);
+
+    let recovered = engine.drive("activity-non-retryable-drive").await.unwrap();
+    assert_eq!(
+        recovered.output,
+        Some(json!({ "failed": "card declined" })),
+        "drive must observe tip ActivityNonRetryable beside an open unscoped timer"
+    );
+    assert_eq!(recovered.status, WorkflowRunStatus::Completed);
+}
+
 #[tokio::test]
 async fn activity_timeout_persists_deadline_and_enters_unknown_state() {
     let runtime = Arc::new(TimedActivityRuntime {
