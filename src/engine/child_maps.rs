@@ -18,6 +18,17 @@ pub(super) enum ChildMapProgress {
     Idle,
 }
 
+/// Result of reconciling open child-workflow maps during drive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ChildMapReconcile {
+    /// No map mutation this pass.
+    Idle,
+    /// Requested the next concurrency window; do not force parent replay.
+    Advanced,
+    /// Appended `ChildWorkflowMapCompleted`; parent must observe it.
+    Completed,
+}
+
 impl FlowEngine {
     pub(super) async fn schedule_child_workflow_map(
         &self,
@@ -75,8 +86,7 @@ impl FlowEngine {
         &self,
         snapshot: &WorkflowRunSnapshot,
         child_depth: usize,
-    ) -> Result<bool> {
-        let mut progressed = false;
+    ) -> Result<ChildMapReconcile> {
         for map in snapshot.child_workflow_maps.values() {
             if map.status != ChildWorkflowMapStatus::Open {
                 continue;
@@ -86,20 +96,18 @@ impl FlowEngine {
                 .await?
             {
                 ChildMapProgress::Advanced => {
-                    progressed = true;
-                    break;
+                    return Ok(ChildMapReconcile::Advanced);
                 }
                 ChildMapProgress::Idle => {
                     if map.is_fully_resolved(snapshot) {
                         self.complete_child_workflow_map(snapshot, &map.map_id)
                             .await?;
-                        progressed = true;
-                        break;
+                        return Ok(ChildMapReconcile::Completed);
                     }
                 }
             }
         }
-        Ok(progressed)
+        Ok(ChildMapReconcile::Idle)
     }
 
     async fn complete_child_workflow_map(

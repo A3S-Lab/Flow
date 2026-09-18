@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed FLOW-R4 child-map completion while another parent suspension stays open
+  (#121): appending `ChildWorkflowMapCompleted` forces one workflow replay so
+  an open timer cannot hide durable map completion
+  (`map_completion_wakes_parent_while_another_timer_is_open`). Map window
+  advancement still does not force parent replay (avoids open-map plan drift).
+
 - Fixed FLOW-R4 child resolution while another parent suspension stays open
   (#119): appending `ChildWorkflowResolved` forces one workflow replay so an
   open timer, hook, or signal wait cannot hide durable child progress
