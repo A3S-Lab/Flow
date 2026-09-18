@@ -547,6 +547,103 @@ async fn unknown_activity_resolution_wakes_workflow_while_timer_wait_is_open() {
     );
 }
 
+struct CrashAfterActivityCompletedStore {
+    inner: InMemoryEventStore,
+    armed: AtomicBool,
+}
+
+impl CrashAfterActivityCompletedStore {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryEventStore::new(),
+            armed: AtomicBool::new(false),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowEventStore for CrashAfterActivityCompletedStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        let envelope = self
+            .inner
+            .append_if_sequence(run_id, expected_sequence, event.clone())
+            .await?;
+        if matches!(
+            event,
+            FlowEvent::ActivityCompleted {
+                ref activity_id,
+                ..
+            } if activity_id == "charge"
+        ) && self.armed.swap(false, Ordering::SeqCst)
+        {
+            return Err(FlowError::Store(
+                "injected crash after ActivityCompleted before observation drive".into(),
+            ));
+        }
+        Ok(envelope)
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
+#[tokio::test]
+async fn activity_completed_recovery_wakes_via_drive_while_unscoped_timer_is_open() {
+    let store = Arc::new(CrashAfterActivityCompletedStore::new());
+    let runtime = Arc::new(UnknownActivityBesideOpenTimerRuntime {
+        calls: AtomicUsize::new(0),
+    });
+    let engine = FlowEngine::new(store.clone(), runtime);
+    engine
+        .start_with_id("activity-completed-drive", spec(), json!({}))
+        .await
+        .unwrap();
+
+    store.armed.store(true, Ordering::SeqCst);
+    let interrupted = engine
+        .resolve_unknown_activity(
+            "activity-completed-drive",
+            "charge",
+            ActivityResolution::Completed {
+                output: json!({ "receipt": "r-1" }),
+            },
+        )
+        .await
+        .expect_err("crash after durable ActivityCompleted must interrupt");
+    assert!(matches!(interrupted, FlowError::Store(_)));
+
+    let mid = engine.snapshot("activity-completed-drive").await.unwrap();
+    assert!(!mid.status.is_terminal());
+    assert_eq!(
+        mid.activities["charge"].status,
+        a3s_flow::ActivityStatus::Completed
+    );
+    assert_eq!(mid.waits["blocker"].status, WaitStatus::Waiting);
+
+    // Ordinary DriveRun recovery — not resolve_unknown_activity retry.
+    let recovered = engine.drive("activity-completed-drive").await.unwrap();
+    assert_eq!(
+        recovered.output,
+        Some(json!({ "receipt": "r-1" })),
+        "drive must observe tip ActivityCompleted beside an open unscoped timer"
+    );
+    assert_eq!(recovered.status, WorkflowRunStatus::Completed);
+}
+
 #[tokio::test]
 async fn activity_timeout_persists_deadline_and_enters_unknown_state() {
     let runtime = Arc::new(TimedActivityRuntime {
