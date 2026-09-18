@@ -170,6 +170,8 @@ innermost open scope, `FlowEngine::cancel_scope` is idempotent and conflict-safe
 and retries force replay when cancellation is durable but the run is still
 non-terminal
 (`scope_cancel_redelivery_recovers_after_scope_cancelled_before_drive_completes`).
+Host scope cancel also forces replay when an unscoped timer remains open
+(`scope_cancel_wakes_workflow_while_unscoped_timer_wait_is_open`).
 Hook receipt and disposal also force replay when another suspension remains
 open (`hook_receipt_wakes_workflow_while_timer_wait_is_open`). Signal delivery
 does the same for a paired wait (`signal_delivery_wakes_workflow_while_timer_wait_is_open`).
