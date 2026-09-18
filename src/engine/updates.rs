@@ -71,7 +71,7 @@ impl FlowEngine {
                 )));
             }
             self.ensure_runtime_build_available(&leaf.run_id, &leaf.spec)?;
-            let history = self.store.list(&leaf.run_id).await?;
+            let history = self.read_history_pages(&leaf.run_id).await?;
             let invocation = UpdateInvocation::new(
                 leaf.run_id.clone(),
                 leaf.spec.clone(),
