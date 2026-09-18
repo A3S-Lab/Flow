@@ -139,14 +139,15 @@ functional completion gates:
 7. Cargo's normalized publish artifact compiles every target and feature using
    registry dependencies rather than the repository's pinned Git sources.
 
-The immutable pre-1.0 Rust API baseline is recorded as a full commit SHA in
-`.github/v1-api-baseline.txt`. CI and release automation compare all features
-against that revision with the release type forced to `minor`; changing the
-candidate version to `1.0.0` therefore cannot make Cargo infer that API breaks
-are permitted. The ordinary latest-release comparison remains in place so API
-added during the `1.x` line is also protected after publication.
+The immutable Rust API baseline for the current major line is recorded as a
+full commit SHA in `.github/v1-api-baseline.txt`. CI and release automation
+compare all features against that revision with the release type forced to
+`minor`, so a candidate that already carries a major version bump cannot hide
+further breaks inside that major line. The ordinary latest-release comparison
+remains in place so API added after publication is also protected.
 
-Once `1.0.0` is released, every pull request and release workflow checks public
-API compatibility against the latest stable `1.x` release. A green check that
-skipped compatibility lints because Cargo inferred a major version is not
-accepted as evidence.
+Once a major line is published, every pull request and release workflow checks
+public API compatibility against the latest stable release of that line and
+against the frozen baseline SHA for residual major breaks that Cargo would
+otherwise treat as permitted. A green check that skipped compatibility lints
+because Cargo inferred a major version is not accepted as evidence.
