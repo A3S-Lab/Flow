@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 SQL cold append so a missing tip checkpoint rebuilds the
+  projection from bounded history pages instead of one unbounded history load
+  (`fold_history_pages_loads_each_window_instead_of_one_shot`,
+  `sqlite_cold_append_after_checkpoint_loss_rebuilds_from_pages`).
+
 - Fixed FLOW-R3/R4 drive and related execution paths so the history handed to
   the runtime is assembled from bounded `list_page` windows instead of
   unbounded `list`. Projection-only reloads (`ensure_run_started`, batch
