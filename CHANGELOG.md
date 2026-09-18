@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed FLOW-R4 signal delivery while another suspension stays open (#101): `send_signal`
+  forces workflow replay so a paired signal cannot be hidden by an open timer
+  or hook (`signal_delivery_wakes_workflow_while_timer_wait_is_open`).
+
 - Fixed FLOW-R4 hook resolution while another suspension stays open (#99): `resume_hook`
   and `dispose_hook` force workflow replay so a durable receipt cannot be hidden
   by an open timer or signal wait

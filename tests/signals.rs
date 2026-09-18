@@ -3,7 +3,7 @@ use std::sync::Arc;
 use a3s_flow::{
     FlowEngine, FlowError, FlowEvent, FlowEventStore, FlowRuntime, FlowTask, FlowWorker,
     RuntimeCommand, SignalWaitStatus, StepInvocation, WorkflowInvocation, WorkflowRunStatus,
-    WorkflowSignal, WorkflowSpec,
+    WorkflowSignal, WorkflowSpec, WorkflowUpdate,
 };
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -723,6 +723,80 @@ async fn engine_rejects_continue_as_new_with_an_unconsumed_signal() {
         .unwrap()
         .iter()
         .any(|envelope| matches!(envelope.event, FlowEvent::RunContinuedAsNew { .. })));
+}
+
+struct SignalBesideOpenWaitRuntime;
+
+#[async_trait]
+impl FlowRuntime for SignalBesideOpenWaitRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let context = invocation.context();
+        if context.signal_payload("approval").is_some() {
+            return Ok(context.complete(json!("approved")));
+        }
+        let armed = invocation
+            .history
+            .iter()
+            .any(|envelope| matches!(envelope.event, FlowEvent::SignalWaitCreated { .. }));
+        if context.update("arm").is_some() && !armed {
+            return Ok(context.wait_for_signal("approval", APPROVAL_SIGNAL));
+        }
+        Ok(context.wait_until("pause", "2030-01-01T00:00:00Z".parse().unwrap()))
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        unreachable!("signal-beside-wait runtime does not schedule steps")
+    }
+
+    async fn run_update(
+        &self,
+        _invocation: a3s_flow::UpdateInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        Ok(json!({ "armed": true }))
+    }
+}
+
+fn signal_beside_wait_spec() -> WorkflowSpec {
+    spec().with_update("arm")
+}
+
+#[tokio::test]
+async fn signal_delivery_wakes_workflow_while_timer_wait_is_open() {
+    let engine = FlowEngine::in_memory(Arc::new(SignalBesideOpenWaitRuntime));
+    engine
+        .start_with_id("signal-beside-wait", signal_beside_wait_spec(), json!({}))
+        .await
+        .unwrap();
+    let armed = engine
+        .apply_update(
+            "signal-beside-wait",
+            WorkflowUpdate::new("arm-1", "arm", json!({})),
+        )
+        .await
+        .unwrap();
+    assert_eq!(armed.snapshot.status, WorkflowRunStatus::Suspended);
+    assert_eq!(
+        armed.snapshot.signal_waits["approval"].status,
+        SignalWaitStatus::Waiting
+    );
+
+    let snapshot = engine
+        .send_signal(
+            "signal-beside-wait",
+            WorkflowSignal::new("delivery-1", APPROVAL_SIGNAL, json!({ "approved": true })),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(snapshot.status, WorkflowRunStatus::Completed);
+    assert_eq!(snapshot.output, Some(json!("approved")));
+    assert_eq!(
+        snapshot.signal_waits["approval"].status,
+        SignalWaitStatus::Completed
+    );
 }
 
 #[path = "signals/worker_outcomes.rs"]

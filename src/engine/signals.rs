@@ -21,7 +21,8 @@ impl FlowEngine {
     /// same target run ID and `signal_id` is idempotent across that descendant
     /// chain; changing the name or payload is an explicit conflict. New and
     /// matching deliveries repair and drive the active leaf, including a
-    /// successor missing after its predecessor link committed.
+    /// successor missing after its predecessor link committed. Delivery forces
+    /// workflow replay so an open timer or hook cannot hide a paired signal.
     pub async fn send_signal(
         &self,
         run_id: &str,
@@ -66,7 +67,7 @@ impl FlowEngine {
             });
             if let Some((delivery_run_id, existing)) = existing {
                 ensure_signal_matches(delivery_run_id, existing, &signal)?;
-                match self.recover_and_drive_continuation_leaf(run_id).await {
+                match self.drive_forcing_workflow_replay(run_id).await {
                     Ok(snapshot) => return Ok((snapshot, committed_run_id)),
                     Err(error) if is_event_conflict(&error) => continue,
                     Err(error) => return Err(error),
@@ -95,7 +96,7 @@ impl FlowEngine {
             {
                 Ok(_) => {
                     committed_run_id = Some(leaf.run_id.clone());
-                    match self.drive(run_id).await {
+                    match self.drive_forcing_workflow_replay(run_id).await {
                         Ok(snapshot) => return Ok((snapshot, committed_run_id)),
                         Err(error) if is_event_conflict(&error) => continue,
                         Err(error) => return Err(error),
