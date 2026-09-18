@@ -1163,7 +1163,8 @@ impl FlowEngine {
 /// Tip events that append durable progress then continue (not suspend). Ordinary
 /// DriveRun recovery must observe them once beside open waits. Includes workflow
 /// emissions (scopes, select completion, compensation, attachments) and host
-/// wait-resolution tips (`WaitCompleted`) that `resume_wait` already forces.
+/// wait-resolution tips (`WaitCompleted`, `SignalWaitCompleted`) that host
+/// delivery/resume APIs already force.
 /// Intentional suspension tips (wait/hook/select create) remain excluded.
 fn tip_requires_workflow_observation(event: &FlowEvent) -> bool {
     matches!(
@@ -1173,6 +1174,7 @@ fn tip_requires_workflow_observation(event: &FlowEvent) -> bool {
             | FlowEvent::ScopeCompleted { .. }
             | FlowEvent::SelectCompleted { .. }
             | FlowEvent::WaitCompleted { .. }
+            | FlowEvent::SignalWaitCompleted { .. }
             | FlowEvent::CompensationMarkerRecorded { .. }
             | FlowEvent::CompensationMarkerCompleted { .. }
             | FlowEvent::ChildOperationLinked { .. }
