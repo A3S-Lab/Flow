@@ -6,10 +6,14 @@ mod scheduled_wakeups;
 mod tests;
 #[cfg(feature = "postgres")]
 use scheduled_wakeups::{
-    POSTGRES_SCHEDULED_WAKEUPS_CANCELLATION_SQL, POSTGRES_SCHEDULED_WAKEUPS_SQL,
+    POSTGRES_SCHEDULED_WAKEUPS_ACTIVITY_RETRY_SQL, POSTGRES_SCHEDULED_WAKEUPS_CANCELLATION_SQL,
+    POSTGRES_SCHEDULED_WAKEUPS_SQL,
 };
 #[cfg(feature = "sqlite")]
-use scheduled_wakeups::{SQLITE_SCHEDULED_WAKEUPS_CANCELLATION_SQL, SQLITE_SCHEDULED_WAKEUPS_SQL};
+use scheduled_wakeups::{
+    SQLITE_SCHEDULED_WAKEUPS_ACTIVITY_RETRY_SQL, SQLITE_SCHEDULED_WAKEUPS_CANCELLATION_SQL,
+    SQLITE_SCHEDULED_WAKEUPS_SQL,
+};
 
 const EVENTS_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS flow_events (
@@ -524,6 +528,11 @@ pub(crate) fn sqlite_migrations() -> Vec<Migration> {
             "index sealed contiguous Flow history partitions",
             HISTORY_PARTITIONS_SQL,
         ),
+        Migration::new(
+            "a3s-flow-0011-activity-retry-wakeup",
+            "index delayed activity retries in the scheduled wakeup projection",
+            SQLITE_SCHEDULED_WAKEUPS_ACTIVITY_RETRY_SQL,
+        ),
     ]
 }
 
@@ -589,6 +598,11 @@ pub(crate) fn postgres_migrations() -> Vec<Migration> {
             "a3s-flow-0012-task-partition-key",
             "persist opaque processor partition keys for fair task leasing",
             POSTGRES_TASK_PARTITION_KEY_SQL,
+        ),
+        Migration::new(
+            "a3s-flow-0013-activity-retry-wakeup",
+            "index delayed activity retries in the scheduled wakeup projection",
+            POSTGRES_SCHEDULED_WAKEUPS_ACTIVITY_RETRY_SQL,
         ),
     ]
 }

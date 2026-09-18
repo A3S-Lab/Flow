@@ -723,13 +723,106 @@ async fn sqlite_scheduled_wakeup_migration_backfills_and_tracks_legacy_writers()
         },
     )
     .await;
+
+    let activity_run = "sqlite-wakeup-upgrade-activity-retry";
+    insert_raw_event(
+        &executor,
+        activity_run,
+        1,
+        FlowEvent::RunCreated {
+            spec: spec(),
+            input: json!({}),
+        },
+    )
+    .await;
+    insert_raw_event(&executor, activity_run, 2, FlowEvent::RunStarted).await;
+    insert_raw_event(
+        &executor,
+        activity_run,
+        3,
+        FlowEvent::ActivityCreated {
+            activity_id: "legacy-activity".into(),
+            activity_name: "legacyActivity".into(),
+            input: json!({}),
+            retry: RetryPolicy::fixed(3, Duration::from_secs(1)),
+            timeout_ms: None,
+        },
+    )
+    .await;
+    insert_raw_event(
+        &executor,
+        activity_run,
+        4,
+        FlowEvent::ActivityStarted {
+            activity_id: "legacy-activity".into(),
+            attempt: 1,
+            attempt_id: "attempt-1".into(),
+            idempotency_key: "idem-1".into(),
+            fencing_token: "fence-1".into(),
+        },
+    )
+    .await;
+    insert_raw_event(
+        &executor,
+        activity_run,
+        5,
+        FlowEvent::ActivityRetrying {
+            activity_id: "legacy-activity".into(),
+            attempt: 1,
+            attempt_id: "attempt-1".into(),
+            fencing_token: "fence-1".into(),
+            error: "legacy activity retry".into(),
+            retry_after: Some(timestamp("2026-08-07T01:00:05.123456789Z")),
+        },
+    )
+    .await;
+
+    let resumed_activity_run = "sqlite-wakeup-upgrade-resumed-activity";
+    insert_raw_event(
+        &executor,
+        resumed_activity_run,
+        1,
+        FlowEvent::RunCreated {
+            spec: spec(),
+            input: json!({}),
+        },
+    )
+    .await;
+    insert_raw_event(&executor, resumed_activity_run, 2, FlowEvent::RunStarted).await;
+    insert_raw_event(
+        &executor,
+        resumed_activity_run,
+        3,
+        FlowEvent::ActivityRetrying {
+            activity_id: "already-resumed".into(),
+            attempt: 1,
+            attempt_id: "attempt-1".into(),
+            fencing_token: "fence-1".into(),
+            error: "already resumed".into(),
+            retry_after: Some(timestamp("2026-08-07T01:00:06Z")),
+        },
+    )
+    .await;
+    insert_raw_event(
+        &executor,
+        resumed_activity_run,
+        4,
+        FlowEvent::ActivityStarted {
+            activity_id: "already-resumed".into(),
+            attempt: 2,
+            attempt_id: "attempt-2".into(),
+            idempotency_key: "idem-2".into(),
+            fencing_token: "fence-2".into(),
+        },
+    )
+    .await;
     drop(executor);
 
     let store = SqliteEventStore::connect(format!("sqlite://{}", database_path.display()))
         .await
         .unwrap();
     let rows = scheduled_rows(store.executor()).await;
-    assert_eq!(rows.len(), 3);
+    assert_eq!(rows.len(), 4);
     assert!(rows.iter().any(|row| {
         row.0 == wait_run
             && row.1 == 0
@@ -742,7 +835,14 @@ async fn sqlite_scheduled_wakeup_migration_backfills_and_tracks_legacy_writers()
             && row.2 == "legacy-retry"
             && row.3 == "2026-08-07T01:00:01.987654321Z"
     }));
+    assert!(rows.iter().any(|row| {
+        row.0 == activity_run
+            && row.1 == 2
+            && row.2 == "legacy-activity"
+            && row.3 == "2026-08-07T01:00:05.123456789Z"
+    }));
     assert!(!rows.iter().any(|row| row.0 == cancelled_retry_run));
+    assert!(!rows.iter().any(|row| row.0 == resumed_activity_run));
     assert!(rows
         .iter()
         .any(|row| row.0 == cancelling_run && row.2 == "cleanup"));
@@ -776,8 +876,11 @@ async fn sqlite_scheduled_wakeup_migration_backfills_and_tracks_legacy_writers()
     )
     .await;
     let rows = scheduled_rows(store.executor()).await;
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].2, "cleanup");
+    assert_eq!(rows.len(), 2);
+    assert!(rows
+        .iter()
+        .any(|row| row.0 == cancelling_run && row.2 == "cleanup"));
+    assert!(rows.iter().any(|row| row.2 == "legacy-activity"));
 
     insert_raw_event(
         store.executor(),
@@ -788,5 +891,98 @@ async fn sqlite_scheduled_wakeup_migration_backfills_and_tracks_legacy_writers()
         },
     )
     .await;
+    let rows = scheduled_rows(store.executor()).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].2, "legacy-activity");
+    insert_raw_event(
+        store.executor(),
+        activity_run,
+        6,
+        FlowEvent::ActivityStarted {
+            activity_id: "legacy-activity".into(),
+            attempt: 2,
+            attempt_id: "attempt-2".into(),
+            idempotency_key: "idem-2".into(),
+            fencing_token: "fence-2".into(),
+        },
+    )
+    .await;
+    assert!(scheduled_rows(store.executor()).await.is_empty());
+}
+
+#[tokio::test]
+async fn sqlite_delayed_activity_retry_is_a_scheduled_wakeup() {
+    let store = SqliteEventStore::connect("sqlite::memory:").await.unwrap();
+    let run_id = "sqlite-activity-retry-wakeup";
+    create_run(&store, run_id).await;
+    let retry_at = timestamp("2026-08-07T00:00:02.000000200Z");
+    store
+        .append(
+            run_id,
+            FlowEvent::ActivityCreated {
+                activity_id: "flaky".into(),
+                activity_name: "flakyActivity".into(),
+                input: json!({}),
+                retry: RetryPolicy::fixed(3, Duration::from_secs(1)),
+                timeout_ms: None,
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            run_id,
+            FlowEvent::ActivityStarted {
+                activity_id: "flaky".into(),
+                attempt: 1,
+                attempt_id: "attempt-1".into(),
+                idempotency_key: "idem-1".into(),
+                fencing_token: "fence-1".into(),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            run_id,
+            FlowEvent::ActivityRetrying {
+                activity_id: "flaky".into(),
+                attempt: 1,
+                attempt_id: "attempt-1".into(),
+                fencing_token: "fence-1".into(),
+                error: "retry later".into(),
+                retry_after: Some(retry_at),
+            },
+        )
+        .await
+        .unwrap();
+
+    let rows = scheduled_rows(store.executor()).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1, 2);
+    assert_eq!(rows[0].2, "flaky");
+    assert_eq!(rows[0].3, "2026-08-07T00:00:02.000000200Z");
+    assert!(store
+        .list_due_wakeups(timestamp("2026-08-07T00:00:02.000000199Z"))
+        .await
+        .unwrap()
+        .is_empty());
+    let due = store.list_due_wakeups(retry_at).await.unwrap();
+    assert_eq!(due.len(), 1);
+    assert_eq!(due[0].kind, ScheduledWakeupKind::Retry);
+
+    store
+        .append(
+            run_id,
+            FlowEvent::ActivityStarted {
+                activity_id: "flaky".into(),
+                attempt: 2,
+                attempt_id: "attempt-2".into(),
+                idempotency_key: "idem-2".into(),
+                fencing_token: "fence-2".into(),
+            },
+        )
+        .await
+        .unwrap();
     assert!(scheduled_rows(store.executor()).await.is_empty());
 }
