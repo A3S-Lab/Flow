@@ -171,8 +171,11 @@ sibling waits are cancelled durably. Dynamic bounded child-workflow maps are
 also implemented: `MapChildWorkflows` persists an ordered plan, activates at
 most `concurrency` open children at a time (≤ `MAX_CHILD_WORKFLOW_BATCH_SIZE`),
 recovers partial windows without duplicate requests or silently lost children
-(`tests/child_workflow_maps.rs`), and completes only after
-every planned child resolves. External dataset references attach host-owned
+(`tests/child_workflow_maps.rs`,
+`tests/postgres_child_workflow_interruption.rs`), and completes only after
+every planned child resolves. PostgreSQL-gated interruption evidence also covers
+partial batch request windows and parent-resolution crash recovery on the same
+no-duplicate / no-lost-child invariants. External dataset references attach host-owned
 content-addressed CAS pointers without embedding item payloads. Per-item
 aggregates record durable `(aggregate_id, item_id)` contributions for folding
 map results. Durable compensation markers record and complete saga-style
