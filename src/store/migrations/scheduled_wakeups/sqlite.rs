@@ -299,3 +299,155 @@ BEGIN
       AND subject_id = json_extract(NEW.event_json, '$.step_id');
 END;
 "#;
+
+/// Indexes delayed activity retries the same way delayed step retries are
+/// indexed. Published triggers stay untouched so already-applied checksums
+/// remain valid.
+#[cfg(feature = "sqlite")]
+pub(super) const SQLITE_SCHEDULED_WAKEUPS_ACTIVITY_RETRY_SQL: &str = r#"
+WITH open_activity_retries AS (
+    SELECT
+        retrying.run_id,
+        json_extract(retrying.event_json, '$.activity_id') AS subject_id,
+        json_extract(retrying.event_json, '$.retry_after') AS scheduled_at,
+        retrying.sequence AS created_sequence
+    FROM flow_events AS retrying
+    WHERE json_extract(retrying.event_json, '$.type') = 'activity_retrying'
+      AND json_extract(retrying.event_json, '$.retry_after') IS NOT NULL
+      AND NOT EXISTS (
+          SELECT 1
+          FROM flow_events AS later
+          WHERE later.run_id = retrying.run_id
+            AND later.sequence > retrying.sequence
+            AND (
+                (
+                    json_extract(later.event_json, '$.type') IN (
+                        'activity_started',
+                        'activity_completed',
+                        'activity_failed',
+                        'activity_non_retryable',
+                        'activity_unknown',
+                        'activity_cancelled'
+                    )
+                    AND json_extract(later.event_json, '$.activity_id') =
+                        json_extract(retrying.event_json, '$.activity_id')
+                )
+                OR (
+                    json_extract(later.event_json, '$.type') = 'activity_retrying'
+                    AND json_extract(later.event_json, '$.activity_id') =
+                        json_extract(retrying.event_json, '$.activity_id')
+                )
+                OR json_extract(later.event_json, '$.type') IN (
+                    'run_cancellation_requested',
+                    'run_completed',
+                    'run_failed',
+                    'run_cancelled',
+                    'run_timed_out',
+                    'run_retry_exhausted',
+                    'run_host_shutdown',
+                    'run_continued_as_new'
+                )
+            )
+      )
+)
+INSERT INTO flow_scheduled_wakeups (
+    run_id,
+    wakeup_kind,
+    subject_id,
+    scheduled_at_key,
+    created_sequence
+)
+SELECT
+    run_id,
+    2,
+    subject_id,
+    CASE
+        WHEN instr(scheduled_at, '.') = 0 THEN
+            substr(scheduled_at, 1, length(scheduled_at) - 1) || '.000000000Z'
+        ELSE
+            substr(scheduled_at, 1, instr(scheduled_at, '.')) ||
+            substr(
+                substr(
+                    scheduled_at,
+                    instr(scheduled_at, '.') + 1,
+                    length(scheduled_at) - instr(scheduled_at, '.') - 1
+                ) || '000000000',
+                1,
+                9
+            ) || 'Z'
+    END,
+    created_sequence
+FROM open_activity_retries
+ORDER BY run_id, created_sequence
+ON CONFLICT (run_id, wakeup_kind, subject_id) DO UPDATE SET
+    scheduled_at_key = excluded.scheduled_at_key,
+    created_sequence = excluded.created_sequence;
+
+CREATE TRIGGER IF NOT EXISTS flow_scheduled_wakeups_after_activity_retrying
+AFTER INSERT ON flow_events
+WHEN json_extract(NEW.event_json, '$.type') = 'activity_retrying'
+BEGIN
+    DELETE FROM flow_scheduled_wakeups
+    WHERE run_id = NEW.run_id
+      AND wakeup_kind = 2
+      AND subject_id = json_extract(NEW.event_json, '$.activity_id');
+
+    INSERT INTO flow_scheduled_wakeups (
+        run_id,
+        wakeup_kind,
+        subject_id,
+        scheduled_at_key,
+        created_sequence
+    )
+    SELECT
+        NEW.run_id,
+        2,
+        json_extract(NEW.event_json, '$.activity_id'),
+        CASE
+            WHEN instr(json_extract(NEW.event_json, '$.retry_after'), '.') = 0 THEN
+                substr(
+                    json_extract(NEW.event_json, '$.retry_after'),
+                    1,
+                    length(json_extract(NEW.event_json, '$.retry_after')) - 1
+                ) || '.000000000Z'
+            ELSE
+                substr(
+                    json_extract(NEW.event_json, '$.retry_after'),
+                    1,
+                    instr(json_extract(NEW.event_json, '$.retry_after'), '.')
+                ) ||
+                substr(
+                    substr(
+                        json_extract(NEW.event_json, '$.retry_after'),
+                        instr(json_extract(NEW.event_json, '$.retry_after'), '.') + 1,
+                        length(json_extract(NEW.event_json, '$.retry_after')) -
+                            instr(json_extract(NEW.event_json, '$.retry_after'), '.') - 1
+                    ) || '000000000',
+                    1,
+                    9
+                ) || 'Z'
+        END,
+        NEW.sequence
+    WHERE json_extract(NEW.event_json, '$.retry_after') IS NOT NULL
+    ON CONFLICT (run_id, wakeup_kind, subject_id) DO UPDATE SET
+        scheduled_at_key = excluded.scheduled_at_key,
+        created_sequence = excluded.created_sequence;
+END;
+
+CREATE TRIGGER IF NOT EXISTS flow_scheduled_wakeups_after_activity_closed
+AFTER INSERT ON flow_events
+WHEN json_extract(NEW.event_json, '$.type') IN (
+    'activity_started',
+    'activity_completed',
+    'activity_failed',
+    'activity_non_retryable',
+    'activity_unknown',
+    'activity_cancelled'
+)
+BEGIN
+    DELETE FROM flow_scheduled_wakeups
+    WHERE run_id = NEW.run_id
+      AND wakeup_kind = 2
+      AND subject_id = json_extract(NEW.event_json, '$.activity_id');
+END;
+"#;
