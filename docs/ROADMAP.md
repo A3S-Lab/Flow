@@ -182,7 +182,10 @@ map results. Durable compensation markers record and complete saga-style
 obligations idempotently so workflows can schedule ordinary cleanup steps.
 Structured join-all is also implemented through `SelectMode::JoinAll` and
 `WorkflowContext::join`: every arm must complete before the select closes, and
-siblings are not cancelled early.
+siblings are not cancelled early. Concurrent `ScheduleSteps` terminal settlement
+has PostgreSQL-gated durable-interrupt evidence: losing a peer `StepCancelled`
+append mid-settlement recovers without a stuck Running sibling or duplicate side
+effects (`tests/postgres_batch_settlement_interruption.rs`).
 
 The repository-owned authoring boundary now has a stateless Rust counterpart to
 the CLI and Skill: `canonical_workflow_authoring_snapshot` preserves the
