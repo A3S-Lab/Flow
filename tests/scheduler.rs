@@ -397,3 +397,85 @@ async fn due_wait_wakes_workflow_while_another_timer_is_open() {
     assert_eq!(snapshot.status, WorkflowRunStatus::Completed);
     assert_eq!(snapshot.output, Some(json!("due")));
 }
+
+struct RetryBesideOpenTimerRuntime {
+    attempts: AtomicUsize,
+}
+
+#[async_trait]
+impl FlowRuntime for RetryBesideOpenTimerRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let context = invocation.context();
+        if let Some(output) = context.step_output("flaky") {
+            return Ok(context.complete(output.clone()));
+        }
+        if context.update("arm").is_some() {
+            return Ok(context.schedule_step_with_retry(
+                "flaky",
+                "flakyStep",
+                json!({}),
+                RetryPolicy::fixed(2, Duration::from_secs(60)),
+            ));
+        }
+        Ok(context.wait_until("hold", "2030-01-01T00:00:00Z".parse().unwrap()))
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        let attempt = self.attempts.fetch_add(1, Ordering::SeqCst);
+        if attempt == 0 {
+            Err(FlowError::Runtime("first attempt failed".to_string()))
+        } else {
+            Ok(json!({ "attempt": attempt + 1 }))
+        }
+    }
+
+    async fn run_update(
+        &self,
+        _invocation: a3s_flow::UpdateInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        Ok(json!({ "armed": true }))
+    }
+}
+
+#[tokio::test]
+async fn due_retry_runs_while_another_timer_is_open() {
+    let runtime = Arc::new(RetryBesideOpenTimerRuntime {
+        attempts: AtomicUsize::new(0),
+    });
+    let engine = FlowEngine::in_memory(runtime.clone());
+    engine
+        .start_with_id("retry-beside-timer", spec().with_update("arm"), json!({}))
+        .await
+        .unwrap();
+    engine
+        .apply_update(
+            "retry-beside-timer",
+            WorkflowUpdate::new("arm-1", "arm", json!({})),
+        )
+        .await
+        .unwrap();
+    assert_eq!(runtime.attempts.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        engine.snapshot("retry-beside-timer").await.unwrap().status,
+        WorkflowRunStatus::Suspended
+    );
+
+    let resumed = engine
+        .resume_scheduled_run(
+            "retry-beside-timer",
+            Utc::now() + ChronoDuration::seconds(120),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(runtime.attempts.load(Ordering::SeqCst), 2);
+    assert!(resumed.iter().any(|wakeup| {
+        wakeup.kind == a3s_flow::ScheduledWakeupKind::Retry && wakeup.subject_id == "flaky"
+    }));
+    let snapshot = engine.snapshot("retry-beside-timer").await.unwrap();
+    assert_eq!(snapshot.status, WorkflowRunStatus::Completed);
+    assert_eq!(snapshot.output, Some(json!({ "attempt": 2 })));
+}
