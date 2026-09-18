@@ -269,10 +269,11 @@ impl FlowEngine {
                     .await?;
                 continue;
             }
-            // DriveRun recovery after a workflow emission that appends then continues:
+            // DriveRun recovery after durable progress that appends then continues:
             // the tip needs one observation even while an unscoped timer stays open.
-            // Host force APIs (update/hook/signal/cancel_scope) already force replay;
-            // this mirrors that for ordinary drive() without re-forcing later iterations.
+            // Host force APIs (update/hook/signal/cancel_scope/resume_wait) already
+            // force replay; this mirrors that for ordinary drive() without
+            // re-forcing later iterations.
             // Suspension tips (wait/hook/select create) are intentionally excluded.
             if !observed_tip_workflow_emission {
                 observed_tip_workflow_emission = true;
@@ -1159,9 +1160,11 @@ impl FlowEngine {
     }
 }
 
-/// Tip events emitted by workflow commands that append then continue (not
-/// suspend). Ordinary DriveRun recovery must observe them once beside open
-/// waits; intentional suspension tips are excluded.
+/// Tip events that append durable progress then continue (not suspend). Ordinary
+/// DriveRun recovery must observe them once beside open waits. Includes workflow
+/// emissions (scopes, select completion, compensation, attachments) and host
+/// wait-resolution tips (`WaitCompleted`) that `resume_wait` already forces.
+/// Intentional suspension tips (wait/hook/select create) remain excluded.
 fn tip_requires_workflow_observation(event: &FlowEvent) -> bool {
     matches!(
         event,
@@ -1169,6 +1172,7 @@ fn tip_requires_workflow_observation(event: &FlowEvent) -> bool {
             | FlowEvent::ScopeCancelled { .. }
             | FlowEvent::ScopeCompleted { .. }
             | FlowEvent::SelectCompleted { .. }
+            | FlowEvent::WaitCompleted { .. }
             | FlowEvent::CompensationMarkerRecorded { .. }
             | FlowEvent::CompensationMarkerCompleted { .. }
             | FlowEvent::ChildOperationLinked { .. }

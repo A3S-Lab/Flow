@@ -172,12 +172,13 @@ non-terminal
 (`scope_cancel_redelivery_recovers_after_scope_cancelled_before_drive_completes`).
 Host scope cancel also forces replay when an unscoped timer remains open
 (`scope_cancel_wakes_workflow_while_unscoped_timer_wait_is_open`). Ordinary
-`drive()` recovery does the same when the tip event is a workflow emission that
-appends then continues — scope lifecycle, select completion, compensation markers,
-child-operation
+`drive()` recovery does the same when the tip event is durable progress that
+appends then continues — scope lifecycle, select completion, wait completion,
+compensation markers, child-operation
 links, progress, and blob/dataset/aggregate attachments
 (`workflow_scope_*_recovery_wakes_via_drive_while_unscoped_timer_is_open`,
 `select_completed_recovery_wakes_via_drive_while_unscoped_timer_is_open`,
+`wait_completed_recovery_wakes_via_drive_while_unscoped_timer_is_open`,
 `compensation_marker_recorded_recovery_wakes_via_drive_while_unscoped_timer_is_open`).
 Intentional suspension tips (wait/hook/select create) remain excluded.
 Hook receipt and disposal also force replay when another suspension remains

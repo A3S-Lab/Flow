@@ -1,12 +1,13 @@
 use a3s_flow::{
-    FlowEngine, FlowError, FlowEvent, FlowRuntime, FlowScheduler, FlowTask, FlowTaskQueue,
-    FlowWorker, InMemoryFlowTaskQueue, RetryPolicy, RuntimeCommand, StepInvocation,
-    WorkflowInvocation, WorkflowRunStatus, WorkflowSpec, WorkflowUpdate,
+    FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore, FlowRuntime,
+    FlowScheduler, FlowTask, FlowTaskQueue, FlowWorker, InMemoryEventStore, InMemoryFlowTaskQueue,
+    RetryPolicy, RuntimeCommand, StepInvocation, WaitStatus, WorkflowInvocation, WorkflowRunStatus,
+    WorkflowSpec, WorkflowUpdate,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde_json::json;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -396,6 +397,95 @@ async fn due_wait_wakes_workflow_while_another_timer_is_open() {
     let snapshot = engine.snapshot("wait-beside-timer").await.unwrap();
     assert_eq!(snapshot.status, WorkflowRunStatus::Completed);
     assert_eq!(snapshot.output, Some(json!("due")));
+}
+
+struct CrashAfterWaitCompletedStore {
+    inner: InMemoryEventStore,
+    armed: AtomicBool,
+}
+
+impl CrashAfterWaitCompletedStore {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryEventStore::new(),
+            armed: AtomicBool::new(false),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowEventStore for CrashAfterWaitCompletedStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        let envelope = self
+            .inner
+            .append_if_sequence(run_id, expected_sequence, event.clone())
+            .await?;
+        if matches!(
+            event,
+            FlowEvent::WaitCompleted { ref wait_id } if wait_id == "due"
+        ) && self.armed.swap(false, Ordering::SeqCst)
+        {
+            return Err(FlowError::Store(
+                "injected crash after WaitCompleted before observation drive".into(),
+            ));
+        }
+        Ok(envelope)
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
+#[tokio::test]
+async fn wait_completed_recovery_wakes_via_drive_while_unscoped_timer_is_open() {
+    let store = Arc::new(CrashAfterWaitCompletedStore::new());
+    let engine = FlowEngine::new(store.clone(), Arc::new(WaitBesideOpenTimerRuntime));
+    engine
+        .start_with_id("wait-completed-drive", spec().with_update("arm"), json!({}))
+        .await
+        .unwrap();
+    engine
+        .apply_update(
+            "wait-completed-drive",
+            WorkflowUpdate::new("arm-1", "arm", json!({})),
+        )
+        .await
+        .unwrap();
+
+    store.armed.store(true, Ordering::SeqCst);
+    let interrupted = engine
+        .resume_wait("wait-completed-drive", "due")
+        .await
+        .expect_err("crash after durable WaitCompleted must interrupt");
+    assert!(matches!(interrupted, FlowError::Store(_)));
+
+    let mid = engine.snapshot("wait-completed-drive").await.unwrap();
+    assert!(!mid.status.is_terminal());
+    assert_eq!(mid.waits["due"].status, WaitStatus::Completed);
+    assert_eq!(mid.waits["hold"].status, WaitStatus::Waiting);
+
+    // Ordinary DriveRun recovery — not resume_wait retry.
+    let recovered = engine.drive("wait-completed-drive").await.unwrap();
+    assert_eq!(
+        recovered.output,
+        Some(json!("due")),
+        "drive must observe tip WaitCompleted beside an open unscoped timer"
+    );
+    assert_eq!(recovered.status, WorkflowRunStatus::Completed);
 }
 
 struct RetryBesideOpenTimerRuntime {
