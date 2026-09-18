@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 scheduled resume so a not-yet-due run is projected with
+  `snapshot` instead of unbounded `list`
+  (`resume_not_yet_due_run_uses_snapshot_instead_of_full_history`).
+
 - Fixed FLOW-R3 cold `snapshot` so a run with no usable checkpoint is rebuilt
   from bounded `list_page` windows instead of unbounded `list`
   (`snapshot_without_a_checkpoint_pages_history_instead_of_list`).

@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 
 use crate::error::{FlowError, Result};
-use crate::model::{project_run, FlowEvent, ScheduledWakeup, ScheduledWakeupKind, WaitStatus};
+use crate::model::{FlowEvent, ScheduledWakeup, ScheduledWakeupKind, WaitStatus};
 use crate::store::scheduled_wakeups_for_snapshot;
 
 use super::{
@@ -190,13 +190,16 @@ impl FlowEngine {
     }
 
     /// Resume one scheduled run and report wait completions committed here.
+    ///
+    /// The due set is taken from [`Self::snapshot`], so a not-yet-due run does
+    /// not load its log with unbounded `list`. Driving a due wait or retry
+    /// still replays authoritative history.
     pub(crate) async fn resume_scheduled_run_with_committed_waits(
         &self,
         run_id: &str,
         now: DateTime<Utc>,
     ) -> Result<ScheduledRunOutcome> {
-        let history = self.store.list(run_id).await?;
-        let snapshot = project_run(run_id, &history)?;
+        let snapshot = self.snapshot(run_id).await?;
         if snapshot.status.is_terminal() {
             let snapshot = self
                 .recover_and_drive_continuation_leaf_at(run_id, now)
