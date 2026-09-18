@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 tip-pinned archive export and seal verification so the
+  content digest is hashed one history page at a time instead of cloning the
+  full log into one allocation (`load_tip_pinned_archive_export_stays_correct_for_ten_thousand_events`).
+
 - Enforced published FLOW-R3 Postgres scale SLO budgets on host-local CI /
   release runners (`A3S_FLOW_POSTGRES_LOCAL=1` plus a release-profile
   `scale_slos` gate) so tip cannot stay green while append/page/checkpoint
