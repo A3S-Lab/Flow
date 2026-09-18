@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed FLOW-R4 update redelivery after receipt-before-drive crashes (#95):
+  identical `update_id` retries force workflow replay so a durable
+  `UpdateApplied` can still complete the run when an open wait would otherwise
+  short-circuit ordinary drive
+  (`update_redelivery_recovers_after_update_applied_before_drive_completes`).
+
 - Added FLOW-R4 select completion interruption evidence (#92): losing
   `SelectCompleted` after a durable winning `WaitCompleted` recovers with
   exactly one select completion, cancelled losing arms, and no duplicate
