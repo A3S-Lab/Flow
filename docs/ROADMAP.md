@@ -270,7 +270,11 @@ is available through optional `with_max_pending` budgets that return
 `FlowError::QueueBackpressure` when pending depth is full. Protocol negotiation
 and the versioned worker handshake are available through
 `FlowWorkerCapabilities`; they fail closed on protocol or required
-task/guarantee mismatches. Opaque processor-partition fairness is also
+task/guarantee mismatches. Runtime-build reachability is enforced separately
+through `RuntimeBuildTaskRouter` / `FlowEngine::supports_runtime_build`
+(dispatch preflight and execution admission), not as a field on the worker
+wire handshake—build identity is deployment-scoped host routing metadata
+(`tests/runtime_build_routing.rs`). Opaque processor-partition fairness is also
 available on built-in in-memory and local-file queues through
 `with_partition_fairness` and `enqueue_for_partition`: leasing round-robins
 across host-supplied keys (defaulting to targeted run IDs) without Flow
