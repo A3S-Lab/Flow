@@ -180,6 +180,54 @@ impl FlowEngine {
         Ok(checkpoint)
     }
 
+    /// Load durable history for `run_id` one bounded page at a time.
+    ///
+    /// Callers that must hand the log to a runtime still receive the complete
+    /// sequence. The store read itself does not use unbounded `list`.
+    pub(super) async fn read_history_pages(
+        &self,
+        run_id: &str,
+    ) -> Result<Vec<crate::model::FlowEventEnvelope>> {
+        let mut after_sequence = 0u64;
+        let mut history = Vec::new();
+        loop {
+            let page = self
+                .store
+                .list_page(run_id, after_sequence, MAX_FLOW_HISTORY_PAGE_SIZE)
+                .await?;
+            if page.is_empty() {
+                if history.is_empty() {
+                    return Err(FlowError::RunNotFound(run_id.to_string()));
+                }
+                break;
+            }
+            let page_last = page.last().expect("non-empty page").sequence;
+            let expected = after_sequence.checked_add(1).ok_or_else(|| {
+                FlowError::Store(format!(
+                    "history page sequence overflow for workflow run {run_id}"
+                ))
+            })?;
+            if page.first().expect("non-empty page").sequence != expected {
+                return Err(FlowError::Store(format!(
+                    "history page for {run_id} is not contiguous at sequence {}; expected {expected}",
+                    page.first().expect("non-empty page").sequence
+                )));
+            }
+            let short = page.len() < MAX_FLOW_HISTORY_PAGE_SIZE;
+            if page_last <= after_sequence {
+                return Err(FlowError::Store(format!(
+                    "history page for {run_id} did not advance past sequence {after_sequence}"
+                )));
+            }
+            history.extend(page);
+            after_sequence = page_last;
+            if short {
+                break;
+            }
+        }
+        Ok(history)
+    }
+
     /// Load the complete durable event history for `run_id`.
     pub async fn history(&self, run_id: &str) -> Result<Vec<crate::model::FlowEventEnvelope>> {
         self.store.list(run_id).await

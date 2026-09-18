@@ -1,6 +1,6 @@
 use a3s_flow::{
     FlowEngine, FlowError, FlowEvent, FlowEventStore, FlowRuntime, InMemoryEventStore, JsonValue,
-    QueryInvocation, RuntimeCommand, WorkflowInvocation, WorkflowSpec,
+    QueryInvocation, RuntimeCommand, WorkflowInvocation, WorkflowSpec, MAX_FLOW_HISTORY_PAGE_SIZE,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -137,4 +137,98 @@ async fn query_is_deterministic_for_the_same_durable_history() {
         .await
         .unwrap();
     assert_eq!(first, second);
+}
+
+struct PagedQueryStore {
+    inner: InMemoryEventStore,
+}
+
+#[async_trait]
+impl FlowEventStore for PagedQueryStore {
+    async fn append(
+        &self,
+        run_id: &str,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<a3s_flow::FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<a3s_flow::FlowEventEnvelope> {
+        self.inner
+            .append_if_sequence(run_id, expected_sequence, event)
+            .await
+    }
+
+    async fn list(&self, _run_id: &str) -> a3s_flow::Result<Vec<a3s_flow::FlowEventEnvelope>> {
+        Err(FlowError::Store(
+            "unbounded history read is not allowed for queries".into(),
+        ))
+    }
+
+    async fn list_after(
+        &self,
+        _run_id: &str,
+        _sequence: u64,
+    ) -> a3s_flow::Result<Vec<a3s_flow::FlowEventEnvelope>> {
+        Err(FlowError::Store(
+            "unbounded history tail read is not allowed for queries".into(),
+        ))
+    }
+
+    async fn list_page(
+        &self,
+        run_id: &str,
+        after_sequence: u64,
+        limit: usize,
+    ) -> a3s_flow::Result<Vec<a3s_flow::FlowEventEnvelope>> {
+        let history = self.inner.list(run_id).await?;
+        Ok(history
+            .into_iter()
+            .filter(|envelope| envelope.sequence > after_sequence)
+            .take(limit)
+            .collect())
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
+#[tokio::test]
+async fn query_reads_history_in_pages_instead_of_unbounded_list() {
+    let store = Arc::new(PagedQueryStore {
+        inner: InMemoryEventStore::new(),
+    });
+    let run_id = "query-paged";
+    seed_run(store.as_ref(), run_id).await;
+    let extra = MAX_FLOW_HISTORY_PAGE_SIZE - 2;
+    for index in 0..extra {
+        store
+            .append(
+                run_id,
+                FlowEvent::WaitCreated {
+                    wait_id: format!("pause-{index}"),
+                    resume_at: "2030-01-01T00:00:00Z".parse().unwrap(),
+                },
+            )
+            .await
+            .unwrap();
+    }
+    let engine = FlowEngine::new(
+        store,
+        Arc::new(QueryRuntime {
+            query_calls: AtomicUsize::new(0),
+            workflow_calls: AtomicUsize::new(0),
+        }),
+    );
+    let answer = engine
+        .query(run_id, "status", json!({}))
+        .await
+        .expect("query must page history instead of calling list");
+    assert_eq!(answer["history_len"], serde_json::json!(3 + extra));
 }
