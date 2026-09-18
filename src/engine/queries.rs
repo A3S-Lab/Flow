@@ -20,7 +20,7 @@ impl FlowEngine {
                 "workflow query name must not be empty".to_string(),
             ));
         }
-        let history = self.store.list(run_id).await?;
+        let history = self.read_history_pages(run_id).await?;
         let snapshot = crate::model::project_run(run_id, &history)?;
         self.ensure_runtime_build_available(run_id, &snapshot.spec)?;
         if !snapshot.spec.accepts_query(query_name) {

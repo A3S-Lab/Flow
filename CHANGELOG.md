@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed FLOW-R4 queries so the durable history handed to the runtime is read
+  in bounded `list_page` windows instead of unbounded `list`
+  (`query_reads_history_in_pages_instead_of_unbounded_list`).
+
 - Fixed FLOW-R3 scheduled resume so a not-yet-due run is projected with
   `snapshot` instead of unbounded `list`
   (`resume_not_yet_due_run_uses_snapshot_instead_of_full_history`).
