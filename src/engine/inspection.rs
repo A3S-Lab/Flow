@@ -38,7 +38,7 @@ impl FlowEngine {
                                     .project_pages_until(
                                         run_id,
                                         Some(checkpoint.snapshot),
-                                        sequence,
+                                        Some(sequence),
                                     )
                                     .await
                                 {
@@ -50,38 +50,50 @@ impl FlowEngine {
                 }
             }
         }
-        let tip_sequence = match self.store.latest_event(run_id).await? {
-            Some((sequence, _)) => sequence,
-            None => return Err(FlowError::RunNotFound(run_id.to_string())),
-        };
-        self.project_pages_until(run_id, None, tip_sequence).await
+        self.project_pages_until(run_id, None, None).await
     }
 
-    /// Fold history through `tip_sequence`, one bounded page at a time.
+    /// Fold history one bounded page at a time.
     ///
     /// `snapshot` is the checkpoint to continue from. `None` starts at sequence
-    /// zero and treats the first page as a full projection.
+    /// zero and treats the first page as a full projection. `tip_sequence` pins
+    /// the end when the caller already loaded it; `None` stops at the first
+    /// short page so a store whose `latest_event` scans the log is not read twice.
     async fn project_pages_until(
         &self,
         run_id: &str,
         mut snapshot: Option<WorkflowRunSnapshot>,
-        tip_sequence: u64,
+        tip_sequence: Option<u64>,
     ) -> Result<WorkflowRunSnapshot> {
         let mut after_sequence = snapshot
             .as_ref()
             .map(|state| state.last_sequence)
             .unwrap_or(0);
-        while after_sequence < tip_sequence {
-            let remaining = usize::try_from(tip_sequence - after_sequence).map_err(|_| {
-                FlowError::Store(format!(
-                    "history page sequence overflow for workflow run {run_id}"
-                ))
-            })?;
-            let limit = remaining.min(MAX_FLOW_HISTORY_PAGE_SIZE);
+        loop {
+            if tip_sequence.is_some_and(|tip| after_sequence >= tip) {
+                break;
+            }
+            let limit = match tip_sequence {
+                Some(tip) => {
+                    let remaining = usize::try_from(tip - after_sequence).map_err(|_| {
+                        FlowError::Store(format!(
+                            "history page sequence overflow for workflow run {run_id}"
+                        ))
+                    })?;
+                    remaining.min(MAX_FLOW_HISTORY_PAGE_SIZE)
+                }
+                None => MAX_FLOW_HISTORY_PAGE_SIZE,
+            };
             let page = self.store.list_page(run_id, after_sequence, limit).await?;
             if page.is_empty() {
+                if snapshot.is_none() {
+                    return Err(FlowError::RunNotFound(run_id.to_string()));
+                }
+                let Some(tip) = tip_sequence else {
+                    break;
+                };
                 return Err(FlowError::Store(format!(
-                    "history page for {run_id} ended before sequence {tip_sequence}"
+                    "history page for {run_id} ended before sequence {tip}"
                 )));
             }
             let page_last = page.last().expect("non-empty page").sequence;
@@ -95,18 +107,25 @@ impl FlowEngine {
                 )));
             }
             after_sequence = page_last;
-            if page.len() < limit && after_sequence < tip_sequence {
-                return Err(FlowError::Store(format!(
-                    "history page for {run_id} returned a short page before sequence {tip_sequence}"
-                )));
+            if page.len() < limit {
+                if let Some(tip) = tip_sequence {
+                    if after_sequence < tip {
+                        return Err(FlowError::Store(format!(
+                            "history page for {run_id} returned a short page before sequence {tip}"
+                        )));
+                    }
+                }
+                break;
             }
         }
         let snapshot = snapshot.ok_or_else(|| FlowError::RunNotFound(run_id.to_string()))?;
-        if snapshot.last_sequence != tip_sequence {
-            return Err(FlowError::InvalidTransition(format!(
-                "paged history for {run_id} stopped at sequence {} before tip {tip_sequence}",
-                snapshot.last_sequence
-            )));
+        if let Some(tip_sequence) = tip_sequence {
+            if snapshot.last_sequence != tip_sequence {
+                return Err(FlowError::InvalidTransition(format!(
+                    "paged history for {run_id} stopped at sequence {} before tip {tip_sequence}",
+                    snapshot.last_sequence
+                )));
+            }
         }
         Ok(snapshot)
     }
