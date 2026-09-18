@@ -370,8 +370,9 @@ pub trait FlowEventStore: Send + Sync {
 
     /// List wait timers and delayed retries due at or before `now`.
     ///
-    /// The default implementation replays every run for compatibility with
-    /// custom stores. SQL stores override it with an indexed projection.
+    /// The default implementation projects every run from bounded `list_page`
+    /// windows for compatibility with custom stores. SQL stores override it
+    /// with an indexed projection.
     async fn list_due_wakeups(&self, now: DateTime<Utc>) -> Result<Vec<ScheduledWakeup>> {
         let mut wakeups = replay_scheduled_wakeups(self).await?;
         wakeups.retain(|wakeup| wakeup.scheduled_at <= now);
@@ -410,8 +411,8 @@ pub trait FlowEventStore: Send + Sync {
 
     /// Find active hooks that own an external callback token.
     ///
-    /// The default implementation replays every run for compatibility with
-    /// custom stores. SQL stores override it with their indexed projection.
+    /// The default implementation scans `list_active_hooks` for compatibility
+    /// with custom stores. SQL stores override it with their indexed projection.
     async fn find_active_hooks_by_token(&self, token: &str) -> Result<Vec<ActiveHookSnapshot>> {
         Ok(self
             .list_active_hooks()
@@ -424,12 +425,21 @@ pub trait FlowEventStore: Send + Sync {
     /// List active external callback hooks in stable run/hook order.
     ///
     /// The default implementation preserves the append-only store contract by
-    /// projecting histories. Durable SQL adapters provide a materialized path.
+    /// projecting each run from bounded `list_page` windows. Durable SQL
+    /// adapters provide a materialized path.
     async fn list_active_hooks(&self) -> Result<Vec<ActiveHookSnapshot>> {
         let mut hooks = Vec::new();
         for run_id in self.list_run_ids().await? {
-            let history = self.list(&run_id).await?;
-            let snapshot = project_run(&run_id, &history)?;
+            let snapshot =
+                match history_pages::fold_history_pages(&run_id, |after_sequence, limit| {
+                    self.list_page(&run_id, after_sequence, limit)
+                })
+                .await
+                {
+                    Ok(Some(snapshot)) => snapshot,
+                    Ok(None) | Err(FlowError::RunNotFound(_)) => continue,
+                    Err(error) => return Err(error),
+                };
             if snapshot.status.is_terminal() {
                 continue;
             }
@@ -509,8 +519,15 @@ where
 {
     let mut wakeups = Vec::new();
     for run_id in store.list_run_ids().await? {
-        let history = store.list(&run_id).await?;
-        let snapshot = project_run(&run_id, &history)?;
+        let snapshot = match history_pages::fold_history_pages(&run_id, |after_sequence, limit| {
+            store.list_page(&run_id, after_sequence, limit)
+        })
+        .await
+        {
+            Ok(Some(snapshot)) => snapshot,
+            Ok(None) | Err(FlowError::RunNotFound(_)) => continue,
+            Err(error) => return Err(error),
+        };
         wakeups.extend(scheduled_wakeups_for_snapshot(&snapshot));
     }
     Ok(wakeups)

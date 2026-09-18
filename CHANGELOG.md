@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 default `list_active_hooks` and scheduled-wakeup replay so
+  custom stores that only override `list_page` project each run from bounded
+  pages instead of unbounded `list`
+  (`default_list_active_hooks_pages_history_instead_of_unbounded_list`,
+  `default_list_due_wakeups_pages_history_instead_of_unbounded_list`).
+
 - Fixed FLOW-R3 default `append_validated_if_sequence` so custom stores that
   only override `list_page` validate against history folded from bounded pages
   instead of unbounded `list`
