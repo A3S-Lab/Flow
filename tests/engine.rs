@@ -460,6 +460,97 @@ async fn unknown_activity_outcome_waits_for_fenced_reconciliation() {
     assert_eq!(runtime.calls.load(Ordering::SeqCst), 1);
 }
 
+struct UnknownActivityBesideOpenTimerRuntime {
+    calls: AtomicUsize,
+}
+
+#[async_trait]
+impl FlowRuntime for UnknownActivityBesideOpenTimerRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let context = invocation.context();
+        if let Some(output) = context.activity_output("charge") {
+            return Ok(context.complete(output.clone()));
+        }
+        if !invocation.history.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                FlowEvent::ActivityCreated {
+                    activity_id,
+                    ..
+                } if activity_id == "charge"
+            )
+        }) {
+            return Ok(RuntimeCommand::schedule_activity(
+                "charge",
+                "chargeCard",
+                json!({ "amount": 10 }),
+            ));
+        }
+        Ok(context.wait_until("blocker", Utc::now() + ChronoDuration::hours(1)))
+    }
+
+    async fn run_step(&self, _invocation: StepInvocation) -> a3s_flow::Result<serde_json::Value> {
+        Ok(json!(null))
+    }
+
+    async fn run_activity(
+        &self,
+        _invocation: ActivityInvocation,
+    ) -> a3s_flow::Result<serde_json::Value> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Err(FlowError::UnknownOutcome(
+            "provider connection lost after request".to_string(),
+        ))
+    }
+}
+
+#[tokio::test]
+async fn unknown_activity_resolution_wakes_workflow_while_timer_wait_is_open() {
+    let runtime = Arc::new(UnknownActivityBesideOpenTimerRuntime {
+        calls: AtomicUsize::new(0),
+    });
+    let engine = FlowEngine::in_memory(runtime.clone());
+    let run_id = engine
+        .start_with_id("unknown-beside-timer", spec(), json!({}))
+        .await
+        .unwrap();
+    let suspended = engine.snapshot(&run_id).await.unwrap();
+    assert_eq!(suspended.status, WorkflowRunStatus::Suspended);
+    assert_eq!(
+        suspended.activities["charge"].status,
+        a3s_flow::ActivityStatus::Unknown
+    );
+    assert_eq!(suspended.waits["blocker"].status, WaitStatus::Waiting);
+    assert_eq!(runtime.calls.load(Ordering::SeqCst), 1);
+
+    engine
+        .resolve_unknown_activity(
+            &run_id,
+            "charge",
+            ActivityResolution::Completed {
+                output: json!({ "receipt": "r-1" }),
+            },
+        )
+        .await
+        .unwrap();
+
+    let completed = engine.snapshot(&run_id).await.unwrap();
+    assert_eq!(
+        completed.status,
+        WorkflowRunStatus::Completed,
+        "resolving an unknown activity must force workflow replay so an open timer cannot hide the durable completion"
+    );
+    assert_eq!(
+        completed.terminal_outcome,
+        Some(WorkflowTerminalOutcome::Completed {
+            output: json!({ "receipt": "r-1" }),
+        })
+    );
+}
+
 #[tokio::test]
 async fn activity_timeout_persists_deadline_and_enters_unknown_state() {
     let runtime = Arc::new(TimedActivityRuntime {
