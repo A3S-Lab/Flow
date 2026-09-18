@@ -143,7 +143,8 @@ archive workers. It pins the initial history tip and validates contiguous
 sequence pages before invoking a host-owned callback, allowing an archive
 destination to commit incrementally without materializing a complete run or
 chasing a continuously appended log. `export_history_archive` returns a
-tip-pinned ownership seal whose digest is independent of page size;
+tip-pinned ownership seal whose digest is hashed one page at a time and is
+independent of page size;
 `seal_history_partition` indexes immutable contiguous ranges over the same
 authoritative log. Flow keeps the event log authoritative; archive format,
 retention, and destination retry policy remain host-owned.

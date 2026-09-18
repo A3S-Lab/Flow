@@ -164,14 +164,34 @@ impl FlowHistoryPartition {
     }
 }
 
+/// Incremental SHA-256 over ordered event IDs.
+///
+/// Archive export and seal verification feed one history page at a time so a
+/// long run is not held in a single allocation.
+pub(crate) struct HistoryContentHasher(Sha256);
+
+impl HistoryContentHasher {
+    pub(crate) fn new() -> Self {
+        Self(Sha256::new())
+    }
+
+    pub(crate) fn update<'a>(&mut self, events: impl IntoIterator<Item = &'a FlowEventEnvelope>) {
+        for event in events {
+            self.0.update(event.event_id.as_bytes());
+        }
+    }
+
+    pub(crate) fn finalize(self) -> String {
+        format!("{:x}", self.0.finalize())
+    }
+}
+
 pub(crate) fn history_content_digest<'a>(
     events: impl IntoIterator<Item = &'a FlowEventEnvelope>,
 ) -> String {
-    let mut hasher = Sha256::new();
-    for event in events {
-        hasher.update(event.event_id.as_bytes());
-    }
-    format!("{:x}", hasher.finalize())
+    let mut hasher = HistoryContentHasher::new();
+    hasher.update(events);
+    hasher.finalize()
 }
 
 fn validate_content_digest(run_id: &str, digest: &str) -> Result<()> {

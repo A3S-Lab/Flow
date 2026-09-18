@@ -8,7 +8,7 @@ use crate::model::{
     WaitStatus, WorkflowRunSnapshot, WorkflowRunSummary, WorkflowRunSuspension,
 };
 use crate::store::{
-    history_content_digest, FlowHistoryArchiveSeal, FlowHistoryPartition, FlowProjectionCheckpoint,
+    FlowHistoryArchiveSeal, FlowHistoryPartition, FlowProjectionCheckpoint, HistoryContentHasher,
     MAX_FLOW_HISTORY_PAGE_SIZE,
 };
 
@@ -161,7 +161,7 @@ impl FlowEngine {
         let mut after_sequence = 0;
         let mut exported = 0u64;
         let mut page_count = 0u64;
-        let mut digest_events = Vec::new();
+        let mut digest = HistoryContentHasher::new();
 
         loop {
             if after_sequence == target_sequence {
@@ -195,7 +195,7 @@ impl FlowEngine {
             }
 
             let page_len = page.len();
-            digest_events.extend(page.iter().cloned());
+            digest.update(&page);
             consume_page(page).await?;
             exported = exported.checked_add(page_len as u64).ok_or_else(|| {
                 FlowError::Store(format!(
@@ -239,7 +239,7 @@ impl FlowEngine {
             tip_event_id: target_event_id,
             event_count: exported,
             page_count,
-            content_sha256: history_content_digest(&digest_events),
+            content_sha256: digest.finalize(),
         };
         seal.validate()?;
         Ok(seal)
@@ -267,7 +267,7 @@ impl FlowEngine {
 
         let mut after_sequence = 0;
         let mut remaining = seal.event_count;
-        let mut digest_events = Vec::new();
+        let mut digest = HistoryContentHasher::new();
         while remaining > 0 {
             let limit = usize::try_from(remaining.min(MAX_FLOW_HISTORY_PAGE_SIZE as u64))
                 .unwrap_or(MAX_FLOW_HISTORY_PAGE_SIZE);
@@ -295,7 +295,7 @@ impl FlowEngine {
                 ))
             })?;
             after_sequence = page.last().expect("non-empty page").sequence;
-            digest_events.extend(page);
+            digest.update(&page);
             remaining = remaining.saturating_sub(page_len);
         }
         if after_sequence != seal.tip_sequence {
@@ -304,7 +304,7 @@ impl FlowEngine {
                 seal.run_id
             )));
         }
-        let actual = history_content_digest(&digest_events);
+        let actual = digest.finalize();
         if actual != seal.content_sha256 {
             return Err(FlowError::Store(format!(
                 "archive seal digest for {} does not match durable history",

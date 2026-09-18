@@ -32,7 +32,7 @@ mod sharded;
 mod sqlite;
 
 pub use checkpoint::FlowProjectionCheckpoint;
-pub(crate) use history_partition::history_content_digest;
+pub(crate) use history_partition::HistoryContentHasher;
 pub use history_partition::{FlowHistoryArchiveSeal, FlowHistoryPartition};
 pub use local_file::LocalFileEventStore;
 pub use memory::InMemoryEventStore;
