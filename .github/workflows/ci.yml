@@ -191,6 +191,8 @@ jobs:
           - 5432:5432
     env:
       A3S_FLOW_POSTGRES_URL: postgres://a3s_flow:a3s_flow@127.0.0.1:5432/a3s_flow
+      # Host-local service container; release-profile SLO step asserts published budgets.
+      A3S_FLOW_POSTGRES_LOCAL: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -205,6 +207,12 @@ jobs:
 
       - name: Run the all-feature real PostgreSQL suite
         run: cargo test --all-targets --all-features -- --test-threads=1
+
+      - name: Enforce published Postgres scale SLOs (release)
+        run: >-
+          cargo test --release --features postgres --test scale_slos
+          postgres_scale_slos_meet_published_targets_when_url_is_configured
+          -- --exact --nocapture
 
       - name: Run PostgreSQL durability examples
         run: |

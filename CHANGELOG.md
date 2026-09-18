@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Enforced published FLOW-R3 Postgres scale SLO budgets on host-local CI /
+  release runners (`A3S_FLOW_POSTGRES_LOCAL=1` plus a release-profile
+  `scale_slos` gate) so tip cannot stay green while append/page/checkpoint
+  percentiles miss the ROADMAP table (#172).
+
 - Fixed FLOW-R4 tip `SignalReceived` DriveRun recovery beside an open timer:
   a buffered signal delivery that crashes after the durable receipt (before the
   forced observation drive) is no longer hidden by an open unscoped timer
