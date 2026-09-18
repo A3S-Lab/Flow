@@ -87,11 +87,13 @@ checkpoint, unknown-outcome, and completion boundaries is covered by
 `tests/postgres_process_recovery.rs` (real PostgreSQL process death on Step and
 Activity completion boundaries), and
 `tests/postgres_activity_boundary_process_recovery.rs` (real PostgreSQL process
-death on Activity create→start, heartbeat, and unknown-outcome append
-boundaries). In-memory evidence now also covers
+death on Activity create→start, heartbeat, unknown-outcome, and
+completion-after-durable-heartbeat append boundaries). In-memory evidence now also covers
 the ActivityHeartbeat append boundary: a lost first heartbeat invents no
 checkpoint, and an identical same-fence retry becomes durable
 (`lost_activity_heartbeat_append_does_not_invent_checkpoint_and_retry_succeeds`).
+The completion-after-heartbeat process-death gate also proves a durable
+checkpoint survives lease rotation and rejects the pre-crash fencing token.
 
 All built-in stores also enforce `MAX_FLOW_EVENT_BYTES` (currently one MiB) at
 the validated append boundary; oversized payloads fail closed before mutation.
