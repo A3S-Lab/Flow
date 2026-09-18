@@ -229,8 +229,12 @@ impl FlowEngine {
     }
 
     /// Load the complete durable event history for `run_id`.
+    ///
+    /// The returned log is still the full sequence. The store read is assembled
+    /// from bounded `list_page` windows, the same path query and cold snapshot
+    /// already use, so a SQL host does not issue one unbounded `list`.
     pub async fn history(&self, run_id: &str) -> Result<Vec<crate::model::FlowEventEnvelope>> {
-        self.store.list(run_id).await
+        self.read_history_pages(run_id).await
     }
 
     /// Read one bounded page of durable history after an exclusive sequence.
