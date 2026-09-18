@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed FLOW-R4 tip `SignalReceived` DriveRun recovery beside an open timer:
+  a buffered signal delivery that crashes after the durable receipt (before the
+  forced observation drive) is no longer hidden by an open unscoped timer
+  (`signal_received_recovery_wakes_via_drive_while_unscoped_timer_is_open`).
+
 - Fixed FLOW-R4 tip `StepNonRetryable` / `StepFailed` DriveRun recovery beside an
   open timer, and made `WorkflowContext::step_failed` observe `StepNonRetryable`
   (symmetric with `activity_failed`) so `continue_workflow_on_failure` workflows

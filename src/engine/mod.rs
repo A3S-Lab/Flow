@@ -1163,12 +1163,12 @@ impl FlowEngine {
 /// Tip events that append durable progress then continue (not suspend). Ordinary
 /// DriveRun recovery must observe them once beside open waits. Includes workflow
 /// emissions (scopes, select completion, compensation, attachments) and host
-/// resolution tips (`WaitCompleted`, `SignalWaitCompleted`, `HookReceived`,
-/// `HookDisposed`, `UpdateApplied`, `ActivityCompleted`, `StepCompleted`,
-/// `ChildWorkflowResolved`, `ChildWorkflowMapCompleted`, and terminal activity
-/// / step resolution tips (`ActivityNonRetryable`, `ActivityFailed`,
-/// `ActivityCancelled`, `StepNonRetryable`, `StepFailed`) that host
-/// delivery/resume APIs, in-drive settlement, or child/map reconciliation
+/// resolution tips (`WaitCompleted`, `SignalWaitCompleted`, `SignalReceived`,
+/// `HookReceived`, `HookDisposed`, `UpdateApplied`, `ActivityCompleted`,
+/// `StepCompleted`, `ChildWorkflowResolved`, `ChildWorkflowMapCompleted`, and
+/// terminal activity / step resolution tips (`ActivityNonRetryable`,
+/// `ActivityFailed`, `ActivityCancelled`, `StepNonRetryable`, `StepFailed`) that
+/// host delivery/resume APIs, in-drive settlement, or child/map reconciliation
 /// already force.
 /// Intentional suspension tips (wait/hook/select create) remain excluded.
 fn tip_requires_workflow_observation(event: &FlowEvent) -> bool {
@@ -1180,6 +1180,7 @@ fn tip_requires_workflow_observation(event: &FlowEvent) -> bool {
             | FlowEvent::SelectCompleted { .. }
             | FlowEvent::WaitCompleted { .. }
             | FlowEvent::SignalWaitCompleted { .. }
+            | FlowEvent::SignalReceived { .. }
             | FlowEvent::HookReceived { .. }
             | FlowEvent::HookDisposed { .. }
             | FlowEvent::UpdateApplied { .. }
