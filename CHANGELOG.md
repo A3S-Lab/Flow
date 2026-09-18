@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added FLOW-R4 PostgreSQL durable-interruption evidence for concurrent
+  `ScheduleSteps` terminal settlement (#86): losing the peer `StepCancelled`
+  append mid-settlement recovers without a stuck Running sibling or duplicate
+  side effects
+  (`postgres_batch_terminal_settlement_recovers_after_sibling_cleanup_persistence_is_lost`).
+
 - Added FLOW-R4 PostgreSQL durable-interruption evidence (#82): partial
   `ChildWorkflowRequested` / `ChildWorkflowResolved` append failures on a real
   Postgres store recover without duplicate or lost children for map windows,
