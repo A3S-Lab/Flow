@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use a3s_flow::{
-    FlowEngine, FlowError, FlowEvent, FlowEventStore, FlowRuntime, FlowTask, FlowWorker,
-    RuntimeCommand, SignalWaitStatus, StepInvocation, WorkflowInvocation, WorkflowRunStatus,
-    WorkflowSignal, WorkflowSpec, WorkflowUpdate,
+    FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore, FlowRuntime, FlowTask,
+    FlowWorker, InMemoryEventStore, RuntimeCommand, SignalWaitStatus, StepInvocation,
+    WorkflowInvocation, WorkflowRunStatus, WorkflowSignal, WorkflowSpec, WorkflowUpdate,
 };
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -797,6 +797,110 @@ async fn signal_delivery_wakes_workflow_while_timer_wait_is_open() {
         snapshot.signal_waits["approval"].status,
         SignalWaitStatus::Completed
     );
+}
+
+struct CrashAfterSignalWaitCompletedStore {
+    inner: InMemoryEventStore,
+    armed: AtomicBool,
+}
+
+impl CrashAfterSignalWaitCompletedStore {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryEventStore::new(),
+            armed: AtomicBool::new(false),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowEventStore for CrashAfterSignalWaitCompletedStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        let envelope = self
+            .inner
+            .append_if_sequence(run_id, expected_sequence, event.clone())
+            .await?;
+        if matches!(
+            event,
+            FlowEvent::SignalWaitCompleted {
+                ref wait_id,
+                ..
+            } if wait_id == "approval"
+        ) && self.armed.swap(false, Ordering::SeqCst)
+        {
+            return Err(FlowError::Store(
+                "injected crash after SignalWaitCompleted before observation drive".into(),
+            ));
+        }
+        Ok(envelope)
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
+#[tokio::test]
+async fn signal_wait_completed_recovery_wakes_via_drive_while_unscoped_timer_is_open() {
+    let store = Arc::new(CrashAfterSignalWaitCompletedStore::new());
+    let engine = FlowEngine::new(store.clone(), Arc::new(SignalBesideOpenWaitRuntime));
+    engine
+        .start_with_id(
+            "signal-wait-completed-drive",
+            signal_beside_wait_spec(),
+            json!({}),
+        )
+        .await
+        .unwrap();
+    engine
+        .apply_update(
+            "signal-wait-completed-drive",
+            WorkflowUpdate::new("arm-1", "arm", json!({})),
+        )
+        .await
+        .unwrap();
+
+    store.armed.store(true, Ordering::SeqCst);
+    let interrupted = engine
+        .send_signal(
+            "signal-wait-completed-drive",
+            WorkflowSignal::new("delivery-1", APPROVAL_SIGNAL, json!({ "approved": true })),
+        )
+        .await
+        .expect_err("crash after durable SignalWaitCompleted must interrupt");
+    assert!(matches!(interrupted, FlowError::Store(_)));
+
+    let mid = engine
+        .snapshot("signal-wait-completed-drive")
+        .await
+        .unwrap();
+    assert!(!mid.status.is_terminal());
+    assert_eq!(
+        mid.signal_waits["approval"].status,
+        SignalWaitStatus::Completed
+    );
+    assert_eq!(mid.waits["pause"].status, a3s_flow::WaitStatus::Waiting);
+
+    let recovered = engine.drive("signal-wait-completed-drive").await.unwrap();
+    assert_eq!(
+        recovered.output,
+        Some(json!("approved")),
+        "drive must observe tip SignalWaitCompleted beside an open unscoped timer"
+    );
+    assert_eq!(recovered.status, WorkflowRunStatus::Completed);
 }
 
 #[path = "signals/worker_outcomes.rs"]
