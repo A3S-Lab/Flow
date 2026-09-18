@@ -5,8 +5,9 @@ use chrono::{DateTime, Utc};
 
 use crate::error::{FlowError, Result};
 use crate::model::{
-    project_run, ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, HookStatus, JsonValue,
-    ScheduledWakeup, ScheduledWakeupKind, StepStatus, WaitStatus, WorkflowRunSnapshot,
+    project_run, project_run_from_snapshot, ActiveHookSnapshot, FlowEvent, FlowEventEnvelope,
+    HookStatus, JsonValue, ScheduledWakeup, ScheduledWakeupKind, StepStatus, WaitStatus,
+    WorkflowRunSnapshot,
 };
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 use crate::runtime_build::RuntimeBuildId;
@@ -16,7 +17,6 @@ use uuid::Uuid;
 pub const MAX_FLOW_HISTORY_PAGE_SIZE: usize = 1_000;
 
 mod checkpoint;
-#[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod history_pages;
 mod history_partition;
 mod local_file;
@@ -186,23 +186,27 @@ pub trait FlowEventStore: Send + Sync {
     /// append it with an expected-sequence check.
     ///
     /// The default implementation is a compatibility path for custom stores:
-    /// it validates a point-in-time candidate and then delegates to
-    /// [`Self::append_if_sequence`]. Implementations that can provide an
-    /// atomic transaction should override it so validation and append share
-    /// the same lock. The engine uses this method for every state transition;
-    /// the lower-level append methods remain a trusted storage SPI.
+    /// it validates against history assembled from bounded `list_page` windows
+    /// and then delegates to [`Self::append_if_sequence`]. Implementations that
+    /// can provide an atomic transaction should override it so validation and
+    /// append share the same lock. The engine uses this method for every state
+    /// transition; the lower-level append methods remain a trusted storage SPI.
     async fn append_validated_if_sequence(
         &self,
         run_id: &str,
         expected_sequence: u64,
         event: FlowEvent,
     ) -> Result<FlowEventEnvelope> {
-        let history = match self.list(run_id).await {
-            Ok(history) => history,
-            Err(FlowError::RunNotFound(_)) => Vec::new(),
+        let base = match history_pages::fold_history_pages(run_id, |after_sequence, limit| {
+            self.list_page(run_id, after_sequence, limit)
+        })
+        .await
+        {
+            Ok(base) => base,
+            Err(FlowError::RunNotFound(_)) => None,
             Err(error) => return Err(error),
         };
-        let actual_sequence = history.last().map_or(0, |envelope| envelope.sequence);
+        let actual_sequence = base.as_ref().map_or(0, |snapshot| snapshot.last_sequence);
         if actual_sequence != expected_sequence {
             return Err(FlowError::EventConflict {
                 run_id: run_id.to_string(),
@@ -210,7 +214,18 @@ pub trait FlowEventStore: Send + Sync {
                 actual_sequence,
             });
         }
-        validate_candidate_event(run_id, &history, &event)?;
+        validate_event_payload(&event)?;
+        let sequence = next_event_sequence(actual_sequence, run_id)?;
+        let candidate =
+            FlowEventEnvelope::new(run_id, sequence, Uuid::nil(), Utc::now(), event.clone());
+        match base {
+            None => {
+                project_run(run_id, std::slice::from_ref(&candidate))?;
+            }
+            Some(snapshot) => {
+                project_run_from_snapshot(run_id, snapshot, std::slice::from_ref(&candidate))?;
+            }
+        }
         self.append_if_sequence(run_id, expected_sequence, event)
             .await
     }
@@ -435,9 +450,10 @@ pub trait FlowEventStore: Send + Sync {
     }
 }
 
-/// Validate one candidate event against an existing history before it is
-/// appended. Stores call this while holding their append lock; the default
-/// trait path calls it on a point-in-time history for custom implementations.
+/// Validate one candidate event against an existing in-memory history before it
+/// is appended. Built-in memory and local-file stores call this while holding
+/// their append lock. The default trait path pages history instead and projects
+/// from a folded snapshot.
 pub(super) fn validate_candidate_event(
     run_id: &str,
     history: &[FlowEventEnvelope],

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 default `append_validated_if_sequence` so custom stores that
+  only override `list_page` validate against history folded from bounded pages
+  instead of unbounded `list`
+  (`default_append_validated_pages_history_instead_of_unbounded_list`).
+
 - Fixed FLOW-R3 composed sharded stores so linked-run existence checks use
   `latest_event` instead of unbounded `list`
   (`composed_sharded_linked_run_check_does_not_require_unbounded_list`).
