@@ -247,8 +247,7 @@ function WorkflowPlaygroundSurface({
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        const message =
-          error instanceof Error ? error.message : String(error);
+        const message = error instanceof Error ? error.message : String(error);
         setHostLoadError(message);
         setAnnouncement(message);
       })
@@ -970,9 +969,7 @@ function WorkflowPlaygroundSurface({
       setAnnouncement(copy.copied);
       return true;
     } catch (error) {
-      setAnnouncement(
-        error instanceof Error ? error.message : copy.copyFailed,
-      );
+      setAnnouncement(error instanceof Error ? error.message : copy.copyFailed);
       return false;
     }
   }, [copy.copied, copy.copyFailed, graph, hostCanvas, hostMode]);
@@ -994,9 +991,7 @@ function WorkflowPlaygroundSurface({
         URL.revokeObjectURL(url);
         setAnnouncement(copy.graphExported);
       } catch (error) {
-        setAnnouncement(
-          error instanceof Error ? error.message : String(error),
-        );
+        setAnnouncement(error instanceof Error ? error.message : String(error));
       }
       return;
     }
@@ -1050,20 +1045,10 @@ function WorkflowPlaygroundSurface({
         );
       })
       .catch((error: unknown) => {
-        setAnnouncement(
-          error instanceof Error ? error.message : String(error),
-        );
+        setAnnouncement(error instanceof Error ? error.message : String(error));
       })
       .finally(() => setHostBusy(false));
-  }, [
-    catalog,
-    editRevision,
-    graph,
-    hostCanvas,
-    hostMode,
-    locale,
-    restore,
-  ]);
+  }, [catalog, editRevision, graph, hostCanvas, hostMode, locale, restore]);
 
   const approveOnHost = useCallback(() => {
     if (!hostMode || !hostCanvas) return;
@@ -1102,9 +1087,7 @@ function WorkflowPlaygroundSurface({
         );
       })
       .catch((error: unknown) => {
-        setAnnouncement(
-          error instanceof Error ? error.message : String(error),
-        );
+        setAnnouncement(error instanceof Error ? error.message : String(error));
       })
       .finally(() => setHostBusy(false));
   }, [hostCanvas, hostMode, locale]);
@@ -1115,7 +1098,9 @@ function WorkflowPlaygroundSurface({
     setHostCanvas(next.canvas);
     restore(next.graph);
     setAnnouncement(
-      locale === 'zh' ? '已新增计划步骤（未保存）' : 'Added plan step (unsaved)',
+      locale === 'zh'
+        ? '已新增计划步骤（未保存）'
+        : 'Added plan step (unsaved)',
     );
   }, [catalog, graph, hostCanvas, hostMode, locale, restore]);
 

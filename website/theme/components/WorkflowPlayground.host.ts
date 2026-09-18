@@ -163,7 +163,9 @@ export function graphFromHostFlowDsl(
           ...(typeof data.objective === 'string'
             ? { objective: data.objective }
             : {}),
-          ...(typeof data.version === 'string' ? { version: data.version } : {}),
+          ...(typeof data.version === 'string'
+            ? { version: data.version }
+            : {}),
         },
         registry,
       },
@@ -246,16 +248,22 @@ export function graphFromHostCanvas(
     ? ORCHESTRATOR_AGENT_STEP_TYPE
     : 'flow.step';
   const nodes: PlaygroundNode[] = [];
-  const start = createPlaygroundNode('start', 'flow.start', { x: 40, y: 180 }, locale, {
-    configuration: {
-      title: locale === 'zh' ? '宿主方案' : 'Host proposal',
-      desc:
-        typeof canvas.proposal_digest === 'string'
-          ? canvas.proposal_digest
-          : 'host.agent-plan.v2',
+  const start = createPlaygroundNode(
+    'start',
+    'flow.start',
+    { x: 40, y: 180 },
+    locale,
+    {
+      configuration: {
+        title: locale === 'zh' ? '宿主方案' : 'Host proposal',
+        desc:
+          typeof canvas.proposal_digest === 'string'
+            ? canvas.proposal_digest
+            : 'host.agent-plan.v2',
+      },
+      registry,
     },
-    registry,
-  });
+  );
   nodes.push(start);
 
   const steps = Array.isArray(canvas.plan.steps)
@@ -265,8 +273,7 @@ export function graphFromHostCanvas(
     const stepId = String(step.step_id ?? `step-${index + 1}`);
     const objective =
       typeof step.objective === 'string' ? step.objective : stepId;
-    const agentId =
-      typeof step.agent_id === 'string' ? step.agent_id : 'agent';
+    const agentId = typeof step.agent_id === 'string' ? step.agent_id : 'agent';
     const node = createPlaygroundNode(
       stepId,
       stepType,
@@ -432,9 +439,7 @@ export function addHostPlanStep(
   };
 }
 
-export function refreshCanvasFromProposalDto(
-  dto: unknown,
-): HostCanvasDocument {
+export function refreshCanvasFromProposalDto(dto: unknown): HostCanvasDocument {
   return canvasDocumentFromProposalDto(dto);
 }
 

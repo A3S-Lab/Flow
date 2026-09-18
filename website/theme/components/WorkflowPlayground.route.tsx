@@ -133,7 +133,10 @@ export function WorkflowPlaygroundRoute({
     hostModeError =
       error instanceof Error ? error.message : 'INVALID_INPUT: host mode';
   }
-  const baseCatalog = useMemo(() => createPlaygroundNodeCatalog(locale), [locale]);
+  const baseCatalog = useMemo(
+    () => createPlaygroundNodeCatalog(locale),
+    [locale],
+  );
   const catalog = useMemo(
     () =>
       hostMode || hostModeError
