@@ -355,7 +355,9 @@ impl ActiveHookSnapshot {
 pub enum ScheduledWakeupKind {
     /// A durable timer wait.
     Wait,
-    /// A delayed step or activity retry.
+    /// A delayed first-class activity retry.
+    ActivityRetry,
+    /// A delayed step retry.
     Retry,
 }
 
@@ -364,11 +366,17 @@ impl ScheduledWakeupKind {
     pub(crate) fn from_database_code(code: i64) -> Result<Self> {
         match code {
             0 => Ok(Self::Wait),
+            1 => Ok(Self::ActivityRetry),
             2 => Ok(Self::Retry),
             _ => Err(FlowError::Store(format!(
                 "invalid scheduled wakeup kind code {code}"
             ))),
         }
+    }
+
+    /// Whether this wakeup is a delayed step or activity retry.
+    pub const fn is_retry(self) -> bool {
+        matches!(self, Self::Retry | Self::ActivityRetry)
     }
 }
 

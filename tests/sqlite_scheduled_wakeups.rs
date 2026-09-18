@@ -837,7 +837,7 @@ async fn sqlite_scheduled_wakeup_migration_backfills_and_tracks_legacy_writers()
     }));
     assert!(rows.iter().any(|row| {
         row.0 == activity_run
-            && row.1 == 2
+            && row.1 == 1
             && row.2 == "legacy-activity"
             && row.3 == "2026-08-07T01:00:05.123456789Z"
     }));
@@ -959,7 +959,7 @@ async fn sqlite_delayed_activity_retry_is_a_scheduled_wakeup() {
 
     let rows = scheduled_rows(store.executor()).await;
     assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].1, 2);
+    assert_eq!(rows[0].1, 1);
     assert_eq!(rows[0].2, "flaky");
     assert_eq!(rows[0].3, "2026-08-07T00:00:02.000000200Z");
     assert!(store
@@ -969,7 +969,7 @@ async fn sqlite_delayed_activity_retry_is_a_scheduled_wakeup() {
         .is_empty());
     let due = store.list_due_wakeups(retry_at).await.unwrap();
     assert_eq!(due.len(), 1);
-    assert_eq!(due[0].kind, ScheduledWakeupKind::Retry);
+    assert_eq!(due[0].kind, ScheduledWakeupKind::ActivityRetry);
 
     store
         .append(
@@ -985,4 +985,109 @@ async fn sqlite_delayed_activity_retry_is_a_scheduled_wakeup() {
         .await
         .unwrap();
     assert!(scheduled_rows(store.executor()).await.is_empty());
+}
+
+#[tokio::test]
+async fn sqlite_step_and_activity_retries_with_same_id_both_remain_indexed() {
+    let store = SqliteEventStore::connect("sqlite::memory:").await.unwrap();
+    let run_id = "sqlite-shared-retry-id";
+    create_run(&store, run_id).await;
+    let step_retry_at = timestamp("2026-08-07T00:00:02.000000100Z");
+    let activity_retry_at = timestamp("2026-08-07T00:00:02.000000200Z");
+
+    store
+        .append(
+            run_id,
+            FlowEvent::StepCreated {
+                step_id: "shared".into(),
+                step_name: "sharedStep".into(),
+                input: json!({}),
+                retry: RetryPolicy::fixed(3, Duration::from_secs(1)),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            run_id,
+            FlowEvent::StepStarted {
+                step_id: "shared".into(),
+                attempt: 1,
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            run_id,
+            FlowEvent::StepRetrying {
+                step_id: "shared".into(),
+                attempt: 1,
+                error: "step later".into(),
+                retry_after: Some(step_retry_at),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            run_id,
+            FlowEvent::ActivityCreated {
+                activity_id: "shared".into(),
+                activity_name: "sharedActivity".into(),
+                input: json!({}),
+                retry: RetryPolicy::fixed(3, Duration::from_secs(1)),
+                timeout_ms: None,
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            run_id,
+            FlowEvent::ActivityStarted {
+                activity_id: "shared".into(),
+                attempt: 1,
+                attempt_id: "attempt-1".into(),
+                idempotency_key: "idem-1".into(),
+                fencing_token: "fence-1".into(),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            run_id,
+            FlowEvent::ActivityRetrying {
+                activity_id: "shared".into(),
+                attempt: 1,
+                attempt_id: "attempt-1".into(),
+                fencing_token: "fence-1".into(),
+                error: "activity later".into(),
+                retry_after: Some(activity_retry_at),
+            },
+        )
+        .await
+        .unwrap();
+
+    let rows = scheduled_rows(store.executor()).await;
+    assert_eq!(
+        rows.len(),
+        2,
+        "step and activity retries must not share one wakeup primary key: {rows:?}"
+    );
+    assert!(rows.iter().any(|row| {
+        row.1 == 2 && row.2 == "shared" && row.3 == "2026-08-07T00:00:02.000000100Z"
+    }));
+    assert!(rows.iter().any(|row| {
+        row.1 == 1 && row.2 == "shared" && row.3 == "2026-08-07T00:00:02.000000200Z"
+    }));
+    let due = store.list_due_wakeups(activity_retry_at).await.unwrap();
+    assert_eq!(due.len(), 2);
+    assert!(due
+        .iter()
+        .any(|wakeup| wakeup.kind == ScheduledWakeupKind::Retry));
+    assert!(due
+        .iter()
+        .any(|wakeup| wakeup.kind == ScheduledWakeupKind::ActivityRetry));
 }

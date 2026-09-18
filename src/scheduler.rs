@@ -92,7 +92,7 @@ impl FlowScheduler {
             .collect::<Vec<_>>();
         let due_retries = due
             .iter()
-            .filter(|wakeup| wakeup.kind == ScheduledWakeupKind::Retry)
+            .filter(|wakeup| wakeup.kind.is_retry())
             .map(|wakeup| (wakeup.run_id.clone(), wakeup.subject_id.clone()))
             .collect::<Vec<_>>();
         let mut enqueued_tasks = 0usize;

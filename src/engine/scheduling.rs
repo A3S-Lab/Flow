@@ -137,7 +137,7 @@ impl FlowEngine {
             .list_due_wakeups(now)
             .await?
             .into_iter()
-            .filter(|wakeup| wakeup.kind == ScheduledWakeupKind::Retry)
+            .filter(|wakeup| wakeup.kind.is_retry())
             .map(|wakeup| (wakeup.run_id, wakeup.subject_id))
             .collect::<Vec<_>>();
         due.sort();
@@ -218,9 +218,7 @@ impl FlowEngine {
             .filter(|wakeup| wakeup.kind == ScheduledWakeupKind::Wait)
             .map(|wakeup| wakeup.subject_id.clone())
             .collect::<Vec<_>>();
-        let has_due_retries = due
-            .iter()
-            .any(|wakeup| wakeup.kind == ScheduledWakeupKind::Retry);
+        let has_due_retries = due.iter().any(|wakeup| wakeup.kind.is_retry());
 
         let mut resumed_waits = Vec::with_capacity(due_wait_ids.len());
         let mut driven_snapshot = snapshot;
