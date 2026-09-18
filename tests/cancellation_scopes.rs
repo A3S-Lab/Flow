@@ -333,3 +333,152 @@ async fn scope_cancel_wakes_workflow_while_unscoped_timer_wait_is_open() {
         "unscoped timer must remain open; only the cancelled scope tree is cleaned"
     );
 }
+
+/// Workflow-emitted CancelScope must be observable via ordinary `drive()` recovery
+/// when an unscoped timer would otherwise short-circuit (DriveRun path).
+struct WorkflowCancelScopeBesideOpenWaitRuntime {
+    cancel_phase: AtomicBool,
+}
+
+#[async_trait]
+impl FlowRuntime for WorkflowCancelScopeBesideOpenWaitRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let ctx = invocation.context();
+        if ctx.scope_cancelled("payment") {
+            return Ok(ctx.complete(json!({ "cancelled": true })));
+        }
+        if ctx.wait_status("outer").is_none() {
+            return Ok(ctx.wait_until("outer", "2030-01-01T00:00:00Z".parse().unwrap()));
+        }
+        if ctx.update("arm").is_some() && !ctx.has_scope("payment") {
+            return Ok(ctx.open_scope("payment"));
+        }
+        if self.cancel_phase.load(Ordering::SeqCst)
+            && ctx.has_scope("payment")
+            && !ctx.scope_cancelled("payment")
+        {
+            return Ok(ctx.cancel_scope("payment", Some("workflow".into())));
+        }
+        Ok(ctx.wait_until("outer", "2030-01-01T00:00:00Z".parse().unwrap()))
+    }
+
+    async fn run_step(&self, _invocation: a3s_flow::StepInvocation) -> a3s_flow::Result<JsonValue> {
+        unreachable!("workflow-cancel-beside-wait runtime does not schedule steps")
+    }
+
+    async fn run_update(
+        &self,
+        _invocation: a3s_flow::UpdateInvocation,
+    ) -> a3s_flow::Result<JsonValue> {
+        Ok(json!({ "armed": true }))
+    }
+}
+
+struct CrashAfterWorkflowScopeCancelledStore {
+    inner: InMemoryEventStore,
+    armed: AtomicBool,
+}
+
+impl CrashAfterWorkflowScopeCancelledStore {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryEventStore::new(),
+            armed: AtomicBool::new(false),
+        }
+    }
+}
+
+#[async_trait]
+impl FlowEventStore for CrashAfterWorkflowScopeCancelledStore {
+    async fn append(&self, run_id: &str, event: FlowEvent) -> a3s_flow::Result<FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<FlowEventEnvelope> {
+        let envelope = self
+            .inner
+            .append_if_sequence(run_id, expected_sequence, event.clone())
+            .await?;
+        if matches!(
+            event,
+            FlowEvent::ScopeCancelled {
+                ref scope_id,
+                ..
+            } if scope_id == "payment"
+        ) && self.armed.swap(false, Ordering::SeqCst)
+        {
+            return Err(FlowError::Store(
+                "injected crash after workflow ScopeCancelled before observation drive".into(),
+            ));
+        }
+        Ok(envelope)
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<FlowEventEnvelope>> {
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+}
+
+#[tokio::test]
+async fn workflow_scope_cancelled_recovery_wakes_via_drive_while_unscoped_timer_is_open() {
+    let store = Arc::new(CrashAfterWorkflowScopeCancelledStore::new());
+    let runtime = Arc::new(WorkflowCancelScopeBesideOpenWaitRuntime {
+        cancel_phase: AtomicBool::new(false),
+    });
+    let engine = FlowEngine::new(store.clone(), runtime.clone());
+    engine
+        .start_with_id(
+            "workflow-scope-cancel-drive",
+            scope_spec().with_update("arm"),
+            json!({}),
+        )
+        .await
+        .unwrap();
+    engine
+        .apply_update(
+            "workflow-scope-cancel-drive",
+            a3s_flow::WorkflowUpdate::new("arm-1", "arm", json!({})),
+        )
+        .await
+        .unwrap();
+
+    runtime.cancel_phase.store(true, Ordering::SeqCst);
+    store.armed.store(true, Ordering::SeqCst);
+    let interrupted = engine
+        .apply_update(
+            "workflow-scope-cancel-drive",
+            a3s_flow::WorkflowUpdate::new("cancel-1", "arm", json!({})),
+        )
+        .await
+        .expect_err("crash after durable ScopeCancelled must interrupt");
+    assert!(matches!(interrupted, FlowError::Store(_)));
+
+    let mid = engine
+        .snapshot("workflow-scope-cancel-drive")
+        .await
+        .unwrap();
+    assert!(!mid.status.is_terminal());
+    assert!(mid.scope("payment").unwrap().is_cancelled());
+    assert_eq!(mid.waits["outer"].status, a3s_flow::WaitStatus::Waiting);
+
+    // Ordinary DriveRun recovery — not host cancel_scope.
+    let recovered = engine.drive("workflow-scope-cancel-drive").await.unwrap();
+    assert_eq!(
+        recovered.status,
+        WorkflowRunStatus::Completed,
+        "drive must observe tip ScopeCancelled beside an open unscoped timer"
+    );
+    assert_eq!(recovered.output, Some(json!({ "cancelled": true })));
+}
