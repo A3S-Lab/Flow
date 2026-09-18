@@ -148,3 +148,38 @@ pub(crate) fn validate_select(select_id: &str, arms: &[SelectArm]) -> Result<()>
     }
     Ok(())
 }
+
+/// Compare a re-issued select plan to the durable one.
+///
+/// Timer `resume_at` is intentionally ignored: durable waits already own the
+/// bound times, and workflows commonly recompute `Utc::now() + delay` on every
+/// replay while a JoinAll (or open Race) select remains open.
+pub(crate) fn select_definition_matches(
+    existing_arms: &[SelectArm],
+    existing_mode: SelectMode,
+    arms: &[SelectArm],
+    mode: SelectMode,
+) -> bool {
+    if existing_mode != mode || existing_arms.len() != arms.len() {
+        return false;
+    }
+    existing_arms
+        .iter()
+        .zip(arms.iter())
+        .all(|(existing, offered)| match (existing, offered) {
+            (SelectArm::Timer { arm_id: left, .. }, SelectArm::Timer { arm_id: right, .. }) => {
+                left == right
+            }
+            (
+                SelectArm::Signal {
+                    arm_id: left,
+                    signal_name: left_signal,
+                },
+                SelectArm::Signal {
+                    arm_id: right,
+                    signal_name: right_signal,
+                },
+            ) => left == right && left_signal == right_signal,
+            _ => false,
+        })
+}

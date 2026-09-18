@@ -1,7 +1,7 @@
 use crate::error::{FlowError, Result};
 use crate::model::{
-    validate_select, FlowEvent, SelectArm, SelectMode, SelectStatus, SignalWaitStatus, WaitStatus,
-    WorkflowRunSnapshot,
+    select_definition_matches, validate_select, FlowEvent, SelectArm, SelectMode, SelectStatus,
+    SignalWaitStatus, WaitStatus, WorkflowRunSnapshot,
 };
 
 use super::{validation::is_event_conflict, FlowEngine};
@@ -33,7 +33,7 @@ impl FlowEngine {
 
         match snapshot.select(&select_id) {
             Some(existing) => {
-                if existing.arms != arms || existing.mode != mode {
+                if !select_definition_matches(&existing.arms, existing.mode, &arms, mode) {
                     return Err(FlowError::InvalidTransition(format!(
                         "select {select_id} definition differs from the durable select"
                     )));

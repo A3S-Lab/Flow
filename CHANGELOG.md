@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed FLOW-R4 open JoinAll / select redrive after a forced timer resume (#115):
+  open select plan matching ignores timer `resume_at` so workflows that recompute
+  `Utc::now() + delay` while arms remain open no longer fail closed; arm identity,
+  kind, signal name, and mode drift stay rejected
+  (`join_all_completes_only_after_every_arm_finishes`,
+  `open_select_rejects_arm_identity_drift`).
+
 - Fixed FLOW-R4 unknown-activity reconciliation while another suspension stays
   open (#113): `resolve_unknown_activity` forces workflow replay so a durable
   completion, failure, or retry cannot be hidden by an open timer, hook, or
