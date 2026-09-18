@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 cold `snapshot` so a run with no usable checkpoint is rebuilt
+  from bounded `list_page` windows instead of unbounded `list`
+  (`snapshot_without_a_checkpoint_pages_history_instead_of_list`).
+
 - Fixed FLOW-R3 behind-tip snapshot catch-up so the delta after a validated
   checkpoint is read in bounded `list_page` windows instead of one unbounded
   `list_after`

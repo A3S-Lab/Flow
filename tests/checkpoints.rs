@@ -592,3 +592,34 @@ async fn behind_tip_snapshot_pages_a_tail_larger_than_one_history_page() {
     assert_eq!(snapshot.last_sequence, 2 + tail as u64);
     assert!(snapshot.waits.contains_key(&format!("pause-{}", tail - 1)));
 }
+
+#[tokio::test]
+async fn snapshot_without_a_checkpoint_pages_history_instead_of_list() {
+    let store = Arc::new(PageOnlyTailStore {
+        inner: InMemoryEventStore::new(),
+        reject_unbounded: std::sync::atomic::AtomicBool::new(true),
+    });
+    let run_id = "snapshot-paged-cold";
+    seed_running_run(store.as_ref(), run_id).await;
+    let extra = MAX_FLOW_HISTORY_PAGE_SIZE - 1;
+    for index in 0..extra {
+        store
+            .append(
+                run_id,
+                FlowEvent::WaitCreated {
+                    wait_id: format!("cold-{index}"),
+                    resume_at: "2030-01-01T00:00:00Z".parse().unwrap(),
+                },
+            )
+            .await
+            .unwrap();
+    }
+    let engine = FlowEngine::new(store, Arc::new(TestRuntime));
+    let snapshot = engine
+        .snapshot(run_id)
+        .await
+        .expect("a snapshot with no checkpoint must page history instead of calling list");
+    let expected = 2 + extra as u64;
+    assert_eq!(snapshot.last_sequence, expected);
+    assert!(snapshot.waits.contains_key(&format!("cold-{}", extra - 1)));
+}
