@@ -1,7 +1,7 @@
 use a3s_flow::{
     FlowEngine, FlowError, FlowEvent, FlowEventEnvelope, FlowEventStore, FlowRuntime,
-    InMemoryEventStore, JsonValue, QueryInvocation, RuntimeCommand, UpdateInvocation,
-    WaitStatus, WorkflowInvocation, WorkflowRunStatus, WorkflowSpec, WorkflowUpdate,
+    InMemoryEventStore, JsonValue, QueryInvocation, RuntimeCommand, UpdateInvocation, WaitStatus,
+    WorkflowInvocation, WorkflowRunStatus, WorkflowSpec, WorkflowUpdate,
 };
 use async_trait::async_trait;
 use chrono::{Duration as ChronoDuration, Utc};
@@ -292,10 +292,7 @@ impl FlowRuntime for RelativeWaitUpdateRuntime {
         let context = invocation.context();
         // Observe updates without completing so forced replay re-issues the open wait.
         let _ = context.updates().len();
-        Ok(context.wait_until(
-            "pause",
-            Utc::now() + ChronoDuration::hours(1),
-        ))
+        Ok(context.wait_until("pause", Utc::now() + ChronoDuration::hours(1)))
     }
 
     async fn run_step(

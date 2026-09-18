@@ -163,10 +163,7 @@ impl FlowRuntime for ArmIdentityDriftRuntime {
                 SelectArm::timer("b", second),
             ]
         } else {
-            vec![
-                SelectArm::timer("a", first),
-                SelectArm::timer("b", second),
-            ]
+            vec![SelectArm::timer("a", first), SelectArm::timer("b", second)]
         };
         Ok(ctx.join("both", arms))
     }

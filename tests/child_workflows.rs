@@ -734,10 +734,7 @@ impl FlowRuntime for ChildResolvedBesideOpenTimerRuntime {
                 }
                 // Arm a parent-side poll while the child stays open. Forced update
                 // replay must be able to create this wait beside the open child.
-                Ok(context.wait_until(
-                    "poll",
-                    "2030-01-01T00:00:00Z".parse().unwrap(),
-                ))
+                Ok(context.wait_until("poll", "2030-01-01T00:00:00Z".parse().unwrap()))
             }
             "child-workflow.child" => {
                 if invocation.history.iter().any(|envelope| {
@@ -748,10 +745,7 @@ impl FlowRuntime for ChildResolvedBesideOpenTimerRuntime {
                 }) {
                     return Ok(context.complete(json!({ "batch": context.input()["batch"] })));
                 }
-                Ok(context.wait_until(
-                    "child-hold",
-                    Utc::now() - Duration::seconds(1),
-                ))
+                Ok(context.wait_until("child-hold", Utc::now() - Duration::seconds(1)))
             }
             name => unreachable!("unexpected workflow {name}"),
         }
@@ -761,10 +755,7 @@ impl FlowRuntime for ChildResolvedBesideOpenTimerRuntime {
         unreachable!("child workflow tests do not execute steps")
     }
 
-    async fn run_update(
-        &self,
-        _invocation: a3s_flow::UpdateInvocation,
-    ) -> a3s_flow::Result<Value> {
+    async fn run_update(&self, _invocation: a3s_flow::UpdateInvocation) -> a3s_flow::Result<Value> {
         Ok(json!({ "armed": true }))
     }
 }
@@ -773,11 +764,7 @@ impl FlowRuntime for ChildResolvedBesideOpenTimerRuntime {
 async fn child_resolution_wakes_parent_while_another_timer_is_open() {
     let engine = FlowEngine::in_memory(Arc::new(ChildResolvedBesideOpenTimerRuntime));
     engine
-        .start_with_id(
-            PARENT_RUN_ID,
-            parent_spec().with_update("arm"),
-            json!({}),
-        )
+        .start_with_id(PARENT_RUN_ID, parent_spec().with_update("arm"), json!({}))
         .await
         .unwrap();
     let open = engine.snapshot(PARENT_RUN_ID).await.unwrap();
@@ -803,7 +790,10 @@ async fn child_resolution_wakes_parent_while_another_timer_is_open() {
         "parent poll wait must stay open beside the child"
     );
 
-    engine.resume_wait(&child_run_id, "child-hold").await.unwrap();
+    engine
+        .resume_wait(&child_run_id, "child-hold")
+        .await
+        .unwrap();
     assert_eq!(
         engine.snapshot(&child_run_id).await.unwrap().status,
         WorkflowRunStatus::Completed
