@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 explicit `checkpoint` refresh so a tip-matched cache is reused
+  instead of replaying the full event log
+  (`repeat_checkpoint_uses_the_tip_cache_instead_of_full_history`).
+
 - Fixed FLOW-R3 history partition sealing so the requested range is read in
   bounded pages. Sealing a prefix no longer loads the unbounded tail via
   `list_after` (`history_partition_seal_reads_only_the_requested_prefix`).

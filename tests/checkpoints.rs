@@ -379,3 +379,83 @@ async fn postgres_append_advances_projection_cache_atomically() {
     assert_eq!(checkpoint.last_sequence, 3);
     assert!(checkpoint.snapshot.waits.contains_key("pause"));
 }
+
+struct FailFullReplayStore {
+    inner: InMemoryEventStore,
+    fail_list: std::sync::atomic::AtomicBool,
+}
+
+#[async_trait]
+impl FlowEventStore for FailFullReplayStore {
+    async fn append(
+        &self,
+        run_id: &str,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<a3s_flow::FlowEventEnvelope> {
+        self.inner.append(run_id, event).await
+    }
+
+    async fn append_if_sequence(
+        &self,
+        run_id: &str,
+        expected_sequence: u64,
+        event: FlowEvent,
+    ) -> a3s_flow::Result<a3s_flow::FlowEventEnvelope> {
+        self.inner
+            .append_if_sequence(run_id, expected_sequence, event)
+            .await
+    }
+
+    async fn list(&self, run_id: &str) -> a3s_flow::Result<Vec<a3s_flow::FlowEventEnvelope>> {
+        if self.fail_list.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(FlowError::Store(
+                "full history replay is not allowed once a tip checkpoint exists".into(),
+            ));
+        }
+        self.inner.list(run_id).await
+    }
+
+    async fn list_run_ids(&self) -> a3s_flow::Result<Vec<String>> {
+        self.inner.list_run_ids().await
+    }
+
+    async fn latest_event(&self, run_id: &str) -> a3s_flow::Result<Option<(u64, uuid::Uuid)>> {
+        self.inner.latest_event(run_id).await
+    }
+
+    async fn load_checkpoint(
+        &self,
+        run_id: &str,
+    ) -> a3s_flow::Result<Option<a3s_flow::FlowProjectionCheckpoint>> {
+        self.inner.load_checkpoint(run_id).await
+    }
+
+    async fn save_checkpoint(
+        &self,
+        checkpoint: &a3s_flow::FlowProjectionCheckpoint,
+    ) -> a3s_flow::Result<()> {
+        self.inner.save_checkpoint(checkpoint).await
+    }
+}
+
+#[tokio::test]
+async fn repeat_checkpoint_uses_the_tip_cache_instead_of_full_history() {
+    let store = Arc::new(FailFullReplayStore {
+        inner: InMemoryEventStore::new(),
+        fail_list: std::sync::atomic::AtomicBool::new(false),
+    });
+    seed_running_run(store.as_ref(), "checkpoint-refresh").await;
+    let engine = FlowEngine::new(store.clone(), Arc::new(TestRuntime));
+
+    let first = engine.checkpoint("checkpoint-refresh").await.unwrap();
+    store
+        .fail_list
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let second = engine
+        .checkpoint("checkpoint-refresh")
+        .await
+        .expect("a tip-matched checkpoint must not replay the full log");
+    assert_eq!(second.last_sequence, first.last_sequence);
+    assert_eq!(second.last_event_id, first.last_event_id);
+    assert_eq!(second.snapshot_sha256, first.snapshot_sha256);
+}

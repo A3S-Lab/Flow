@@ -81,17 +81,25 @@ impl FlowEngine {
 
     /// Replay and persist a projection checkpoint for `run_id`.
     ///
-    /// Checkpoints are acceleration metadata only. If a checkpoint write fails,
-    /// the append-only history remains fully usable and `snapshot` falls back
-    /// to replay.
+    /// Uses the same tip-validated snapshot path as [`Self::snapshot`]. A
+    /// checkpoint that already matches the history tip is refreshed without
+    /// replaying the full log. Checkpoints are acceleration metadata only. If a
+    /// checkpoint write fails, the append-only history remains fully usable and
+    /// `snapshot` falls back to replay.
     pub async fn checkpoint(&self, run_id: &str) -> Result<FlowProjectionCheckpoint> {
-        let history = self.store.list(run_id).await?;
-        let snapshot = project_run(run_id, &history)?;
-        let last = history
-            .last()
+        let snapshot = self.snapshot(run_id).await?;
+        let (sequence, event_id) = self
+            .store
+            .latest_event(run_id)
+            .await?
             .ok_or_else(|| FlowError::RunNotFound(run_id.to_string()))?;
-        let checkpoint =
-            FlowProjectionCheckpoint::new(run_id, last.sequence, last.event_id, snapshot)?;
+        if snapshot.last_sequence != sequence {
+            return Err(FlowError::InvalidTransition(format!(
+                "checkpoint tip mismatch for {run_id}: snapshot sequence {} != history tip {sequence}",
+                snapshot.last_sequence
+            )));
+        }
+        let checkpoint = FlowProjectionCheckpoint::new(run_id, sequence, event_id, snapshot)?;
         self.store.save_checkpoint(&checkpoint).await?;
         Ok(checkpoint)
     }
