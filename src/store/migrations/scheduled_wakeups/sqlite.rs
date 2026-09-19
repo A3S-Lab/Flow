@@ -860,3 +860,152 @@ BEGIN
       AND subject_id = json_extract(NEW.event_json, '$.activity_id');
 END;
 "#;
+
+/// Structured select timer arms are waits, but they are recorded on
+/// `select_created` rather than `wait_created`. The scheduler index has to
+/// see them, and a race completion has to drop every timer arm except the
+/// winner. The winner is already removed by `wait_completed`.
+#[cfg(feature = "sqlite")]
+pub(super) const SQLITE_SCHEDULED_WAKEUPS_SELECT_TIMER_SQL: &str = r#"
+INSERT INTO flow_scheduled_wakeups (
+    run_id,
+    wakeup_kind,
+    subject_id,
+    scheduled_at_key,
+    created_sequence
+)
+SELECT
+    created.run_id,
+    0,
+    json_extract(arm.value, '$.arm_id'),
+    CASE
+        WHEN instr(json_extract(arm.value, '$.resume_at'), '.') = 0 THEN
+            substr(
+                json_extract(arm.value, '$.resume_at'),
+                1,
+                length(json_extract(arm.value, '$.resume_at')) - 1
+            ) || '.000000000Z'
+        ELSE
+            substr(
+                json_extract(arm.value, '$.resume_at'),
+                1,
+                instr(json_extract(arm.value, '$.resume_at'), '.')
+            ) ||
+            substr(
+                substr(
+                    json_extract(arm.value, '$.resume_at'),
+                    instr(json_extract(arm.value, '$.resume_at'), '.') + 1,
+                    length(json_extract(arm.value, '$.resume_at')) -
+                        instr(json_extract(arm.value, '$.resume_at'), '.') - 1
+                ) || '000000000',
+                1,
+                9
+            ) || 'Z'
+    END,
+    created.sequence
+FROM flow_events AS created,
+     json_each(json_extract(created.event_json, '$.arms')) AS arm
+WHERE json_extract(created.event_json, '$.type') = 'select_created'
+  AND json_extract(arm.value, '$.type') = 'timer'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM flow_events AS later
+      WHERE later.run_id = created.run_id
+        AND later.sequence > created.sequence
+        AND (
+            (
+                json_extract(later.event_json, '$.type') = 'wait_completed'
+                AND json_extract(later.event_json, '$.wait_id') =
+                    json_extract(arm.value, '$.arm_id')
+            )
+            OR (
+                json_extract(later.event_json, '$.type') = 'select_completed'
+                AND json_extract(later.event_json, '$.select_id') =
+                    json_extract(created.event_json, '$.select_id')
+                AND json_extract(arm.value, '$.arm_id') IS NOT
+                    json_extract(later.event_json, '$.winning_arm_id')
+            )
+            OR json_extract(later.event_json, '$.type') IN (
+                'run_cancellation_requested',
+                'run_completed',
+                'run_failed',
+                'run_cancelled',
+                'run_timed_out',
+                'run_retry_exhausted',
+                'run_host_shutdown',
+                'run_continued_as_new'
+            )
+        )
+  )
+ON CONFLICT (run_id, wakeup_kind, subject_id) DO UPDATE SET
+    scheduled_at_key = excluded.scheduled_at_key,
+    created_sequence = excluded.created_sequence;
+
+CREATE TRIGGER IF NOT EXISTS flow_scheduled_wakeups_after_select_created
+AFTER INSERT ON flow_events
+WHEN json_extract(NEW.event_json, '$.type') = 'select_created'
+BEGIN
+    INSERT INTO flow_scheduled_wakeups (
+        run_id,
+        wakeup_kind,
+        subject_id,
+        scheduled_at_key,
+        created_sequence
+    )
+    SELECT
+        NEW.run_id,
+        0,
+        json_extract(arm.value, '$.arm_id'),
+        CASE
+            WHEN instr(json_extract(arm.value, '$.resume_at'), '.') = 0 THEN
+                substr(
+                    json_extract(arm.value, '$.resume_at'),
+                    1,
+                    length(json_extract(arm.value, '$.resume_at')) - 1
+                ) || '.000000000Z'
+            ELSE
+                substr(
+                    json_extract(arm.value, '$.resume_at'),
+                    1,
+                    instr(json_extract(arm.value, '$.resume_at'), '.')
+                ) ||
+                substr(
+                    substr(
+                        json_extract(arm.value, '$.resume_at'),
+                        instr(json_extract(arm.value, '$.resume_at'), '.') + 1,
+                        length(json_extract(arm.value, '$.resume_at')) -
+                            instr(json_extract(arm.value, '$.resume_at'), '.') - 1
+                    ) || '000000000',
+                    1,
+                    9
+                ) || 'Z'
+        END,
+        NEW.sequence
+    FROM json_each(json_extract(NEW.event_json, '$.arms')) AS arm
+    WHERE json_extract(arm.value, '$.type') = 'timer'
+    ON CONFLICT (run_id, wakeup_kind, subject_id) DO UPDATE SET
+        scheduled_at_key = excluded.scheduled_at_key,
+        created_sequence = excluded.created_sequence;
+END;
+
+CREATE TRIGGER IF NOT EXISTS flow_scheduled_wakeups_after_select_completed
+AFTER INSERT ON flow_events
+WHEN json_extract(NEW.event_json, '$.type') = 'select_completed'
+BEGIN
+    DELETE FROM flow_scheduled_wakeups
+    WHERE run_id = NEW.run_id
+      AND wakeup_kind = 0
+      AND subject_id IN (
+          SELECT json_extract(arm.value, '$.arm_id')
+          FROM flow_events AS created,
+               json_each(json_extract(created.event_json, '$.arms')) AS arm
+          WHERE created.run_id = NEW.run_id
+            AND json_extract(created.event_json, '$.type') = 'select_created'
+            AND json_extract(created.event_json, '$.select_id') =
+                json_extract(NEW.event_json, '$.select_id')
+            AND json_extract(arm.value, '$.type') = 'timer'
+            AND json_extract(arm.value, '$.arm_id') IS NOT
+                json_extract(NEW.event_json, '$.winning_arm_id')
+      );
+END;
+"#;

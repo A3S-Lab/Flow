@@ -42,6 +42,8 @@ const SQLITE_SCHEDULED_WAKEUPS_ACTIVITY_RETRY_CHECKSUM: &str =
 #[cfg(feature = "sqlite")]
 const SQLITE_SCHEDULED_WAKEUPS_ACTIVITY_KIND_CHECKSUM: &str =
     "93d6b1ae76001b20a3e7992886bfb025a2c27d3393a27b6395412b7d14859c0a";
+const SQLITE_SCHEDULED_WAKEUPS_SELECT_TIMER_CHECKSUM: &str =
+    "23ee8b599bed019d5edf70e2f453d12ff5a28afa40e467c5ccf5f072af63d59e";
 const EVENT_ENVELOPE_SCHEMA_CHECKSUM: &str =
     "66b66243437158aaed793e75423b8ce8141c09bb5cc8f983bc4bce1a5b70bd09";
 const PROJECTION_CHECKPOINTS_CHECKSUM: &str =
@@ -74,6 +76,8 @@ const POSTGRES_SCHEDULED_WAKEUPS_ACTIVITY_RETRY_CHECKSUM: &str =
 #[cfg(feature = "postgres")]
 const POSTGRES_SCHEDULED_WAKEUPS_ACTIVITY_KIND_CHECKSUM: &str =
     "7f22e03e7d505502aca197979c88e58ee17fe11966c24f1b706ca8b60a24edb6";
+const POSTGRES_SCHEDULED_WAKEUPS_SELECT_TIMER_CHECKSUM: &str =
+    "37da59e13966bd8702ba1d545edd57414bd35a1cf8cf4ce2b2b65b5ea81044c6";
 
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 const LEGACY_EVENT_JSON: [&str; 4] = [
@@ -166,6 +170,10 @@ fn sqlite_migrations_keep_every_published_checksum() {
                 "a3s-flow-0012-activity-retry-wakeup-kind".into(),
                 SQLITE_SCHEDULED_WAKEUPS_ACTIVITY_KIND_CHECKSUM.into(),
             ),
+            (
+                "a3s-flow-0013-select-timer-wakeup".into(),
+                SQLITE_SCHEDULED_WAKEUPS_SELECT_TIMER_CHECKSUM.into(),
+            ),
         ]
     );
 }
@@ -223,6 +231,10 @@ fn postgres_migrations_keep_every_published_checksum() {
             (
                 "a3s-flow-0014-activity-retry-wakeup-kind".into(),
                 POSTGRES_SCHEDULED_WAKEUPS_ACTIVITY_KIND_CHECKSUM.into(),
+            ),
+            (
+                "a3s-flow-0015-select-timer-wakeup".into(),
+                POSTGRES_SCHEDULED_WAKEUPS_SELECT_TIMER_CHECKSUM.into(),
             ),
         ]
     );

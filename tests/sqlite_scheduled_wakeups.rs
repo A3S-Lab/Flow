@@ -2,7 +2,7 @@
 
 use a3s_flow::{
     CancellationRequest, FlowError, FlowEvent, FlowEventStore, RetryPolicy, RuntimeBuildId,
-    ScheduledWakeupKind, SqliteEventStore, WorkflowSpec,
+    ScheduledWakeupKind, SelectArm, SelectMode, SqliteEventStore, WorkflowSpec,
 };
 use a3s_orm::{sql_query, Database, Migration, Migrator, SqliteDialect, SqliteExecutor};
 use chrono::{DateTime, Utc};
@@ -52,6 +52,135 @@ async fn create_run(store: &SqliteEventStore, run_id: &str) {
         .await
         .unwrap();
     store.append(run_id, FlowEvent::RunStarted).await.unwrap();
+}
+
+#[tokio::test]
+async fn sqlite_select_timer_arm_is_a_scheduled_wakeup() {
+    let store = SqliteEventStore::connect("sqlite::memory:").await.unwrap();
+    let run_id = "sqlite-select-timer";
+    create_run(&store, run_id).await;
+    store
+        .append(
+            run_id,
+            FlowEvent::SelectCreated {
+                select_id: "race".into(),
+                arms: vec![
+                    SelectArm::timer("soon", timestamp("2200-08-07T00:00:01Z")),
+                    SelectArm::timer("later", timestamp("2200-08-07T00:00:02Z")),
+                ],
+                mode: SelectMode::Race,
+            },
+        )
+        .await
+        .unwrap();
+
+    let due = store
+        .list_due_wakeups(timestamp("2300-01-01T00:00:00Z"))
+        .await
+        .unwrap();
+    let subjects: Vec<_> = due
+        .iter()
+        .map(|wakeup| wakeup.subject_id.as_str())
+        .collect();
+    assert!(
+        subjects.contains(&"soon") && subjects.contains(&"later"),
+        "select timer arms must be indexed wakeups, got {subjects:?}"
+    );
+    let next = store
+        .next_scheduled_wakeup()
+        .await
+        .unwrap()
+        .expect("the earlier select timer must be the next wakeup");
+    assert_eq!(next.subject_id, "soon");
+    assert_eq!(next.kind, ScheduledWakeupKind::Wait);
+
+    store
+        .append(
+            run_id,
+            FlowEvent::WaitCompleted {
+                wait_id: "soon".into(),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            run_id,
+            FlowEvent::SelectCompleted {
+                select_id: "race".into(),
+                winning_arm_id: Some("soon".into()),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(
+        store
+            .list_due_wakeups(timestamp("2300-01-01T00:00:00Z"))
+            .await
+            .unwrap()
+            .is_empty(),
+        "a lost select timer must leave the wakeup index"
+    );
+
+    let signal_run = "sqlite-select-signal-timer";
+    store
+        .append_if_sequence(
+            signal_run,
+            0,
+            FlowEvent::RunCreated {
+                spec: spec().with_signal("approved"),
+                input: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(signal_run, FlowEvent::RunStarted)
+        .await
+        .unwrap();
+    store
+        .append(
+            signal_run,
+            FlowEvent::SelectCreated {
+                select_id: "signal-race".into(),
+                arms: vec![
+                    SelectArm::timer("timer-arm", timestamp("2200-08-07T00:00:03Z")),
+                    SelectArm::signal("signal-arm", "approved"),
+                ],
+                mode: SelectMode::Race,
+            },
+        )
+        .await
+        .unwrap();
+    let signal_race = store
+        .list_due_wakeups(timestamp("2300-01-01T00:00:00Z"))
+        .await
+        .unwrap();
+    assert_eq!(
+        signal_race
+            .iter()
+            .map(|wakeup| wakeup.subject_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["timer-arm"]
+    );
+    store
+        .append(
+            signal_run,
+            FlowEvent::SelectCompleted {
+                select_id: "signal-race".into(),
+                winning_arm_id: Some("signal-arm".into()),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(
+        store
+            .list_due_wakeups(timestamp("2300-01-01T00:00:00Z"))
+            .await
+            .unwrap()
+            .is_empty(),
+        "a signal winner must drop the losing timer arm"
+    );
 }
 
 #[tokio::test]

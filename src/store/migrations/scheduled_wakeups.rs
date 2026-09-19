@@ -1,5 +1,7 @@
 #[cfg(feature = "postgres")]
 mod postgres;
+#[cfg(feature = "postgres")]
+mod select_timer;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
@@ -14,6 +16,9 @@ pub(super) const POSTGRES_SCHEDULED_WAKEUPS_ACTIVITY_RETRY_SQL: &str =
 #[cfg(feature = "postgres")]
 pub(super) const POSTGRES_SCHEDULED_WAKEUPS_ACTIVITY_KIND_SQL: &str =
     postgres::POSTGRES_SCHEDULED_WAKEUPS_ACTIVITY_KIND_SQL;
+#[cfg(feature = "postgres")]
+pub(super) const POSTGRES_SCHEDULED_WAKEUPS_SELECT_TIMER_SQL: &str =
+    select_timer::POSTGRES_SCHEDULED_WAKEUPS_SELECT_TIMER_SQL;
 #[cfg(feature = "sqlite")]
 pub(super) const SQLITE_SCHEDULED_WAKEUPS_SQL: &str = sqlite::SQLITE_SCHEDULED_WAKEUPS_SQL;
 #[cfg(feature = "sqlite")]
@@ -25,3 +30,6 @@ pub(super) const SQLITE_SCHEDULED_WAKEUPS_ACTIVITY_RETRY_SQL: &str =
 #[cfg(feature = "sqlite")]
 pub(super) const SQLITE_SCHEDULED_WAKEUPS_ACTIVITY_KIND_SQL: &str =
     sqlite::SQLITE_SCHEDULED_WAKEUPS_ACTIVITY_KIND_SQL;
+#[cfg(feature = "sqlite")]
+pub(super) const SQLITE_SCHEDULED_WAKEUPS_SELECT_TIMER_SQL: &str =
+    sqlite::SQLITE_SCHEDULED_WAKEUPS_SELECT_TIMER_SQL;
