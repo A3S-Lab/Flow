@@ -2,7 +2,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::path::Path;
 use tokio::fs::{File, OpenOptions};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufReader, SeekFrom};
 
 use crate::error::{FlowError, Result};
 
@@ -236,6 +236,145 @@ where
     Ok(last)
 }
 
+const JSONL_TIP_CHUNK: u64 = 8 * 1024;
+
+/// Read only the JSONL tail.
+///
+/// A terminated corrupt line at the tip is an error. Prefix lines are not
+/// decoded, so a tip-matched checkpoint can validate an append without
+/// replaying the file. An unterminated torn tail is reported as
+/// [`JsonlTailRepair::Truncate`] and the previous valid record is returned.
+pub(crate) async fn read_jsonl_tip<T>(
+    mut file: File,
+    path: &Path,
+    record_kind: &str,
+) -> Result<(Option<T>, JsonlTailRepair)>
+where
+    T: DeserializeOwned,
+{
+    let len = file.metadata().await?.len();
+    if len == 0 {
+        return Ok((None, JsonlTailRepair::None));
+    }
+
+    let mut covered = 0u64;
+    let mut suffix = Vec::new();
+    loop {
+        let remaining = len - covered;
+        if remaining == 0 {
+            return finish_jsonl_tip(interpret_jsonl_suffix(&suffix, 0, true, path, record_kind)?);
+        }
+        let step = remaining.min(JSONL_TIP_CHUNK);
+        let start = len - covered - step;
+        file.seek(SeekFrom::Start(start)).await?;
+        let mut chunk = vec![
+            0u8;
+            usize::try_from(step).map_err(|_| {
+                FlowError::Store(format!(
+                    "JSONL tip read from {} exceeds the supported file offset",
+                    path.display()
+                ))
+            })?
+        ];
+        file.read_exact(&mut chunk).await?;
+        chunk.extend_from_slice(&suffix);
+        suffix = chunk;
+        covered += step;
+        if covered < len {
+            match interpret_jsonl_suffix(&suffix, len - covered, false, path, record_kind)? {
+                Some(tip) => return Ok(tip),
+                None => continue,
+            }
+        }
+        return finish_jsonl_tip(interpret_jsonl_suffix(&suffix, 0, true, path, record_kind)?);
+    }
+}
+
+fn finish_jsonl_tip<T>(
+    tip: Option<(Option<T>, JsonlTailRepair)>,
+) -> Result<(Option<T>, JsonlTailRepair)> {
+    tip.ok_or_else(|| {
+        FlowError::Store("JSONL tip read exhausted the file without a line boundary".to_string())
+    })
+}
+
+/// `Ok(None)` means the suffix does not yet contain a complete tip line.
+fn interpret_jsonl_suffix<T>(
+    data: &[u8],
+    suffix_start: u64,
+    at_start: bool,
+    path: &Path,
+    record_kind: &str,
+) -> Result<Option<(Option<T>, JsonlTailRepair)>>
+where
+    T: DeserializeOwned,
+{
+    if data.is_empty() {
+        return Ok(Some((None, JsonlTailRepair::None)));
+    }
+
+    let mut end = data.len();
+    let mut repair = JsonlTailRepair::None;
+    if data.last() != Some(&b'\n') {
+        let line_start = match data.iter().rposition(|byte| *byte == b'\n') {
+            Some(index) => index + 1,
+            None if !at_start => return Ok(None),
+            None => 0,
+        };
+        let line = &data[line_start..];
+        if line.iter().all(u8::is_ascii_whitespace) {
+            repair = JsonlTailRepair::Truncate(suffix_start + line_start as u64);
+            end = line_start;
+        } else {
+            match serde_json::from_slice::<T>(line) {
+                Ok(record) => {
+                    return Ok(Some((Some(record), JsonlTailRepair::AppendDelimiter)));
+                }
+                Err(_) => {
+                    repair = JsonlTailRepair::Truncate(suffix_start + line_start as u64);
+                    end = line_start;
+                }
+            }
+        }
+    }
+
+    loop {
+        if end == 0 {
+            return Ok(Some((None, repair)));
+        }
+        let scan_end = if data.get(end - 1) == Some(&b'\n') {
+            end - 1
+        } else {
+            end
+        };
+        if scan_end == 0 {
+            return Ok(Some((None, repair)));
+        }
+        let line_start = match data[..scan_end].iter().rposition(|byte| *byte == b'\n') {
+            Some(index) => index + 1,
+            None if !at_start => return Ok(None),
+            None => 0,
+        };
+        let line = &data[line_start..scan_end];
+        if line.iter().all(u8::is_ascii_whitespace) {
+            if line_start == 0 && !at_start {
+                return Ok(None);
+            }
+            end = line_start;
+            continue;
+        }
+        match serde_json::from_slice::<T>(line) {
+            Ok(record) => return Ok(Some((Some(record), repair))),
+            Err(error) => {
+                return Err(FlowError::Store(format!(
+                    "failed to decode {record_kind} line from {}: {error}",
+                    path.display()
+                )));
+            }
+        }
+    }
+}
+
 pub(crate) async fn repair_jsonl_tail(path: &Path, repair: JsonlTailRepair) -> Result<()> {
     match repair {
         JsonlTailRepair::None => Ok(()),
@@ -387,5 +526,36 @@ mod tests {
             .await
             .expect_err("terminated corruption");
         assert!(error.to_string().contains("failed to decode"));
+    }
+}
+
+#[cfg(test)]
+mod tip_tests {
+    use super::*;
+    use serde::Deserialize;
+    use tokio::io::AsyncWriteExt;
+
+    #[derive(Debug, Deserialize, PartialEq, Eq)]
+    struct SeqRecord {
+        sequence: u64,
+    }
+
+    #[tokio::test]
+    async fn read_jsonl_tip_ignores_a_corrupt_prefix() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("events.jsonl");
+        let mut file = File::create(&path).await.expect("create");
+        file.write_all(b"not-json\n").await.expect("corrupt");
+        file.write_all(br#"{"sequence":2}"#).await.expect("record");
+        file.write_all(b"\n").await.expect("newline");
+        file.flush().await.expect("flush");
+        drop(file);
+
+        let file = File::open(&path).await.expect("open");
+        let (record, repair) = read_jsonl_tip::<SeqRecord>(file, &path, "event")
+            .await
+            .expect("tip");
+        assert_eq!(repair, JsonlTailRepair::None);
+        assert_eq!(record.expect("tip").sequence, 2);
     }
 }

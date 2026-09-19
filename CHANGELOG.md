@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 LocalFile append so a tip-matched checkpoint validates the
+  candidate from that snapshot. The JSONL tip is read from the tail, so a
+  corrupt prefix is not replayed; without a matching checkpoint the full log
+  is still validated
+  (`local_file_tip_checkpoint_append_does_not_rescan_corrupt_prefix`,
+  `local_file_append_without_checkpoint_rejects_corrupt_prefix`,
+  `read_jsonl_tip_ignores_a_corrupt_prefix`).
+
 - Fixed FLOW-R3 tip identity so default `latest_event` and `event_at` read
   bounded `list_page` windows instead of unbounded `list` / `list_after`, and
   LocalFile `latest_event` keeps only the last JSONL record
