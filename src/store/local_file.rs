@@ -9,16 +9,20 @@ use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
 use crate::jsonl::{
-    append_jsonl_record, load_jsonl, load_jsonl_last, load_jsonl_page, repair_jsonl_tail,
-    LoadedJsonl,
+    append_jsonl_record, load_jsonl, load_jsonl_last, load_jsonl_page, read_jsonl_tip,
+    repair_jsonl_tail, LoadedJsonl,
 };
-use crate::model::{project_run, validate_run_id, FlowEvent, FlowEventEnvelope, HookStatus};
+use crate::model::{
+    project_run, project_run_from_snapshot, validate_run_id, FlowEvent, FlowEventEnvelope,
+    HookStatus,
+};
 
 use super::{
     next_event_sequence,
     retention::{plan_history_retention, required_linked_flow_run_id, FlowHistoryRetentionPolicy},
-    validate_candidate_event, FlowEventStore, FlowHistoryPartition, FlowProjectionCheckpoint,
-    FlowRunShardLayout, FlowStoreCapabilities, MAX_FLOW_HISTORY_PAGE_SIZE,
+    validate_candidate_event, validate_event_payload, FlowEventStore, FlowHistoryPartition,
+    FlowProjectionCheckpoint, FlowRunShardLayout, FlowStoreCapabilities,
+    MAX_FLOW_HISTORY_PAGE_SIZE,
 };
 
 /// JSONL-backed event store for local durable runs.
@@ -217,34 +221,8 @@ impl LocalFileEventStore {
         event: FlowEvent,
         enforce_cross_run: bool,
     ) -> Result<FlowEventEnvelope> {
-        tokio::fs::create_dir_all(self.shard_dir(run_id)?).await?;
-        if enforce_cross_run {
-            self.ensure_linked_flow_run_exists(&event).await?;
-            self.ensure_hook_token_available(run_id, &event).await?;
-        }
-
-        let LoadedJsonl {
-            records: events,
-            tail_repair,
-        } = self.load_inner(run_id, true).await?;
-        self.validate_existing_log(run_id, &events)?;
-        validate_candidate_event(run_id, &events, &event)?;
-        let sequence =
-            next_event_sequence(events.last().map_or(0, |event| event.sequence), run_id)?;
-        let envelope = FlowEventEnvelope {
-            schema_version: crate::model::FLOW_EVENT_ENVELOPE_SCHEMA_VERSION,
-            run_id: run_id.to_string(),
-            sequence,
-            event_id: Uuid::new_v4(),
-            timestamp: Utc::now(),
-            event,
-            schema_version_explicit: true,
-        };
-
-        let path = self.run_path(run_id)?;
-        repair_jsonl_tail(&path, tail_repair).await?;
-        append_jsonl_record(&path, &envelope).await?;
-        Ok(envelope)
+        self.append_prepared(run_id, None, event, enforce_cross_run)
+            .await
     }
 
     async fn append_if_sequence_inner(
@@ -254,42 +232,174 @@ impl LocalFileEventStore {
         event: FlowEvent,
         enforce_cross_run: bool,
     ) -> Result<FlowEventEnvelope> {
+        self.append_prepared(run_id, Some(expected_sequence), event, enforce_cross_run)
+            .await
+    }
+
+    async fn append_prepared(
+        &self,
+        run_id: &str,
+        expected_sequence: Option<u64>,
+        event: FlowEvent,
+        enforce_cross_run: bool,
+    ) -> Result<FlowEventEnvelope> {
         tokio::fs::create_dir_all(self.shard_dir(run_id)?).await?;
         if enforce_cross_run {
             self.ensure_linked_flow_run_exists(&event).await?;
             self.ensure_hook_token_available(run_id, &event).await?;
         }
 
-        let LoadedJsonl {
-            records: events,
-            tail_repair,
-        } = self.load_inner(run_id, true).await?;
-        self.validate_existing_log(run_id, &events)?;
-        let actual_sequence = events.last().map_or(0, |event| event.sequence);
-        if actual_sequence != expected_sequence {
-            return Err(FlowError::EventConflict {
-                run_id: run_id.to_string(),
-                expected_sequence,
-                actual_sequence,
-            });
-        }
-        validate_candidate_event(run_id, &events, &event)?;
-        let sequence = next_event_sequence(actual_sequence, run_id)?;
-
-        let envelope = FlowEventEnvelope {
-            schema_version: crate::model::FLOW_EVENT_ENVELOPE_SCHEMA_VERSION,
-            run_id: run_id.to_string(),
-            sequence,
-            event_id: Uuid::new_v4(),
-            timestamp: Utc::now(),
-            event,
-            schema_version_explicit: true,
+        let path = self.run_path(run_id)?;
+        let tip = match File::open(&path).await {
+            Ok(file) => Some(read_jsonl_tip::<FlowEventEnvelope>(file, &path, "event").await?),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+            Err(err) => return Err(FlowError::Io(err)),
         };
 
-        let path = self.run_path(run_id)?;
-        repair_jsonl_tail(&path, tail_repair).await?;
+        let (actual_sequence, checkpoint) = match tip {
+            Some((envelope, tail_repair)) => {
+                repair_jsonl_tail(&path, tail_repair).await?;
+                if let Some(envelope) = envelope.as_ref() {
+                    if envelope.run_id != run_id {
+                        return Err(FlowError::Store(format!(
+                            "latest event in {} belongs to run {}, not {run_id}",
+                            path.display(),
+                            envelope.run_id
+                        )));
+                    }
+                }
+                let actual_sequence = envelope.as_ref().map_or(0, |event| event.sequence);
+                let checkpoint = self.load_checkpoint_inner(run_id).await?;
+                let matched = checkpoint.as_ref().is_some_and(|checkpoint| {
+                    checkpoint.validate().is_ok()
+                        && checkpoint.run_id == run_id
+                        && envelope.as_ref().is_some_and(|tip| {
+                            checkpoint.last_sequence == tip.sequence
+                                && checkpoint.last_event_id == tip.event_id
+                        })
+                });
+                if matched {
+                    (actual_sequence, checkpoint)
+                } else {
+                    let events = self.list_inner(run_id, true).await?;
+                    return self
+                        .append_from_history(run_id, &path, &events, expected_sequence, event)
+                        .await;
+                }
+            }
+            None => {
+                return self
+                    .append_from_history(run_id, &path, &[], expected_sequence, event)
+                    .await;
+            }
+        };
+
+        if let Some(expected_sequence) = expected_sequence {
+            if actual_sequence != expected_sequence {
+                return Err(FlowError::EventConflict {
+                    run_id: run_id.to_string(),
+                    expected_sequence,
+                    actual_sequence,
+                });
+            }
+        }
+        let Some(checkpoint) = checkpoint else {
+            return Err(FlowError::Store(format!(
+                "tip checkpoint for {run_id} disappeared during append"
+            )));
+        };
+        validate_event_payload(&event)?;
+        let sequence = next_event_sequence(actual_sequence, run_id)?;
+        let envelope = FlowEventEnvelope::new(run_id, sequence, Uuid::new_v4(), Utc::now(), event);
+        let projected = project_run_from_snapshot(
+            run_id,
+            checkpoint.snapshot,
+            std::slice::from_ref(&envelope),
+        )?;
         append_jsonl_record(&path, &envelope).await?;
+        self.remember_checkpoint(run_id, &envelope, projected).await;
         Ok(envelope)
+    }
+
+    async fn append_from_history(
+        &self,
+        run_id: &str,
+        path: &Path,
+        events: &[FlowEventEnvelope],
+        expected_sequence: Option<u64>,
+        event: FlowEvent,
+    ) -> Result<FlowEventEnvelope> {
+        if !events.is_empty() {
+            self.validate_existing_log(run_id, events)?;
+        }
+        let actual_sequence = events.last().map_or(0, |event| event.sequence);
+        if let Some(expected_sequence) = expected_sequence {
+            if actual_sequence != expected_sequence {
+                return Err(FlowError::EventConflict {
+                    run_id: run_id.to_string(),
+                    expected_sequence,
+                    actual_sequence,
+                });
+            }
+        }
+        validate_candidate_event(run_id, events, &event)?;
+        let sequence = next_event_sequence(actual_sequence, run_id)?;
+        let envelope = FlowEventEnvelope::new(run_id, sequence, Uuid::new_v4(), Utc::now(), event);
+        let projected = match events.is_empty() {
+            true => project_run(run_id, std::slice::from_ref(&envelope))?,
+            false => {
+                let base = project_run(run_id, events)?;
+                project_run_from_snapshot(run_id, base, std::slice::from_ref(&envelope))?
+            }
+        };
+        append_jsonl_record(path, &envelope).await?;
+        self.remember_checkpoint(run_id, &envelope, projected).await;
+        Ok(envelope)
+    }
+
+    async fn remember_checkpoint(
+        &self,
+        run_id: &str,
+        envelope: &FlowEventEnvelope,
+        snapshot: crate::model::WorkflowRunSnapshot,
+    ) {
+        if let Ok(checkpoint) =
+            FlowProjectionCheckpoint::new(run_id, envelope.sequence, envelope.event_id, snapshot)
+        {
+            let _ = self.save_checkpoint_inner(&checkpoint).await;
+        }
+    }
+
+    async fn load_checkpoint_inner(
+        &self,
+        run_id: &str,
+    ) -> Result<Option<FlowProjectionCheckpoint>> {
+        let path = self.checkpoint_path(run_id)?;
+        let bytes = match tokio::fs::read(&path).await {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(FlowError::Io(error)),
+        };
+        // Checkpoints are disposable metadata. A torn or incompatible cache
+        // must never make an otherwise valid event history unreadable.
+        Ok(serde_json::from_slice(&bytes).ok())
+    }
+
+    async fn save_checkpoint_inner(&self, checkpoint: &FlowProjectionCheckpoint) -> Result<()> {
+        let path = self.checkpoint_path(&checkpoint.run_id)?;
+        if let Ok(bytes) = tokio::fs::read(&path).await {
+            if let Ok(existing) = serde_json::from_slice::<FlowProjectionCheckpoint>(&bytes) {
+                if checkpoint.last_sequence < existing.last_sequence {
+                    return Ok(());
+                }
+            }
+        }
+        tokio::fs::create_dir_all(self.shard_dir(&checkpoint.run_id)?).await?;
+        let temporary = path.with_extension("checkpoint.json.tmp");
+        let bytes = serde_json::to_vec(checkpoint)?;
+        tokio::fs::write(&temporary, bytes).await?;
+        tokio::fs::rename(&temporary, &path).await?;
+        Ok(())
     }
 
     async fn ensure_linked_flow_run_exists(&self, event: &FlowEvent) -> Result<()> {
@@ -512,34 +622,13 @@ impl FlowEventStore for LocalFileEventStore {
 
     async fn load_checkpoint(&self, run_id: &str) -> Result<Option<FlowProjectionCheckpoint>> {
         let _guard = self.lock.lock().await;
-        let path = self.checkpoint_path(run_id)?;
-        let bytes = match tokio::fs::read(&path).await {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(FlowError::Io(error)),
-        };
-        // Checkpoints are disposable metadata. A torn or incompatible cache
-        // must never make an otherwise valid event history unreadable.
-        Ok(serde_json::from_slice(&bytes).ok())
+        self.load_checkpoint_inner(run_id).await
     }
 
     async fn save_checkpoint(&self, checkpoint: &FlowProjectionCheckpoint) -> Result<()> {
         checkpoint.validate()?;
         let _guard = self.lock.lock().await;
-        let path = self.checkpoint_path(&checkpoint.run_id)?;
-        if let Ok(bytes) = tokio::fs::read(&path).await {
-            if let Ok(existing) = serde_json::from_slice::<FlowProjectionCheckpoint>(&bytes) {
-                if checkpoint.last_sequence < existing.last_sequence {
-                    return Ok(());
-                }
-            }
-        }
-        tokio::fs::create_dir_all(self.shard_dir(&checkpoint.run_id)?).await?;
-        let temporary = path.with_extension("checkpoint.json.tmp");
-        let bytes = serde_json::to_vec(checkpoint)?;
-        tokio::fs::write(&temporary, bytes).await?;
-        tokio::fs::rename(&temporary, &path).await?;
-        Ok(())
+        self.save_checkpoint_inner(checkpoint).await
     }
 
     async fn list_history_partitions(&self, run_id: &str) -> Result<Vec<FlowHistoryPartition>> {
@@ -612,4 +701,104 @@ async fn collect_jsonl_run_ids(dir: &Path, ids: &mut Vec<String>) -> Result<()> 
 
 fn is_safe_run_id(run_id: &str) -> bool {
     validate_run_id(run_id).is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{project_run, FlowEvent, WorkflowProgress, WorkflowSpec};
+    use serde_json::json;
+
+    fn run_created() -> FlowEvent {
+        FlowEvent::RunCreated {
+            spec: WorkflowSpec::rust_embedded(
+                "test.local-checkpoint-append",
+                "1",
+                "store::local_file::tests",
+                "main",
+            ),
+            input: json!({}),
+        }
+    }
+
+    async fn corrupt_first_line(store: &LocalFileEventStore, run_id: &str) {
+        let path = store.run_path(run_id).expect("run path");
+        let mut bytes = tokio::fs::read(&path).await.expect("read log");
+        let newline = bytes
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .expect("first line");
+        bytes[..newline].fill(b'x');
+        tokio::fs::write(&path, bytes)
+            .await
+            .expect("corrupt prefix");
+    }
+
+    #[tokio::test]
+    async fn local_file_tip_checkpoint_append_does_not_rescan_corrupt_prefix() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let store = LocalFileEventStore::new(directory.path());
+        let run_id = "checkpoint-append";
+        store
+            .append_if_sequence(run_id, 0, run_created())
+            .await
+            .unwrap();
+        store
+            .append_if_sequence(run_id, 1, FlowEvent::RunStarted)
+            .await
+            .unwrap();
+        let history = store.list(run_id).await.unwrap();
+        let tip = history.last().expect("tip");
+        let snapshot = project_run(run_id, &history).unwrap();
+        store
+            .save_checkpoint(
+                &FlowProjectionCheckpoint::new(run_id, tip.sequence, tip.event_id, snapshot)
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        corrupt_first_line(&store, run_id).await;
+
+        let appended = store
+            .append_if_sequence(
+                run_id,
+                tip.sequence,
+                FlowEvent::RunProgressRecorded {
+                    progress: WorkflowProgress::new("after-checkpoint", 1),
+                },
+            )
+            .await
+            .expect("tip-matched checkpoint append must not rescan the JSONL prefix");
+        assert_eq!(appended.sequence, tip.sequence + 1);
+    }
+
+    #[tokio::test]
+    async fn local_file_append_without_checkpoint_rejects_corrupt_prefix() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let store = LocalFileEventStore::new(directory.path());
+        let run_id = "cold-append";
+        store
+            .append_if_sequence(run_id, 0, run_created())
+            .await
+            .unwrap();
+        store
+            .append_if_sequence(run_id, 1, FlowEvent::RunStarted)
+            .await
+            .unwrap();
+        let checkpoint = store.checkpoint_path(run_id).expect("checkpoint path");
+        tokio::fs::remove_file(&checkpoint).await.ok();
+        corrupt_first_line(&store, run_id).await;
+
+        let error = store
+            .append_if_sequence(
+                run_id,
+                2,
+                FlowEvent::RunProgressRecorded {
+                    progress: WorkflowProgress::new("cold", 1),
+                },
+            )
+            .await
+            .expect_err("cold append must still reject a corrupt prefix");
+        assert!(error.to_string().contains("failed to decode"));
+    }
 }
