@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 composed shards so a link to a pruned run id returns
+  `RunConflict` from that shard's tombstone instead of `RunNotFound`
+  (`composed_local_file_link_to_pruned_run_is_tombstone_conflict`).
+
 - Fixed FLOW-R3 LocalFile retention so pruning a terminal history writes an
   audit tombstone before deleting the log. A later append of that run id, or a
   link to it, returns `RunConflict` instead of starting a new history

@@ -646,6 +646,11 @@ impl FlowEventStore for LocalFileEventStore {
         self.append_inner(run_id, event, true).await
     }
 
+    async fn reject_retired_run_id(&self, run_id: &str) -> Result<()> {
+        let _guard = self.lock.lock().await;
+        self.reject_if_tombstoned(run_id).await
+    }
+
     async fn append_if_sequence(
         &self,
         run_id: &str,

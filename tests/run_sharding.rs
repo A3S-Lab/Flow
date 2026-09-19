@@ -4,6 +4,7 @@ use a3s_flow::{
     WorkflowInvocation, WorkflowSpec,
 };
 use async_trait::async_trait;
+use chrono::{Duration, Utc};
 use serde_json::json;
 use std::sync::Arc;
 
@@ -360,4 +361,80 @@ fn composed_sharded_store_rejects_nested_or_mismatched_backends() {
         mismatch,
         a3s_flow::FlowError::InvalidTransition(_)
     ));
+}
+
+#[tokio::test]
+async fn composed_local_file_link_to_pruned_run_is_tombstone_conflict() {
+    let left = tempfile::tempdir().unwrap();
+    let right = tempfile::tempdir().unwrap();
+    let shard0 = Arc::new(LocalFileEventStore::new(left.path()));
+    let shard1 = Arc::new(LocalFileEventStore::new(right.path()));
+    let layout = FlowRunShardLayout::new(2).unwrap();
+    let store = ShardedFlowEventStore::new(
+        layout,
+        vec![
+            shard0.clone() as Arc<dyn FlowEventStore>,
+            shard1.clone() as Arc<dyn FlowEventStore>,
+        ],
+    )
+    .unwrap();
+    let parent = "cross-prune-parent".to_string();
+    let child = (0..10_000)
+        .map(|index| format!("cross-prune-child-{index}"))
+        .find(|candidate| layout.shard_index(candidate) != layout.shard_index(&parent))
+        .expect("expected a child run id on a different shard");
+
+    store
+        .append(
+            &child,
+            FlowEvent::RunCreated {
+                spec: spec(),
+                input: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+    store.append(&child, FlowEvent::RunStarted).await.unwrap();
+    store
+        .append(&child, FlowEvent::RunCompleted { output: json!({}) })
+        .await
+        .unwrap();
+    let owner = if layout.shard_index(&child) == 0 {
+        &shard0
+    } else {
+        &shard1
+    };
+    let removed = owner
+        .prune_terminal_runs_older_than(Utc::now() + Duration::days(1))
+        .await
+        .unwrap();
+    assert_eq!(removed, vec![child.clone()]);
+
+    store
+        .append(
+            &parent,
+            FlowEvent::RunCreated {
+                spec: spec(),
+                input: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+    store.append(&parent, FlowEvent::RunStarted).await.unwrap();
+    let linked = store
+        .append(
+            &parent,
+            FlowEvent::ChildOperationLinked {
+                child: ChildOperationReference::new("op", "ext", "kind").with_flow_run_id(child),
+            },
+        )
+        .await
+        .expect_err("a link to a pruned run must stay a tombstone conflict");
+    assert!(
+        matches!(
+            linked,
+            a3s_flow::FlowError::RunConflict { ref reason, .. } if reason.contains("tombstoned")
+        ),
+        "got {linked}"
+    );
 }

@@ -210,6 +210,19 @@ impl FlowEventStore for SqliteEventStore {
             .await
     }
 
+    async fn reject_retired_run_id(&self, run_id: &str) -> Result<()> {
+        let run_id = run_id.to_string();
+        let result = self
+            .executor
+            .transaction(|transaction| {
+                Box::pin(async move {
+                    retention::ensure_sqlite_history_not_tombstoned(transaction, &run_id).await
+                })
+            })
+            .await;
+        map_sqlite_transaction(result)
+    }
+
     async fn append_validated_if_sequence(
         &self,
         run_id: &str,
