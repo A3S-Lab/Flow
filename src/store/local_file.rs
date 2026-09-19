@@ -1260,4 +1260,66 @@ mod tests {
         assert_eq!(tombstone.terminal_event_key, "flow.run.completed");
         assert_eq!(tombstone.terminal_sequence, 3);
     }
+
+    #[tokio::test]
+    async fn continuation_cycle_does_not_block_unrelated_retention() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let store = LocalFileEventStore::new(directory.path());
+        for run_id in ["pred", "succ"] {
+            store
+                .append_if_sequence(run_id, 0, run_created())
+                .await
+                .unwrap();
+            store
+                .append_if_sequence(run_id, 1, FlowEvent::RunStarted)
+                .await
+                .unwrap();
+        }
+        store
+            .append_if_sequence(
+                "pred",
+                2,
+                FlowEvent::RunContinuedAsNew {
+                    successor_run_id: "succ".into(),
+                    input: json!({}),
+                },
+            )
+            .await
+            .unwrap();
+        store
+            .append_if_sequence(
+                "succ",
+                2,
+                FlowEvent::RunContinuedAsNew {
+                    successor_run_id: "pred".into(),
+                    input: json!({}),
+                },
+            )
+            .await
+            .unwrap();
+        store
+            .append_if_sequence("keep", 0, run_created())
+            .await
+            .unwrap();
+        store
+            .append_if_sequence("keep", 1, FlowEvent::RunStarted)
+            .await
+            .unwrap();
+        store
+            .append_if_sequence("keep", 2, FlowEvent::RunCompleted { output: json!({}) })
+            .await
+            .unwrap();
+
+        let removed = store
+            .prune_terminal_runs_older_than(Utc::now() + chrono::Duration::days(1))
+            .await
+            .expect("a continuation cycle must not fail the rest of the scan");
+        assert_eq!(removed, vec!["keep".to_string()]);
+        assert!(store.list("pred").await.is_ok());
+        assert!(store.list("succ").await.is_ok());
+        assert!(matches!(
+            store.list("keep").await.unwrap_err(),
+            FlowError::RunNotFound(_)
+        ));
+    }
 }

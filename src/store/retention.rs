@@ -120,7 +120,8 @@ pub(crate) struct FlowHistoryRetentionPlan {
 /// linked-component protection. `tombstoned_run_ids` are peers whose histories
 /// are already gone; a link to one of them does not pin the rest of a finished
 /// component. A link to a run that is neither present nor tombstoned stays
-/// dangling.
+/// dangling. A continuation or child-workflow cycle retains that component
+/// and does not fail the scan of unrelated histories.
 pub(crate) fn plan_history_retention(
     histories: &BTreeMap<String, Vec<FlowEventEnvelope>>,
     hold_run_ids: &BTreeSet<String>,
@@ -231,13 +232,26 @@ pub(crate) fn plan_history_retention(
             }
         }
         visited.extend(component.iter().cloned());
-        validate_linked_workflow_component(
+        match validate_linked_workflow_component(
             &component,
             histories,
             &continuations,
             &child_workflows,
             storage_name,
-        )?;
+        ) {
+            Ok(()) => {}
+            // A cycle is confined to this component. Retain it and keep
+            // scanning so one bad chain cannot pin every other history.
+            Err(FlowError::ContinueAsNewCycle(_) | FlowError::ChildWorkflowCycle(_)) => {
+                referenced.extend(
+                    component
+                        .into_iter()
+                        .filter(|run_id| eligible.contains(run_id)),
+                );
+                continue;
+            }
+            Err(error) => return Err(error),
+        }
         let component_is_deletable = component.iter().all(|run_id| eligible.contains(run_id))
             && component
                 .iter()

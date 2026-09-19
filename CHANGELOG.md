@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 retention so a continuation cycle retains that component
+  instead of failing the scan and pinning every other terminal history
+  (`continuation_cycle_does_not_block_unrelated_retention`).
+
 - Fixed FLOW-R3 retention so a tombstoned linked peer does not pin the rest
   of a finished component forever
   (`composed_prune_finishes_after_a_linked_peer_was_already_retired`).
