@@ -14,7 +14,7 @@ use crate::jsonl::{
 };
 use crate::model::{
     project_run, project_run_from_snapshot, validate_run_id, FlowEvent, FlowEventEnvelope,
-    HookStatus,
+    HookStatus, WorkflowRunSnapshot,
 };
 
 use super::{
@@ -402,15 +402,60 @@ impl LocalFileEventStore {
         Ok(())
     }
 
+    /// Committed JSONL tip, ignoring an unterminated torn tail and any prefix.
+    ///
+    /// Existence and hook-token checks only need the latest committed record,
+    /// matching SQL `latest sequence` and in-memory `run_exists`. A terminated
+    /// corrupt tip is still an error. This read does not repair the file.
+    async fn read_committed_tip(&self, run_id: &str) -> Result<Option<FlowEventEnvelope>> {
+        let path = self.run_path(run_id)?;
+        let file = match File::open(&path).await {
+            Ok(file) => file,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(err) => return Err(FlowError::Io(err)),
+        };
+        let (tip, _repair) = read_jsonl_tip::<FlowEventEnvelope>(file, &path, "event").await?;
+        if let Some(envelope) = tip.as_ref() {
+            if envelope.run_id != run_id {
+                return Err(FlowError::Store(format!(
+                    "latest event in {} belongs to run {}, not {run_id}",
+                    path.display(),
+                    envelope.run_id
+                )));
+            }
+        }
+        Ok(tip)
+    }
+
+    /// Tip-matched checkpoint when one exists; otherwise a full projection.
+    ///
+    /// A missing or mismatched checkpoint must still decode the history, so a
+    /// corrupt prefix is not hidden by skipping the run.
+    async fn snapshot_matching_tip(&self, run_id: &str) -> Result<Option<WorkflowRunSnapshot>> {
+        let Some(tip) = self.read_committed_tip(run_id).await? else {
+            return Ok(None);
+        };
+        if let Some(checkpoint) = self.load_checkpoint_inner(run_id).await? {
+            if checkpoint.validate().is_ok()
+                && checkpoint.run_id == run_id
+                && checkpoint.last_sequence == tip.sequence
+                && checkpoint.last_event_id == tip.event_id
+            {
+                return Ok(Some(checkpoint.snapshot));
+            }
+        }
+        let events = self.list_inner(run_id, false).await?;
+        Ok(Some(project_run(run_id, &events)?))
+    }
+
     async fn ensure_linked_flow_run_exists(&self, event: &FlowEvent) -> Result<()> {
         let Some(linked_run_id) = required_linked_flow_run_id(event) else {
             return Ok(());
         };
-        let events = self.list_inner(linked_run_id, false).await?;
-        if events.is_empty() {
+        if self.read_committed_tip(linked_run_id).await?.is_none() {
             return Err(FlowError::RunNotFound(linked_run_id.to_string()));
         }
-        self.validate_existing_log(linked_run_id, &events)
+        Ok(())
     }
 
     async fn ensure_hook_token_available(&self, run_id: &str, event: &FlowEvent) -> Result<()> {
@@ -419,8 +464,9 @@ impl LocalFileEventStore {
         };
 
         for candidate_run_id in self.list_run_ids_inner().await? {
-            let events = self.list_inner(&candidate_run_id, false).await?;
-            let snapshot = project_run(&candidate_run_id, &events)?;
+            let Some(snapshot) = self.snapshot_matching_tip(&candidate_run_id).await? else {
+                continue;
+            };
             if snapshot.status.is_terminal() {
                 continue;
             }
@@ -706,7 +752,9 @@ fn is_safe_run_id(run_id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{project_run, FlowEvent, WorkflowProgress, WorkflowSpec};
+    use crate::model::{
+        project_run, ChildOperationReference, FlowEvent, WorkflowProgress, WorkflowSpec,
+    };
     use serde_json::json;
 
     fn run_created() -> FlowEvent {
@@ -799,6 +847,165 @@ mod tests {
             )
             .await
             .expect_err("cold append must still reject a corrupt prefix");
+        assert!(error.to_string().contains("failed to decode"));
+    }
+
+    #[tokio::test]
+    async fn local_file_linked_run_check_uses_tip_not_full_history() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let store = LocalFileEventStore::new(directory.path());
+        store
+            .append_if_sequence("parent-missing", 0, run_created())
+            .await
+            .unwrap();
+        store
+            .append_if_sequence("parent-missing", 1, FlowEvent::RunStarted)
+            .await
+            .unwrap();
+        let missing = store
+            .append_if_sequence(
+                "parent-missing",
+                2,
+                FlowEvent::ChildOperationLinked {
+                    child: ChildOperationReference::new("op", "kind", "ext")
+                        .with_flow_run_id("absent-child"),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(missing, FlowError::RunNotFound(_)));
+
+        store
+            .append_if_sequence("child-run", 0, run_created())
+            .await
+            .unwrap();
+        store
+            .append_if_sequence("child-run", 1, FlowEvent::RunStarted)
+            .await
+            .unwrap();
+        corrupt_first_line(&store, "child-run").await;
+
+        store
+            .append_if_sequence("parent-run", 0, run_created())
+            .await
+            .unwrap();
+        store
+            .append_if_sequence("parent-run", 1, FlowEvent::RunStarted)
+            .await
+            .unwrap();
+        let linked = store
+            .append_if_sequence(
+                "parent-run",
+                2,
+                FlowEvent::ChildOperationLinked {
+                    child: ChildOperationReference::new("op", "kind", "ext")
+                        .with_flow_run_id("child-run"),
+                },
+            )
+            .await
+            .expect("linked-run existence must use the JSONL tip, not a full replay");
+        assert_eq!(linked.sequence, 3);
+    }
+
+    #[tokio::test]
+    async fn local_file_hook_token_check_uses_tip_checkpoint() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let store = LocalFileEventStore::new(directory.path());
+        store
+            .append_if_sequence("hook-owner", 0, run_created())
+            .await
+            .unwrap();
+        store
+            .append_if_sequence("hook-owner", 1, FlowEvent::RunStarted)
+            .await
+            .unwrap();
+        store
+            .append_if_sequence(
+                "hook-owner",
+                2,
+                FlowEvent::HookCreated {
+                    hook_id: "approval".into(),
+                    token: "shared-token".into(),
+                    metadata: json!({}),
+                },
+            )
+            .await
+            .unwrap();
+        corrupt_first_line(&store, "hook-owner").await;
+
+        store
+            .append_if_sequence("hook-other", 0, run_created())
+            .await
+            .unwrap();
+        store
+            .append_if_sequence("hook-other", 1, FlowEvent::RunStarted)
+            .await
+            .unwrap();
+        let conflict = store
+            .append_if_sequence(
+                "hook-other",
+                2,
+                FlowEvent::HookCreated {
+                    hook_id: "approval".into(),
+                    token: "shared-token".into(),
+                    metadata: json!({}),
+                },
+            )
+            .await
+            .expect_err("hook token check must use the tip checkpoint");
+        assert!(matches!(conflict, FlowError::HookTokenConflict { .. }));
+    }
+
+    #[tokio::test]
+    async fn local_file_hook_token_check_without_checkpoint_rejects_corrupt_prefix() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let store = LocalFileEventStore::new(directory.path());
+        store
+            .append_if_sequence("hook-owner", 0, run_created())
+            .await
+            .unwrap();
+        store
+            .append_if_sequence("hook-owner", 1, FlowEvent::RunStarted)
+            .await
+            .unwrap();
+        store
+            .append_if_sequence(
+                "hook-owner",
+                2,
+                FlowEvent::HookCreated {
+                    hook_id: "approval".into(),
+                    token: "shared-token".into(),
+                    metadata: json!({}),
+                },
+            )
+            .await
+            .unwrap();
+        let checkpoint = store
+            .checkpoint_path("hook-owner")
+            .expect("checkpoint path");
+        tokio::fs::remove_file(&checkpoint).await.ok();
+        corrupt_first_line(&store, "hook-owner").await;
+
+        store
+            .append_if_sequence("hook-other", 0, run_created())
+            .await
+            .unwrap();
+        store
+            .append_if_sequence("hook-other", 1, FlowEvent::RunStarted)
+            .await
+            .unwrap();
+        let error = store
+            .append_if_sequence(
+                "hook-other",
+                2,
+                FlowEvent::HookCreated {
+                    hook_id: "approval".into(),
+                    token: "shared-token".into(),
+                    metadata: json!({}),
+                },
+            )
+            .await
+            .expect_err("missing checkpoint must still decode the owner history");
         assert!(error.to_string().contains("failed to decode"));
     }
 }
