@@ -106,6 +106,12 @@ pub struct SelectSnapshot {
     /// Winning arm identity when a race completed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub winning_arm_id: Option<String>,
+    /// Innermost open cancellation scope when the select was created.
+    ///
+    /// Derived during projection. Cancelling that scope, or an ancestor,
+    /// cancels the select and any signal arms that are still waiting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_id: Option<String>,
 }
 
 impl SelectSnapshot {

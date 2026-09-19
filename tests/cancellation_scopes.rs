@@ -89,6 +89,145 @@ async fn cancelling_a_scope_cancels_scoped_waits_without_terminating_the_run() {
     assert_eq!(after_cancel.output, Some(json!({ "cancelled": true })));
 }
 
+struct SelectScopeRuntime;
+
+#[async_trait]
+impl FlowRuntime for SelectScopeRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let ctx = invocation.context();
+        if ctx.scope_cancelled("payment") {
+            return Ok(RuntimeCommand::Complete {
+                output: json!({ "cancelled": true }),
+            });
+        }
+        if !ctx.has_scope("payment") {
+            return Ok(ctx.open_scope("payment"));
+        }
+        if ctx.wait_status("soon").is_none() {
+            return Ok(ctx.select(
+                "race",
+                vec![
+                    a3s_flow::SelectArm::timer("soon", "2030-01-01T00:00:00Z".parse().unwrap()),
+                    a3s_flow::SelectArm::timer("later", "2030-01-01T00:00:01Z".parse().unwrap()),
+                ],
+            ));
+        }
+        Ok(RuntimeCommand::Complete {
+            output: json!({ "still-open": true }),
+        })
+    }
+
+    async fn run_step(&self, _invocation: a3s_flow::StepInvocation) -> a3s_flow::Result<JsonValue> {
+        Err(FlowError::Runtime("steps unused".into()))
+    }
+
+    async fn run_query(&self, _invocation: QueryInvocation) -> a3s_flow::Result<JsonValue> {
+        Err(FlowError::Runtime("queries unused".into()))
+    }
+}
+
+#[tokio::test]
+async fn cancelling_a_scope_cancels_a_select_opened_inside_it() {
+    let store = Arc::new(InMemoryEventStore::new());
+    let engine = FlowEngine::new(store, Arc::new(SelectScopeRuntime));
+    let run_id = engine
+        .start_with_id("scope-select", scope_spec(), json!({}))
+        .await
+        .unwrap();
+    let before = engine.snapshot(&run_id).await.unwrap();
+    assert!(before.select("race").unwrap().is_open());
+
+    let after = engine
+        .cancel_scope(&run_id, "payment", Some("customer aborted".into()))
+        .await
+        .unwrap();
+    assert!(
+        after.select("race").unwrap().status == a3s_flow::SelectStatus::Cancelled,
+        "scope cancellation must cancel a select opened inside that scope, status={:?}",
+        after.select("race").map(|select| select.status)
+    );
+    assert!(after.status.is_terminal());
+    assert_eq!(after.output, Some(json!({ "cancelled": true })));
+}
+
+struct SignalSelectScopeRuntime;
+
+#[async_trait]
+impl FlowRuntime for SignalSelectScopeRuntime {
+    async fn run_workflow(
+        &self,
+        invocation: WorkflowInvocation,
+    ) -> a3s_flow::Result<RuntimeCommand> {
+        let ctx = invocation.context();
+        if ctx.scope_cancelled("payment") {
+            return Ok(RuntimeCommand::Complete {
+                output: json!({ "cancelled": true }),
+            });
+        }
+        if !ctx.has_scope("payment") {
+            return Ok(ctx.open_scope("payment"));
+        }
+        if !ctx.history().iter().any(|envelope| {
+            matches!(
+                envelope.event,
+                FlowEvent::SelectCreated { ref select_id, .. } if select_id == "race"
+            )
+        }) {
+            return Ok(ctx.select(
+                "race",
+                vec![
+                    a3s_flow::SelectArm::signal("approved-arm", "approved"),
+                    a3s_flow::SelectArm::signal("rejected-arm", "rejected"),
+                ],
+            ));
+        }
+        Ok(RuntimeCommand::Complete {
+            output: json!({ "still-open": true }),
+        })
+    }
+
+    async fn run_step(&self, _invocation: a3s_flow::StepInvocation) -> a3s_flow::Result<JsonValue> {
+        Err(FlowError::Runtime("steps unused".into()))
+    }
+
+    async fn run_query(&self, _invocation: QueryInvocation) -> a3s_flow::Result<JsonValue> {
+        Err(FlowError::Runtime("queries unused".into()))
+    }
+}
+
+fn scope_signal_spec() -> WorkflowSpec {
+    scope_spec().with_signal("approved").with_signal("rejected")
+}
+
+#[tokio::test]
+async fn cancelling_a_scope_cancels_signal_arms_of_a_select_opened_inside_it() {
+    let store = Arc::new(InMemoryEventStore::new());
+    let engine = FlowEngine::new(store, Arc::new(SignalSelectScopeRuntime));
+    let run_id = engine
+        .start_with_id("scope-signal-select", scope_signal_spec(), json!({}))
+        .await
+        .unwrap();
+    let before = engine.snapshot(&run_id).await.unwrap();
+    assert!(before.select("race").unwrap().is_open());
+
+    let after = engine
+        .cancel_scope(&run_id, "payment", Some("customer aborted".into()))
+        .await
+        .unwrap();
+    assert_eq!(
+        after.select("race").unwrap().status,
+        a3s_flow::SelectStatus::Cancelled
+    );
+    assert_eq!(
+        after.signal_waits.get("approved-arm").unwrap().status,
+        a3s_flow::SignalWaitStatus::Cancelled
+    );
+    assert!(after.status.is_terminal());
+}
+
 #[tokio::test]
 async fn scope_cancellation_is_idempotent_and_conflict_safe() {
     let store = Arc::new(InMemoryEventStore::new());
