@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 LocalFile retention so the history tombstone is synced before
+  the JSONL log is unlinked. A crash after the tombstone is published still
+  finishes the delete and keeps the run id fenced
+  (`sharded_prune_finishes_when_the_tombstone_precedes_log_delete`).
+
 - Fixed FLOW-R3 retention so a tombstoned linked peer does not pin the rest
   of a finished component forever
   (`composed_prune_finishes_after_a_linked_peer_was_already_retired`).
