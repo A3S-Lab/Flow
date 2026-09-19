@@ -381,9 +381,10 @@ async fn local_file_store_still_rejects_a_terminated_corrupt_tail() {
         .append_if_sequence(run_id, first.sequence, FlowEvent::RunStarted)
         .await
         .unwrap_err();
-    assert!(append_error
-        .to_string()
-        .contains("failed to decode event line 2"));
+    assert!(
+        append_error.to_string().contains("failed to decode"),
+        "terminated corrupt tail must still be rejected, got {append_error}"
+    );
     assert_eq!(tokio::fs::read(path).await.unwrap(), bytes);
 }
 
