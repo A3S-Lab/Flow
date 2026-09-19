@@ -19,6 +19,12 @@ import type {
   WorkflowPlaygroundCopilotRequest,
   WorkflowPlaygroundExtensionSlots,
 } from './WorkflowPlayground.extensions';
+import {
+  createHostInjectedExample,
+  createHostModeCatalog,
+  readHostModeConfig,
+  type HostModeConfig,
+} from './WorkflowPlayground.host';
 import { pageHref, playgroundHref } from './WorkflowPlayground.routes';
 import { flowNodeGroups, type FlowWebsiteLocale } from './flow-node-catalog';
 
@@ -94,6 +100,7 @@ export type WorkflowPlaygroundSurfaceProps = {
   catalog: A3SFlowDagNodeCatalog;
   example: WorkflowExampleDefinition;
   extensions?: WorkflowPlaygroundExtensionSlots;
+  hostMode?: HostModeConfig | null;
   onCopilotRequest?: (
     request: WorkflowPlaygroundCopilotRequest,
   ) => void | Promise<void>;
@@ -113,22 +120,51 @@ export function WorkflowPlaygroundRoute({
   onCopilotRequest,
 }: WorkflowPlaygroundRouteProps) {
   const locale: FlowWebsiteLocale = useLang() === 'en' ? 'en' : 'zh';
-  const catalog = useMemo(() => createPlaygroundNodeCatalog(locale), [locale]);
-  const examples = useMemo(
-    () => createWorkflowExamples(locale, catalog),
-    [catalog, locale],
-  );
   const version = useVersion();
   const { site } = useSite();
   const defaultVersion = site.multiVersion.default ?? version;
   const versions = site.multiVersion.versions ?? [version];
   const search = usePlaygroundSearch();
+  let hostMode: HostModeConfig | null = null;
+  let hostModeError: string | null = null;
+  try {
+    hostMode = readHostModeConfig(search);
+  } catch (error) {
+    hostModeError =
+      error instanceof Error ? error.message : 'INVALID_INPUT: host mode';
+  }
+  const baseCatalog = useMemo(
+    () => createPlaygroundNodeCatalog(locale),
+    [locale],
+  );
+  const catalog = useMemo(
+    () =>
+      hostMode || hostModeError
+        ? createHostModeCatalog(baseCatalog, locale)
+        : baseCatalog,
+    [baseCatalog, hostMode, hostModeError, locale],
+  );
+  const examples = useMemo(
+    () => createWorkflowExamples(locale, catalog),
+    [catalog, locale],
+  );
   const requestedExampleId = new URLSearchParams(search).get('example');
-  const selectedExample = findWorkflowExample(examples, requestedExampleId);
+  const selectedExample = hostMode
+    ? createHostInjectedExample(locale)
+    : findWorkflowExample(examples, requestedExampleId);
   const examplesHref = playgroundHref(locale, version, defaultVersion);
 
   if (import.meta.env.SSG_MD) {
     return <MarkdownPlayground examples={examples} locale={locale} />;
+  }
+
+  if (hostModeError) {
+    return (
+      <main data-flow-playground="" data-testid="host-mode-error">
+        <h1>{locale === 'zh' ? '宿主模式失败' : 'Host mode failed'}</h1>
+        <p>{hostModeError}</p>
+      </main>
+    );
   }
 
   if (!selectedExample) {
@@ -171,12 +207,15 @@ export function WorkflowPlaygroundRoute({
   }
 
   return (
-    <ReactFlowProvider key={`${locale}:${selectedExample.id}`}>
+    <ReactFlowProvider
+      key={`${locale}:${selectedExample.id}:${hostMode?.runId ?? 'local'}`}
+    >
       <Surface
         backHref={examplesHref}
         catalog={catalog}
         example={selectedExample}
         extensions={extensions}
+        hostMode={hostMode}
         onCopilotRequest={onCopilotRequest}
       />
     </ReactFlowProvider>

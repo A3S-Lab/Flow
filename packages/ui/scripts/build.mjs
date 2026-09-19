@@ -16,6 +16,9 @@ await mkdir(outputRoot, { recursive: true });
 const external = [
   '@a3s-lab/ui/form/core',
   '@a3s-lab/ui/form/react',
+  '@a3s-lab/ui/basecoat',
+  '@a3s-lab/ui/select',
+  '@a3s-lab/ui/code-editor',
   'react',
   'react/jsx-runtime',
   'react-dom',
@@ -73,7 +76,12 @@ await build({
   bundle: true,
   entryNames: '[name]',
   entryPoints: [resolve(sourceRoot, 'styles.css')],
-  external: ['*.woff', '*.woff2'],
+  external: [
+    '*.woff',
+    '*.woff2',
+    '@a3s-lab/ui/form/styles.css',
+    '@a3s-lab/ui/components/code-editor.css',
+  ],
   logLevel: 'info',
   minify: true,
   outdir: outputRoot,

@@ -1,7 +1,10 @@
 import { CheckCircle } from '@phosphor-icons/react';
 import {
+  issueApprovalRecord,
   localizeA3SFlowDagManifest,
+  refuseUninjectedPlayground,
   type A3SFlowWorkflowDagNode,
+  type HostCanvasDocument,
 } from '@a3s-lab/flow-ui';
 import { useLang, useSite, useVersion, withBase } from '@rspress/core/runtime';
 import {
@@ -64,6 +67,14 @@ import {
   addIntoGraph,
 } from './WorkflowPlayground.graph';
 import {
+  addHostPlanStep,
+  createHostClient,
+  graphFromHostCanvas,
+  hostCanvasFromGraph,
+  loadHostCanvas,
+  refreshCanvasFromProposalDto,
+} from './WorkflowPlayground.host';
+import {
   layoutPlaygroundGraphOffThread,
   schedulePlaygroundLayoutWarmup,
 } from './WorkflowPlayground.layout-client';
@@ -124,6 +135,7 @@ function WorkflowPlaygroundSurface({
   catalog,
   example,
   extensions,
+  hostMode = null,
   onCopilotRequest,
 }: WorkflowPlaygroundSurfaceProps) {
   const locale: FlowWebsiteLocale = useLang() === 'en' ? 'en' : 'zh';
@@ -146,7 +158,20 @@ function WorkflowPlaygroundSurface({
     endDrag,
   } = usePlaygroundDocument(() => structuredClone(example.graph));
   const { edgeColor, edgeRouting, saveState, setEdgeColor, setEdgeRouting } =
-    usePlaygroundDraft(storageKey, graph, restore);
+    usePlaygroundDraft(storageKey, graph, restore, {
+      enabled: !hostMode,
+    });
+  const [hostCanvas, setHostCanvas] = useState<HostCanvasDocument | null>(null);
+  const [hostBusy, setHostBusy] = useState(false);
+  // Persist across Playground reloads so host "must increase" stays satisfied.
+  const [editRevision, setEditRevision] = useState(() => {
+    if (!hostMode?.runId || typeof sessionStorage === 'undefined') return 1;
+    const key = `flow.host.editRevision.${hostMode.runId}`;
+    const raw = sessionStorage.getItem(key);
+    const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+    return Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+  });
+  const [hostLoadError, setHostLoadError] = useState<string | null>(null);
   const { fitBounds, getNodesBounds, screenToFlowPosition, setViewport } =
     useReactFlow<PlaygroundCanvasNode, PlaygroundEdge>();
   const reactFlowStore = useStoreApi<PlaygroundCanvasNode, PlaygroundEdge>();
@@ -202,6 +227,37 @@ function WorkflowPlaygroundSurface({
   );
 
   useEffect(() => schedulePlaygroundLayoutWarmup(), []);
+
+  useEffect(() => {
+    if (!hostMode) return;
+    let cancelled = false;
+    setHostBusy(true);
+    setHostLoadError(null);
+    void loadHostCanvas(hostMode)
+      .then((canvas) => {
+        if (cancelled) return;
+        setHostCanvas(canvas);
+        restore(graphFromHostCanvas(canvas, locale, catalog));
+        setEditRevision(1);
+        setAnnouncement(
+          locale === 'zh'
+            ? `已注入 ${canvas.proposal_digest}`
+            : `Injected ${canvas.proposal_digest}`,
+        );
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : String(error);
+        setHostLoadError(message);
+        setAnnouncement(message);
+      })
+      .finally(() => {
+        if (!cancelled) setHostBusy(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [catalog, hostMode, locale, restore]);
 
   const edgePalette = PLAYGROUND_EDGE_COLORS[edgeColor];
   const defaultEdgeOptions = useMemo<DefaultEdgeOptions>(
@@ -284,13 +340,24 @@ function WorkflowPlaygroundSurface({
     return isTriggerSchema(candidate) ? candidate : undefined;
   }, [triggerNode]);
   const deferredGraph = useDeferredValue(graph);
-  const documentJson = useMemo(
-    () =>
-      activePanel === 'document'
-        ? serializePlaygroundDocument(deferredGraph.nodes, deferredGraph.edges)
-        : '',
-    [activePanel, deferredGraph.edges, deferredGraph.nodes],
-  );
+  const documentJson = useMemo(() => {
+    if (activePanel !== 'document') return '';
+    if (hostMode && hostCanvas) {
+      const authority = hostCanvasFromGraph(hostCanvas, deferredGraph);
+      return JSON.stringify(
+        {
+          ...authority,
+          preview_only: authority.preview_only,
+        },
+        null,
+        2,
+      );
+    }
+    return serializePlaygroundDocument(
+      deferredGraph.nodes,
+      deferredGraph.edges,
+    );
+  }, [activePanel, deferredGraph, hostCanvas, hostMode]);
   useEffect(
     () => () => {
       arrangeRequest.current += 1;
@@ -889,18 +956,45 @@ function WorkflowPlaygroundSurface({
       return false;
     }
     try {
-      await navigator.clipboard.writeText(
-        serializePlaygroundDocument(graph.nodes, graph.edges),
-      );
+      if (hostMode) {
+        if (!hostCanvas) throw new Error('host canvas not loaded');
+        const authority = hostCanvasFromGraph(hostCanvas, graph);
+        refuseUninjectedPlayground(authority);
+        await navigator.clipboard.writeText(JSON.stringify(authority, null, 2));
+      } else {
+        await navigator.clipboard.writeText(
+          serializePlaygroundDocument(graph.nodes, graph.edges),
+        );
+      }
       setAnnouncement(copy.copied);
       return true;
-    } catch {
-      setAnnouncement(copy.copyFailed);
+    } catch (error) {
+      setAnnouncement(error instanceof Error ? error.message : copy.copyFailed);
       return false;
     }
-  }, [copy.copied, copy.copyFailed, graph.edges, graph.nodes]);
+  }, [copy.copied, copy.copyFailed, graph, hostCanvas, hostMode]);
 
   const exportGraph = useCallback(() => {
+    if (hostMode) {
+      try {
+        if (!hostCanvas) throw new Error('host canvas not loaded');
+        const authority = hostCanvasFromGraph(hostCanvas, graph);
+        refuseUninjectedPlayground(authority);
+        const blob = new Blob([JSON.stringify(authority, null, 2)], {
+          type: 'application/json',
+        });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `host-canvas-${hostMode.runId}.json`;
+        anchor.click();
+        URL.revokeObjectURL(url);
+        setAnnouncement(copy.graphExported);
+      } catch (error) {
+        setAnnouncement(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
     const blob = new Blob(
       [serializePlaygroundDocument(graph.nodes, graph.edges)],
       { type: 'application/json' },
@@ -912,7 +1006,103 @@ function WorkflowPlaygroundSurface({
     anchor.click();
     URL.revokeObjectURL(url);
     setAnnouncement(copy.graphExported);
-  }, [copy.graphExported, example.id, graph.edges, graph.nodes]);
+  }, [copy.graphExported, example.id, graph, hostCanvas, hostMode]);
+
+  const saveToHost = useCallback(() => {
+    if (!hostMode || !hostCanvas) return;
+    setHostBusy(true);
+    const client = createHostClient(hostMode);
+    const nextCanvas = hostCanvasFromGraph(hostCanvas, graph);
+    void client
+      .saveCanvas(nextCanvas, editRevision)
+      .then((result) => {
+        const decision = (result.json.decision ?? {}) as {
+          status?: string;
+          message?: string;
+        };
+        const proposal = result.json.proposal;
+        if (proposal && typeof proposal === 'object') {
+          const refreshed = refreshCanvasFromProposalDto(proposal);
+          setHostCanvas(refreshed);
+          restore(graphFromHostCanvas(refreshed, locale, catalog));
+        } else {
+          setHostCanvas(nextCanvas);
+        }
+        setEditRevision((current) => {
+          const next = current + 1;
+          if (hostMode?.runId && typeof sessionStorage !== 'undefined') {
+            sessionStorage.setItem(
+              `flow.host.editRevision.${hostMode.runId}`,
+              String(next),
+            );
+          }
+          return next;
+        });
+        setAnnouncement(
+          `${decision.status ?? result.status}${
+            decision.message ? `: ${decision.message}` : ''
+          }`,
+        );
+      })
+      .catch((error: unknown) => {
+        setAnnouncement(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => setHostBusy(false));
+  }, [catalog, editRevision, graph, hostCanvas, hostMode, locale, restore]);
+
+  const approveOnHost = useCallback(() => {
+    if (!hostMode || !hostCanvas) return;
+    const token =
+      typeof hostCanvas.approval.token === 'string'
+        ? hostCanvas.approval.token
+        : '';
+    const digest =
+      typeof hostCanvas.proposal_digest === 'string'
+        ? hostCanvas.proposal_digest
+        : '';
+    if (!token || !digest) {
+      setAnnouncement(
+        locale === 'zh'
+          ? '缺少 approval token 或 proposal_digest'
+          : 'Missing approval token or proposal_digest',
+      );
+      return;
+    }
+    setHostBusy(true);
+    const client = createHostClient(hostMode);
+    void issueApprovalRecord({
+      proposalDigest: digest,
+      tenantId: hostMode.tenantId,
+      principalRef: hostMode.principalRef,
+      approved: true,
+    })
+      .then((record) => client.resumeHook(token, record))
+      .then((snapshot) => {
+        const status =
+          snapshot && typeof snapshot === 'object' && 'status' in snapshot
+            ? String((snapshot as { status: unknown }).status)
+            : 'ok';
+        setAnnouncement(
+          locale === 'zh' ? `已批准：${status}` : `Approved: ${status}`,
+        );
+      })
+      .catch((error: unknown) => {
+        setAnnouncement(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => setHostBusy(false));
+  }, [hostCanvas, hostMode, locale]);
+
+  const addHostStep = useCallback(() => {
+    if (!hostMode || !hostCanvas) return;
+    const next = addHostPlanStep(hostCanvas, graph, locale, catalog);
+    setHostCanvas(next.canvas);
+    restore(next.graph);
+    setAnnouncement(
+      locale === 'zh'
+        ? '已新增计划步骤（未保存）'
+        : 'Added plan step (unsaved)',
+    );
+  }, [catalog, graph, hostCanvas, hostMode, locale, restore]);
 
   const requestWorkflowRun = useCallback(() => {
     setExtensionsOpen(false);
@@ -1072,13 +1262,18 @@ function WorkflowPlaygroundSurface({
         backHref={backHref}
         backLabel={copy.backToExamples}
         copy={copy}
+        hostBusy={hostBusy}
+        hostMode={Boolean(hostMode)}
         issueCount={issueCount}
         languageHref={languageHref}
         locale={locale}
         logoSrc={withBase('/a3s-logo.png')}
         onExport={exportGraph}
-        onOpenExtensions={toggleExtensions}
+        onHostAddStep={hostMode ? addHostStep : undefined}
+        onHostApprove={hostMode ? approveOnHost : undefined}
+        onHostSave={hostMode ? saveToHost : undefined}
         onOpenDocument={openDocument}
+        onOpenExtensions={toggleExtensions}
         onReset={resetWorkflow}
         onRunToggle={requestWorkflowRun}
         onValidate={openValidation}
@@ -1095,12 +1290,26 @@ function WorkflowPlaygroundSurface({
           window.location.assign(target);
         }}
         running={running}
+        proposalDigest={
+          typeof hostCanvas?.proposal_digest === 'string'
+            ? hostCanvas.proposal_digest
+            : undefined
+        }
         saveState={saveState}
         extensionsOpen={extensionsOpen}
         version={version}
         versions={versions}
-        workflowName={example.title}
+        workflowName={
+          hostMode && hostCanvas?.preview_only?.execution_digest
+            ? `${example.title} · ${String(hostCanvas.preview_only.execution_digest).slice(0, 12)}`
+            : example.title
+        }
       />
+      {hostLoadError ? (
+        <p data-testid="host-load-error" role="alert">
+          {hostLoadError}
+        </p>
+      ) : null}
       <noscript>
         {versions.map((targetVersion) => (
           <a

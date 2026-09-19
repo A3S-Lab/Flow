@@ -140,17 +140,23 @@ export function usePlaygroundDraft(
   storageKey: string,
   graph: PlaygroundGraphState,
   restore: (graph: PlaygroundGraphState) => void,
+  options: { enabled?: boolean } = {},
 ) {
+  const enabled = options.enabled !== false;
   const [edgeRouting, setEdgeRouting] = useState<PlaygroundEdgeRouting>(
     DEFAULT_PLAYGROUND_EDGE_ROUTING,
   );
   const [edgeColor, setEdgeColor] = useState<PlaygroundEdgeColor>(
     DEFAULT_PLAYGROUND_EDGE_COLOR,
   );
-  const [storageReady, setStorageReady] = useState(false);
+  const [storageReady, setStorageReady] = useState(!enabled);
   const [saveState, setSaveState] = useState<'saved' | 'saving'>('saved');
 
   useEffect(() => {
+    if (!enabled) {
+      setStorageReady(true);
+      return;
+    }
     try {
       const persisted = window.localStorage.getItem(storageKey);
       if (persisted) {
@@ -165,10 +171,10 @@ export function usePlaygroundDraft(
     } finally {
       setStorageReady(true);
     }
-  }, [restore, storageKey]);
+  }, [enabled, restore, storageKey]);
 
   useEffect(() => {
-    if (!storageReady) return;
+    if (!enabled || !storageReady) return;
     setSaveState('saving');
     const timeout = window.setTimeout(() => {
       window.localStorage.setItem(
@@ -178,7 +184,7 @@ export function usePlaygroundDraft(
       setSaveState('saved');
     }, 260);
     return () => window.clearTimeout(timeout);
-  }, [edgeColor, edgeRouting, graph, storageKey, storageReady]);
+  }, [edgeColor, edgeRouting, enabled, graph, storageKey, storageReady]);
 
   return { edgeColor, edgeRouting, saveState, setEdgeColor, setEdgeRouting };
 }
