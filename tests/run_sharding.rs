@@ -438,3 +438,92 @@ async fn composed_local_file_link_to_pruned_run_is_tombstone_conflict() {
         "got {linked}"
     );
 }
+
+#[tokio::test]
+async fn composed_local_file_prune_keeps_child_linked_from_another_shard() {
+    let left = tempfile::tempdir().unwrap();
+    let right = tempfile::tempdir().unwrap();
+    let shard0 = Arc::new(LocalFileEventStore::new(left.path()));
+    let shard1 = Arc::new(LocalFileEventStore::new(right.path()));
+    let layout = FlowRunShardLayout::new(2).unwrap();
+    let store = ShardedFlowEventStore::new(
+        layout,
+        vec![
+            shard0.clone() as Arc<dyn FlowEventStore>,
+            shard1.clone() as Arc<dyn FlowEventStore>,
+        ],
+    )
+    .unwrap();
+    let parent = "cross-retain-parent".to_string();
+    let child = (0..10_000)
+        .map(|index| format!("cross-retain-child-{index}"))
+        .find(|candidate| layout.shard_index(candidate) != layout.shard_index(&parent))
+        .expect("expected a child run id on a different shard");
+
+    store
+        .append(
+            &child,
+            FlowEvent::RunCreated {
+                spec: spec(),
+                input: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &child,
+            FlowEvent::RunCancelled {
+                reason: Some("child finished".into()),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &parent,
+            FlowEvent::RunCreated {
+                spec: spec(),
+                input: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &parent,
+            FlowEvent::ChildOperationLinked {
+                child: ChildOperationReference::new("op", "ext", "kind")
+                    .with_flow_run_id(child.clone()),
+            },
+        )
+        .await
+        .unwrap();
+
+    let removed = store
+        .prune_terminal_runs_older_than(Utc::now() + Duration::minutes(1))
+        .await
+        .unwrap();
+    assert!(
+        removed.is_empty(),
+        "a live parent on another shard must keep the child, removed {removed:?}"
+    );
+    assert!(store.list(&child).await.is_ok());
+    assert!(store.list(&parent).await.is_ok());
+
+    store
+        .append(
+            &parent,
+            FlowEvent::RunCancelled {
+                reason: Some("parent finished".into()),
+            },
+        )
+        .await
+        .unwrap();
+    let mut removed = store
+        .prune_terminal_runs_older_than(Utc::now() + Duration::minutes(1))
+        .await
+        .unwrap();
+    removed.sort();
+    assert_eq!(removed, vec![child, parent]);
+}

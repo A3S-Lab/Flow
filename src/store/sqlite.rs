@@ -7,6 +7,7 @@ use a3s_orm::{
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use std::collections::BTreeSet;
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
@@ -217,6 +218,29 @@ impl FlowEventStore for SqliteEventStore {
             .transaction(|transaction| {
                 Box::pin(async move {
                     retention::ensure_sqlite_history_not_tombstoned(transaction, &run_id).await
+                })
+            })
+            .await;
+        map_sqlite_transaction(result)
+    }
+
+    async fn held_run_ids(&self) -> Result<BTreeSet<String>> {
+        let result = self
+            .executor
+            .transaction(|transaction| {
+                Box::pin(async move { retention::sqlite_held_run_ids(transaction).await })
+            })
+            .await;
+        map_sqlite_transaction(result)
+    }
+
+    async fn retire_planned_terminal_history(&self, run_id: &str) -> Result<()> {
+        let run_id = run_id.to_string();
+        let result = self
+            .executor
+            .transaction(|transaction| {
+                Box::pin(async move {
+                    retention::retire_sqlite_planned_history(transaction, &run_id).await
                 })
             })
             .await;

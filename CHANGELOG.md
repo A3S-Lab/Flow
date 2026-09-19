@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 composed retention so a terminal child stays while a
+  non-terminal parent on another shard still links to it
+  (`composed_local_file_prune_keeps_child_linked_from_another_shard`).
+
 - Fixed FLOW-R3 composed shards so a link to a pruned run id returns
   `RunConflict` from that shard's tombstone instead of `RunNotFound`
   (`composed_local_file_link_to_pruned_run_is_tombstone_conflict`).
