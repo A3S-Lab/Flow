@@ -9,7 +9,8 @@ use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
 use crate::jsonl::{
-    append_jsonl_record, load_jsonl, load_jsonl_page, repair_jsonl_tail, LoadedJsonl,
+    append_jsonl_record, load_jsonl, load_jsonl_last, load_jsonl_page, repair_jsonl_tail,
+    LoadedJsonl,
 };
 use crate::model::{project_run, validate_run_id, FlowEvent, FlowEventEnvelope, HookStatus};
 
@@ -484,12 +485,29 @@ impl FlowEventStore for LocalFileEventStore {
     }
 
     async fn latest_event(&self, run_id: &str) -> Result<Option<(u64, Uuid)>> {
+        // One forward pass. Do not use the default page walker: each LocalFile
+        // page restarts at the beginning of the JSONL file.
         let _guard = self.lock.lock().await;
-        Ok(self
-            .list_inner(run_id, false)
-            .await?
-            .last()
-            .map(|event| (event.sequence, event.event_id)))
+        let path = self.run_path(run_id)?;
+        let file = match File::open(&path).await {
+            Ok(file) => file,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                return Err(FlowError::RunNotFound(run_id.to_string()));
+            }
+            Err(err) => return Err(FlowError::Io(err)),
+        };
+        let Some(envelope) = load_jsonl_last::<FlowEventEnvelope>(file, &path, "event").await?
+        else {
+            return Ok(None);
+        };
+        if envelope.run_id != run_id {
+            return Err(FlowError::Store(format!(
+                "latest event in {} belongs to run {}, not {run_id}",
+                path.display(),
+                envelope.run_id
+            )));
+        }
+        Ok(Some((envelope.sequence, envelope.event_id)))
     }
 
     async fn load_checkpoint(&self, run_id: &str) -> Result<Option<FlowProjectionCheckpoint>> {

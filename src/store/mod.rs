@@ -312,23 +312,42 @@ pub trait FlowEventStore: Send + Sync {
 
     /// Return the latest durable event sequence and ID for `run_id`.
     ///
-    /// Stores with an index should override this to avoid loading the complete
-    /// history. The default keeps custom stores source-compatible.
+    /// The default walks bounded `list_page` windows and keeps only the tip.
+    /// Stores with an index, or an append-only log that can read the last
+    /// record in one pass, should override it.
     async fn latest_event(&self, run_id: &str) -> Result<Option<(u64, Uuid)>> {
-        Ok(self
-            .list(run_id)
-            .await?
-            .last()
-            .map(|event| (event.sequence, event.event_id)))
+        let mut after_sequence = 0u64;
+        let mut latest = None;
+        loop {
+            let page = self
+                .list_page(run_id, after_sequence, MAX_FLOW_HISTORY_PAGE_SIZE)
+                .await?;
+            let Some(last) = page.last() else {
+                return Ok(latest);
+            };
+            if last.sequence <= after_sequence {
+                return Err(FlowError::Store(format!(
+                    "history page for {run_id} did not advance past sequence {after_sequence}"
+                )));
+            }
+            latest = Some((last.sequence, last.event_id));
+            after_sequence = last.sequence;
+            if page.len() < MAX_FLOW_HISTORY_PAGE_SIZE {
+                return Ok(latest);
+            }
+        }
     }
 
     /// Load one durable event by sequence for checkpoint anchor validation.
+    ///
+    /// The default reads a single `list_page` window at the exclusive cursor
+    /// `sequence - 1` instead of the unbounded tail.
     async fn event_at(&self, run_id: &str, sequence: u64) -> Result<Option<FlowEventEnvelope>> {
-        Ok(self
-            .list_after(run_id, sequence.saturating_sub(1))
-            .await?
-            .into_iter()
-            .find(|event| event.sequence == sequence))
+        if sequence == 0 {
+            return Ok(None);
+        }
+        let page = self.list_page(run_id, sequence - 1, 1).await?;
+        Ok(page.into_iter().find(|event| event.sequence == sequence))
     }
 
     /// Load a disposable projection checkpoint, if one exists.

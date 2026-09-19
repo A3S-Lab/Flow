@@ -179,6 +179,63 @@ where
     Ok((records, records_decoded))
 }
 
+/// Decode JSONL with the same torn-tail rules as [`load_jsonl`], retaining only
+/// the last valid record.
+///
+/// Terminated corruption is still an error. An unterminated final record that
+/// does not decode is ignored so a torn append cannot hide the previous tip.
+pub(crate) async fn load_jsonl_last<T>(
+    file: File,
+    path: &Path,
+    record_kind: &str,
+) -> Result<Option<T>>
+where
+    T: DeserializeOwned,
+{
+    let mut reader = BufReader::new(file);
+    let mut last = None;
+    let mut line_no = 0usize;
+    let mut buffer = Vec::new();
+
+    loop {
+        buffer.clear();
+        let bytes_read = reader.read_until(b'\n', &mut buffer).await?;
+        if bytes_read == 0 {
+            break;
+        }
+        line_no += 1;
+        let terminated = buffer.last() == Some(&b'\n');
+        let line = if terminated {
+            &buffer[..buffer.len() - 1]
+        } else {
+            buffer.as_slice()
+        };
+
+        if line.iter().all(u8::is_ascii_whitespace) {
+            if !terminated {
+                break;
+            }
+            continue;
+        }
+
+        match serde_json::from_slice(line) {
+            Ok(record) => last = Some(record),
+            Err(_) if !terminated => break,
+            Err(error) => {
+                return Err(FlowError::Store(format!(
+                    "failed to decode {record_kind} line {line_no} from {}: {error}",
+                    path.display()
+                )));
+            }
+        }
+        if !terminated {
+            break;
+        }
+    }
+
+    Ok(last)
+}
+
 pub(crate) async fn repair_jsonl_tail(path: &Path, repair: JsonlTailRepair) -> Result<()> {
     match repair {
         JsonlTailRepair::None => Ok(()),
@@ -234,6 +291,7 @@ fn checked_file_offset(current: u64, bytes_read: usize, path: &Path) -> Result<u
 mod tests {
     use super::*;
     use serde::Deserialize;
+    use tokio::fs::OpenOptions;
     use tokio::io::AsyncWriteExt;
 
     #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -277,5 +335,57 @@ mod tests {
         );
         // Proves early stop: a full-file load would decode all 100 records.
         assert_eq!(records_decoded, 60);
+    }
+
+    #[tokio::test]
+    async fn load_jsonl_last_keeps_only_the_tip() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("events.jsonl");
+        write_seq_jsonl(&path, 100).await;
+
+        let file = File::open(&path).await.expect("open");
+        let last = load_jsonl_last::<SeqRecord>(file, &path, "event")
+            .await
+            .expect("last")
+            .expect("tip");
+        assert_eq!(last.sequence, 100);
+    }
+
+    #[tokio::test]
+    async fn load_jsonl_last_ignores_a_torn_tail() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("events.jsonl");
+        write_seq_jsonl(&path, 2).await;
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .await
+            .expect("append");
+        file.write_all(br#"{"sequence":"#).await.expect("torn");
+        file.flush().await.expect("flush");
+        drop(file);
+
+        let file = File::open(&path).await.expect("open");
+        let last = load_jsonl_last::<SeqRecord>(file, &path, "event")
+            .await
+            .expect("last")
+            .expect("previous tip");
+        assert_eq!(last.sequence, 2);
+    }
+
+    #[tokio::test]
+    async fn load_jsonl_last_rejects_terminated_corruption() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("events.jsonl");
+        let mut file = File::create(&path).await.expect("create");
+        file.write_all(b"not-json\n").await.expect("corrupt");
+        file.flush().await.expect("flush");
+        drop(file);
+
+        let file = File::open(&path).await.expect("open");
+        let error = load_jsonl_last::<SeqRecord>(file, &path, "event")
+            .await
+            .expect_err("terminated corruption");
+        assert!(error.to_string().contains("failed to decode"));
     }
 }

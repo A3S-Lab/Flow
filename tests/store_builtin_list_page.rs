@@ -68,3 +68,18 @@ async fn local_file_list_page_returns_exclusive_cursor_window() {
     assert_eq!(page.len(), 1);
     assert_eq!(page[0].sequence, (MAX_FLOW_HISTORY_PAGE_SIZE + 1) as u64);
 }
+
+#[tokio::test]
+async fn local_file_latest_event_returns_the_tip() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let store = LocalFileEventStore::new(directory.path());
+    let run_id = "local-tip";
+    seed_padded_history(&store, run_id).await;
+
+    let tip = store
+        .latest_event(run_id)
+        .await
+        .expect("latest")
+        .expect("tip");
+    assert_eq!(tip.0, (MAX_FLOW_HISTORY_PAGE_SIZE + 1) as u64);
+}
