@@ -168,8 +168,10 @@ impl ShardedFlowEventStore {
         let _guard = self.gate.lock().await;
         let mut histories = BTreeMap::new();
         let mut hold_run_ids = BTreeSet::new();
+        let mut tombstoned_run_ids = BTreeSet::new();
         for shard in &self.shards {
             hold_run_ids.extend(shard.held_run_ids().await?);
+            tombstoned_run_ids.extend(shard.tombstoned_run_ids().await?);
             for run_id in shard.list_run_ids().await? {
                 histories.insert(run_id.clone(), shard.list(&run_id).await?);
             }
@@ -177,6 +179,7 @@ impl ShardedFlowEventStore {
         let plan = plan_history_retention(
             &histories,
             &hold_run_ids,
+            &tombstoned_run_ids,
             &FlowHistoryRetentionPolicy::new(terminal_before),
             "sharded",
         )?;
@@ -279,6 +282,14 @@ impl FlowEventStore for ShardedFlowEventStore {
 
     async fn history_tombstone(&self, run_id: &str) -> Result<Option<FlowHistoryTombstone>> {
         self.shard_for(run_id).history_tombstone(run_id).await
+    }
+
+    async fn tombstoned_run_ids(&self) -> Result<BTreeSet<String>> {
+        let mut ids = BTreeSet::new();
+        for shard in &self.shards {
+            ids.extend(shard.tombstoned_run_ids().await?);
+        }
+        Ok(ids)
     }
 
     async fn append_shard_local_if_sequence(

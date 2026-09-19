@@ -117,10 +117,14 @@ pub(crate) struct FlowHistoryRetentionPlan {
 ///
 /// Storage adapters own locking, transaction, and deletion details, while this
 /// function is the single source of truth for terminal eligibility and
-/// linked-component protection.
+/// linked-component protection. `tombstoned_run_ids` are peers whose histories
+/// are already gone; a link to one of them does not pin the rest of a finished
+/// component. A link to a run that is neither present nor tombstoned stays
+/// dangling.
 pub(crate) fn plan_history_retention(
     histories: &BTreeMap<String, Vec<FlowEventEnvelope>>,
     hold_run_ids: &BTreeSet<String>,
+    tombstoned_run_ids: &BTreeSet<String>,
     policy: &FlowHistoryRetentionPolicy,
     storage_name: &str,
 ) -> Result<FlowHistoryRetentionPlan> {
@@ -193,7 +197,9 @@ pub(crate) fn plan_history_retention(
                     });
             }
             if !histories.contains_key(child_run_id) {
-                dangling_reference_runs.insert(parent_run_id.clone());
+                if !tombstoned_run_ids.contains(child_run_id) {
+                    dangling_reference_runs.insert(parent_run_id.clone());
+                }
                 continue;
             }
             adjacency

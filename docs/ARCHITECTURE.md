@@ -629,7 +629,9 @@ unsharded backend per shard with `ShardedFlowEventStore`, which routes by
 `FlowEventStore::append_shard_local_if_sequence`. `prune_terminal_runs_older_than`
 plans that same linked component across every backend before retiring a
 history, and `history_tombstone` reads the record back from the owning shard.
-Pruning one member store directly still sees only that store.
+A later scan treats that tombstone as a retired peer, so the rest of a
+finished component can still be deleted. A missing peer with no tombstone
+stays dangling. Pruning one member store directly still sees only that store.
 Composed multi-backend layouts
 do not claim cross-process locking for those store-wide invariants; hosts that
 need production-ready multi-worker admission should keep one database (or use
