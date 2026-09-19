@@ -434,8 +434,10 @@ embedding product policy. Workflows emit `OpenScope` / `CompleteScope` /
 and `scope_cancelled` events. Timer waits and structured selects inherit the innermost open scope at
 projection time. Cancelling a scope cancels descendant open scopes, waiting
 timers owned by that tree, and selects opened inside it, including signal arms
-that are still waiting. The run remains non-terminal so cleanup code can
-observe `WorkflowContext::scope_cancelled` and continue.
+that are still waiting. A timer created inside a descendant that has already
+completed is not owned by that tree and stays scheduled. The run remains
+non-terminal so cleanup code can observe `WorkflowContext::scope_cancelled`
+and continue.
 `FlowEngine::cancel_scope` is the host-facing idempotent API; reason drift
 returns `ScopeConflict`. Run-level `run_cancellation_requested` also marks every
 open scope cancelled during projection.

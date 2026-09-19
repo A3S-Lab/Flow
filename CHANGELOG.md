@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 SQL scheduled wakeups so cancelling a scope does not drop a
+  timer owned by a descendant that has already completed. Only open
+  descendants belong to the cancellation tree
+  (`sqlite_scope_cancel_keeps_a_wait_owned_by_a_completed_child`).
+
 - Fixed FLOW-R3 projection checkpoints so a tip-matched cache from an older
   projection revision is rebuilt from history. A checkpoint saved before
   select scope ownership could otherwise keep that select `Open`

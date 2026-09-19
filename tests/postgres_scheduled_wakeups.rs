@@ -185,6 +185,86 @@ async fn postgres_scope_cancel_drops_indexed_waits() {
 }
 
 #[tokio::test]
+async fn postgres_scope_cancel_keeps_a_wait_owned_by_a_completed_child() {
+    let Some(postgres_url) = postgres_url_from_env() else {
+        return;
+    };
+    let store = PostgresEventStore::connect(&postgres_url).await.unwrap();
+    let scope = Uuid::new_v4();
+    let run_id = format!("postgres-scope-cancel-completed-child-{scope}");
+    create_run(&store, &run_id).await;
+    store
+        .append(
+            &run_id,
+            FlowEvent::ScopeOpened {
+                scope_id: "parent".into(),
+                parent_scope_id: None,
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &run_id,
+            FlowEvent::ScopeOpened {
+                scope_id: "child".into(),
+                parent_scope_id: Some("parent".into()),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &run_id,
+            FlowEvent::WaitCreated {
+                wait_id: "survives".into(),
+                resume_at: timestamp("2200-08-07T00:00:01Z"),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &run_id,
+            FlowEvent::ScopeCompleted {
+                scope_id: "child".into(),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &run_id,
+            FlowEvent::WaitCreated {
+                wait_id: "parent-wait".into(),
+                resume_at: timestamp("2200-08-07T00:00:02Z"),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &run_id,
+            FlowEvent::ScopeCancelled {
+                scope_id: "parent".into(),
+                reason: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    let subjects: Vec<_> = store
+        .list_due_wakeups(timestamp("2300-01-01T00:00:00Z"))
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|wakeup| wakeup.run_id == run_id)
+        .map(|wakeup| wakeup.subject_id)
+        .collect();
+    assert_eq!(subjects, vec!["survives".to_string()]);
+}
+
+#[tokio::test]
 async fn postgres_select_timer_arm_is_a_scheduled_wakeup() {
     let Some(postgres_url) = postgres_url_from_env() else {
         return;
