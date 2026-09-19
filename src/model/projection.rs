@@ -1147,6 +1147,7 @@ pub(crate) fn project_run_from_snapshot(
                         mode: *mode,
                         status: SelectStatus::Open,
                         winning_arm_id: None,
+                        scope_id: scope_id.clone(),
                     },
                 );
             }
@@ -1275,6 +1276,32 @@ fn cancel_scope_tree(snapshot: &mut WorkflowRunSnapshot, root_scope_id: &str) {
             if let Some(scope_id) = wait.scope_id.as_deref() {
                 if cancelled.contains(scope_id) {
                     wait.status = WaitStatus::Cancelled;
+                }
+            }
+        }
+    }
+    let cancelled_selects: Vec<String> = snapshot
+        .selects
+        .values()
+        .filter(|select| {
+            select.status == SelectStatus::Open
+                && select
+                    .scope_id
+                    .as_deref()
+                    .is_some_and(|scope_id| cancelled.contains(scope_id))
+        })
+        .map(|select| select.select_id.clone())
+        .collect();
+    for select_id in &cancelled_selects {
+        if let Some(select) = snapshot.selects.get_mut(select_id) {
+            select.status = SelectStatus::Cancelled;
+        }
+    }
+    for wait in snapshot.signal_waits.values_mut() {
+        if wait.status == SignalWaitStatus::Waiting {
+            if let Some(select_id) = wait.select_id.as_deref() {
+                if cancelled_selects.iter().any(|id| id == select_id) {
+                    wait.status = SignalWaitStatus::Cancelled;
                 }
             }
         }

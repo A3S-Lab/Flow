@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 scope cancellation so a structured select opened inside the
+  cancelled tree is cancelled with its still-waiting signal arms. Graceful
+  completion is no longer blocked by that select
+  (`cancelling_a_scope_cancels_a_select_opened_inside_it`).
+
 - Fixed FLOW-R3 SQL scheduled wakeups so cancelling a scope drops the waits
   and select timers that scope owns, including waits in descendant scopes.
   A wait created outside the cancelled tree stays indexed
