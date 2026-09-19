@@ -416,7 +416,18 @@ impl ScheduledWakeup {
     }
 }
 
+/// Current projection-rule revision stamped into every rebuilt snapshot.
+///
+/// Bump this when a projection rule changes the meaning of an existing history
+/// without a new event. Disposable checkpoints from an older revision are
+/// discarded and rebuilt from the event log.
+pub const FLOW_PROJECTION_REVISION: u32 = 1;
+
 /// Materialized state of a workflow run.
+///
+/// `projection_revision` is part of the disposable checkpoint contract. History
+/// remains authoritative. A checkpoint whose snapshot was produced by an older
+/// revision is rejected and rebuilt.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[non_exhaustive]
 pub struct WorkflowRunSnapshot {
@@ -482,6 +493,12 @@ pub struct WorkflowRunSnapshot {
     /// Named per-item aggregates indexed by aggregate identity.
     #[serde(default)]
     pub item_aggregates: BTreeMap<String, ItemAggregateSnapshot>,
+    /// Projection-rule revision used to invalidate disposable checkpoints.
+    ///
+    /// Missing or older values deserialize as `0`. Checkpoint validation
+    /// accepts only [`FLOW_PROJECTION_REVISION`].
+    #[serde(default)]
+    pub projection_revision: u32,
     /// Final JSON output for a successfully completed run.
     pub output: Option<JsonValue>,
     /// Terminal error for a failed run.
@@ -527,6 +544,7 @@ impl WorkflowRunSnapshot {
             external_datasets: BTreeMap::new(),
             blob_refs: BTreeMap::new(),
             item_aggregates: BTreeMap::new(),
+            projection_revision: FLOW_PROJECTION_REVISION,
             output: None,
             error: None,
             terminal_outcome: None,

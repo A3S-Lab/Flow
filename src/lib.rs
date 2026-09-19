@@ -45,9 +45,9 @@ pub use model::{
     WorkflowRunSnapshot, WorkflowRunStatus, WorkflowRunSummary, WorkflowRunSuspension,
     WorkflowSignal, WorkflowSignalSnapshot, WorkflowSpec, WorkflowTerminalOutcome, WorkflowUpdate,
     WorkflowUpdateOutcome, WorkflowUpdateSnapshot, FLOW_BLOB_REF_OUTPUT_KEY,
-    FLOW_EVENT_ENVELOPE_SCHEMA_VERSION, FLOW_VISIBILITY_PROJECTION_SCHEMA_VERSION,
-    MAX_CHILD_WORKFLOW_BATCH_SIZE, MAX_CHILD_WORKFLOW_MAP_SIZE, MAX_FLOW_EVENT_BYTES,
-    MAX_WORKFLOW_PATCH_MARKERS,
+    FLOW_EVENT_ENVELOPE_SCHEMA_VERSION, FLOW_PROJECTION_REVISION,
+    FLOW_VISIBILITY_PROJECTION_SCHEMA_VERSION, MAX_CHILD_WORKFLOW_BATCH_SIZE,
+    MAX_CHILD_WORKFLOW_MAP_SIZE, MAX_FLOW_EVENT_BYTES, MAX_WORKFLOW_PATCH_MARKERS,
 };
 #[cfg(feature = "a3s-event")]
 pub use observe::A3sEventBusFlowEventSink;

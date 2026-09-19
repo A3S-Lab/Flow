@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 projection checkpoints so a tip-matched cache from an older
+  projection revision is rebuilt from history. A checkpoint saved before
+  select scope ownership could otherwise keep that select `Open`
+  (`stale_projection_checkpoint_is_rebuilt_from_history`).
+
 - Fixed FLOW-R3 scope cancellation so a structured select opened inside the
   cancelled tree is cancelled with its still-waiting signal arms. Graceful
   completion is no longer blocked by that select
