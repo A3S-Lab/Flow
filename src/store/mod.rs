@@ -48,10 +48,9 @@ pub use postgres::PostgresEventStore;
 pub use postgres_schema::migrate_postgres_flow;
 #[cfg(feature = "postgres")]
 pub(crate) use postgres_schema::verify_postgres_flow;
+pub use retention::FlowHistoryTombstone;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
-pub use retention::{
-    FlowHistoryHold, FlowHistoryRetentionPolicy, FlowHistoryRetentionReport, FlowHistoryTombstone,
-};
+pub use retention::{FlowHistoryHold, FlowHistoryRetentionPolicy, FlowHistoryRetentionReport};
 pub use shard::{FlowRunShardLayout, MAX_FLOW_RUN_SHARD_COUNT, MIN_FLOW_RUN_SHARD_COUNT};
 pub use sharded::ShardedFlowEventStore;
 #[cfg(feature = "sqlite")]

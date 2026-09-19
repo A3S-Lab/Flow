@@ -1,9 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-#[cfg(any(feature = "postgres", feature = "sqlite"))]
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
-#[cfg(any(feature = "postgres", feature = "sqlite"))]
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
@@ -77,7 +75,6 @@ pub struct FlowHistoryHold {
 }
 
 /// Minimal audit record retained after a complete event history is deleted.
-#[cfg(any(feature = "postgres", feature = "sqlite"))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct FlowHistoryTombstone {
@@ -442,7 +439,6 @@ pub(crate) fn required_linked_flow_run_id(event: &FlowEvent) -> Option<&str> {
     }
 }
 
-#[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub(crate) fn history_checksum(history: &[FlowEventEnvelope]) -> Result<String> {
     let digest = Sha256::digest(serde_json::to_vec(history)?);
     Ok(format!("{digest:x}"))

@@ -557,8 +557,11 @@ lifecycle transitions, including duplicate step/wait/hook creation, exact step
 attempt progression, signal delivery/wait uniqueness and pairing, retry-budget
 and deadline consistency, terminal retry outcomes, and events appended after a
 terminal run state.
-The local JSONL store keeps file order intact and projects existing history
-before append, so a corrupt local log is rejected instead of extended.
+The local JSONL store keeps file order intact. A tip-matched checkpoint can
+validate the next append without replaying a corrupt prefix; without that
+checkpoint, and on `list`, a terminated corrupt log is still rejected instead
+of extended. Pruning a terminal history writes a tombstone first and then
+deletes the log, so the run id cannot be reused.
 `SqliteEventStore` stores the same envelopes as rows in one SQLite database and
 performs expected-sequence checks inside append transactions for single-node
 durable hosts.

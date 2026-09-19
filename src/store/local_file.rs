@@ -19,7 +19,10 @@ use crate::model::{
 
 use super::{
     next_event_sequence,
-    retention::{plan_history_retention, required_linked_flow_run_id, FlowHistoryRetentionPolicy},
+    retention::{
+        history_checksum, plan_history_retention, required_linked_flow_run_id,
+        FlowHistoryRetentionPolicy, FlowHistoryTombstone,
+    },
     validate_candidate_event, validate_event_payload, FlowEventStore, FlowHistoryPartition,
     FlowProjectionCheckpoint, FlowRunShardLayout, FlowStoreCapabilities,
     MAX_FLOW_HISTORY_PAGE_SIZE,
@@ -113,6 +116,58 @@ impl LocalFileEventStore {
         Ok(self
             .shard_dir(run_id)?
             .join(format!("{run_id}.partitions.json")))
+    }
+
+    fn tombstone_path(&self, run_id: &str) -> Result<PathBuf> {
+        if !is_safe_run_id(run_id) {
+            return Err(FlowError::Store(format!(
+                "run id {run_id:?} is not safe for local file storage"
+            )));
+        }
+        Ok(self
+            .shard_dir(run_id)?
+            .join(format!("{run_id}.tombstone.json")))
+    }
+
+    async fn load_tombstone_inner(&self, run_id: &str) -> Result<Option<FlowHistoryTombstone>> {
+        let path = self.tombstone_path(run_id)?;
+        let bytes = match tokio::fs::read(&path).await {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(FlowError::Io(error)),
+        };
+        let tombstone: FlowHistoryTombstone = serde_json::from_slice(&bytes).map_err(|error| {
+            FlowError::Store(format!(
+                "failed to decode history tombstone for {run_id}: {error}"
+            ))
+        })?;
+        if tombstone.run_id != run_id {
+            return Err(FlowError::Store(format!(
+                "history tombstone for {run_id} belongs to run {}",
+                tombstone.run_id
+            )));
+        }
+        Ok(Some(tombstone))
+    }
+
+    async fn reject_if_tombstoned(&self, run_id: &str) -> Result<()> {
+        if self.load_tombstone_inner(run_id).await?.is_some() {
+            return Err(FlowError::RunConflict {
+                run_id: run_id.to_string(),
+                reason: "history was pruned and its run ID is tombstoned".to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    async fn save_tombstone_inner(&self, tombstone: &FlowHistoryTombstone) -> Result<()> {
+        let path = self.tombstone_path(&tombstone.run_id)?;
+        tokio::fs::create_dir_all(self.shard_dir(&tombstone.run_id)?).await?;
+        let temporary = path.with_extension("json.tmp");
+        let bytes = serde_json::to_vec(tombstone)?;
+        tokio::fs::write(&temporary, bytes).await?;
+        tokio::fs::rename(&temporary, &path).await?;
+        Ok(())
     }
 
     async fn load_partitions_inner(&self, run_id: &str) -> Result<Vec<FlowHistoryPartition>> {
@@ -244,6 +299,7 @@ impl LocalFileEventStore {
         enforce_cross_run: bool,
     ) -> Result<FlowEventEnvelope> {
         tokio::fs::create_dir_all(self.shard_dir(run_id)?).await?;
+        self.reject_if_tombstoned(run_id).await?;
         if enforce_cross_run {
             self.ensure_linked_flow_run_exists(&event).await?;
             self.ensure_hook_token_available(run_id, &event).await?;
@@ -452,6 +508,7 @@ impl LocalFileEventStore {
         let Some(linked_run_id) = required_linked_flow_run_id(event) else {
             return Ok(());
         };
+        self.reject_if_tombstoned(linked_run_id).await?;
         if self.read_committed_tip(linked_run_id).await?.is_none() {
             return Err(FlowError::RunNotFound(linked_run_id.to_string()));
         }
@@ -507,7 +564,8 @@ impl LocalFileEventStore {
     /// A running, suspended, or recent parent or child protects every history
     /// linked to it. Corrupt histories and dangling child references are
     /// returned as errors or retained rather than deleted, so operators can
-    /// inspect them before cleanup.
+    /// inspect them before cleanup. A deleted history leaves a tombstone that
+    /// rejects later appends of the same run id.
     pub async fn prune_terminal_runs_older_than(
         &self,
         terminal_before: DateTime<Utc>,
@@ -528,6 +586,23 @@ impl LocalFileEventStore {
 
         let mut removed = Vec::new();
         for run_id in &plan.deletable_run_ids {
+            let events = histories.get(run_id).ok_or_else(|| {
+                FlowError::Store(format!("retention lost local file history for {run_id}"))
+            })?;
+            let terminal = events.last().ok_or_else(|| {
+                FlowError::Store(format!(
+                    "retention found empty local file history for {run_id}"
+                ))
+            })?;
+            self.save_tombstone_inner(&FlowHistoryTombstone {
+                run_id: run_id.clone(),
+                deleted_at: Utc::now(),
+                terminal_sequence: terminal.sequence,
+                terminal_event_id: terminal.event_id,
+                terminal_event_key: terminal.event.event_key().to_string(),
+                history_sha256: history_checksum(events)?,
+            })
+            .await?;
             let path = self.run_path(run_id)?;
             match tokio::fs::remove_file(&path).await {
                 Ok(()) => removed.push(run_id.clone()),
@@ -550,6 +625,12 @@ impl LocalFileEventStore {
 
         plan.report.deleted_run_ids = removed;
         Ok(plan.report.deleted_run_ids)
+    }
+
+    /// Read the audit tombstone left after `run_id` was pruned, if any.
+    pub async fn history_tombstone(&self, run_id: &str) -> Result<Option<FlowHistoryTombstone>> {
+        let _guard = self.lock.lock().await;
+        self.load_tombstone_inner(run_id).await
     }
 }
 
@@ -1047,5 +1128,55 @@ mod tests {
 
         let history = store.list(run_id).await.unwrap_err();
         assert!(history.to_string().contains("failed to decode"));
+    }
+
+    #[tokio::test]
+    async fn local_file_prune_tombstones_the_run_id() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let store = LocalFileEventStore::new(directory.path());
+        store
+            .append_if_sequence("pruned-run", 0, run_created())
+            .await
+            .unwrap();
+        store
+            .append_if_sequence("pruned-run", 1, FlowEvent::RunStarted)
+            .await
+            .unwrap();
+        store
+            .append_if_sequence(
+                "pruned-run",
+                2,
+                FlowEvent::RunCompleted { output: json!({}) },
+            )
+            .await
+            .unwrap();
+        let removed = store
+            .prune_terminal_runs_older_than(Utc::now() + chrono::Duration::days(1))
+            .await
+            .unwrap();
+        assert_eq!(removed, vec!["pruned-run".to_string()]);
+        assert!(matches!(
+            store.list("pruned-run").await.unwrap_err(),
+            FlowError::RunNotFound(_)
+        ));
+
+        let reused = store
+            .append_if_sequence("pruned-run", 0, run_created())
+            .await
+            .expect_err("a pruned run id must stay tombstoned");
+        assert!(
+            matches!(
+                reused,
+                FlowError::RunConflict { ref reason, .. } if reason.contains("tombstoned")
+            ),
+            "got {reused}"
+        );
+        let tombstone = store
+            .history_tombstone("pruned-run")
+            .await
+            .unwrap()
+            .expect("pruned history must leave a tombstone");
+        assert_eq!(tombstone.terminal_event_key, "flow.run.completed");
+        assert_eq!(tombstone.terminal_sequence, 3);
     }
 }
