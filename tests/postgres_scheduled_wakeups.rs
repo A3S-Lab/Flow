@@ -61,6 +61,130 @@ async fn create_run(store: &PostgresEventStore, run_id: &str) {
 }
 
 #[tokio::test]
+async fn postgres_scope_cancel_drops_indexed_waits() {
+    let Some(postgres_url) = postgres_url_from_env() else {
+        return;
+    };
+    let store = PostgresEventStore::connect(&postgres_url).await.unwrap();
+    let token = Uuid::new_v4();
+    let now = timestamp("2300-01-01T00:00:00Z");
+    let sibling = format!("postgres-scope-cancel-sibling-{token}");
+    create_run(&store, &sibling).await;
+    store
+        .append(
+            &sibling,
+            FlowEvent::WaitCreated {
+                wait_id: "outside".into(),
+                resume_at: timestamp("2200-08-07T00:00:01Z"),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &sibling,
+            FlowEvent::ScopeOpened {
+                scope_id: "outer".into(),
+                parent_scope_id: None,
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &sibling,
+            FlowEvent::WaitCreated {
+                wait_id: "inside".into(),
+                resume_at: timestamp("2200-08-07T00:00:02Z"),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &sibling,
+            FlowEvent::ScopeCancelled {
+                scope_id: "outer".into(),
+                reason: None,
+            },
+        )
+        .await
+        .unwrap();
+    let subjects: Vec<_> = store
+        .list_due_wakeups(now)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|wakeup| wakeup.run_id == sibling)
+        .map(|wakeup| wakeup.subject_id)
+        .collect();
+    assert_eq!(subjects, vec!["outside".to_string()]);
+
+    let nested = format!("postgres-scope-cancel-nested-{token}");
+    create_run(&store, &nested).await;
+    store
+        .append(
+            &nested,
+            FlowEvent::ScopeOpened {
+                scope_id: "parent".into(),
+                parent_scope_id: None,
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &nested,
+            FlowEvent::ScopeOpened {
+                scope_id: "child".into(),
+                parent_scope_id: Some("parent".into()),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &nested,
+            FlowEvent::WaitCreated {
+                wait_id: "nested-wait".into(),
+                resume_at: timestamp("2200-08-07T00:00:03Z"),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &nested,
+            FlowEvent::SelectCreated {
+                select_id: "nested-race".into(),
+                arms: vec![
+                    SelectArm::timer("nested-timer", timestamp("2200-08-07T00:00:04Z")),
+                    SelectArm::timer("nested-later", timestamp("2200-08-07T00:00:05Z")),
+                ],
+                mode: SelectMode::Race,
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &nested,
+            FlowEvent::ScopeCancelled {
+                scope_id: "parent".into(),
+                reason: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(store
+        .list_due_wakeups(now)
+        .await
+        .unwrap()
+        .iter()
+        .all(|wakeup| wakeup.run_id != nested));
+}
+
+#[tokio::test]
 async fn postgres_select_timer_arm_is_a_scheduled_wakeup() {
     let Some(postgres_url) = postgres_url_from_env() else {
         return;

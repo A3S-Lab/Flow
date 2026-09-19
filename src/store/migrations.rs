@@ -7,14 +7,14 @@ mod tests;
 #[cfg(feature = "postgres")]
 use scheduled_wakeups::{
     POSTGRES_SCHEDULED_WAKEUPS_ACTIVITY_KIND_SQL, POSTGRES_SCHEDULED_WAKEUPS_ACTIVITY_RETRY_SQL,
-    POSTGRES_SCHEDULED_WAKEUPS_CANCELLATION_SQL, POSTGRES_SCHEDULED_WAKEUPS_SELECT_TIMER_SQL,
-    POSTGRES_SCHEDULED_WAKEUPS_SQL,
+    POSTGRES_SCHEDULED_WAKEUPS_CANCELLATION_SQL, POSTGRES_SCHEDULED_WAKEUPS_SCOPE_CANCEL_SQL,
+    POSTGRES_SCHEDULED_WAKEUPS_SELECT_TIMER_SQL, POSTGRES_SCHEDULED_WAKEUPS_SQL,
 };
 #[cfg(feature = "sqlite")]
 use scheduled_wakeups::{
     SQLITE_SCHEDULED_WAKEUPS_ACTIVITY_KIND_SQL, SQLITE_SCHEDULED_WAKEUPS_ACTIVITY_RETRY_SQL,
-    SQLITE_SCHEDULED_WAKEUPS_CANCELLATION_SQL, SQLITE_SCHEDULED_WAKEUPS_SELECT_TIMER_SQL,
-    SQLITE_SCHEDULED_WAKEUPS_SQL,
+    SQLITE_SCHEDULED_WAKEUPS_CANCELLATION_SQL, SQLITE_SCHEDULED_WAKEUPS_SCOPE_CANCEL_SQL,
+    SQLITE_SCHEDULED_WAKEUPS_SELECT_TIMER_SQL, SQLITE_SCHEDULED_WAKEUPS_SQL,
 };
 
 const EVENTS_SQL: &str = r#"
@@ -545,6 +545,11 @@ pub(crate) fn sqlite_migrations() -> Vec<Migration> {
             "index structured select timer arms as scheduled wakeups",
             SQLITE_SCHEDULED_WAKEUPS_SELECT_TIMER_SQL,
         ),
+        Migration::new(
+            "a3s-flow-0014-scope-cancel-wakeup",
+            "drop scheduled wakeups owned by a cancelled scope",
+            SQLITE_SCHEDULED_WAKEUPS_SCOPE_CANCEL_SQL,
+        ),
     ]
 }
 
@@ -625,6 +630,11 @@ pub(crate) fn postgres_migrations() -> Vec<Migration> {
             "a3s-flow-0015-select-timer-wakeup",
             "index structured select timer arms as scheduled wakeups",
             POSTGRES_SCHEDULED_WAKEUPS_SELECT_TIMER_SQL,
+        ),
+        Migration::new(
+            "a3s-flow-0016-scope-cancel-wakeup",
+            "drop scheduled wakeups owned by a cancelled scope",
+            POSTGRES_SCHEDULED_WAKEUPS_SCOPE_CANCEL_SQL,
         ),
     ]
 }
