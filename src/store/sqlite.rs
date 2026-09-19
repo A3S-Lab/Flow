@@ -251,6 +251,10 @@ impl FlowEventStore for SqliteEventStore {
         retention::load_sqlite_history_tombstone(&self.executor, run_id).await
     }
 
+    async fn tombstoned_run_ids(&self) -> Result<BTreeSet<String>> {
+        retention::sqlite_tombstoned_run_ids(&self.executor).await
+    }
+
     async fn append_validated_if_sequence(
         &self,
         run_id: &str,

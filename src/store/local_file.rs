@@ -558,6 +558,25 @@ impl LocalFileEventStore {
         Ok(ids)
     }
 
+    async fn tombstoned_run_ids_inner(&self) -> Result<BTreeSet<String>> {
+        let mut ids = Vec::new();
+        if self.layout.is_sharded() {
+            for shard_index in 0..self.layout.shard_count() {
+                let shard_dir = self.root.join(self.layout.shard_name(shard_index)?);
+                collect_tombstone_run_ids(&shard_dir, &mut ids).await?;
+            }
+        } else {
+            collect_tombstone_run_ids(&self.root, &mut ids).await?;
+        }
+        let mut tombstoned = BTreeSet::new();
+        for run_id in ids {
+            if self.load_tombstone_inner(&run_id).await?.is_some() {
+                tombstoned.insert(run_id);
+            }
+        }
+        Ok(tombstoned)
+    }
+
     async fn delete_validated_history(
         &self,
         run_id: &str,
@@ -622,9 +641,11 @@ impl LocalFileEventStore {
             self.validate_existing_log(&run_id, &events)?;
             histories.insert(run_id, events);
         }
+        let tombstoned = self.tombstoned_run_ids_inner().await?;
         let mut plan = plan_history_retention(
             &histories,
             &BTreeSet::new(),
+            &tombstoned,
             &FlowHistoryRetentionPolicy::new(terminal_before),
             "local file",
         )?;
@@ -678,6 +699,11 @@ impl FlowEventStore for LocalFileEventStore {
     async fn history_tombstone(&self, run_id: &str) -> Result<Option<FlowHistoryTombstone>> {
         let _guard = self.lock.lock().await;
         self.load_tombstone_inner(run_id).await
+    }
+
+    async fn tombstoned_run_ids(&self) -> Result<BTreeSet<String>> {
+        let _guard = self.lock.lock().await;
+        self.tombstoned_run_ids_inner().await
     }
 
     async fn append_if_sequence(
@@ -857,6 +883,27 @@ async fn collect_jsonl_run_ids(dir: &Path, ids: &mut Vec<String>) -> Result<()> 
         };
         if is_safe_run_id(stem) {
             ids.push(stem.to_string());
+        }
+    }
+    Ok(())
+}
+
+async fn collect_tombstone_run_ids(dir: &Path, ids: &mut Vec<String>) -> Result<()> {
+    let mut entries = match tokio::fs::read_dir(dir).await {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(FlowError::Io(err)),
+    };
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let Some(run_id) = name.strip_suffix(".tombstone.json") else {
+            continue;
+        };
+        if is_safe_run_id(run_id) {
+            ids.push(run_id.to_string());
         }
     }
     Ok(())

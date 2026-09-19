@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 retention so a tombstoned linked peer does not pin the rest
+  of a finished component forever
+  (`composed_prune_finishes_after_a_linked_peer_was_already_retired`).
+
 - Fixed FLOW-R3 composed retention so the facade can read the tombstone it
   just wrote (`composed_local_file_prune_keeps_child_linked_from_another_shard`).
 

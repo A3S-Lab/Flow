@@ -539,3 +539,101 @@ async fn composed_local_file_prune_keeps_child_linked_from_another_shard() {
         Err(a3s_flow::FlowError::RunNotFound(_))
     ));
 }
+
+#[tokio::test]
+async fn composed_prune_finishes_after_a_linked_peer_was_already_retired() {
+    let left = tempfile::tempdir().unwrap();
+    let right = tempfile::tempdir().unwrap();
+    let shard0 = Arc::new(LocalFileEventStore::new(left.path()));
+    let shard1 = Arc::new(LocalFileEventStore::new(right.path()));
+    let layout = FlowRunShardLayout::new(2).unwrap();
+    let store = ShardedFlowEventStore::new(
+        layout,
+        vec![
+            shard0.clone() as Arc<dyn FlowEventStore>,
+            shard1.clone() as Arc<dyn FlowEventStore>,
+        ],
+    )
+    .unwrap();
+    let parent = "cross-finish-parent".to_string();
+    let child = (0..10_000)
+        .map(|index| format!("cross-finish-child-{index}"))
+        .find(|candidate| layout.shard_index(candidate) != layout.shard_index(&parent))
+        .expect("expected a child run id on a different shard");
+
+    store
+        .append(
+            &child,
+            FlowEvent::RunCreated {
+                spec: spec(),
+                input: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &child,
+            FlowEvent::RunCancelled {
+                reason: Some("child finished".into()),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &parent,
+            FlowEvent::RunCreated {
+                spec: spec(),
+                input: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &parent,
+            FlowEvent::ChildOperationLinked {
+                child: ChildOperationReference::new("op", "ext", "kind")
+                    .with_flow_run_id(child.clone()),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &parent,
+            FlowEvent::RunCancelled {
+                reason: Some("parent finished".into()),
+            },
+        )
+        .await
+        .unwrap();
+
+    let owner = if layout.shard_index(&child) == 0 {
+        &shard0
+    } else {
+        &shard1
+    };
+    assert_eq!(
+        owner
+            .prune_terminal_runs_older_than(Utc::now() + Duration::minutes(1))
+            .await
+            .unwrap(),
+        vec![child.clone()]
+    );
+
+    let removed = store
+        .prune_terminal_runs_older_than(Utc::now() + Duration::minutes(1))
+        .await
+        .unwrap();
+    assert_eq!(
+        removed,
+        vec![parent.clone()],
+        "a tombstoned peer must not pin the rest of a terminal component forever"
+    );
+    assert!(matches!(
+        store.list(&parent).await,
+        Err(a3s_flow::FlowError::RunNotFound(_))
+    ));
+}

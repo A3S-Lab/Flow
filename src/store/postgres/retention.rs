@@ -152,6 +152,18 @@ impl PostgresEventStore {
     }
 }
 
+pub(super) async fn postgres_tombstoned_run_ids(
+    executor: &PostgresExecutor,
+) -> Result<BTreeSet<String>> {
+    Ok(fetch_all_postgres(
+        executor,
+        sql_query::<String>("SELECT run_id FROM flow_history_tombstones"),
+    )
+    .await?
+    .into_iter()
+    .collect())
+}
+
 pub(super) async fn load_postgres_history_tombstone(
     executor: &PostgresExecutor,
     run_id: &str,
@@ -207,8 +219,20 @@ async fn prune_postgres_history(
     .await?
     .into_iter()
     .collect::<BTreeSet<_>>();
-
-    let mut plan = plan_history_retention(&histories, &hold_run_ids, policy, "PostgreSQL")?;
+    let tombstoned_run_ids = fetch_all_postgres(
+        transaction,
+        sql_query::<String>("SELECT run_id FROM flow_history_tombstones"),
+    )
+    .await?
+    .into_iter()
+    .collect::<BTreeSet<_>>();
+    let mut plan = plan_history_retention(
+        &histories,
+        &hold_run_ids,
+        &tombstoned_run_ids,
+        policy,
+        "PostgreSQL",
+    )?;
 
     for run_id in &plan.deletable_run_ids {
         let history = histories.get(run_id).ok_or_else(|| {

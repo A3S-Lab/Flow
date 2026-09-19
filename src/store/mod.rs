@@ -388,6 +388,15 @@ pub trait FlowEventStore: Send + Sync {
         Ok(None)
     }
 
+    /// Run IDs that already have a retention tombstone.
+    ///
+    /// A missing linked history with no tombstone stays dangling and protects
+    /// its peers. A tombstone means that peer was already retired, so a later
+    /// scan can finish the rest of a terminal component. The default is empty.
+    async fn tombstoned_run_ids(&self) -> Result<BTreeSet<String>> {
+        Ok(BTreeSet::new())
+    }
+
     /// Load a disposable projection checkpoint, if one exists.
     async fn load_checkpoint(&self, _run_id: &str) -> Result<Option<FlowProjectionCheckpoint>> {
         Ok(None)
