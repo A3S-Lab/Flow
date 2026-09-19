@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 LocalFile history partitions so listing and sealing bound
+  against the committed JSONL tip, matching SQL `LIMIT 1` / latest sequence,
+  instead of replaying the full log. A missing run is still `RunNotFound`, and
+  `list` still rejects a corrupt prefix
+  (`local_file_history_partition_uses_tip_not_full_history`).
+
 - Fixed FLOW-R3 LocalFile linked-run and hook-token checks so they use the
   committed JSONL tip (and a tip-matched checkpoint for hook tokens) instead
   of replaying every history. A missing run is still `RunNotFound`, and a

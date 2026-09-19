@@ -679,16 +679,18 @@ impl FlowEventStore for LocalFileEventStore {
 
     async fn list_history_partitions(&self, run_id: &str) -> Result<Vec<FlowHistoryPartition>> {
         let _guard = self.lock.lock().await;
-        let _ = self.list_inner(run_id, false).await?;
+        if self.read_committed_tip(run_id).await?.is_none() {
+            return Err(FlowError::RunNotFound(run_id.to_string()));
+        }
         self.load_partitions_inner(run_id).await
     }
 
     async fn save_history_partition(&self, partition: &FlowHistoryPartition) -> Result<()> {
         partition.validate()?;
         let _guard = self.lock.lock().await;
-        let history = self.list_inner(&partition.run_id, false).await?;
-        let tip = history
-            .last()
+        let tip = self
+            .read_committed_tip(&partition.run_id)
+            .await?
             .ok_or_else(|| FlowError::RunNotFound(partition.run_id.clone()))?
             .sequence;
         if partition.last_sequence > tip {
@@ -1007,5 +1009,43 @@ mod tests {
             .await
             .expect_err("missing checkpoint must still decode the owner history");
         assert!(error.to_string().contains("failed to decode"));
+    }
+
+    #[tokio::test]
+    async fn local_file_history_partition_uses_tip_not_full_history() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let store = LocalFileEventStore::new(directory.path());
+        let missing = store.list_history_partitions("absent").await.unwrap_err();
+        assert!(matches!(missing, FlowError::RunNotFound(_)));
+
+        let run_id = "sealed-run";
+        store
+            .append_if_sequence(run_id, 0, run_created())
+            .await
+            .unwrap();
+        store
+            .append_if_sequence(run_id, 1, FlowEvent::RunStarted)
+            .await
+            .unwrap();
+        let events = store.list(run_id).await.unwrap();
+        let partition = FlowHistoryPartition::from_events(run_id, 0, &events).unwrap();
+        corrupt_first_line(&store, run_id).await;
+
+        let listed = store
+            .list_history_partitions(run_id)
+            .await
+            .expect("partition index must use the JSONL tip, not a full replay");
+        assert!(listed.is_empty());
+        store
+            .save_history_partition(&partition)
+            .await
+            .expect("sealing must bound against the tip sequence, not a full replay");
+        assert_eq!(
+            store.list_history_partitions(run_id).await.unwrap(),
+            vec![partition]
+        );
+
+        let history = store.list(run_id).await.unwrap_err();
+        assert!(history.to_string().contains("failed to decode"));
     }
 }
