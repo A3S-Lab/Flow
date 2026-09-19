@@ -247,6 +247,10 @@ impl FlowEventStore for SqliteEventStore {
         map_sqlite_transaction(result)
     }
 
+    async fn history_tombstone(&self, run_id: &str) -> Result<Option<super::FlowHistoryTombstone>> {
+        retention::load_sqlite_history_tombstone(&self.executor, run_id).await
+    }
+
     async fn append_validated_if_sequence(
         &self,
         run_id: &str,

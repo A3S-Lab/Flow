@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 composed retention so the facade can read the tombstone it
+  just wrote (`composed_local_file_prune_keeps_child_linked_from_another_shard`).
+
 - Fixed FLOW-R3 composed retention so a terminal child stays while a
   non-terminal parent on another shard still links to it
   (`composed_local_file_prune_keeps_child_linked_from_another_shard`).

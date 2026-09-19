@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use a3s_orm::{sql_query, SqliteTransaction};
+use a3s_orm::{sql_query, SqliteExecutor, SqliteTransaction};
 use chrono::Utc;
 
 use crate::error::{FlowError, Result};
@@ -122,18 +122,9 @@ impl SqliteEventStore {
         rows.into_iter().map(history_hold_row).collect()
     }
 
-    /// Read the minimal audit tombstone retained after history deletion.
+    /// Read the audit tombstone left after `run_id` was pruned, if any.
     pub async fn history_tombstone(&self, run_id: &str) -> Result<Option<FlowHistoryTombstone>> {
-        fetch_optional_sqlite(
-            &self.executor,
-            sql_query::<(String, String, i64, String, String, String)>(
-                "SELECT run_id, deleted_at, terminal_sequence, terminal_event_id, terminal_event_key, history_sha256 FROM flow_history_tombstones WHERE run_id = ",
-            )
-            .bind(run_id),
-        )
-        .await?
-        .map(history_tombstone_row)
-        .transpose()
+        load_sqlite_history_tombstone(&self.executor, run_id).await
     }
 
     /// Delete complete eligible terminal histories in one immediate transaction.
@@ -153,6 +144,22 @@ impl SqliteEventStore {
             .await;
         map_sqlite_transaction(result)
     }
+}
+
+pub(super) async fn load_sqlite_history_tombstone(
+    executor: &SqliteExecutor,
+    run_id: &str,
+) -> Result<Option<FlowHistoryTombstone>> {
+    fetch_optional_sqlite(
+        executor,
+        sql_query::<(String, String, i64, String, String, String)>(
+            "SELECT run_id, deleted_at, terminal_sequence, terminal_event_id, terminal_event_key, history_sha256 FROM flow_history_tombstones WHERE run_id = ",
+        )
+        .bind(run_id),
+    )
+    .await?
+    .map(history_tombstone_row)
+    .transpose()
 }
 
 async fn prune_sqlite_history(

@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use a3s_orm::{sql_query, PostgresTransaction};
+use a3s_orm::{sql_query, PostgresExecutor, PostgresTransaction};
 use chrono::Utc;
 
 use crate::error::{FlowError, Result};
@@ -127,18 +127,9 @@ impl PostgresEventStore {
         rows.into_iter().map(history_hold_row).collect()
     }
 
-    /// Read the minimal audit tombstone retained after history deletion.
+    /// Read the audit tombstone left after `run_id` was pruned, if any.
     pub async fn history_tombstone(&self, run_id: &str) -> Result<Option<FlowHistoryTombstone>> {
-        fetch_optional_postgres(
-            &self.executor,
-            sql_query::<(String, String, i64, String, String, String)>(
-                "SELECT run_id, deleted_at, terminal_sequence, terminal_event_id, terminal_event_key, history_sha256 FROM flow_history_tombstones WHERE run_id = ",
-            )
-            .bind(run_id),
-        )
-        .await?
-        .map(history_tombstone_row)
-        .transpose()
+        load_postgres_history_tombstone(&self.executor, run_id).await
     }
 
     /// Delete complete eligible terminal histories in one consistent scan.
@@ -159,6 +150,22 @@ impl PostgresEventStore {
             .await;
         map_postgres_transaction(result)
     }
+}
+
+pub(super) async fn load_postgres_history_tombstone(
+    executor: &PostgresExecutor,
+    run_id: &str,
+) -> Result<Option<FlowHistoryTombstone>> {
+    fetch_optional_postgres(
+        executor,
+        sql_query::<(String, String, i64, String, String, String)>(
+            "SELECT run_id, deleted_at, terminal_sequence, terminal_event_id, terminal_event_key, history_sha256 FROM flow_history_tombstones WHERE run_id = ",
+        )
+        .bind(run_id),
+    )
+    .await?
+    .map(history_tombstone_row)
+    .transpose()
 }
 
 async fn prune_postgres_history(

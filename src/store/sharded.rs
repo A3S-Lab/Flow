@@ -12,8 +12,8 @@ use crate::store::retention::{
 };
 
 use super::{
-    FlowEventStore, FlowHistoryPartition, FlowProjectionCheckpoint, FlowRunShardLayout,
-    FlowStoreCapabilities, InMemoryEventStore,
+    FlowEventStore, FlowHistoryPartition, FlowHistoryTombstone, FlowProjectionCheckpoint,
+    FlowRunShardLayout, FlowStoreCapabilities, InMemoryEventStore,
 };
 
 /// Host-composed event store that routes each run to one physical backend.
@@ -275,6 +275,10 @@ impl FlowEventStore for ShardedFlowEventStore {
         self.shard_for(run_id)
             .retire_planned_terminal_history(run_id)
             .await
+    }
+
+    async fn history_tombstone(&self, run_id: &str) -> Result<Option<FlowHistoryTombstone>> {
+        self.shard_for(run_id).history_tombstone(run_id).await
     }
 
     async fn append_shard_local_if_sequence(

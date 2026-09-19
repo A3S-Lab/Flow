@@ -628,7 +628,8 @@ unsharded backend per shard with `ShardedFlowEventStore`, which routes by
 `FlowRunShardLayout`, enforces store-wide link/hook checks, and appends through
 `FlowEventStore::append_shard_local_if_sequence`. `prune_terminal_runs_older_than`
 plans that same linked component across every backend before retiring a
-history; pruning one member store directly still sees only that store.
+history, and `history_tombstone` reads the record back from the owning shard.
+Pruning one member store directly still sees only that store.
 Composed multi-backend layouts
 do not claim cross-process locking for those store-wide invariants; hosts that
 need production-ready multi-worker admission should keep one database (or use

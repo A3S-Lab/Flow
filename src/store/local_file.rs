@@ -675,6 +675,11 @@ impl FlowEventStore for LocalFileEventStore {
         self.retire_history_inner(run_id).await
     }
 
+    async fn history_tombstone(&self, run_id: &str) -> Result<Option<FlowHistoryTombstone>> {
+        let _guard = self.lock.lock().await;
+        self.load_tombstone_inner(run_id).await
+    }
+
     async fn append_if_sequence(
         &self,
         run_id: &str,

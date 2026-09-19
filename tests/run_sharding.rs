@@ -525,5 +525,17 @@ async fn composed_local_file_prune_keeps_child_linked_from_another_shard() {
         .await
         .unwrap();
     removed.sort();
-    assert_eq!(removed, vec![child, parent]);
+    assert_eq!(removed, vec![child.clone(), parent]);
+    let child_tombstone = store
+        .history_tombstone(&child)
+        .await
+        .unwrap()
+        .expect("composed prune must leave a readable tombstone");
+    assert_eq!(child_tombstone.run_id, child);
+    assert_eq!(child_tombstone.terminal_event_key, "flow.run.cancelled");
+    assert_eq!(child_tombstone.terminal_sequence, 2);
+    assert!(matches!(
+        store.list(&child).await,
+        Err(a3s_flow::FlowError::RunNotFound(_))
+    ));
 }

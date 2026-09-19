@@ -380,6 +380,14 @@ pub trait FlowEventStore: Send + Sync {
         ))
     }
 
+    /// Read the audit tombstone left after `run_id` was pruned, if any.
+    ///
+    /// The default is none. Stores that delete histories must override this so
+    /// a composed facade can show the same record as a direct backend read.
+    async fn history_tombstone(&self, _run_id: &str) -> Result<Option<FlowHistoryTombstone>> {
+        Ok(None)
+    }
+
     /// Load a disposable projection checkpoint, if one exists.
     async fn load_checkpoint(&self, _run_id: &str) -> Result<Option<FlowProjectionCheckpoint>> {
         Ok(None)
