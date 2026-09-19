@@ -349,6 +349,15 @@ pub trait FlowEventStore: Send + Sync {
         Ok(page.into_iter().find(|event| event.sequence == sequence))
     }
 
+    /// Reject a run id that retention has already retired.
+    ///
+    /// The default accepts every id. Stores that keep a prune tombstone
+    /// override this so a composed shard reports `RunConflict` instead of
+    /// treating the retired id as missing.
+    async fn reject_retired_run_id(&self, _run_id: &str) -> Result<()> {
+        Ok(())
+    }
+
     /// Load a disposable projection checkpoint, if one exists.
     async fn load_checkpoint(&self, _run_id: &str) -> Result<Option<FlowProjectionCheckpoint>> {
         Ok(None)

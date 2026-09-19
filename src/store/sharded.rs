@@ -100,6 +100,9 @@ impl ShardedFlowEventStore {
         let Some(linked_run_id) = required_linked_flow_run_id(event) else {
             return Ok(());
         };
+        self.shard_for(linked_run_id)
+            .reject_retired_run_id(linked_run_id)
+            .await?;
         if !Self::run_exists(self.shard_for(linked_run_id).as_ref(), linked_run_id).await? {
             return Err(FlowError::RunNotFound(linked_run_id.to_string()));
         }
@@ -216,6 +219,10 @@ impl FlowEventStore for ShardedFlowEventStore {
             },
         )
         .await
+    }
+
+    async fn reject_retired_run_id(&self, run_id: &str) -> Result<()> {
+        self.shard_for(run_id).reject_retired_run_id(run_id).await
     }
 
     async fn append_shard_local_if_sequence(
