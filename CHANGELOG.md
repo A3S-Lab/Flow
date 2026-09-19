@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 SQL scheduled wakeups so cancelling a scope drops the waits
+  and select timers that scope owns, including waits in descendant scopes.
+  A wait created outside the cancelled tree stays indexed
+  (`sqlite_scope_cancel_drops_indexed_waits`).
+
 - Fixed FLOW-R3 SQL scheduled wakeups so a structured select timer arm is
   indexed on `select_created`, not only on `wait_created`. A race completion
   drops every losing timer arm, including when a signal arm wins

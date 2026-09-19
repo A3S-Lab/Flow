@@ -55,6 +55,133 @@ async fn create_run(store: &SqliteEventStore, run_id: &str) {
 }
 
 #[tokio::test]
+async fn sqlite_scope_cancel_drops_indexed_waits() {
+    let store = SqliteEventStore::connect("sqlite::memory:").await.unwrap();
+    let now = timestamp("2300-01-01T00:00:00Z");
+
+    let sibling = "sqlite-scope-cancel-sibling";
+    create_run(&store, sibling).await;
+    store
+        .append(
+            sibling,
+            FlowEvent::WaitCreated {
+                wait_id: "outside".into(),
+                resume_at: timestamp("2200-08-07T00:00:01Z"),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            sibling,
+            FlowEvent::ScopeOpened {
+                scope_id: "outer".into(),
+                parent_scope_id: None,
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            sibling,
+            FlowEvent::WaitCreated {
+                wait_id: "inside".into(),
+                resume_at: timestamp("2200-08-07T00:00:02Z"),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            sibling,
+            FlowEvent::ScopeCancelled {
+                scope_id: "outer".into(),
+                reason: None,
+            },
+        )
+        .await
+        .unwrap();
+    let subjects: Vec<_> = store
+        .list_due_wakeups(now)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|wakeup| wakeup.subject_id)
+        .collect();
+    assert_eq!(
+        subjects,
+        vec!["outside".to_string()],
+        "cancelling a scope must drop its waits and keep waits outside it"
+    );
+
+    let nested = "sqlite-scope-cancel-nested";
+    create_run(&store, nested).await;
+    store
+        .append(
+            nested,
+            FlowEvent::ScopeOpened {
+                scope_id: "parent".into(),
+                parent_scope_id: None,
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            nested,
+            FlowEvent::ScopeOpened {
+                scope_id: "child".into(),
+                parent_scope_id: Some("parent".into()),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            nested,
+            FlowEvent::WaitCreated {
+                wait_id: "nested-wait".into(),
+                resume_at: timestamp("2200-08-07T00:00:03Z"),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            nested,
+            FlowEvent::SelectCreated {
+                select_id: "nested-race".into(),
+                arms: vec![
+                    SelectArm::timer("nested-timer", timestamp("2200-08-07T00:00:04Z")),
+                    SelectArm::timer("nested-later", timestamp("2200-08-07T00:00:05Z")),
+                ],
+                mode: SelectMode::Race,
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            nested,
+            FlowEvent::ScopeCancelled {
+                scope_id: "parent".into(),
+                reason: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(
+        store
+            .list_due_wakeups(now)
+            .await
+            .unwrap()
+            .iter()
+            .all(|wakeup| wakeup.run_id != nested),
+        "cancelling a parent scope must drop waits and select timers in child scopes"
+    );
+}
+
+#[tokio::test]
 async fn sqlite_select_timer_arm_is_a_scheduled_wakeup() {
     let store = SqliteEventStore::connect("sqlite::memory:").await.unwrap();
     let run_id = "sqlite-select-timer";
