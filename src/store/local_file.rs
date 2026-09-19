@@ -558,6 +558,51 @@ impl LocalFileEventStore {
         Ok(ids)
     }
 
+    async fn delete_validated_history(
+        &self,
+        run_id: &str,
+        events: &[FlowEventEnvelope],
+    ) -> Result<()> {
+        let terminal = events.last().ok_or_else(|| {
+            FlowError::Store(format!(
+                "retention found empty local file history for {run_id}"
+            ))
+        })?;
+        self.save_tombstone_inner(&FlowHistoryTombstone {
+            run_id: run_id.to_string(),
+            deleted_at: Utc::now(),
+            terminal_sequence: terminal.sequence,
+            terminal_event_id: terminal.event_id,
+            terminal_event_key: terminal.event.event_key().to_string(),
+            history_sha256: history_checksum(events)?,
+        })
+        .await?;
+        for path in [
+            self.run_path(run_id)?,
+            self.checkpoint_path(run_id)?,
+            self.partitions_path(run_id)?,
+        ] {
+            match tokio::fs::remove_file(path).await {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(FlowError::Io(error)),
+            }
+        }
+        Ok(())
+    }
+
+    async fn retire_history_inner(&self, run_id: &str) -> Result<()> {
+        let events = self.list_inner(run_id, false).await?;
+        self.validate_existing_log(run_id, &events)?;
+        let snapshot = project_run(run_id, &events)?;
+        if !snapshot.status.is_terminal() {
+            return Err(FlowError::Store(format!(
+                "refusing to retire non-terminal local file history for {run_id}"
+            )));
+        }
+        self.delete_validated_history(run_id, &events).await
+    }
+
     /// Remove complete linked components of terminal local run histories whose
     /// terminal event timestamps are strictly before `terminal_before`.
     ///
@@ -589,38 +634,8 @@ impl LocalFileEventStore {
             let events = histories.get(run_id).ok_or_else(|| {
                 FlowError::Store(format!("retention lost local file history for {run_id}"))
             })?;
-            let terminal = events.last().ok_or_else(|| {
-                FlowError::Store(format!(
-                    "retention found empty local file history for {run_id}"
-                ))
-            })?;
-            self.save_tombstone_inner(&FlowHistoryTombstone {
-                run_id: run_id.clone(),
-                deleted_at: Utc::now(),
-                terminal_sequence: terminal.sequence,
-                terminal_event_id: terminal.event_id,
-                terminal_event_key: terminal.event.event_key().to_string(),
-                history_sha256: history_checksum(events)?,
-            })
-            .await?;
-            let path = self.run_path(run_id)?;
-            match tokio::fs::remove_file(&path).await {
-                Ok(()) => removed.push(run_id.clone()),
-                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-                Err(err) => return Err(FlowError::Io(err)),
-            }
-            let checkpoint = self.checkpoint_path(run_id)?;
-            match tokio::fs::remove_file(checkpoint).await {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(err) => return Err(FlowError::Io(err)),
-            }
-            let partitions = self.partitions_path(run_id)?;
-            match tokio::fs::remove_file(partitions).await {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(err) => return Err(FlowError::Io(err)),
-            }
+            self.delete_validated_history(run_id, events).await?;
+            removed.push(run_id.clone());
         }
 
         plan.report.deleted_run_ids = removed;
@@ -649,6 +664,15 @@ impl FlowEventStore for LocalFileEventStore {
     async fn reject_retired_run_id(&self, run_id: &str) -> Result<()> {
         let _guard = self.lock.lock().await;
         self.reject_if_tombstoned(run_id).await
+    }
+
+    async fn held_run_ids(&self) -> Result<BTreeSet<String>> {
+        Ok(BTreeSet::new())
+    }
+
+    async fn retire_planned_terminal_history(&self, run_id: &str) -> Result<()> {
+        let _guard = self.lock.lock().await;
+        self.retire_history_inner(run_id).await
     }
 
     async fn append_if_sequence(

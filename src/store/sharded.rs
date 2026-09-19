@@ -1,12 +1,15 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::error::{FlowError, Result};
 use crate::model::{ActiveHookSnapshot, FlowEvent, FlowEventEnvelope, ScheduledWakeup};
-use crate::store::retention::required_linked_flow_run_id;
+use crate::store::retention::{
+    plan_history_retention, required_linked_flow_run_id, FlowHistoryRetentionPolicy,
+};
 
 use super::{
     FlowEventStore, FlowHistoryPartition, FlowProjectionCheckpoint, FlowRunShardLayout,
@@ -151,6 +154,41 @@ impl ShardedFlowEventStore {
             .append_shard_local_if_sequence(run_id, expected, event)
             .await
     }
+
+    /// Delete terminal histories whose linked component is eligible on every shard.
+    ///
+    /// Pruning one backend alone cannot see a parent or child stored elsewhere,
+    /// so a live cross-shard link would not protect that history. This scan
+    /// builds one history view, applies the shared retention planner, and
+    /// retires only runs in a fully eligible component.
+    pub async fn prune_terminal_runs_older_than(
+        &self,
+        terminal_before: DateTime<Utc>,
+    ) -> Result<Vec<String>> {
+        let _guard = self.gate.lock().await;
+        let mut histories = BTreeMap::new();
+        let mut hold_run_ids = BTreeSet::new();
+        for shard in &self.shards {
+            hold_run_ids.extend(shard.held_run_ids().await?);
+            for run_id in shard.list_run_ids().await? {
+                histories.insert(run_id.clone(), shard.list(&run_id).await?);
+            }
+        }
+        let plan = plan_history_retention(
+            &histories,
+            &hold_run_ids,
+            &FlowHistoryRetentionPolicy::new(terminal_before),
+            "sharded",
+        )?;
+        let mut deleted = Vec::new();
+        for run_id in &plan.deletable_run_ids {
+            self.shard_for(run_id)
+                .retire_planned_terminal_history(run_id)
+                .await?;
+            deleted.push(run_id.clone());
+        }
+        Ok(deleted)
+    }
 }
 
 #[async_trait]
@@ -223,6 +261,20 @@ impl FlowEventStore for ShardedFlowEventStore {
 
     async fn reject_retired_run_id(&self, run_id: &str) -> Result<()> {
         self.shard_for(run_id).reject_retired_run_id(run_id).await
+    }
+
+    async fn held_run_ids(&self) -> Result<BTreeSet<String>> {
+        let mut holds = BTreeSet::new();
+        for shard in &self.shards {
+            holds.extend(shard.held_run_ids().await?);
+        }
+        Ok(holds)
+    }
+
+    async fn retire_planned_terminal_history(&self, run_id: &str) -> Result<()> {
+        self.shard_for(run_id)
+            .retire_planned_terminal_history(run_id)
+            .await
     }
 
     async fn append_shard_local_if_sequence(

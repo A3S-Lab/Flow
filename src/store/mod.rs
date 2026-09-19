@@ -2,6 +2,7 @@ use async_trait::async_trait;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 use chrono::SecondsFormat;
 use chrono::{DateTime, Utc};
+use std::collections::BTreeSet;
 
 use crate::error::{FlowError, Result};
 use crate::model::{
@@ -356,6 +357,27 @@ pub trait FlowEventStore: Send + Sync {
     /// treating the retired id as missing.
     async fn reject_retired_run_id(&self, _run_id: &str) -> Result<()> {
         Ok(())
+    }
+
+    /// Run IDs protected by a durable audit hold.
+    ///
+    /// The default is empty. SQL stores override it. Local JSONL has no holds.
+    async fn held_run_ids(&self) -> Result<BTreeSet<String>> {
+        Ok(BTreeSet::new())
+    }
+
+    /// Delete one history the caller has already included in a deletable
+    /// retention component.
+    ///
+    /// [`ShardedFlowEventStore`] plans linked components across every backend,
+    /// then calls this on the owning shard. The implementation must still
+    /// refuse a history that is no longer terminal. It must not re-apply
+    /// linked-component rules, because those links may live on another shard.
+    /// The default fails closed.
+    async fn retire_planned_terminal_history(&self, _run_id: &str) -> Result<()> {
+        Err(FlowError::Store(
+            "planned history retirement is unsupported by this event store".to_string(),
+        ))
     }
 
     /// Load a disposable projection checkpoint, if one exists.

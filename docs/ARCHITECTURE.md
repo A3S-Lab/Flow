@@ -626,7 +626,10 @@ layouts. Linked-run and hook-token uniqueness remain store-wide so
 cross-shard parent/child links stay valid. SQL and other hosts can place one
 unsharded backend per shard with `ShardedFlowEventStore`, which routes by
 `FlowRunShardLayout`, enforces store-wide link/hook checks, and appends through
-`FlowEventStore::append_shard_local_if_sequence`. Composed multi-backend layouts
+`FlowEventStore::append_shard_local_if_sequence`. `prune_terminal_runs_older_than`
+plans that same linked component across every backend before retiring a
+history; pruning one member store directly still sees only that store.
+Composed multi-backend layouts
 do not claim cross-process locking for those store-wide invariants; hosts that
 need production-ready multi-worker admission should keep one database (or use
 the built-in single-process sharded memory/file stores).
