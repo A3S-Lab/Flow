@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 SQL scheduled wakeups so a structured select timer arm is
+  indexed on `select_created`, not only on `wait_created`. A race completion
+  drops every losing timer arm, including when a signal arm wins
+  (`sqlite_select_timer_arm_is_a_scheduled_wakeup`).
+
 - Fixed FLOW-R3 LocalFile retention so the history tombstone is synced before
   the JSONL log is unlinked. A crash after the tombstone is published still
   finishes the delete and keeps the run id fenced

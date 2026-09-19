@@ -2,7 +2,7 @@
 
 use a3s_flow::{
     CancellationRequest, FlowEvent, FlowEventStore, PostgresEventStore, RetryPolicy,
-    RuntimeBuildId, ScheduledWakeupKind, WorkflowSpec,
+    RuntimeBuildId, ScheduledWakeupKind, SelectArm, SelectMode, WorkflowSpec,
 };
 use a3s_orm::{sql_query, Database, PostgresDialect, PostgresExecutor};
 use chrono::{DateTime, Utc};
@@ -58,6 +58,73 @@ async fn create_run(store: &PostgresEventStore, run_id: &str) {
         .await
         .unwrap();
     store.append(run_id, FlowEvent::RunStarted).await.unwrap();
+}
+
+#[tokio::test]
+async fn postgres_select_timer_arm_is_a_scheduled_wakeup() {
+    let Some(postgres_url) = postgres_url_from_env() else {
+        return;
+    };
+    let store = PostgresEventStore::connect(&postgres_url).await.unwrap();
+    let scope = Uuid::new_v4();
+    let run_id = format!("postgres-select-timer-{scope}");
+    create_run(&store, &run_id).await;
+    store
+        .append(
+            &run_id,
+            FlowEvent::SelectCreated {
+                select_id: "race".into(),
+                arms: vec![
+                    SelectArm::timer("soon", timestamp("2200-08-07T00:00:01Z")),
+                    SelectArm::timer("later", timestamp("2200-08-07T00:00:02Z")),
+                ],
+                mode: SelectMode::Race,
+            },
+        )
+        .await
+        .unwrap();
+
+    let due = store
+        .list_due_wakeups(timestamp("2300-01-01T00:00:00Z"))
+        .await
+        .unwrap();
+    let mut subjects: Vec<_> = due
+        .iter()
+        .filter(|wakeup| wakeup.run_id == run_id)
+        .map(|wakeup| wakeup.subject_id.as_str())
+        .collect();
+    subjects.sort();
+    assert_eq!(subjects, vec!["later", "soon"]);
+    assert!(due
+        .iter()
+        .filter(|wakeup| wakeup.run_id == run_id)
+        .all(|wakeup| wakeup.kind == ScheduledWakeupKind::Wait));
+
+    store
+        .append(
+            &run_id,
+            FlowEvent::WaitCompleted {
+                wait_id: "soon".into(),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            &run_id,
+            FlowEvent::SelectCompleted {
+                select_id: "race".into(),
+                winning_arm_id: Some("soon".into()),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(store
+        .list_due_wakeups(timestamp("2300-01-01T00:00:00Z"))
+        .await
+        .unwrap()
+        .iter()
+        .all(|wakeup| wakeup.run_id != run_id));
 }
 
 #[tokio::test]
