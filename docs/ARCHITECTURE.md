@@ -129,12 +129,14 @@ active-leaf replay still require the pinned build.
 
 Projection checkpoints are an optional acceleration path for inspection and
 host scheduling. A checkpoint stores a materialized snapshot together with the
-last sequence, event ID, and a SHA-256 snapshot digest. Flow accepts it only
-when the digest and anchor event match the current history (and replays a
-bounded indexed tail when the tip advanced); otherwise it discards the cache
-and replays the event log. SQLite and PostgreSQL append transactions validate
-the new event against the current checkpoint and advance that cache in the
-same transaction, avoiding a full-history read on the steady-state write path.
+last sequence, event ID, and a SHA-256 snapshot digest. Flow accepts it only when the digest, projection revision, and anchor event
+match the current history (and replays a bounded indexed tail when the tip
+advanced); otherwise it discards the cache and replays the event log. A
+projection-rule change bumps the revision so a tip-matched checkpoint from
+the previous rules cannot keep a stale snapshot. SQLite and PostgreSQL append
+transactions validate the new event against the current checkpoint and advance
+that cache in the same transaction, avoiding a full-history read on the
+steady-state write path.
 Consequently checkpoint loss, corruption, or lag cannot change workflow
 semantics, and checkpoint storage never becomes a second authority.
 

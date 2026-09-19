@@ -9,6 +9,7 @@ use a3s_flow::{
 };
 use async_trait::async_trait;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 struct TestRuntime;
@@ -178,6 +179,69 @@ async fn local_file_checkpoint_survives_store_reopen() {
     assert_eq!(
         reopened_engine.snapshot("local-checkpoint").await.unwrap(),
         expected
+    );
+}
+
+#[tokio::test]
+async fn stale_projection_checkpoint_is_rebuilt_from_history() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = Arc::new(LocalFileEventStore::new(directory.path()));
+    let run_id = "stale-select-checkpoint";
+    for event in [
+        run_created(),
+        FlowEvent::RunStarted,
+        FlowEvent::ScopeOpened {
+            scope_id: "payment".to_string(),
+            parent_scope_id: None,
+        },
+        FlowEvent::SelectCreated {
+            select_id: "race".to_string(),
+            arms: vec![
+                a3s_flow::SelectArm::timer("soon", "2030-01-01T00:00:00Z".parse().unwrap()),
+                a3s_flow::SelectArm::timer("later", "2030-01-01T00:00:01Z".parse().unwrap()),
+            ],
+            mode: a3s_flow::SelectMode::Race,
+        },
+        FlowEvent::ScopeCancelled {
+            scope_id: "payment".to_string(),
+            reason: None,
+        },
+    ] {
+        store.append(run_id, event).await.unwrap();
+    }
+    let engine = FlowEngine::new(store.clone(), Arc::new(TestRuntime));
+    let fresh = engine.snapshot(run_id).await.unwrap();
+    assert_eq!(
+        fresh.select("race").unwrap().status,
+        a3s_flow::SelectStatus::Cancelled
+    );
+    let (sequence, event_id) = store.latest_event(run_id).await.unwrap().unwrap();
+    let mut stale = fresh;
+    stale.selects.get_mut("race").unwrap().status = a3s_flow::SelectStatus::Open;
+    stale.selects.get_mut("race").unwrap().scope_id = None;
+    let checkpoint =
+        a3s_flow::FlowProjectionCheckpoint::new(run_id, sequence, event_id, stale).unwrap();
+    let mut value = serde_json::to_value(&checkpoint).unwrap();
+    value["snapshot"]
+        .as_object_mut()
+        .expect("snapshot")
+        .remove("projection_revision");
+    let snapshot_bytes = serde_json::to_vec(&value["snapshot"]).unwrap();
+    value["snapshot_sha256"] = json!(format!("{:x}", Sha256::digest(snapshot_bytes)));
+    let path = directory.path().join(format!("{run_id}.checkpoint.json"));
+    tokio::fs::write(&path, serde_json::to_vec(&value).unwrap())
+        .await
+        .unwrap();
+
+    let reopened = Arc::new(LocalFileEventStore::new(directory.path()));
+    let snapshot = FlowEngine::new(reopened, Arc::new(TestRuntime))
+        .snapshot(run_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        snapshot.select("race").unwrap().status,
+        a3s_flow::SelectStatus::Cancelled,
+        "a checkpoint written before select scope ownership must be rebuilt from history"
     );
 }
 

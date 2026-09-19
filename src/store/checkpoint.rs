@@ -61,6 +61,14 @@ impl FlowProjectionCheckpoint {
                 self.run_id
             )));
         }
+        if self.snapshot.projection_revision != crate::model::FLOW_PROJECTION_REVISION {
+            return Err(FlowError::Store(format!(
+                "projection checkpoint revision {} is not {} for {}",
+                self.snapshot.projection_revision,
+                crate::model::FLOW_PROJECTION_REVISION,
+                self.run_id
+            )));
+        }
         let expected_digest = snapshot_digest(&self.snapshot)?;
         if self.snapshot_sha256 != expected_digest {
             return Err(FlowError::Store(format!(
@@ -96,4 +104,34 @@ fn snapshot_digest(snapshot: &WorkflowRunSnapshot) -> Result<String> {
         "{:x}",
         Sha256::digest(serde_json::to_vec(snapshot)?)
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{WorkflowRunSnapshot, WorkflowSpec, FLOW_PROJECTION_REVISION};
+    use serde_json::json;
+
+    #[test]
+    fn checkpoint_rejects_an_older_projection_revision_even_when_the_digest_matches() {
+        let mut snapshot = WorkflowRunSnapshot::new(
+            "revision-run",
+            WorkflowSpec::rust_embedded("checkpoint.revision", "1", "tests::checkpoint", "main"),
+            json!({}),
+        );
+        snapshot.last_sequence = 1;
+        snapshot.projection_revision = 0;
+        let checkpoint = FlowProjectionCheckpoint {
+            run_id: snapshot.run_id.clone(),
+            last_sequence: snapshot.last_sequence,
+            last_event_id: Uuid::from_u128(1),
+            snapshot_sha256: snapshot_digest(&snapshot).expect("digest"),
+            snapshot,
+        };
+        let error = checkpoint
+            .validate()
+            .expect_err("old revision must be rejected");
+        assert!(error.to_string().contains("revision 0"), "error={error}");
+        assert_ne!(FLOW_PROJECTION_REVISION, 0);
+    }
 }

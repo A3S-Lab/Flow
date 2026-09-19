@@ -57,7 +57,7 @@ pub use signal::{SignalWaitSnapshot, SignalWaitStatus, WorkflowSignal, WorkflowS
 pub use snapshot::{
     ActiveHookSnapshot, ActivityResolution, ActivitySnapshot, ActivityStatus, HookSnapshot,
     HookStatus, ScheduledWakeup, ScheduledWakeupKind, StepSnapshot, StepStatus, WaitSnapshot,
-    WaitStatus, WorkflowRunSnapshot, WorkflowRunStatus,
+    WaitStatus, WorkflowRunSnapshot, WorkflowRunStatus, FLOW_PROJECTION_REVISION,
 };
 pub use update::{WorkflowUpdate, WorkflowUpdateOutcome, WorkflowUpdateSnapshot};
 pub use visibility::{

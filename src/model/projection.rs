@@ -1234,6 +1234,7 @@ pub(crate) fn project_run_from_snapshot(
     if snapshot.status == WorkflowRunStatus::Running && snapshot.has_open_suspension() {
         snapshot.status = WorkflowRunStatus::Suspended;
     }
+    snapshot.projection_revision = super::FLOW_PROJECTION_REVISION;
 
     Ok(snapshot)
 }
