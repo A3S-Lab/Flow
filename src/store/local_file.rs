@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -164,9 +165,15 @@ impl LocalFileEventStore {
         let path = self.tombstone_path(&tombstone.run_id)?;
         tokio::fs::create_dir_all(self.shard_dir(&tombstone.run_id)?).await?;
         let temporary = path.with_extension("json.tmp");
-        let bytes = serde_json::to_vec(tombstone)?;
-        tokio::fs::write(&temporary, bytes).await?;
+        let mut file = File::create(&temporary).await?;
+        file.write_all(&serde_json::to_vec(tombstone)?).await?;
+        file.flush().await?;
+        file.sync_data().await?;
+        drop(file);
         tokio::fs::rename(&temporary, &path).await?;
+        // The caller unlinks the synced JSONL log next. The replacement has
+        // to reach stable storage first, or a power loss can drop both.
+        sync_directory(&path).await?;
         Ok(())
     }
 
@@ -629,7 +636,8 @@ impl LocalFileEventStore {
     /// linked to it. Corrupt histories and dangling child references are
     /// returned as errors or retained rather than deleted, so operators can
     /// inspect them before cleanup. A deleted history leaves a tombstone that
-    /// rejects later appends of the same run id.
+    /// rejects later appends of the same run id. That tombstone is synced
+    /// before the JSONL log is unlinked, so a crash cannot drop both.
     pub async fn prune_terminal_runs_older_than(
         &self,
         terminal_before: DateTime<Utc>,
@@ -911,6 +919,25 @@ async fn collect_tombstone_run_ids(dir: &Path, ids: &mut Vec<String>) -> Result<
 
 fn is_safe_run_id(run_id: &str) -> bool {
     validate_run_id(run_id).is_ok()
+}
+
+/// Durably publish a directory entry after a rename.
+///
+/// Unix can open the parent and `fsync` it. Other platforms refuse to open a
+/// directory this way; the replacement file was already `sync_data`'d.
+async fn sync_directory(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        if let Some(parent) = path.parent() {
+            let dir = File::open(parent).await?;
+            dir.sync_all().await?;
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1259,5 +1286,66 @@ mod tests {
             .expect("pruned history must leave a tombstone");
         assert_eq!(tombstone.terminal_event_key, "flow.run.completed");
         assert_eq!(tombstone.terminal_sequence, 3);
+    }
+
+    #[tokio::test]
+    async fn sharded_prune_finishes_when_the_tombstone_precedes_log_delete() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let store = LocalFileEventStore::with_shard_count(directory.path(), 2).expect("shards");
+        store
+            .append_if_sequence("crash-run", 0, run_created())
+            .await
+            .unwrap();
+        store
+            .append_if_sequence("crash-run", 1, FlowEvent::RunStarted)
+            .await
+            .unwrap();
+        store
+            .append_if_sequence(
+                "crash-run",
+                2,
+                FlowEvent::RunCompleted { output: json!({}) },
+            )
+            .await
+            .unwrap();
+        let events = store.list("crash-run").await.unwrap();
+        let terminal = events.last().expect("terminal event");
+        store
+            .save_tombstone_inner(&FlowHistoryTombstone {
+                run_id: "crash-run".to_string(),
+                deleted_at: Utc::now(),
+                terminal_sequence: terminal.sequence,
+                terminal_event_id: terminal.event_id,
+                terminal_event_key: terminal.event.event_key().to_string(),
+                history_sha256: history_checksum(&events).expect("checksum"),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            store.list("crash-run").await.unwrap().len(),
+            3,
+            "the log must still be readable after the tombstone is durable"
+        );
+
+        let removed = store
+            .prune_terminal_runs_older_than(Utc::now() + chrono::Duration::days(1))
+            .await
+            .unwrap();
+        assert_eq!(removed, vec!["crash-run".to_string()]);
+        assert!(matches!(
+            store.list("crash-run").await.unwrap_err(),
+            FlowError::RunNotFound(_)
+        ));
+        let reused = store
+            .append_if_sequence("crash-run", 0, run_created())
+            .await
+            .expect_err("a crash-window tombstone must still fence the run id");
+        assert!(
+            matches!(
+                reused,
+                FlowError::RunConflict { ref reason, .. } if reason.contains("tombstoned")
+            ),
+            "got {reused}"
+        );
     }
 }
