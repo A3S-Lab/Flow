@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 LocalFile linked-run and hook-token checks so they use the
+  committed JSONL tip (and a tip-matched checkpoint for hook tokens) instead
+  of replaying every history. A missing run is still `RunNotFound`, and a
+  missing checkpoint still decodes the full log
+  (`local_file_linked_run_check_uses_tip_not_full_history`,
+  `local_file_hook_token_check_uses_tip_checkpoint`,
+  `local_file_hook_token_check_without_checkpoint_rejects_corrupt_prefix`).
+
 - Fixed FLOW-R3 LocalFile append so a tip-matched checkpoint validates the
   candidate from that snapshot. The JSONL tip is read from the tail, so a
   corrupt prefix is not replayed; without a matching checkpoint the full log
