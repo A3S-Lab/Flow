@@ -73,15 +73,13 @@ pub use store::SqliteEventStore;
 #[cfg(feature = "postgres")]
 pub use store::{migrate_postgres_flow, PostgresEventStore};
 pub use store::{
-    FlowEventStore, FlowHistoryArchiveSeal, FlowHistoryPartition, FlowProjectionCheckpoint,
-    FlowRunShardLayout, FlowStoreCapabilities, InMemoryEventStore, LocalFileEventStore,
-    ShardedFlowEventStore, MAX_FLOW_HISTORY_PAGE_SIZE, MAX_FLOW_RUN_SHARD_COUNT,
-    MIN_FLOW_RUN_SHARD_COUNT,
+    FlowEventStore, FlowHistoryArchiveSeal, FlowHistoryPartition, FlowHistoryTombstone,
+    FlowProjectionCheckpoint, FlowRunShardLayout, FlowStoreCapabilities, InMemoryEventStore,
+    LocalFileEventStore, ShardedFlowEventStore, MAX_FLOW_HISTORY_PAGE_SIZE,
+    MAX_FLOW_RUN_SHARD_COUNT, MIN_FLOW_RUN_SHARD_COUNT,
 };
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
-pub use store::{
-    FlowHistoryHold, FlowHistoryRetentionPolicy, FlowHistoryRetentionReport, FlowHistoryTombstone,
-};
+pub use store::{FlowHistoryHold, FlowHistoryRetentionPolicy, FlowHistoryRetentionReport};
 pub use trace::{
     current_trace_context, with_trace_context, without_trace_context, FlowTraceContext,
 };

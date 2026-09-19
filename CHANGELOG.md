@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed FLOW-R3 LocalFile retention so pruning a terminal history writes an
+  audit tombstone before deleting the log. A later append of that run id, or a
+  link to it, returns `RunConflict` instead of starting a new history
+  (`local_file_prune_tombstones_the_run_id`).
+
 - Fixed FLOW-R3 LocalFile history partitions so listing and sealing bound
   against the committed JSONL tip, matching SQL `LIMIT 1` / latest sequence,
   instead of replaying the full log. A missing run is still `RunNotFound`, and
