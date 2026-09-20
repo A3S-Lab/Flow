@@ -238,7 +238,20 @@ function WorkflowPlaygroundSurface({
         if (cancelled) return;
         setHostCanvas(canvas);
         restore(graphFromHostCanvas(canvas, locale, catalog));
-        setEditRevision(1);
+        // Only reset to 1 on a genuine first injection for this run. A
+        // reload (remount) re-reads editRevision from sessionStorage via the
+        // useState initializer above; unconditionally resetting it here
+        // stomps that value, causing the next save to replay the host's
+        // cached same-revision response (idempotent — see apply_plan_edit in
+        // adapters/flow-host/src/lib.rs) instead of applying the new edit.
+        if (
+          !hostMode.runId ||
+          typeof sessionStorage === 'undefined' ||
+          sessionStorage.getItem(`flow.host.editRevision.${hostMode.runId}`) ===
+            null
+        ) {
+          setEditRevision(1);
+        }
         setAnnouncement(
           locale === 'zh'
             ? `已注入 ${canvas.proposal_digest}`
