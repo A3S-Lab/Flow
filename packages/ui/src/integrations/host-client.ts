@@ -228,6 +228,36 @@ export class FlowHostClient {
     return this.postPlanEdits(canvas.run_id, body);
   }
 
+  /**
+   * `POST /v1/runs/{run_id}/copilot` — never writes to the ledger; the
+   * caller applies any `suggested_steps` to the canvas separately (unsaved)
+   * and still has to Save/Approve for it to affect execution.
+   */
+  async postCopilot(
+    runId: string,
+    body: JsonObject,
+  ): Promise<{ status: number; json: JsonObject }> {
+    if (!runId.trim()) {
+      throw new HostClientError('INVALID_INPUT: runId is required');
+    }
+    try {
+      const { status, json } = await this.request(
+        'POST',
+        `/v1/runs/${encodeURIComponent(runId)}/copilot`,
+        body,
+      );
+      return { status, json: (json ?? {}) as JsonObject };
+    } catch (error) {
+      if (error instanceof HostClientError && error.status !== undefined) {
+        return {
+          status: error.status,
+          json: (error.body ?? {}) as JsonObject,
+        };
+      }
+      throw error;
+    }
+  }
+
   async listActiveHooks(): Promise<JsonObject> {
     const { json } = await this.request('GET', '/v1/hooks/active');
     return (json ?? {}) as JsonObject;

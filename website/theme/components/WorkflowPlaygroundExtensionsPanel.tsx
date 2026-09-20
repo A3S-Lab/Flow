@@ -31,6 +31,13 @@ export type WorkflowPlaygroundExtensionsPanelProps = {
   onCopilotRequest?: (
     request: WorkflowPlaygroundCopilotRequest,
   ) => void | Promise<void>;
+  /**
+   * Whether `context.actions.requestCopilot` actually reaches a real
+   * Copilot backend. Defaults to `Boolean(onCopilotRequest)`; host mode
+   * passes `true` explicitly because its Copilot bridge is wired through
+   * `requestCopilot` directly, not through `onCopilotRequest`.
+   */
+  copilotAvailable?: boolean;
 };
 
 function renderExtension(
@@ -254,26 +261,24 @@ function CopilotExtension({
   context,
   copy,
   onAnnouncement,
-  onCopilotRequest,
+  copilotAvailable,
 }: {
   context: WorkflowPlaygroundExtensionContext;
   copy: (typeof workflowPlaygroundExtensionCopy)['zh'];
   onAnnouncement?: (message: string) => void;
-  onCopilotRequest?: (
-    request: WorkflowPlaygroundCopilotRequest,
-  ) => void | Promise<void>;
+  copilotAvailable: boolean;
 }) {
   const [instruction, setInstruction] = useState('');
   const [sending, setSending] = useState(false);
-  const available = Boolean(onCopilotRequest);
+  const available = copilotAvailable;
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
     const value = instruction.trim();
     if (!value || sending) return;
     setSending(true);
     try {
-      const handled = await context.actions.requestCopilot(value);
-      if (handled) onAnnouncement?.(copy.copilotSent);
+      const reply = await context.actions.requestCopilot(value);
+      if (reply !== false) onAnnouncement?.(reply);
       else {
         const copied = await copyText(
           serializeWorkflowPlaygroundExtensionContext(context),
@@ -386,6 +391,7 @@ export function WorkflowPlaygroundExtensionsPanel({
   onClose,
   onAnnouncement,
   onCopilotRequest,
+  copilotAvailable,
 }: WorkflowPlaygroundExtensionsPanelProps) {
   const copy = workflowPlaygroundExtensionCopy[context.locale];
   const tabs: WorkflowPlaygroundExtensionTab[] = ['cli', 'skill', 'copilot'];
@@ -411,7 +417,7 @@ export function WorkflowPlaygroundExtensionsPanel({
         context={context}
         copy={copy}
         onAnnouncement={onAnnouncement}
-        onCopilotRequest={onCopilotRequest}
+        copilotAvailable={copilotAvailable ?? Boolean(onCopilotRequest)}
       />
     );
 

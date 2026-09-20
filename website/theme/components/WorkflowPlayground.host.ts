@@ -443,4 +443,70 @@ export function refreshCanvasFromProposalDto(dto: unknown): HostCanvasDocument {
   return canvasDocumentFromProposalDto(dto);
 }
 
+export type HostCopilotReply = {
+  message: string;
+  suggestedSteps: JsonObject[] | null;
+};
+
+/**
+ * `POST /v1/runs/{run_id}/copilot` — the model only ever suggests a plan
+ * edit; it is never written to the ledger here. Applying a suggestion is a
+ * separate step ([[applyCopilotSteps]] + the normal Save flow) that goes
+ * through the same `plan-edits` structural checks a hand-drawn edit would.
+ */
+export async function postCopilotRequest(
+  client: FlowHostClient,
+  runId: string,
+  instruction: string,
+): Promise<HostCopilotReply> {
+  if (!runId.trim()) {
+    throw new HostClientError('INVALID_INPUT: runId is required');
+  }
+  const { status, json } = await client.postCopilot(runId, { instruction });
+  if (status < 200 || status >= 300) {
+    const detail =
+      json && typeof json === 'object' && 'error' in json
+        ? String((json as JsonObject).error)
+        : `host returned HTTP ${status}`;
+    throw new HostClientError(`INVALID_INPUT: ${detail}`, status, json);
+  }
+  const message =
+    typeof json.message === 'string' ? json.message : 'Copilot replied.';
+  const suggestedSteps = Array.isArray(json.suggested_steps)
+    ? (json.suggested_steps as JsonObject[])
+    : null;
+  return { message, suggestedSteps };
+}
+
+/**
+ * Apply a Copilot-suggested `steps` array to the canvas (unsaved). Mirrors
+ * [[addHostPlanStep]]'s pattern exactly: rebuild `canvas.plan.steps` via
+ * `applyCanvasNodeEdits`, then re-project through `graphFromHostCanvas` so
+ * the caller can `setHostCanvas` + `restore` in one place.
+ */
+export function applyCopilotSteps(
+  canvas: HostCanvasDocument,
+  locale: FlowWebsiteLocale,
+  catalog: A3SFlowDagNodeCatalog,
+  suggestedSteps: JsonObject[],
+): { canvas: HostCanvasDocument; graph: PlaygroundGraphState } {
+  const nodes: HostPlanStepNode[] = suggestedSteps.map((step) => {
+    const stepId = String(step.step_id ?? '');
+    return {
+      id: stepId,
+      kind: 'host.plan-step.v1',
+      agent_id: step.agent_id,
+      objective: step.objective,
+      capabilities: step.capabilities,
+      depends_on: Array.isArray(step.depends_on) ? step.depends_on : [],
+      plan_step: step,
+    };
+  });
+  const nextCanvas = applyCanvasNodeEdits(canvas, nodes);
+  return {
+    canvas: nextCanvas,
+    graph: graphFromHostCanvas(nextCanvas, locale, catalog),
+  };
+}
+
 export { HostClientError, canvasDocumentFromProposalDto };

@@ -5,6 +5,7 @@ import {
   refuseUninjectedPlayground,
   type A3SFlowWorkflowDagNode,
   type HostCanvasDocument,
+  type JsonObject,
 } from '@a3s-lab/flow-ui';
 import { useLang, useSite, useVersion, withBase } from '@rspress/core/runtime';
 import {
@@ -68,10 +69,12 @@ import {
 } from './WorkflowPlayground.graph';
 import {
   addHostPlanStep,
+  applyCopilotSteps,
   createHostClient,
   graphFromHostCanvas,
   hostCanvasFromGraph,
   loadHostCanvas,
+  postCopilotRequest,
   refreshCanvasFromProposalDto,
 } from './WorkflowPlayground.host';
 import {
@@ -1117,6 +1120,44 @@ function WorkflowPlaygroundSurface({
     );
   }, [catalog, graph, hostCanvas, hostMode, locale, restore]);
 
+  // Host-mode Copilot: ask the configured model for a suggested edit, apply
+  // it to the canvas (unsaved) if one comes back. Never calls Save/Approve
+  // itself -- the operator still has to do that, so a hallucinated or
+  // malformed suggestion is caught by the same plan-edits validation a
+  // hand-drawn edit would hit. Returns the message to announce (never
+  // `false` in host mode: a request failure still has a message to show).
+  const requestHostCopilot = useCallback(
+    async (instruction: string): Promise<string | false> => {
+      if (!hostMode || !hostCanvas) return false;
+      setHostBusy(true);
+      try {
+        const client = createHostClient(hostMode);
+        const reply = await postCopilotRequest(client, hostMode.runId, instruction);
+        if (reply.suggestedSteps && reply.suggestedSteps.length > 0) {
+          const next = applyCopilotSteps(
+            hostCanvas,
+            locale,
+            catalog,
+            reply.suggestedSteps,
+          );
+          setHostCanvas(next.canvas);
+          restore(next.graph);
+          const appliedSuffix =
+            locale === 'zh'
+              ? '已把 Copilot 的建议应用到画布（未保存）。'
+              : "Applied Copilot's suggestion to the canvas (unsaved).";
+          return `${reply.message} ${appliedSuffix}`;
+        }
+        return reply.message;
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      } finally {
+        setHostBusy(false);
+      }
+    },
+    [catalog, hostCanvas, hostMode, locale, restore],
+  );
+
   const requestWorkflowRun = useCallback(() => {
     setExtensionsOpen(false);
     if (running) {
@@ -1169,18 +1210,35 @@ function WorkflowPlaygroundSurface({
       openNodeLibrary,
       copyDsl: copyDocument,
       requestCopilot: async (instruction: string) => {
+        if (hostMode) return requestHostCopilot(instruction);
         if (!onCopilotRequest || !extensionContextRef.current) return false;
         await onCopilotRequest({
           instruction,
           context: extensionContextRef.current,
         });
-        return true;
+        return locale === 'zh'
+          ? '请求已交给宿主 Copilot。'
+          : 'Request sent to the host Copilot.';
       },
+      applyGraphEdit: hostMode
+        ? (steps: JsonObject[]) => {
+            if (!hostCanvas) return;
+            const next = applyCopilotSteps(hostCanvas, locale, catalog, steps);
+            setHostCanvas(next.canvas);
+            restore(next.graph);
+          }
+        : undefined,
     }),
     [
+      catalog,
       copyDocument,
+      hostCanvas,
+      hostMode,
+      locale,
       onCopilotRequest,
       openNodeLibrary,
+      requestHostCopilot,
+      restore,
       selectAnnotation,
       selectEdge,
     ],
@@ -1654,6 +1712,7 @@ function WorkflowPlaygroundSurface({
           <WorkflowPlaygroundExtensionsPanel
             activeTab={extensionTab}
             context={extensionContext}
+            copilotAvailable={Boolean(hostMode) || Boolean(onCopilotRequest)}
             extensions={extensions}
             onAnnouncement={setAnnouncement}
             onClose={() => setExtensionsOpen(false)}

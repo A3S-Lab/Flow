@@ -6,6 +6,7 @@ import {
   refuseUninjectedPlayground,
 } from '@a3s-lab/flow-ui';
 import {
+  applyCopilotSteps,
   createHostInjectedExample,
   createHostModeCatalog,
   graphFromHostCanvas,
@@ -140,5 +141,56 @@ describe('WorkflowPlayground host mode', () => {
     const canvas = canvasDocumentFromProposalDto(dto);
     const next = applyCanvasNodeEdits(canvas, canvas.nodes);
     expect(next.preview_only.execution_digest).toBe('deadbeef');
+  });
+
+  it('applyCopilotSteps rebuilds the canvas from a suggested steps array and stays injected', () => {
+    const catalog = createHostModeCatalog(
+      createPlaygroundNodeCatalog('en'),
+      'en',
+    );
+    const canvas = canvasDocumentFromProposalDto(dto);
+    const suggestedSteps = [
+      {
+        step_id: 'step-001',
+        agent_id: 'frontend-developer',
+        objective: 'Copilot-narrowed accessibility-only review',
+        capabilities: ['read'],
+        depends_on: [],
+        version: '1.0.0',
+      },
+      {
+        step_id: 'step-002',
+        agent_id: 'frontend-developer',
+        objective: 'Copilot-added follow-up performance pass',
+        capabilities: ['read'],
+        depends_on: ['step-001'],
+        version: '1.0.0',
+      },
+    ];
+    const next = applyCopilotSteps(canvas, 'en', catalog, suggestedSteps);
+
+    // The rebuilt canvas is still valid host authority -- not an uninjected
+    // export -- so it can be saved through the normal plan-edits path.
+    expect(() => refuseUninjectedPlayground(next.canvas)).not.toThrow();
+    expect(next.canvas.plan.steps).toEqual([
+      expect.objectContaining({
+        step_id: 'step-001',
+        objective: 'Copilot-narrowed accessibility-only review',
+      }),
+      expect.objectContaining({
+        step_id: 'step-002',
+        objective: 'Copilot-added follow-up performance pass',
+      }),
+    ]);
+    expect(next.canvas.execution_order).toEqual(['step-001', 'step-002']);
+    // The re-projected graph reflects both suggested steps as canvas nodes.
+    expect(
+      next.graph.nodes.some((node) => node.id === 'step-002'),
+    ).toBe(true);
+    const secondStep = next.graph.nodes.find((node) => node.id === 'step-002');
+    expect(secondStep?.data.hostPlanStep).toMatchObject({
+      step_id: 'step-002',
+      objective: 'Copilot-added follow-up performance pass',
+    });
   });
 });
