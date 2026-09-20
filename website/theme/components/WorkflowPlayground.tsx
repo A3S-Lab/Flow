@@ -1132,7 +1132,11 @@ function WorkflowPlaygroundSurface({
       setHostBusy(true);
       try {
         const client = createHostClient(hostMode);
-        const reply = await postCopilotRequest(client, hostMode.runId, instruction);
+        const reply = await postCopilotRequest(
+          client,
+          hostMode.runId,
+          instruction,
+        );
         if (reply.suggestedSteps && reply.suggestedSteps.length > 0) {
           const next = applyCopilotSteps(
             hostCanvas,

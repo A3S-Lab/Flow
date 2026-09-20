@@ -184,9 +184,7 @@ describe('WorkflowPlayground host mode', () => {
     ]);
     expect(next.canvas.execution_order).toEqual(['step-001', 'step-002']);
     // The re-projected graph reflects both suggested steps as canvas nodes.
-    expect(
-      next.graph.nodes.some((node) => node.id === 'step-002'),
-    ).toBe(true);
+    expect(next.graph.nodes.some((node) => node.id === 'step-002')).toBe(true);
     const secondStep = next.graph.nodes.find((node) => node.id === 'step-002');
     expect(secondStep?.data.hostPlanStep).toMatchObject({
       step_id: 'step-002',
