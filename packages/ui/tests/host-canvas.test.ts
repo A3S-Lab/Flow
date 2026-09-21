@@ -2,6 +2,7 @@ import {
   HostCanvasError,
   applyCanvasNodeEdits,
   canvasDocumentFromProposalDto,
+  isHostRunEditable,
   planEditBodyFromCanvas,
   refuseUninjectedPlayground,
 } from '../src/integrations/host-canvas';
@@ -98,5 +99,42 @@ describe('host canvas inject helpers', () => {
       plan: { ...canvas.plan, flow_dsl: { kind: 'app' } },
     };
     expect(() => planEditBodyFromCanvas(tainted, 1)).toThrow(HostCanvasError);
+  });
+
+  it('isHostRunEditable reflects flow_status, terminal statuses close the run', () => {
+    const running = canvasDocumentFromProposalDto({
+      ...dto,
+      flow_status: 'running',
+    });
+    expect(isHostRunEditable(running)).toBe(true);
+
+    const suspended = canvasDocumentFromProposalDto({
+      ...dto,
+      flow_status: 'suspended',
+    });
+    expect(isHostRunEditable(suspended)).toBe(true);
+
+    for (const terminal of [
+      'completed',
+      'failed',
+      'cancelled',
+      'cancelling',
+      'continuedasnew',
+      // Backend is lowercase (serde rename_all = "snake_case"); tolerate
+      // any casing rather than silently treating an unrecognized-case
+      // terminal status as still-editable.
+      'Completed',
+    ]) {
+      const canvas = canvasDocumentFromProposalDto({
+        ...dto,
+        flow_status: terminal,
+      });
+      expect(isHostRunEditable(canvas)).toBe(false);
+    }
+
+    // Unknown/missing flow_status fails closed (not editable) rather than
+    // assuming a run is still open when the host never reported a status.
+    const noStatus = canvasDocumentFromProposalDto(dto);
+    expect(isHostRunEditable(noStatus)).toBe(false);
   });
 });

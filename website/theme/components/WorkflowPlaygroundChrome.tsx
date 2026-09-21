@@ -34,6 +34,7 @@ import {
   type PlaygroundEdgeColor,
   type PlaygroundEdgeRouting,
 } from './WorkflowPlayground.model';
+import { statusLabel } from './WorkflowPlaygroundRunList';
 import { SelectControl } from '@a3s-lab/flow-ui/react';
 
 export type PlaygroundCanvasMode = 'pan' | 'select' | 'comment';
@@ -115,6 +116,10 @@ type PlaygroundHeaderProps = {
   extensionsOpen?: boolean;
   hostMode?: boolean;
   proposalDigest?: string;
+  /** Flow `WorkflowRunStatus` (lowercase), when known -- shown as a status
+   * pill so a terminal run (Save/Approve now hidden) reads as "finished",
+   * not as a UI glitch that silently dropped two buttons. */
+  hostFlowStatus?: string;
   hostBusy?: boolean;
   onHostSave?: () => void;
   onHostApprove?: () => void;
@@ -144,6 +149,7 @@ export function WorkflowPlaygroundHeader({
   extensionsOpen = false,
   hostMode = false,
   proposalDigest,
+  hostFlowStatus,
   hostBusy = false,
   onHostSave,
   onHostApprove,
@@ -185,6 +191,22 @@ export function WorkflowPlaygroundHeader({
       </div>
 
       <div className="a3s-workflow-header__actions">
+        {hostMode && hostFlowStatus ? (
+          <span
+            data-testid="host-flow-status"
+            style={{
+              padding: '2px 9px',
+              borderRadius: 999,
+              background: 'var(--workflow-surface-muted)',
+              color: 'var(--workflow-muted)',
+              fontSize: 11,
+              fontWeight: 620,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {statusLabel(hostFlowStatus, locale)}
+          </span>
+        ) : null}
         {hostMode && proposalDigest ? (
           <code
             aria-label="proposal_digest"

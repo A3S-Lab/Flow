@@ -1,6 +1,7 @@
 import { CheckCircle } from '@phosphor-icons/react';
 import {
   issueApprovalRecord,
+  isHostRunEditable,
   localizeA3SFlowDagManifest,
   refuseUninjectedPlayground,
   type A3SFlowWorkflowDagNode,
@@ -1166,12 +1167,24 @@ function WorkflowPlaygroundSurface({
         setAnnouncement(
           locale === 'zh' ? `已批准：${status}` : `Approved: ${status}`,
         );
+        // Approve can drive the run all the way to a terminal status inside
+        // this one request (the host's resume_hook synchronously runs the
+        // workflow forward, including any real agent step it can dispatch
+        // without further suspension). Refetch so hostCanvas.flow_status --
+        // and therefore whether Save/Approve stay offered -- reflects that
+        // immediately, instead of still showing the stale pre-approve state
+        // until the operator manually reloads.
+        return client.getProposal(hostMode.runId).then((proposal) => {
+          const refreshed = refreshCanvasFromProposalDto(proposal);
+          setHostCanvas(refreshed);
+          restore(graphFromHostCanvas(refreshed, locale, catalog));
+        });
       })
       .catch((error: unknown) => {
         setAnnouncement(error instanceof Error ? error.message : String(error));
       })
       .finally(() => setHostBusy(false));
-  }, [hostCanvas, hostMode, locale]);
+  }, [catalog, hostCanvas, hostMode, locale, restore]);
 
   const addHostStep = useCallback(() => {
     if (!hostMode || !hostCanvas) return;
@@ -1370,6 +1383,11 @@ function WorkflowPlaygroundSurface({
   const rightPanelOpen = Boolean(
     activePanel && (activePanel !== 'settings' || selectedNode),
   );
+  // Save/Approve/Add-step stop being offered once the run's last-known
+  // flow_status is terminal -- both endpoints 409 ("cannot edit a plan on a
+  // terminal run") past that point, and Approve itself can reach a terminal
+  // status inside its own request (see approveOnHost's refetch above).
+  const hostRunEditable = hostCanvas ? isHostRunEditable(hostCanvas) : true;
   const shellClass = [
     'a3s-workflow-playground',
     rightPanelOpen ? 'has-right-panel' : '',
@@ -1418,9 +1436,13 @@ function WorkflowPlaygroundSurface({
         locale={locale}
         logoSrc={withBase('/a3s-logo.png')}
         onExport={exportGraph}
-        onHostAddStep={hostMode?.runId ? addHostStep : undefined}
-        onHostApprove={hostMode?.runId ? approveOnHost : undefined}
-        onHostSave={hostMode?.runId ? saveToHost : undefined}
+        onHostAddStep={
+          hostMode?.runId && hostRunEditable ? addHostStep : undefined
+        }
+        onHostApprove={
+          hostMode?.runId && hostRunEditable ? approveOnHost : undefined
+        }
+        onHostSave={hostMode?.runId && hostRunEditable ? saveToHost : undefined}
         onOpenDocument={openDocument}
         onOpenExtensions={toggleExtensions}
         onReset={resetWorkflow}
@@ -1442,6 +1464,11 @@ function WorkflowPlaygroundSurface({
         proposalDigest={
           typeof hostCanvas?.proposal_digest === 'string'
             ? hostCanvas.proposal_digest
+            : undefined
+        }
+        hostFlowStatus={
+          typeof hostCanvas?.flow_status === 'string'
+            ? hostCanvas.flow_status
             : undefined
         }
         saveState={saveState}

@@ -34,6 +34,14 @@ export type HostCanvasDocument = {
   authority: typeof PLAN_SCHEMA;
   run_id: string;
   proposal_digest: unknown;
+  /** `GET /v1/runs/{id}/proposal`'s `flow_status` -- lowercase Flow
+   * WorkflowRunStatus (e.g. "running", "suspended", "completed", "failed",
+   * "cancelled"). Drives whether Save/Approve should still be offered: once
+   * a run reaches a terminal status, both endpoints reject with 409/CONFLICT
+   * ("cannot edit a plan on a terminal run"), so the UI should stop
+   * presenting them as live actions rather than let the operator hit that
+   * error after already waiting through a slow Approve. */
+  flow_status: unknown;
   plan: JsonObject;
   nodes: HostPlanStepNode[];
   edges: unknown;
@@ -53,6 +61,27 @@ export type HostCanvasDocument = {
     body_schema: typeof PLAN_EDIT_SCHEMA;
   };
 };
+
+/** Flow `WorkflowRunStatus` values (lowercased) that can never accept a new
+ * plan edit or approval -- matches `WorkflowRunStatus::is_terminal` plus
+ * `Cancelling` (also rejected by `apply_plan_edit`'s terminal-or-cancelling
+ * check in `adapters/flow-host/src/lib.rs`). */
+const TERMINAL_FLOW_STATUSES = new Set([
+  'completed',
+  'failed',
+  'cancelled',
+  'continuedasnew',
+  'cancelling',
+]);
+
+/** Whether this canvas's run is still open to Save/Approve, per its last-seen `flow_status`. */
+export function isHostRunEditable(canvas: HostCanvasDocument): boolean {
+  const status =
+    typeof canvas.flow_status === 'string'
+      ? canvas.flow_status.toLowerCase()
+      : '';
+  return status !== '' && !TERMINAL_FLOW_STATUSES.has(status);
+}
 
 function isObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -98,6 +127,7 @@ export function canvasDocumentFromProposalDto(
     authority: PLAN_SCHEMA,
     run_id: runId,
     proposal_digest: dto.proposal_digest,
+    flow_status: dto.flow_status,
     plan,
     nodes,
     edges: plan.edges ?? [],

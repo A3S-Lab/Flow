@@ -2,19 +2,24 @@ import { ArrowClockwise, Clock } from '@phosphor-icons/react';
 import type { FlowWebsiteLocale } from './flow-node-catalog';
 import type { HostRunSummary } from './WorkflowPlayground.host';
 
+// Keys match Flow's WorkflowRunStatus JSON casing (serde rename_all =
+// "snake_case", confirmed against a live GET /v1/runs response) -- these are
+// NOT the Rust variant names (Running, Suspended, ...); a prior PascalCase
+// version of this map never matched anything and silently fell back to the
+// raw status string.
 const STATUS_LABEL: Readonly<Record<string, { zh: string; en: string }>> = {
-  Pending: { zh: '待处理', en: 'Pending' },
-  Running: { zh: '运行中', en: 'Running' },
-  Suspended: { zh: '挂起等待批准', en: 'Suspended' },
-  Cancelling: { zh: '取消中', en: 'Cancelling' },
-  Completed: { zh: '已完成', en: 'Completed' },
-  Failed: { zh: '失败', en: 'Failed' },
-  Cancelled: { zh: '已取消', en: 'Cancelled' },
-  ContinuedAsNew: { zh: '已续期', en: 'Continued' },
+  pending: { zh: '待处理', en: 'Pending' },
+  running: { zh: '运行中', en: 'Running' },
+  suspended: { zh: '挂起等待批准', en: 'Suspended' },
+  cancelling: { zh: '取消中', en: 'Cancelling' },
+  completed: { zh: '已完成', en: 'Completed' },
+  failed: { zh: '失败', en: 'Failed' },
+  cancelled: { zh: '已取消', en: 'Cancelled' },
+  continuedasnew: { zh: '已续期', en: 'Continued' },
 };
 
-function statusLabel(status: string, locale: FlowWebsiteLocale): string {
-  const entry = STATUS_LABEL[status];
+export function statusLabel(status: string, locale: FlowWebsiteLocale): string {
+  const entry = STATUS_LABEL[status.toLowerCase()];
   if (!entry) return status;
   return locale === 'zh' ? entry.zh : entry.en;
 }
