@@ -102,6 +102,27 @@ export function createHostClient(config: HostModeConfig): FlowHostClient {
   return new FlowHostClient({ baseUrl: config.baseUrl });
 }
 
+/**
+ * Append `host`/`runId`/`tenant`/`principal` onto a Playground href that was
+ * built without them (e.g. `playgroundHref`'s `?example=` links). Every
+ * in-page navigation that can happen while `hostMode` is set -- the language
+ * toggle, the "back to examples" link -- must go through this, or it drops
+ * back to a bare example-grid URL and looks like host mode "stopped working".
+ */
+export function withHostModeParams(
+  href: string,
+  hostMode: HostModeConfig | null | undefined,
+): string {
+  if (!hostMode) return href;
+  const [path, search = ''] = href.split('?');
+  const params = new URLSearchParams(search);
+  params.set('host', hostMode.baseUrl);
+  if (hostMode.runId) params.set('runId', hostMode.runId);
+  params.set('tenant', hostMode.tenantId);
+  params.set('principal', hostMode.principalRef);
+  return `${path}?${params.toString()}`;
+}
+
 export async function loadHostCanvas(
   config: HostModeConfig,
 ): Promise<HostCanvasDocument> {

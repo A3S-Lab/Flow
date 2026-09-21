@@ -24,6 +24,7 @@ import {
   createHostModeCatalog,
   createHostRunPickerExample,
   readHostModeConfig,
+  withHostModeParams,
   type HostModeConfig,
 } from './WorkflowPlayground.host';
 import { pageHref, playgroundHref } from './WorkflowPlayground.routes';
@@ -155,7 +156,16 @@ export function WorkflowPlaygroundRoute({
       ? createHostInjectedExample(locale)
       : createHostRunPickerExample(locale)
     : findWorkflowExample(examples, requestedExampleId);
-  const examplesHref = playgroundHref(locale, version, defaultVersion);
+  const examplesHref = hostMode
+    ? // "Back" in host mode returns to the run-history picker (this host,
+      // no run selected), not the plain example grid -- there's nothing to
+      // browse there without a host, and re-forwarding the current runId
+      // would just reload the same run.
+      withHostModeParams(playgroundHref(locale, version, defaultVersion), {
+        ...hostMode,
+        runId: '',
+      })
+    : playgroundHref(locale, version, defaultVersion);
 
   if (import.meta.env.SSG_MD) {
     return <MarkdownPlayground examples={examples} locale={locale} />;

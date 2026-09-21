@@ -14,6 +14,7 @@ import {
   hostCanvasFromGraph,
   listHostRuns,
   readHostModeConfig,
+  withHostModeParams,
 } from './WorkflowPlayground.host';
 import { createPlaygroundNodeCatalog } from './WorkflowPlayground.custom-nodes';
 
@@ -86,6 +87,34 @@ describe('WorkflowPlayground host mode', () => {
       baseUrl: 'http://127.0.0.1:8080',
       runId: '',
     });
+  });
+
+  it('withHostModeParams carries host/runId/tenant/principal onto in-page links', () => {
+    // No hostMode: href is passed through untouched (regular example links).
+    expect(withHostModeParams('/Flow/playground?example=demo', null)).toBe(
+      '/Flow/playground?example=demo',
+    );
+
+    const hostMode = {
+      baseUrl: 'http://127.0.0.1:8080',
+      runId: 'run-1',
+      tenantId: 'tenant-local-validation',
+      principalRef: 'reviewer@local',
+    };
+    const withRun = withHostModeParams('/Flow/en/playground', hostMode);
+    const params = new URLSearchParams(withRun.split('?')[1]);
+    expect(params.get('host')).toBe('http://127.0.0.1:8080');
+    expect(params.get('runId')).toBe('run-1');
+    expect(params.get('tenant')).toBe('tenant-local-validation');
+    expect(params.get('principal')).toBe('reviewer@local');
+
+    // Run-picker state (empty runId) must not add a bare runId= param --
+    // that would fail readHostModeConfig's "runId alone" check on the next load.
+    const picker = withHostModeParams('/Flow/en/playground', {
+      ...hostMode,
+      runId: '',
+    });
+    expect(new URLSearchParams(picker.split('?')[1]).has('runId')).toBe(false);
   });
 
   it('renders host flow_dsl via orchestrator preview registry', () => {

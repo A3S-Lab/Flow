@@ -78,6 +78,7 @@ import {
   loadHostCanvas,
   postCopilotRequest,
   refreshCanvasFromProposalDto,
+  withHostModeParams,
   type HostRunSummary,
 } from './WorkflowPlayground.host';
 import {
@@ -1377,11 +1378,14 @@ function WorkflowPlaygroundSurface({
   ]
     .filter(Boolean)
     .join(' ');
-  const languageHref = playgroundHref(
-    locale === 'zh' ? 'en' : 'zh',
-    version,
-    defaultVersion,
-    example.id,
+  const languageHref = withHostModeParams(
+    playgroundHref(
+      locale === 'zh' ? 'en' : 'zh',
+      version,
+      defaultVersion,
+      example.id,
+    ),
+    hostMode,
   );
 
   return (
@@ -1399,7 +1403,13 @@ function WorkflowPlaygroundSurface({
       </a>
       <WorkflowPlaygroundHeader
         backHref={backHref}
-        backLabel={copy.backToExamples}
+        backLabel={
+          hostMode
+            ? locale === 'zh'
+              ? '返回运行历史'
+              : 'Back to run history'
+            : copy.backToExamples
+        }
         copy={copy}
         hostBusy={hostBusy}
         hostMode={Boolean(hostMode)}
