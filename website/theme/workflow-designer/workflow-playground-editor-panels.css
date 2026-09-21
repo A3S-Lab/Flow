@@ -824,3 +824,39 @@
   width: 16px;
   height: 16px;
 }
+
+/* Run-history picker (WorkflowPlaygroundRunList) -- reuses .a3s-node-library
+   chrome/list/button rules above; these add only the run-specific bits. */
+.a3s-run-list .a3s-node-library__groups section > div > button {
+  grid-template-columns: 20px minmax(0, 1fr);
+}
+
+.a3s-run-list__status {
+  display: block;
+  margin-top: 2px;
+  color: var(--workflow-muted);
+  font-size: 10px;
+}
+
+.a3s-run-list__task {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 4px;
+  color: var(--workflow-faint);
+  font-size: 10px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.a3s-run-list__empty,
+.a3s-run-list__error {
+  margin: 8px 0;
+  color: var(--workflow-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.a3s-run-list__error {
+  color: var(--workflow-danger, #d64545);
+}

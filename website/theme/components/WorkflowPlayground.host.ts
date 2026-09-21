@@ -23,6 +23,9 @@ import {
 
 export type HostModeConfig = {
   baseUrl: string;
+  /** Empty string means "connected to a host, no run selected yet" -- the
+   * run-history picker state; every other host-mode code path treats a
+   * non-empty runId as the one currently loaded/saved/approved run. */
   runId: string;
   tenantId: string;
   principalRef: string;
@@ -60,6 +63,33 @@ export function createHostInjectedExample(
   };
 }
 
+/**
+ * A blank placeholder shown when a host is connected but no run is selected
+ * yet -- the run-history picker state. Never loaded from a proposal (there
+ * is none), so its graph is always empty; the left-side run list is what
+ * lets the operator pick a real run and move to `createHostInjectedExample`.
+ */
+export function createHostRunPickerExample(
+  locale: FlowWebsiteLocale,
+): WorkflowExampleDefinition {
+  return {
+    id: 'host-run-picker',
+    category: 'approval',
+    level: 'advanced',
+    title: locale === 'zh' ? '选择一个运行' : 'Select a run',
+    description:
+      locale === 'zh'
+        ? '已连接宿主，尚未选择要查看的运行。从左侧列表中选择一个。'
+        : 'Connected to a host; no run selected yet. Pick one from the list on the left.',
+    outcome:
+      locale === 'zh'
+        ? '选择后加载该运行的 AgentPlan 权威链。'
+        : 'Selecting one loads that run’s AgentPlan authority chain.',
+    capabilities: ['host.agent-plan.v2'],
+    graph: { nodes: [], edges: [], annotations: [] },
+  };
+}
+
 /** Playground customs + Orchestrator preview registry for host mode. */
 export function createHostModeCatalog(
   base: A3SFlowDagNodeCatalog,
@@ -77,6 +107,31 @@ export async function loadHostCanvas(
 ): Promise<HostCanvasDocument> {
   const client = createHostClient(config);
   return client.openCanvas(config.runId);
+}
+
+/** One entry from `GET /v1/runs`, for the run-history picker. */
+export type HostRunSummary = {
+  runId: string;
+  status: string;
+  taskText: string | null;
+};
+
+/** Every run the connected host's store knows about, for the run-history picker. */
+export async function listHostRuns(
+  config: HostModeConfig,
+): Promise<HostRunSummary[]> {
+  const client = createHostClient(config);
+  const response = await client.listRuns();
+  const runs = response.runs;
+  if (!Array.isArray(runs)) return [];
+  return runs
+    .filter(isRecord)
+    .map((entry) => ({
+      runId: typeof entry.run_id === 'string' ? entry.run_id : '',
+      status: typeof entry.status === 'string' ? entry.status : 'Unknown',
+      taskText: typeof entry.task_text === 'string' ? entry.task_text : null,
+    }))
+    .filter((run) => run.runId !== '');
 }
 
 function isRecord(value: unknown): value is JsonObject {

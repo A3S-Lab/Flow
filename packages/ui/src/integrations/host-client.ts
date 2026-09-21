@@ -2,6 +2,7 @@
  * HTTP client for Orchestrator `flow-host-serve` control plane.
  *
  * Endpoints (host-owned; Flow UI only consumes them):
+ * - GET  /v1/runs
  * - GET  /v1/runs/{runId}/proposal
  * - POST /v1/runs/{runId}/plan-edits
  * - GET  /v1/hooks/active
@@ -263,6 +264,12 @@ export class FlowHostClient {
     return (json ?? {}) as JsonObject;
   }
 
+  /** `GET /v1/runs` -- every run this host's store knows about, for the run-history picker. */
+  async listRuns(): Promise<JsonObject> {
+    const { json } = await this.request('GET', '/v1/runs');
+    return (json ?? {}) as JsonObject;
+  }
+
   async getHook(token: string): Promise<JsonObject> {
     if (!token.trim()) {
       throw new HostClientError('INVALID_INPUT: hook token is required');
@@ -302,9 +309,12 @@ export function parseHostModeSearch(search: string): {
   const host = (params.get('host') ?? '').trim();
   const runId = (params.get('runId') ?? params.get('run_id') ?? '').trim();
   if (!host && !runId) return null;
-  if (!host || !runId) {
+  if (!host) {
+    // A bare `runId` with no `host` can never be resolved -- still an error.
+    // `host` alone is valid: the run-history picker state (no run selected
+    // yet), so `runId` may be `''` here.
     throw new HostClientError(
-      'INVALID_INPUT: host mode requires both host and runId query params',
+      'INVALID_INPUT: host mode requires a host query param',
     );
   }
   return {

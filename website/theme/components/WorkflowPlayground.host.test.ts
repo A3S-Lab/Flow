@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   ORCHESTRATOR_AGENT_STEP_TYPE,
   applyCanvasNodeEdits,
@@ -9,8 +9,10 @@ import {
   applyCopilotSteps,
   createHostInjectedExample,
   createHostModeCatalog,
+  createHostRunPickerExample,
   graphFromHostCanvas,
   hostCanvasFromGraph,
+  listHostRuns,
   readHostModeConfig,
 } from './WorkflowPlayground.host';
 import { createPlaygroundNodeCatalog } from './WorkflowPlayground.custom-nodes';
@@ -79,6 +81,13 @@ describe('WorkflowPlayground host mode', () => {
     });
   });
 
+  it('parses host-only search into the run-history picker state', () => {
+    expect(readHostModeConfig('?host=http://127.0.0.1:8080')).toMatchObject({
+      baseUrl: 'http://127.0.0.1:8080',
+      runId: '',
+    });
+  });
+
   it('renders host flow_dsl via orchestrator preview registry', () => {
     const catalog = createHostModeCatalog(
       createPlaygroundNodeCatalog('en'),
@@ -135,6 +144,52 @@ describe('WorkflowPlayground host mode', () => {
     const example = createHostInjectedExample('en');
     expect(example.id).toBe('host-injected');
     expect(example.graph.nodes).toEqual([]);
+  });
+
+  it('createHostRunPickerExample returns a blank placeholder', () => {
+    const example = createHostRunPickerExample('en');
+    expect(example.id).toBe('host-run-picker');
+    expect(example.graph).toEqual({ nodes: [], edges: [], annotations: [] });
+  });
+
+  it('listHostRuns parses GET /v1/runs into HostRunSummary[]', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            schema_version: 'host.flow-http-runs.v1',
+            runs: [
+              {
+                run_id: 'run-1',
+                status: 'Suspended',
+                task_text: 'review the docs',
+              },
+              { run_id: 'run-2', status: 'Running', task_text: null },
+              { not_a_run_id: 'nope' },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchImpl);
+    try {
+      const runs = await listHostRuns({
+        baseUrl: 'http://127.0.0.1:9',
+        runId: '',
+        tenantId: 'tenant-local-validation',
+        principalRef: 'reviewer@local',
+      });
+      expect(runs).toEqual([
+        { runId: 'run-1', status: 'Suspended', taskText: 'review the docs' },
+        { runId: 'run-2', status: 'Running', taskText: null },
+      ]);
+      expect(fetchImpl).toHaveBeenCalledWith(
+        'http://127.0.0.1:9/v1/runs',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('applyCanvasNodeEdits preserves preview_only', () => {

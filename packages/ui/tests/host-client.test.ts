@@ -15,9 +15,15 @@ describe('FlowHostClient', () => {
   it('parses host mode query params fail-closed', () => {
     expect(parseHostModeSearch('')).toBeNull();
     expect(parseHostModeSearch('?example=demo')).toBeNull();
-    expect(() => parseHostModeSearch('?host=http://127.0.0.1:8080')).toThrow(
-      HostClientError,
-    );
+    // host alone is the run-history picker state (no run selected yet).
+    expect(parseHostModeSearch('?host=http://127.0.0.1:8080')).toEqual({
+      host: 'http://127.0.0.1:8080',
+      runId: '',
+      tenantId: 'tenant-local-validation',
+      principalRef: 'reviewer@local',
+    });
+    // runId alone can never be resolved -- still an error.
+    expect(() => parseHostModeSearch('?runId=run-1')).toThrow(HostClientError);
     expect(parseHostModeSearch('?host=http://127.0.0.1:8080&runId=run-1')).toEqual(
       {
         host: 'http://127.0.0.1:8080',
@@ -68,6 +74,32 @@ describe('FlowHostClient', () => {
     expect(canvas.save.path).toBe('/v1/runs/run-1/plan-edits');
     expect(fetchImpl).toHaveBeenCalledWith(
       'http://127.0.0.1:9/v1/runs/run-1/proposal',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('lists runs through GET /v1/runs', async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          schema_version: 'host.flow-http-runs.v1',
+          runs: [
+            { run_id: 'run-1', status: 'Suspended', task_text: 'review the docs' },
+            { run_id: 'run-2', status: 'Running', task_text: 'fix the bug' },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    const client = new FlowHostClient({
+      baseUrl: 'http://127.0.0.1:9',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const result = await client.listRuns();
+    expect(result.schema_version).toBe('host.flow-http-runs.v1');
+    expect(result.runs).toHaveLength(2);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://127.0.0.1:9/v1/runs',
       expect.objectContaining({ method: 'GET' }),
     );
   });

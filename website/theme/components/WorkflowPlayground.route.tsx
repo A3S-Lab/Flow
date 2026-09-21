@@ -22,6 +22,7 @@ import type {
 import {
   createHostInjectedExample,
   createHostModeCatalog,
+  createHostRunPickerExample,
   readHostModeConfig,
   type HostModeConfig,
 } from './WorkflowPlayground.host';
@@ -52,7 +53,7 @@ function usePlaygroundSearch(): string {
   );
 }
 
-function navigatePlayground(href: string) {
+export function navigatePlayground(href: string) {
   window.history.pushState(null, '', href);
   window.dispatchEvent(new Event(PLAYGROUND_ROUTE_EVENT));
   window.scrollTo({ top: 0, behavior: 'auto' });
@@ -150,7 +151,9 @@ export function WorkflowPlaygroundRoute({
   );
   const requestedExampleId = new URLSearchParams(search).get('example');
   const selectedExample = hostMode
-    ? createHostInjectedExample(locale)
+    ? hostMode.runId
+      ? createHostInjectedExample(locale)
+      : createHostRunPickerExample(locale)
     : findWorkflowExample(examples, requestedExampleId);
   const examplesHref = playgroundHref(locale, version, defaultVersion);
 

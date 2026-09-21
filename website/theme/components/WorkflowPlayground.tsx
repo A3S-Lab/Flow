@@ -63,6 +63,7 @@ import {
   type InspectorTab,
 } from './WorkflowPlaygroundInspector';
 import { WorkflowPlaygroundLibrary } from './WorkflowPlaygroundLibrary';
+import { WorkflowPlaygroundRunList } from './WorkflowPlaygroundRunList';
 import {
   addConnectedNodeIntoGraph,
   addIntoGraph,
@@ -73,9 +74,11 @@ import {
   createHostClient,
   graphFromHostCanvas,
   hostCanvasFromGraph,
+  listHostRuns,
   loadHostCanvas,
   postCopilotRequest,
   refreshCanvasFromProposalDto,
+  type HostRunSummary,
 } from './WorkflowPlayground.host';
 import {
   layoutPlaygroundGraphOffThread,
@@ -84,6 +87,7 @@ import {
 import { applyPlaygroundLayoutKernelOutput } from './WorkflowPlayground.layout-kernel';
 import { pageHref, playgroundHref } from './WorkflowPlayground.routes';
 import {
+  navigatePlayground,
   WorkflowPlaygroundRoute,
   type WorkflowPlaygroundSurfaceProps,
 } from './WorkflowPlayground.route';
@@ -175,6 +179,11 @@ function WorkflowPlaygroundSurface({
     return Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
   });
   const [hostLoadError, setHostLoadError] = useState<string | null>(null);
+  // Run-history picker (hostMode set, no runId yet): the list of runs on the
+  // connected host, and whether it's currently being fetched.
+  const [hostRuns, setHostRuns] = useState<HostRunSummary[]>([]);
+  const [hostRunsBusy, setHostRunsBusy] = useState(false);
+  const [hostRunsError, setHostRunsError] = useState<string | null>(null);
   const { fitBounds, getNodesBounds, screenToFlowPosition, setViewport } =
     useReactFlow<PlaygroundCanvasNode, PlaygroundEdge>();
   const reactFlowStore = useStoreApi<PlaygroundCanvasNode, PlaygroundEdge>();
@@ -232,7 +241,7 @@ function WorkflowPlaygroundSurface({
   useEffect(() => schedulePlaygroundLayoutWarmup(), []);
 
   useEffect(() => {
-    if (!hostMode) return;
+    if (!hostMode || !hostMode.runId) return;
     let cancelled = false;
     setHostBusy(true);
     setHostLoadError(null);
@@ -274,6 +283,33 @@ function WorkflowPlaygroundSurface({
       cancelled = true;
     };
   }, [catalog, hostMode, locale, restore]);
+
+  // Run-history picker: hostMode set, no runId yet -- list every run on the
+  // connected host so the operator can pick one. Refetches whenever the
+  // picker state is (re)entered, e.g. after navigating back from a run.
+  useEffect(() => {
+    if (!hostMode || hostMode.runId) return;
+    let cancelled = false;
+    setHostRunsBusy(true);
+    setHostRunsError(null);
+    void listHostRuns(hostMode)
+      .then((runs) => {
+        if (cancelled) return;
+        setHostRuns(runs);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setHostRunsError(
+          error instanceof Error ? error.message : String(error),
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setHostRunsBusy(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hostMode]);
 
   const edgePalette = PLAYGROUND_EDGE_COLORS[edgeColor];
   const defaultEdgeOptions = useMemo<DefaultEdgeOptions>(
@@ -1066,6 +1102,34 @@ function WorkflowPlaygroundSurface({
       .finally(() => setHostBusy(false));
   }, [catalog, editRevision, graph, hostCanvas, hostMode, locale, restore]);
 
+  const selectHostRun = useCallback(
+    (runId: string) => {
+      if (!hostMode) return;
+      const params = new URLSearchParams();
+      params.set('host', hostMode.baseUrl);
+      params.set('runId', runId);
+      params.set('tenant', hostMode.tenantId);
+      params.set('principal', hostMode.principalRef);
+      const base = pageHref('playground', locale, version, defaultVersion);
+      navigatePlayground(`${base}?${params.toString()}`);
+    },
+    [defaultVersion, hostMode, locale, version],
+  );
+
+  const refreshHostRuns = useCallback(() => {
+    if (!hostMode || hostMode.runId) return;
+    setHostRunsBusy(true);
+    setHostRunsError(null);
+    void listHostRuns(hostMode)
+      .then((runs) => setHostRuns(runs))
+      .catch((error: unknown) =>
+        setHostRunsError(
+          error instanceof Error ? error.message : String(error),
+        ),
+      )
+      .finally(() => setHostRunsBusy(false));
+  }, [hostMode]);
+
   const approveOnHost = useCallback(() => {
     if (!hostMode || !hostCanvas) return;
     const token =
@@ -1344,9 +1408,9 @@ function WorkflowPlaygroundSurface({
         locale={locale}
         logoSrc={withBase('/a3s-logo.png')}
         onExport={exportGraph}
-        onHostAddStep={hostMode ? addHostStep : undefined}
-        onHostApprove={hostMode ? approveOnHost : undefined}
-        onHostSave={hostMode ? saveToHost : undefined}
+        onHostAddStep={hostMode?.runId ? addHostStep : undefined}
+        onHostApprove={hostMode?.runId ? approveOnHost : undefined}
+        onHostSave={hostMode?.runId ? saveToHost : undefined}
         onOpenDocument={openDocument}
         onOpenExtensions={toggleExtensions}
         onReset={resetWorkflow}
@@ -1662,6 +1726,17 @@ function WorkflowPlaygroundSurface({
           onSelect={(type) => addNode(type)}
           open={nodeLibraryOpen}
         />
+
+        {hostMode && !hostMode.runId && (
+          <WorkflowPlaygroundRunList
+            busy={hostRunsBusy}
+            error={hostRunsError}
+            locale={locale}
+            onRefresh={refreshHostRuns}
+            onSelect={selectHostRun}
+            runs={hostRuns}
+          />
+        )}
 
         {rightPanelOpen && activePanel && (
           <WorkflowPlaygroundInspector
