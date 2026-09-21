@@ -21,6 +21,13 @@ import {
   type PlaygroundNode,
 } from './WorkflowPlayground.model';
 
+// Matches the real layout kernel's own spacing (WorkflowPlayground.layout-kernel.ts:
+// NORMAL_NODE_WIDTH 240 + a working gap) -- initial host-mode positions used
+// this same 240px value as the step, i.e. zero gap between node edges, which
+// rendered every projected proposal as one visually clustered row.
+const HOST_NODE_COLUMN_STEP = 352;
+const HOST_NODE_ROW_Y = 160;
+
 export type HostModeConfig = {
   baseUrl: string;
   /** Empty string means "connected to a host, no run selected yet" -- the
@@ -227,7 +234,7 @@ export function graphFromHostFlowDsl(
     const node = createPlaygroundNode(
       id,
       type,
-      { x: 40 + index * 220, y: 160 },
+      { x: index * HOST_NODE_COLUMN_STEP, y: HOST_NODE_ROW_Y },
       locale,
       {
         configuration: {
@@ -327,7 +334,7 @@ export function graphFromHostCanvas(
   const start = createPlaygroundNode(
     'start',
     'flow.start',
-    { x: 40, y: 180 },
+    { x: 0, y: HOST_NODE_ROW_Y },
     locale,
     {
       configuration: {
@@ -353,7 +360,7 @@ export function graphFromHostCanvas(
     const node = createPlaygroundNode(
       stepId,
       stepType,
-      { x: 280 + index * 240, y: 160 },
+      { x: (index + 1) * HOST_NODE_COLUMN_STEP, y: HOST_NODE_ROW_Y },
       locale,
       {
         configuration: {
@@ -380,7 +387,7 @@ export function graphFromHostCanvas(
   const done = createPlaygroundNode(
     'done',
     'flow.complete',
-    { x: 280 + Math.max(steps.length, 1) * 240, y: 180 },
+    { x: (steps.length + 1) * HOST_NODE_COLUMN_STEP, y: HOST_NODE_ROW_Y },
     locale,
     {
       configuration: {
