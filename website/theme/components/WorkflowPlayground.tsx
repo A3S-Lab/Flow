@@ -75,10 +75,12 @@ import {
   createHostClient,
   graphFromHostCanvas,
   hostCanvasFromGraph,
+  isProposalNotYetReady,
   listHostRuns,
   loadHostCanvas,
   postCopilotRequest,
   refreshCanvasFromProposalDto,
+  submitNewRun,
   withHostModeParams,
   type HostRunSummary,
 } from './WorkflowPlayground.host';
@@ -247,40 +249,62 @@ function WorkflowPlaygroundSurface({
     let cancelled = false;
     setHostBusy(true);
     setHostLoadError(null);
-    void loadHostCanvas(hostMode)
-      .then((canvas) => {
-        if (cancelled) return;
-        setHostCanvas(canvas);
-        restore(graphFromHostCanvas(canvas, locale, catalog));
-        // Only reset to 1 on a genuine first injection for this run. A
-        // reload (remount) re-reads editRevision from sessionStorage via the
-        // useState initializer above; unconditionally resetting it here
-        // stomps that value, causing the next save to replay the host's
-        // cached same-revision response (idempotent — see apply_plan_edit in
-        // adapters/flow-host/src/lib.rs) instead of applying the new edit.
-        if (
-          !hostMode.runId ||
-          typeof sessionStorage === 'undefined' ||
-          sessionStorage.getItem(`flow.host.editRevision.${hostMode.runId}`) ===
-            null
-        ) {
-          setEditRevision(1);
-        }
-        setAnnouncement(
-          locale === 'zh'
-            ? `已注入 ${canvas.proposal_digest}`
-            : `Injected ${canvas.proposal_digest}`,
-        );
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        const message = error instanceof Error ? error.message : String(error);
-        setHostLoadError(message);
-        setAnnouncement(message);
-      })
-      .finally(() => {
-        if (!cancelled) setHostBusy(false);
-      });
+    // A run just created via submitNewRun can still be mid-plan-step (a real
+    // model call) when this effect first fires -- isProposalNotYetReady
+    // distinguishes that from a genuine load failure and polls instead of
+    // surfacing a scary error for "still planning." Every other entry point
+    // (run picker, a bookmarked ?runId=) only ever links to an already
+    // planned run, so this loop resolves on its first attempt there.
+    const POLL_INTERVAL_MS = 3000;
+    const POLL_TIMEOUT_MS = 180_000;
+    const deadline = Date.now() + POLL_TIMEOUT_MS;
+    const attempt = (): void => {
+      void loadHostCanvas(hostMode)
+        .then((canvas) => {
+          if (cancelled) return;
+          setHostCanvas(canvas);
+          restore(graphFromHostCanvas(canvas, locale, catalog));
+          // Only reset to 1 on a genuine first injection for this run. A
+          // reload (remount) re-reads editRevision from sessionStorage via the
+          // useState initializer above; unconditionally resetting it here
+          // stomps that value, causing the next save to replay the host's
+          // cached same-revision response (idempotent — see apply_plan_edit in
+          // adapters/flow-host/src/lib.rs) instead of applying the new edit.
+          if (
+            !hostMode.runId ||
+            typeof sessionStorage === 'undefined' ||
+            sessionStorage.getItem(
+              `flow.host.editRevision.${hostMode.runId}`,
+            ) === null
+          ) {
+            setEditRevision(1);
+          }
+          setAnnouncement(
+            locale === 'zh'
+              ? `已注入 ${canvas.proposal_digest}`
+              : `Injected ${canvas.proposal_digest}`,
+          );
+          setHostBusy(false);
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          if (isProposalNotYetReady(error) && Date.now() < deadline) {
+            setAnnouncement(
+              locale === 'zh'
+                ? '正在规划中，请稍候…'
+                : 'Planning in progress, please wait…',
+            );
+            window.setTimeout(attempt, POLL_INTERVAL_MS);
+            return;
+          }
+          const message =
+            error instanceof Error ? error.message : String(error);
+          setHostLoadError(message);
+          setAnnouncement(message);
+          setHostBusy(false);
+        });
+    };
+    attempt();
     return () => {
       cancelled = true;
     };
@@ -1118,6 +1142,20 @@ function WorkflowPlaygroundSurface({
     [defaultVersion, hostMode, locale, version],
   );
 
+  // "Start over from scratch": submit a genuinely new task (full-catalog
+  // reshortlist, not the current run's frozen candidates -- see
+  // WorkflowPlaygroundNewRunDialog's doc comment). Navigates to the new
+  // run's URL on success, mirroring selectHostRun exactly; throws on
+  // failure so the dialog can show the error and stay open.
+  const submitNewRunOnHost = useCallback(
+    async (taskText: string, permissionCeiling: string[]) => {
+      if (!hostMode) return;
+      const runId = await submitNewRun(hostMode, taskText, permissionCeiling);
+      selectHostRun(runId);
+    },
+    [hostMode, selectHostRun],
+  );
+
   const refreshHostRuns = useCallback(() => {
     if (!hostMode || hostMode.runId) return;
     setHostRunsBusy(true);
@@ -1771,6 +1809,7 @@ function WorkflowPlaygroundSurface({
             locale={locale}
             onRefresh={refreshHostRuns}
             onSelect={selectHostRun}
+            onSubmitNewRun={submitNewRunOnHost}
             runs={hostRuns}
           />
         )}

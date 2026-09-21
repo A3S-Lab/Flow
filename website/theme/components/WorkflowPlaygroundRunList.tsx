@@ -1,6 +1,8 @@
-import { ArrowClockwise, Clock } from '@phosphor-icons/react';
+import { ArrowClockwise, Clock, Sparkle } from '@phosphor-icons/react';
+import { useState } from 'react';
 import type { FlowWebsiteLocale } from './flow-node-catalog';
 import type { HostRunSummary } from './WorkflowPlayground.host';
+import { WorkflowPlaygroundNewRunDialog } from './WorkflowPlaygroundNewRunDialog';
 
 // Keys match Flow's WorkflowRunStatus JSON casing (serde rename_all =
 // "snake_case", confirmed against a live GET /v1/runs response) -- these are
@@ -31,6 +33,14 @@ export type WorkflowPlaygroundRunListProps = {
   onRefresh: () => void;
   onSelect: (runId: string) => void;
   runs: readonly HostRunSummary[];
+  /** Submit a brand-new task (full-catalog reshortlist, see
+   * WorkflowPlaygroundNewRunDialog). Rejects on failure -- the dialog stays
+   * open and shows the error; resolves (regardless of return value) to close
+   * the dialog and let the caller navigate to the new run. */
+  onSubmitNewRun: (
+    taskText: string,
+    permissionCeiling: string[],
+  ) => Promise<void>;
 };
 
 /**
@@ -46,17 +56,42 @@ export function WorkflowPlaygroundRunList({
   onRefresh,
   onSelect,
   runs,
+  onSubmitNewRun,
 }: WorkflowPlaygroundRunListProps) {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const title = locale === 'zh' ? '运行历史' : 'Run history';
   const description =
     locale === 'zh'
       ? '按 run_id 切换宿主上已有的规划。'
       : 'Switch between existing plans on this host by run_id.';
   const refreshLabel = locale === 'zh' ? '刷新' : 'Refresh';
+  const newRunLabel = locale === 'zh' ? '新建规划' : 'New task';
   const emptyLabel =
     locale === 'zh'
       ? '这个宿主上还没有任何运行。'
       : 'No runs on this host yet.';
+
+  const submitNewRun = async (
+    taskText: string,
+    permissionCeiling: string[],
+  ) => {
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      await onSubmitNewRun(taskText, permissionCeiling);
+      setDialogOpen(false);
+    } catch (submitError_: unknown) {
+      setSubmitError(
+        submitError_ instanceof Error
+          ? submitError_.message
+          : String(submitError_),
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <aside
@@ -69,6 +104,18 @@ export function WorkflowPlaygroundRunList({
           <h2>{title}</h2>
           <p>{description}</p>
         </div>
+        <button
+          aria-label={newRunLabel}
+          disabled={busy}
+          onClick={() => {
+            setSubmitError(null);
+            setDialogOpen(true);
+          }}
+          title={newRunLabel}
+          type="button"
+        >
+          <Sparkle aria-hidden="true" />
+        </button>
         <button
           aria-label={refreshLabel}
           disabled={busy}
@@ -112,6 +159,18 @@ export function WorkflowPlaygroundRunList({
           </div>
         </section>
       </div>
+
+      {dialogOpen && (
+        <WorkflowPlaygroundNewRunDialog
+          busy={submitting}
+          error={submitError}
+          locale={locale}
+          onClose={() => setDialogOpen(false)}
+          onSubmit={(taskText, permissionCeiling) =>
+            void submitNewRun(taskText, permissionCeiling)
+          }
+        />
+      )}
     </aside>
   );
 }

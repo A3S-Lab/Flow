@@ -1,6 +1,7 @@
 import {
   ORCHESTRATOR_AGENT_STEP_TYPE,
   resolveOrchestratorHostPreviewType,
+  type FlowTaskEnvelope,
   type HostCanvasDocument,
   type HostPlanStepNode,
   type JsonObject,
@@ -109,6 +110,60 @@ export function createHostClient(config: HostModeConfig): FlowHostClient {
   return new FlowHostClient({ baseUrl: config.baseUrl });
 }
 
+/** Caller-chosen run id for `POST /v1/runs` -- the host never generates one. */
+export function mintRunId(): string {
+  const random =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID().slice(0, 8)
+      : Math.random().toString(36).slice(2, 10);
+  return `run-${Date.now()}-${random}`;
+}
+
+/** Caller-minted bearer secret for the new run's approval hook (see
+ * FlowTaskEnvelope's doc comment in host-client.ts -- the host echoes this
+ * back as `approval_token` on the proposal DTO once the run suspends, so
+ * Approve works through the existing issueApprovalRecord/resumeHook path
+ * unchanged). */
+export function mintApprovalToken(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return `token-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+/**
+ * Submit a genuinely new task: a fresh Orchestrator shortlist+compose
+ * against the full catalog, unconstrained by any other run's frozen
+ * candidate set (unlike Copilot, which can only rearrange the current
+ * run's already-frozen agent_refs). Returns the new run's id on success;
+ * the caller still has to navigate to `?host=&runId=<id>` to view it --
+ * this function only submits, it does not change what's on screen.
+ */
+export async function submitNewRun(
+  config: HostModeConfig,
+  taskText: string,
+  permissionCeiling: string[],
+): Promise<string> {
+  const trimmed = taskText.trim();
+  if (!trimmed) {
+    throw new HostClientError('INVALID_INPUT: task text is required');
+  }
+  const client = createHostClient(config);
+  const runId = mintRunId();
+  const envelope: FlowTaskEnvelope = {
+    task_text: trimmed,
+    permission_ceiling: permissionCeiling,
+    approval_token: mintApprovalToken(),
+  };
+  const { status, json } = await client.startRun(runId, envelope);
+  if (status < 200 || status >= 300) {
+    const message =
+      typeof json.error === 'string' ? json.error : `HTTP ${status}`;
+    throw new HostClientError(`INVALID_INPUT: ${message}`);
+  }
+  return runId;
+}
+
 /**
  * Append `host`/`runId`/`tenant`/`principal` onto a Playground href that was
  * built without them (e.g. `playgroundHref`'s `?example=` links). Every
@@ -135,6 +190,29 @@ export async function loadHostCanvas(
 ): Promise<HostCanvasDocument> {
   const client = createHostClient(config);
   return client.openCanvas(config.runId);
+}
+
+/**
+ * True when `error` is the specific "run exists but the plan step hasn't
+ * produced a verified proposal yet" case (`proposal_dto` in
+ * adapters/flow-host/src/plan_edit.rs, surfaced as a 400 with body
+ * `{"error": "runtime error: INVALID_INPUT: run has no verified proposal..."}`).
+ * Only reachable right after `submitNewRun` while the Orchestrator's plan
+ * step is still mid-flight -- every other host-mode entry point (the run
+ * picker, a bookmarked ?runId=) only ever links to a run whose plan step has
+ * already completed, so this never fires there. Distinguishing it from a
+ * genuine load failure lets the caller poll instead of surfacing a scary
+ * error for what is just "still planning."
+ */
+export function isProposalNotYetReady(error: unknown): boolean {
+  if (!(error instanceof HostClientError)) return false;
+  if (error.status !== 400) return false;
+  const body = error.body;
+  const message =
+    body && typeof body === 'object' && 'error' in body
+      ? String((body as { error: unknown }).error)
+      : '';
+  return message.includes('no verified proposal');
 }
 
 /** One entry from `GET /v1/runs`, for the run-history picker. */

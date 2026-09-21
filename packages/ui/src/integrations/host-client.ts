@@ -3,8 +3,10 @@
  *
  * Endpoints (host-owned; Flow UI only consumes them):
  * - GET  /v1/runs
+ * - POST /v1/runs
  * - GET  /v1/runs/{runId}/proposal
  * - POST /v1/runs/{runId}/plan-edits
+ * - POST /v1/runs/{runId}/copilot
  * - GET  /v1/hooks/active
  * - GET  /v1/hooks/{token}
  * - POST /v1/hooks/{token}/resume
@@ -45,6 +47,24 @@ export type FlowApprovalRecord = {
   approved_at_utc: string;
   expires_at_utc: string;
   approval_digest: string;
+};
+
+/**
+ * `POST /v1/runs` request body's `TaskEnvelope` half (adapters/flow-host/src/
+ * lib.rs's `TaskEnvelope`, `#[serde(flatten)]`d alongside `run_id`).
+ * `approval_token` is a caller-minted bearer secret, not host-issued -- the
+ * host echoes it back as `approval_token` on the proposal DTO once the run
+ * suspends, so the browser can drive Approve through the existing
+ * issueApprovalRecord/resumeHook path unchanged.
+ */
+export type FlowTaskEnvelope = {
+  task_text: string;
+  permission_ceiling: string[];
+  required_capabilities?: string[];
+  forbidden_capabilities?: string[];
+  protocols?: string[];
+  limit?: number;
+  approval_token: string;
 };
 
 function trimTrailingSlash(url: string): string {
@@ -262,6 +282,38 @@ export class FlowHostClient {
   async listActiveHooks(): Promise<JsonObject> {
     const { json } = await this.request('GET', '/v1/hooks/active');
     return (json ?? {}) as JsonObject;
+  }
+
+  /**
+   * `POST /v1/runs` -- start a genuinely new run: a fresh Orchestrator
+   * shortlist+compose against the full catalog, unconstrained by any other
+   * run's frozen candidate set. `runId` is caller-chosen (the host does not
+   * generate one); reusing an existing id with a different envelope is
+   * rejected by the engine as a conflict, so this always needs a fresh id
+   * for a fresh task.
+   */
+  async startRun(
+    runId: string,
+    envelope: FlowTaskEnvelope,
+  ): Promise<{ status: number; json: JsonObject }> {
+    if (!runId.trim()) {
+      throw new HostClientError('INVALID_INPUT: runId is required');
+    }
+    try {
+      const { status, json } = await this.request('POST', '/v1/runs', {
+        run_id: runId,
+        ...envelope,
+      });
+      return { status, json: (json ?? {}) as JsonObject };
+    } catch (error) {
+      if (error instanceof HostClientError && error.status !== undefined) {
+        return {
+          status: error.status,
+          json: (error.body ?? {}) as JsonObject,
+        };
+      }
+      throw error;
+    }
   }
 
   /** `GET /v1/runs` -- every run this host's store knows about, for the run-history picker. */

@@ -3,6 +3,7 @@ import {
   ORCHESTRATOR_AGENT_STEP_TYPE,
   applyCanvasNodeEdits,
   canvasDocumentFromProposalDto,
+  HostClientError,
   refuseUninjectedPlayground,
 } from '@a3s-lab/flow-ui';
 import {
@@ -12,8 +13,12 @@ import {
   createHostRunPickerExample,
   graphFromHostCanvas,
   hostCanvasFromGraph,
+  isProposalNotYetReady,
   listHostRuns,
+  mintApprovalToken,
+  mintRunId,
   readHostModeConfig,
+  submitNewRun,
   withHostModeParams,
 } from './WorkflowPlayground.host';
 import { createPlaygroundNodeCatalog } from './WorkflowPlayground.custom-nodes';
@@ -274,5 +279,133 @@ describe('WorkflowPlayground host mode', () => {
       step_id: 'step-002',
       objective: 'Copilot-added follow-up performance pass',
     });
+  });
+
+  it('mintRunId/mintApprovalToken produce distinct, non-empty values', () => {
+    const a = mintRunId();
+    const b = mintRunId();
+    expect(a).not.toBe(b);
+    expect(a).toMatch(/^run-\d+-/);
+
+    const tokenA = mintApprovalToken();
+    const tokenB = mintApprovalToken();
+    expect(tokenA).not.toBe(tokenB);
+    expect(tokenA.length).toBeGreaterThan(8);
+  });
+
+  it('submitNewRun POSTs a fresh TaskEnvelope and returns the minted run id', async () => {
+    const fetchImpl = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe('http://127.0.0.1:9/v1/runs');
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        expect(body.task_text).toBe(
+          'survey AI development in the US, China, Japan, and Korea',
+        );
+        expect(body.permission_ceiling).toEqual(['read']);
+        expect(typeof body.run_id).toBe('string');
+        expect(typeof body.approval_token).toBe('string');
+        return new Response(
+          JSON.stringify({ run_id: body.run_id, status: 'running' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      },
+    );
+    vi.stubGlobal('fetch', fetchImpl);
+    try {
+      const runId = await submitNewRun(
+        {
+          baseUrl: 'http://127.0.0.1:9',
+          runId: '',
+          tenantId: 'tenant-local-validation',
+          principalRef: 'reviewer@local',
+        },
+        'survey AI development in the US, China, Japan, and Korea',
+        ['read'],
+      );
+      expect(runId).toMatch(/^run-\d+-/);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('submitNewRun rejects a blank task description before any network call', async () => {
+    const fetchImpl = vi.fn();
+    vi.stubGlobal('fetch', fetchImpl);
+    try {
+      await expect(
+        submitNewRun(
+          {
+            baseUrl: 'http://127.0.0.1:9',
+            runId: '',
+            tenantId: 'tenant-local-validation',
+            principalRef: 'reviewer@local',
+          },
+          '   ',
+          ['read'],
+        ),
+      ).rejects.toThrow(/task text is required/);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('submitNewRun surfaces a host-side conflict (e.g. run id collision) as a thrown error', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ error: 'run conflict: workflow input differs' }),
+          { status: 409, headers: { 'Content-Type': 'application/json' } },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchImpl);
+    try {
+      await expect(
+        submitNewRun(
+          {
+            baseUrl: 'http://127.0.0.1:9',
+            runId: '',
+            tenantId: 'tenant-local-validation',
+            principalRef: 'reviewer@local',
+          },
+          'a task',
+          ['read'],
+        ),
+      ).rejects.toThrow(/conflict/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('isProposalNotYetReady only matches the specific "no verified proposal yet" 400', () => {
+    expect(
+      isProposalNotYetReady(
+        new HostClientError('INVALID_INPUT: host returned HTTP 400', 400, {
+          error:
+            'runtime error: INVALID_INPUT: run has no verified proposal to edit',
+        }),
+      ),
+    ).toBe(true);
+
+    // A different 400 (e.g. malformed run id) must NOT be treated as "still planning".
+    expect(
+      isProposalNotYetReady(
+        new HostClientError('INVALID_INPUT: host returned HTTP 400', 400, {
+          error: 'runtime error: INVALID_INPUT: run_id is malformed',
+        }),
+      ),
+    ).toBe(false);
+
+    // A 404 (run genuinely doesn't exist) must NOT be treated as "still planning".
+    expect(
+      isProposalNotYetReady(
+        new HostClientError('INVALID_INPUT: host returned HTTP 404', 404, {
+          error: 'run not found',
+        }),
+      ),
+    ).toBe(false);
+
+    expect(isProposalNotYetReady(new Error('unrelated'))).toBe(false);
   });
 });

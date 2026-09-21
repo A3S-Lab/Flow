@@ -104,6 +104,57 @@ describe('FlowHostClient', () => {
     );
   });
 
+  it('starts a new run through POST /v1/runs', async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}'));
+      expect(body).toMatchObject({
+        run_id: 'run-new-1',
+        task_text: 'survey AI development in the US, China, Japan, and Korea',
+        permission_ceiling: ['read'],
+        approval_token: 'tok-new-1',
+      });
+      return new Response(
+        JSON.stringify({ run_id: 'run-new-1', status: 'running' }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    const client = new FlowHostClient({
+      baseUrl: 'http://127.0.0.1:9',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const { status, json } = await client.startRun('run-new-1', {
+      task_text: 'survey AI development in the US, China, Japan, and Korea',
+      permission_ceiling: ['read'],
+      approval_token: 'tok-new-1',
+    });
+    expect(status).toBe(200);
+    expect(json.run_id).toBe('run-new-1');
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://127.0.0.1:9/v1/runs',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('startRun surfaces a run conflict as a non-throwing status/json pair', async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({ error: 'run conflict: workflow input differs' }),
+        { status: 409, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    const client = new FlowHostClient({
+      baseUrl: 'http://127.0.0.1:9',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const { status, json } = await client.startRun('run-existing', {
+      task_text: 'a different task',
+      permission_ceiling: ['read'],
+      approval_token: 'tok',
+    });
+    expect(status).toBe(409);
+    expect(json.error).toContain('conflict');
+  });
+
   it('posts plan-edits from the canvas authority', async () => {
     const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
