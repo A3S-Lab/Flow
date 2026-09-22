@@ -122,7 +122,8 @@ describe('host canvas inject helpers', () => {
       'failed',
       'cancelled',
       'cancelling',
-      'continuedasnew',
+      // WorkflowRunStatus::ContinuedAsNew serializes as continued_as_new.
+      'continued_as_new',
       // Backend is lowercase (serde rename_all = "snake_case"); tolerate
       // any casing rather than silently treating an unrecognized-case
       // terminal status as still-editable.
@@ -152,11 +153,18 @@ describe('host canvas inject helpers', () => {
       addStep: true,
     });
 
-    for (const status of ['completed', 'failed', 'cancelled', 'cancelling']) {
+    for (const status of [
+      'completed',
+      'failed',
+      'cancelled',
+      'cancelling',
+      'continued_as_new',
+    ]) {
       const canvas = canvasDocumentFromProposalDto({
         ...dto,
         flow_status: status,
       });
+      expect(isHostRunEditable(canvas)).toBe(false);
       expect(hostRunEditActions(canvas)).toEqual({
         save: false,
         approve: false,

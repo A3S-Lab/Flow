@@ -17,7 +17,7 @@ const STATUS_LABEL: Readonly<Record<string, { zh: string; en: string }>> = {
   completed: { zh: '已完成', en: 'Completed' },
   failed: { zh: '失败', en: 'Failed' },
   cancelled: { zh: '已取消', en: 'Cancelled' },
-  continuedasnew: { zh: '已续期', en: 'Continued' },
+  continued_as_new: { zh: '已续期', en: 'Continued' },
 };
 
 export function statusLabel(status: string, locale: FlowWebsiteLocale): string {

@@ -70,7 +70,8 @@ const TERMINAL_FLOW_STATUSES = new Set([
   'completed',
   'failed',
   'cancelled',
-  'continuedasnew',
+  // WorkflowRunStatus::ContinuedAsNew, serde rename_all = "snake_case".
+  'continued_as_new',
   'cancelling',
 ]);
 
