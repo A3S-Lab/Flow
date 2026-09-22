@@ -7,5 +7,7 @@ export * from './integrations/a3s-flow-designer-context';
 export * from './integrations/a3s-flow-localization';
 export * from './integrations/a3s-flow-node-manifest';
 export * from './integrations/a3s-flow-validation';
+export * from './integrations/host-canvas';
+export * from './integrations/host-client';
 export * from './integrations/workflow-node-form';
 export * from './integrations/workflow-node-manifest';

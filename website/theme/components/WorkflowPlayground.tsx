@@ -1,7 +1,15 @@
 import { CheckCircle } from '@phosphor-icons/react';
 import {
+  advanceHostEditRevision,
+  hostRunEditActions,
+  issueApprovalRecord,
   localizeA3SFlowDagManifest,
+  readHostEditRevision,
+  refuseUninjectedPlayground,
+  type A3SFlowCustomDagNodeRegistration,
   type A3SFlowWorkflowDagNode,
+  type HostCanvasDocument,
+  type JsonObject,
 } from '@a3s-lab/flow-ui';
 import { useLang, useSite, useVersion, withBase } from '@rspress/core/runtime';
 import {
@@ -59,10 +67,26 @@ import {
   type InspectorTab,
 } from './WorkflowPlaygroundInspector';
 import { WorkflowPlaygroundLibrary } from './WorkflowPlaygroundLibrary';
+import { WorkflowPlaygroundRunList } from './WorkflowPlaygroundRunList';
 import {
   addConnectedNodeIntoGraph,
   addIntoGraph,
 } from './WorkflowPlayground.graph';
+import {
+  addHostPlanStep,
+  applyCopilotSteps,
+  createHostClient,
+  graphFromHostCanvas,
+  hostCanvasFromGraph,
+  isProposalNotYetReady,
+  listHostRuns,
+  loadHostCanvas,
+  postCopilotRequest,
+  refreshCanvasFromProposalDto,
+  submitNewRun,
+  withHostModeParams,
+  type HostRunSummary,
+} from './WorkflowPlayground.host';
 import {
   layoutPlaygroundGraphOffThread,
   schedulePlaygroundLayoutWarmup,
@@ -70,6 +94,7 @@ import {
 import { applyPlaygroundLayoutKernelOutput } from './WorkflowPlayground.layout-kernel';
 import { pageHref, playgroundHref } from './WorkflowPlayground.routes';
 import {
+  navigatePlayground,
   WorkflowPlaygroundRoute,
   type WorkflowPlaygroundSurfaceProps,
 } from './WorkflowPlayground.route';
@@ -124,6 +149,7 @@ function WorkflowPlaygroundSurface({
   catalog,
   example,
   extensions,
+  hostMode = null,
   onCopilotRequest,
 }: WorkflowPlaygroundSurfaceProps) {
   const locale: FlowWebsiteLocale = useLang() === 'en' ? 'en' : 'zh';
@@ -146,7 +172,22 @@ function WorkflowPlaygroundSurface({
     endDrag,
   } = usePlaygroundDocument(() => structuredClone(example.graph));
   const { edgeColor, edgeRouting, saveState, setEdgeColor, setEdgeRouting } =
-    usePlaygroundDraft(storageKey, graph, restore);
+    usePlaygroundDraft(storageKey, graph, restore, {
+      enabled: !hostMode,
+    });
+  const [hostCanvas, setHostCanvas] = useState<HostCanvasDocument | null>(null);
+  const [hostBusy, setHostBusy] = useState(false);
+  // Persist across Playground reloads so host "must increase" stays satisfied.
+  const [editRevision, setEditRevision] = useState(() => {
+    if (!hostMode?.runId || typeof sessionStorage === 'undefined') return 1;
+    return readHostEditRevision(sessionStorage, hostMode.runId);
+  });
+  const [hostLoadError, setHostLoadError] = useState<string | null>(null);
+  // Run-history picker (hostMode set, no runId yet): the list of runs on the
+  // connected host, and whether it's currently being fetched.
+  const [hostRuns, setHostRuns] = useState<HostRunSummary[]>([]);
+  const [hostRunsBusy, setHostRunsBusy] = useState(false);
+  const [hostRunsError, setHostRunsError] = useState<string | null>(null);
   const { fitBounds, getNodesBounds, screenToFlowPosition, setViewport } =
     useReactFlow<PlaygroundCanvasNode, PlaygroundEdge>();
   const reactFlowStore = useStoreApi<PlaygroundCanvasNode, PlaygroundEdge>();
@@ -202,6 +243,93 @@ function WorkflowPlaygroundSurface({
   );
 
   useEffect(() => schedulePlaygroundLayoutWarmup(), []);
+
+  useEffect(() => {
+    if (!hostMode || !hostMode.runId) return;
+    let cancelled = false;
+    setHostBusy(true);
+    setHostLoadError(null);
+    // A run just created via submitNewRun can still be mid-plan-step (a real
+    // model call) when this effect first fires -- isProposalNotYetReady
+    // distinguishes that from a genuine load failure and polls instead of
+    // surfacing a scary error for "still planning." Every other entry point
+    // (run picker, a bookmarked ?runId=) only ever links to an already
+    // planned run, so this loop resolves on its first attempt there.
+    const POLL_INTERVAL_MS = 3000;
+    const POLL_TIMEOUT_MS = 180_000;
+    const deadline = Date.now() + POLL_TIMEOUT_MS;
+    const attempt = (): void => {
+      void loadHostCanvas(hostMode)
+        .then((canvas) => {
+          if (cancelled) return;
+          setHostCanvas(canvas);
+          restore(graphFromHostCanvas(canvas, locale, catalog));
+          // A reload re-reads the stored revision. Resetting to 1 here would
+          // replay the host's cached same-revision response.
+          if (hostMode.runId && typeof sessionStorage !== 'undefined') {
+            setEditRevision(
+              readHostEditRevision(sessionStorage, hostMode.runId),
+            );
+          } else {
+            setEditRevision(1);
+          }
+          setAnnouncement(
+            locale === 'zh'
+              ? `已注入 ${canvas.proposal_digest}`
+              : `Injected ${canvas.proposal_digest}`,
+          );
+          setHostBusy(false);
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          if (isProposalNotYetReady(error) && Date.now() < deadline) {
+            setAnnouncement(
+              locale === 'zh'
+                ? '正在规划中，请稍候…'
+                : 'Planning in progress, please wait…',
+            );
+            window.setTimeout(attempt, POLL_INTERVAL_MS);
+            return;
+          }
+          const message =
+            error instanceof Error ? error.message : String(error);
+          setHostLoadError(message);
+          setAnnouncement(message);
+          setHostBusy(false);
+        });
+    };
+    attempt();
+    return () => {
+      cancelled = true;
+    };
+  }, [catalog, hostMode, locale, restore]);
+
+  // Run-history picker: hostMode set, no runId yet -- list every run on the
+  // connected host so the operator can pick one. Refetches whenever the
+  // picker state is (re)entered, e.g. after navigating back from a run.
+  useEffect(() => {
+    if (!hostMode || hostMode.runId) return;
+    let cancelled = false;
+    setHostRunsBusy(true);
+    setHostRunsError(null);
+    void listHostRuns(hostMode)
+      .then((runs) => {
+        if (cancelled) return;
+        setHostRuns(runs);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setHostRunsError(
+          error instanceof Error ? error.message : String(error),
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setHostRunsBusy(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hostMode]);
 
   const edgePalette = PLAYGROUND_EDGE_COLORS[edgeColor];
   const defaultEdgeOptions = useMemo<DefaultEdgeOptions>(
@@ -284,13 +412,24 @@ function WorkflowPlaygroundSurface({
     return isTriggerSchema(candidate) ? candidate : undefined;
   }, [triggerNode]);
   const deferredGraph = useDeferredValue(graph);
-  const documentJson = useMemo(
-    () =>
-      activePanel === 'document'
-        ? serializePlaygroundDocument(deferredGraph.nodes, deferredGraph.edges)
-        : '',
-    [activePanel, deferredGraph.edges, deferredGraph.nodes],
-  );
+  const documentJson = useMemo(() => {
+    if (activePanel !== 'document') return '';
+    if (hostMode && hostCanvas) {
+      const authority = hostCanvasFromGraph(hostCanvas, deferredGraph);
+      return JSON.stringify(
+        {
+          ...authority,
+          preview_only: authority.preview_only,
+        },
+        null,
+        2,
+      );
+    }
+    return serializePlaygroundDocument(
+      deferredGraph.nodes,
+      deferredGraph.edges,
+    );
+  }, [activePanel, deferredGraph, hostCanvas, hostMode]);
   useEffect(
     () => () => {
       arrangeRequest.current += 1;
@@ -889,18 +1028,45 @@ function WorkflowPlaygroundSurface({
       return false;
     }
     try {
-      await navigator.clipboard.writeText(
-        serializePlaygroundDocument(graph.nodes, graph.edges),
-      );
+      if (hostMode) {
+        if (!hostCanvas) throw new Error('host canvas not loaded');
+        const authority = hostCanvasFromGraph(hostCanvas, graph);
+        refuseUninjectedPlayground(authority);
+        await navigator.clipboard.writeText(JSON.stringify(authority, null, 2));
+      } else {
+        await navigator.clipboard.writeText(
+          serializePlaygroundDocument(graph.nodes, graph.edges),
+        );
+      }
       setAnnouncement(copy.copied);
       return true;
-    } catch {
-      setAnnouncement(copy.copyFailed);
+    } catch (error) {
+      setAnnouncement(error instanceof Error ? error.message : copy.copyFailed);
       return false;
     }
-  }, [copy.copied, copy.copyFailed, graph.edges, graph.nodes]);
+  }, [copy.copied, copy.copyFailed, graph, hostCanvas, hostMode]);
 
   const exportGraph = useCallback(() => {
+    if (hostMode) {
+      try {
+        if (!hostCanvas) throw new Error('host canvas not loaded');
+        const authority = hostCanvasFromGraph(hostCanvas, graph);
+        refuseUninjectedPlayground(authority);
+        const blob = new Blob([JSON.stringify(authority, null, 2)], {
+          type: 'application/json',
+        });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `host-canvas-${hostMode.runId}.json`;
+        anchor.click();
+        URL.revokeObjectURL(url);
+        setAnnouncement(copy.graphExported);
+      } catch (error) {
+        setAnnouncement(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
     const blob = new Blob(
       [serializePlaygroundDocument(graph.nodes, graph.edges)],
       { type: 'application/json' },
@@ -912,7 +1078,207 @@ function WorkflowPlaygroundSurface({
     anchor.click();
     URL.revokeObjectURL(url);
     setAnnouncement(copy.graphExported);
-  }, [copy.graphExported, example.id, graph.edges, graph.nodes]);
+  }, [copy.graphExported, example.id, graph, hostCanvas, hostMode]);
+
+  const saveToHost = useCallback(() => {
+    if (!hostMode || !hostCanvas) return;
+    if (!hostRunEditActions(hostCanvas).save) return;
+    setHostBusy(true);
+    const client = createHostClient(hostMode);
+    const nextCanvas = hostCanvasFromGraph(hostCanvas, graph);
+    void client
+      .saveCanvas(nextCanvas, editRevision)
+      .then((result) => {
+        const decision = (result.json.decision ?? {}) as {
+          status?: string;
+          message?: string;
+        };
+        const proposal = result.json.proposal;
+        if (proposal && typeof proposal === 'object') {
+          const refreshed = refreshCanvasFromProposalDto(proposal);
+          setHostCanvas(refreshed);
+          restore(graphFromHostCanvas(refreshed, locale, catalog));
+        } else {
+          setHostCanvas(nextCanvas);
+        }
+        setEditRevision((current) => {
+          if (!hostMode?.runId || typeof sessionStorage === 'undefined') {
+            return current >= 1 ? Math.floor(current) + 1 : 1;
+          }
+          return advanceHostEditRevision(
+            sessionStorage,
+            hostMode.runId,
+            current,
+          );
+        });
+        setAnnouncement(
+          `${decision.status ?? result.status}${
+            decision.message ? `: ${decision.message}` : ''
+          }`,
+        );
+      })
+      .catch((error: unknown) => {
+        setAnnouncement(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => setHostBusy(false));
+  }, [catalog, editRevision, graph, hostCanvas, hostMode, locale, restore]);
+
+  const selectHostRun = useCallback(
+    (runId: string) => {
+      if (!hostMode) return;
+      const params = new URLSearchParams();
+      params.set('host', hostMode.baseUrl);
+      params.set('runId', runId);
+      params.set('tenant', hostMode.tenantId);
+      params.set('principal', hostMode.principalRef);
+      const base = pageHref('playground', locale, version, defaultVersion);
+      navigatePlayground(`${base}?${params.toString()}`);
+    },
+    [defaultVersion, hostMode, locale, version],
+  );
+
+  // "Start over from scratch": submit a genuinely new task (full-catalog
+  // reshortlist, not the current run's frozen candidates -- see
+  // WorkflowPlaygroundNewRunDialog's doc comment). Navigates to the new
+  // run's URL on success, mirroring selectHostRun exactly; throws on
+  // failure so the dialog can show the error and stay open.
+  const submitNewRunOnHost = useCallback(
+    async (taskText: string, permissionCeiling: string[]) => {
+      if (!hostMode) return;
+      const runId = await submitNewRun(hostMode, taskText, permissionCeiling);
+      selectHostRun(runId);
+    },
+    [hostMode, selectHostRun],
+  );
+
+  const refreshHostRuns = useCallback(() => {
+    if (!hostMode || hostMode.runId) return;
+    setHostRunsBusy(true);
+    setHostRunsError(null);
+    void listHostRuns(hostMode)
+      .then((runs) => setHostRuns(runs))
+      .catch((error: unknown) =>
+        setHostRunsError(
+          error instanceof Error ? error.message : String(error),
+        ),
+      )
+      .finally(() => setHostRunsBusy(false));
+  }, [hostMode]);
+
+  const approveOnHost = useCallback(() => {
+    if (!hostMode || !hostCanvas) return;
+    if (!hostRunEditActions(hostCanvas).approve) return;
+    const token =
+      typeof hostCanvas.approval.token === 'string'
+        ? hostCanvas.approval.token
+        : '';
+    const digest =
+      typeof hostCanvas.proposal_digest === 'string'
+        ? hostCanvas.proposal_digest
+        : '';
+    if (!token || !digest) {
+      setAnnouncement(
+        locale === 'zh'
+          ? '缺少 approval token 或 proposal_digest'
+          : 'Missing approval token or proposal_digest',
+      );
+      return;
+    }
+    setHostBusy(true);
+    const client = createHostClient(hostMode);
+    void issueApprovalRecord({
+      proposalDigest: digest,
+      tenantId: hostMode.tenantId,
+      principalRef: hostMode.principalRef,
+      approved: true,
+    })
+      .then((record) => client.resumeHook(token, record))
+      .then((snapshot) => {
+        const status =
+          snapshot && typeof snapshot === 'object' && 'status' in snapshot
+            ? String((snapshot as { status: unknown }).status)
+            : 'ok';
+        setAnnouncement(
+          locale === 'zh' ? `已批准：${status}` : `Approved: ${status}`,
+        );
+        // Approve can drive the run all the way to a terminal status inside
+        // this one request (the host's resume_hook synchronously runs the
+        // workflow forward, including any real agent step it can dispatch
+        // without further suspension). Refetch so hostCanvas.flow_status --
+        // and therefore whether Save/Approve stay offered -- reflects that
+        // immediately, instead of still showing the stale pre-approve state
+        // until the operator manually reloads.
+        return client.getProposal(hostMode.runId).then((proposal) => {
+          const refreshed = refreshCanvasFromProposalDto(proposal);
+          setHostCanvas(refreshed);
+          restore(graphFromHostCanvas(refreshed, locale, catalog));
+        });
+      })
+      .catch((error: unknown) => {
+        setAnnouncement(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => setHostBusy(false));
+  }, [catalog, hostCanvas, hostMode, locale, restore]);
+
+  const addHostStep = useCallback(() => {
+    if (!hostMode || !hostCanvas) return;
+    if (!hostRunEditActions(hostCanvas).addStep) return;
+    const next = addHostPlanStep(hostCanvas, graph, locale, catalog);
+    setHostCanvas(next.canvas);
+    restore(next.graph);
+    setAnnouncement(
+      locale === 'zh'
+        ? '已新增计划步骤（未保存）'
+        : 'Added plan step (unsaved)',
+    );
+  }, [catalog, graph, hostCanvas, hostMode, locale, restore]);
+
+  // Host-mode Copilot: ask the configured model for a suggested edit, apply
+  // it to the canvas (unsaved) if one comes back. Never calls Save/Approve
+  // itself -- the operator still has to do that, so a hallucinated or
+  // malformed suggestion is caught by the same plan-edits validation a
+  // hand-drawn edit would hit. Returns the message to announce (never
+  // `false` in host mode: a request failure still has a message to show).
+  const requestHostCopilot = useCallback(
+    async (instruction: string): Promise<string | false> => {
+      if (!hostMode || !hostCanvas) return false;
+      if (!hostRunEditActions(hostCanvas).addStep) {
+        return locale === 'zh'
+          ? '该运行已结束，不能再编辑。'
+          : 'This run is no longer editable.';
+      }
+      setHostBusy(true);
+      try {
+        const client = createHostClient(hostMode);
+        const reply = await postCopilotRequest(
+          client,
+          hostMode.runId,
+          instruction,
+        );
+        if (reply.suggestedSteps && reply.suggestedSteps.length > 0) {
+          const next = applyCopilotSteps(
+            hostCanvas,
+            locale,
+            catalog,
+            reply.suggestedSteps,
+          );
+          setHostCanvas(next.canvas);
+          restore(next.graph);
+          const appliedSuffix =
+            locale === 'zh'
+              ? '已把 Copilot 的建议应用到画布（未保存）。'
+              : "Applied Copilot's suggestion to the canvas (unsaved).";
+          return `${reply.message} ${appliedSuffix}`;
+        }
+        return reply.message;
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      } finally {
+        setHostBusy(false);
+      }
+    },
+    [catalog, hostCanvas, hostMode, locale, restore],
+  );
 
   const requestWorkflowRun = useCallback(() => {
     setExtensionsOpen(false);
@@ -966,18 +1332,35 @@ function WorkflowPlaygroundSurface({
       openNodeLibrary,
       copyDsl: copyDocument,
       requestCopilot: async (instruction: string) => {
+        if (hostMode) return requestHostCopilot(instruction);
         if (!onCopilotRequest || !extensionContextRef.current) return false;
         await onCopilotRequest({
           instruction,
           context: extensionContextRef.current,
         });
-        return true;
+        return locale === 'zh'
+          ? '请求已交给宿主 Copilot。'
+          : 'Request sent to the host Copilot.';
       },
+      applyGraphEdit: hostMode
+        ? (steps: JsonObject[]) => {
+            if (!hostCanvas) return;
+            const next = applyCopilotSteps(hostCanvas, locale, catalog, steps);
+            setHostCanvas(next.canvas);
+            restore(next.graph);
+          }
+        : undefined,
     }),
     [
+      catalog,
       copyDocument,
+      hostCanvas,
+      hostMode,
+      locale,
       onCopilotRequest,
       openNodeLibrary,
+      requestHostCopilot,
+      restore,
       selectAnnotation,
       selectEdge,
     ],
@@ -1040,6 +1423,12 @@ function WorkflowPlaygroundSurface({
   const rightPanelOpen = Boolean(
     activePanel && (activePanel !== 'settings' || selectedNode),
   );
+  // Save/Approve/Add-step stop being offered once the run's last-known
+  // flow_status is terminal -- both endpoints 409 ("cannot edit a plan on a
+  // terminal run") past that point, and Approve itself can reach a terminal
+  // status inside its own request (see approveOnHost's refetch above).
+  const hostEdits =
+    hostCanvas && hostMode?.runId ? hostRunEditActions(hostCanvas) : null;
   const shellClass = [
     'a3s-workflow-playground',
     rightPanelOpen ? 'has-right-panel' : '',
@@ -1048,11 +1437,14 @@ function WorkflowPlaygroundSurface({
   ]
     .filter(Boolean)
     .join(' ');
-  const languageHref = playgroundHref(
-    locale === 'zh' ? 'en' : 'zh',
-    version,
-    defaultVersion,
-    example.id,
+  const languageHref = withHostModeParams(
+    playgroundHref(
+      locale === 'zh' ? 'en' : 'zh',
+      version,
+      defaultVersion,
+      example.id,
+    ),
+    hostMode,
   );
 
   return (
@@ -1070,15 +1462,26 @@ function WorkflowPlaygroundSurface({
       </a>
       <WorkflowPlaygroundHeader
         backHref={backHref}
-        backLabel={copy.backToExamples}
+        backLabel={
+          hostMode
+            ? locale === 'zh'
+              ? '返回运行历史'
+              : 'Back to run history'
+            : copy.backToExamples
+        }
         copy={copy}
+        hostBusy={hostBusy}
+        hostMode={Boolean(hostMode)}
         issueCount={issueCount}
         languageHref={languageHref}
         locale={locale}
         logoSrc={withBase('/a3s-logo.png')}
         onExport={exportGraph}
-        onOpenExtensions={toggleExtensions}
+        onHostAddStep={hostEdits?.addStep ? addHostStep : undefined}
+        onHostApprove={hostEdits?.approve ? approveOnHost : undefined}
+        onHostSave={hostEdits?.save ? saveToHost : undefined}
         onOpenDocument={openDocument}
+        onOpenExtensions={toggleExtensions}
         onReset={resetWorkflow}
         onRunToggle={requestWorkflowRun}
         onValidate={openValidation}
@@ -1095,12 +1498,31 @@ function WorkflowPlaygroundSurface({
           window.location.assign(target);
         }}
         running={running}
+        proposalDigest={
+          typeof hostCanvas?.proposal_digest === 'string'
+            ? hostCanvas.proposal_digest
+            : undefined
+        }
+        hostFlowStatus={
+          typeof hostCanvas?.flow_status === 'string'
+            ? hostCanvas.flow_status
+            : undefined
+        }
         saveState={saveState}
         extensionsOpen={extensionsOpen}
         version={version}
         versions={versions}
-        workflowName={example.title}
+        workflowName={
+          hostMode && hostCanvas?.preview_only?.execution_digest
+            ? `${example.title} · ${String(hostCanvas.preview_only.execution_digest).slice(0, 12)}`
+            : example.title
+        }
       />
+      {hostLoadError ? (
+        <p data-testid="host-load-error" role="alert">
+          {hostLoadError}
+        </p>
+      ) : null}
       <noscript>
         {versions.map((targetVersion) => (
           <a
@@ -1379,6 +1801,18 @@ function WorkflowPlaygroundSurface({
           open={nodeLibraryOpen}
         />
 
+        {hostMode && !hostMode.runId && (
+          <WorkflowPlaygroundRunList
+            busy={hostRunsBusy}
+            error={hostRunsError}
+            locale={locale}
+            onRefresh={refreshHostRuns}
+            onSelect={selectHostRun}
+            onSubmitNewRun={submitNewRunOnHost}
+            runs={hostRuns}
+          />
+        )}
+
         {rightPanelOpen && activePanel && (
           <WorkflowPlaygroundInspector
             activeTab={activePanel}
@@ -1432,6 +1866,7 @@ function WorkflowPlaygroundSurface({
           <WorkflowPlaygroundExtensionsPanel
             activeTab={extensionTab}
             context={extensionContext}
+            copilotAvailable={Boolean(hostMode) || Boolean(onCopilotRequest)}
             extensions={extensions}
             onAnnouncement={setAnnouncement}
             onClose={() => setExtensionsOpen(false)}
@@ -1467,6 +1902,7 @@ function WorkflowPlaygroundSurface({
 
 export type WorkflowPlaygroundProps = {
   extensions?: WorkflowPlaygroundExtensionSlots;
+  hostPreviewRegistrations?: readonly A3SFlowCustomDagNodeRegistration[];
   onCopilotRequest?: (
     request: WorkflowPlaygroundCopilotRequest,
   ) => void | Promise<void>;
@@ -1474,12 +1910,14 @@ export type WorkflowPlaygroundProps = {
 
 export default function WorkflowPlayground({
   extensions,
+  hostPreviewRegistrations,
   onCopilotRequest,
 }: WorkflowPlaygroundProps = {}) {
   return (
     <WorkflowPlaygroundRoute
       onCopilotRequest={onCopilotRequest}
       extensions={extensions}
+      hostPreviewRegistrations={hostPreviewRegistrations}
       surface={WorkflowPlaygroundSurface}
     />
   );

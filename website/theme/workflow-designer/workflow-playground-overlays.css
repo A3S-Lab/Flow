@@ -696,3 +696,208 @@
     transform: translate(-50%, 0);
   }
 }
+
+/* New-task modal (WorkflowPlaygroundNewRunDialog): a genuinely fresh
+   Orchestrator shortlist+compose, entered from the run-history picker --
+   structurally mirrors .a3s-trigger-dialog above but with a much smaller
+   fixed form (task text + one permission-ceiling select) instead of a
+   dynamic JSON-schema form. */
+.a3s-new-run-dialog-backdrop {
+  z-index: 120;
+  padding: 24px;
+  background: rgb(15 23 42 / 34%);
+  backdrop-filter: blur(2px);
+}
+
+.a3s-new-run-dialog {
+  display: flex;
+  width: min(480px, 100%);
+  max-height: min(640px, calc(100dvh - 48px));
+  padding: 0;
+  overflow: hidden;
+  flex-direction: column;
+  border: 1px solid var(--workflow-line-strong);
+  border-radius: 16px;
+  background: var(--workflow-surface);
+  box-shadow: 0 22px 60px rgb(15 23 42 / 20%);
+}
+
+.a3s-new-run-dialog__header {
+  display: grid;
+  padding: 20px 22px 14px;
+  align-items: start;
+  grid-template-columns: 36px minmax(0, 1fr) 32px;
+  gap: 12px;
+  border-bottom: 1px solid var(--workflow-line);
+}
+
+.a3s-new-run-dialog__header > span {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgb(18 100 255 / 22%);
+  border-radius: 10px;
+  background: var(--workflow-blue-soft);
+  color: var(--workflow-blue);
+  place-items: center;
+}
+
+.a3s-new-run-dialog__header > span svg {
+  width: 18px;
+  height: 18px;
+}
+
+.a3s-new-run-dialog__header h2 {
+  margin: 0;
+  color: var(--workflow-text);
+  font-size: 17px;
+  font-weight: 720;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.a3s-new-run-dialog__header > button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--workflow-muted);
+  cursor: pointer;
+  place-items: center;
+}
+
+.a3s-new-run-dialog__header > button:hover,
+.a3s-new-run-dialog__header > button:focus-visible {
+  border-color: var(--workflow-line);
+  background: var(--workflow-surface-muted);
+  color: var(--workflow-text);
+}
+
+.a3s-new-run-dialog__header > button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.a3s-new-run-dialog__intro {
+  margin: 0;
+  padding: 14px 22px 0;
+  color: var(--workflow-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.a3s-new-run-dialog form {
+  display: flex;
+  min-height: 0;
+  padding: 16px 22px 4px;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+}
+
+.a3s-new-run-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.a3s-new-run-dialog__field > span {
+  color: var(--workflow-text);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.a3s-new-run-dialog__field textarea {
+  padding: 9px 11px;
+  border: 1px solid var(--workflow-line);
+  border-radius: 8px;
+  background: var(--workflow-surface-muted);
+  color: var(--workflow-text);
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.a3s-new-run-dialog__field textarea:focus-visible {
+  border-color: var(--workflow-blue);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(18, 100, 255, 0.1);
+}
+
+.a3s-new-run-dialog__error {
+  margin: 0;
+  color: var(--workflow-danger, #d64545);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.a3s-new-run-dialog__footer {
+  display: flex;
+  min-height: 60px;
+  margin-top: 6px;
+  padding: 12px 22px;
+  border-top: 1px solid var(--workflow-line);
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.a3s-new-run-dialog__footer button {
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid var(--workflow-line);
+  border-radius: 7px;
+  background: var(--workflow-surface);
+  color: var(--workflow-text);
+  font-size: 11px;
+  font-weight: 680;
+  cursor: pointer;
+}
+
+.a3s-new-run-dialog__footer button:hover,
+.a3s-new-run-dialog__footer button:focus-visible {
+  border-color: var(--workflow-line-strong);
+  background: var(--workflow-surface-muted);
+}
+
+.a3s-new-run-dialog__footer button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.a3s-new-run-dialog__submit {
+  display: inline-flex;
+  border-color: var(--workflow-blue) !important;
+  background: var(--workflow-blue) !important;
+  color: #ffffff !important;
+  align-items: center;
+  gap: 6px;
+}
+
+.a3s-new-run-dialog__submit:hover,
+.a3s-new-run-dialog__submit:focus-visible {
+  border-color: var(--workflow-blue-dark) !important;
+  background: var(--workflow-blue-dark) !important;
+}
+
+.a3s-new-run-dialog__submit svg {
+  width: 13px;
+  height: 13px;
+}
+
+@media (max-width: 520px) {
+  .a3s-new-run-dialog-backdrop {
+    padding: 0;
+    align-items: end;
+  }
+
+  .a3s-new-run-dialog {
+    width: 100%;
+    max-height: 88dvh;
+    border-radius: 16px 16px 0 0;
+  }
+}

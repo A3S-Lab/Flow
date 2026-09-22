@@ -39,7 +39,17 @@ export type WorkflowPlaygroundExtensionActions = {
   focusCanvas: () => void;
   openNodeLibrary: (edgeId?: string, position?: XYPosition) => void;
   copyDsl: () => Promise<boolean>;
-  requestCopilot: (instruction: string) => Promise<boolean>;
+  /**
+   * Send an instruction to the host Copilot. Resolves to the reply message
+   * to announce on success, or `false` when no host Copilot is connected
+   * (the panel falls back to copying the request context).
+   */
+  requestCopilot: (instruction: string) => Promise<string | false>;
+  /**
+   * Apply a Copilot-suggested plan (unsaved) to the canvas. Only present in
+   * host mode, where there is a plan authority to rewrite; absent otherwise.
+   */
+  applyGraphEdit?: (steps: Record<string, unknown>[]) => void;
 };
 
 export type WorkflowPlaygroundCanvasSnapshot = {
