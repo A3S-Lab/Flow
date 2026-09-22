@@ -1,17 +1,17 @@
 import {
-  ORCHESTRATOR_AGENT_STEP_TYPE,
-  resolveOrchestratorHostPreviewType,
+  type A3SFlowCustomDagNodeRegistration,
+  type A3SFlowDagNodeCatalog,
+  type A3SFlowDagNodeRegistry,
   type FlowTaskEnvelope,
   type HostCanvasDocument,
   type HostPlanStepNode,
   type JsonObject,
   applyCanvasNodeEdits,
   canvasDocumentFromProposalDto,
+  createA3SFlowDagNodeCatalog,
   FlowHostClient,
   HostClientError,
   parseHostModeSearch,
-  extendCatalogWithOrchestratorHostPreview,
-  type A3SFlowDagNodeCatalog,
 } from '@a3s-lab/flow-ui';
 import type { FlowWebsiteLocale } from './flow-node-catalog';
 import type { WorkflowExampleDefinition } from './WorkflowPlayground.examples';
@@ -98,12 +98,16 @@ export function createHostRunPickerExample(
   };
 }
 
-/** Playground customs + Orchestrator preview registry for host mode. */
+/**
+ * Host-mode catalog. Extra preview manifests come from the caller.
+ * Flow does not install product node types.
+ */
 export function createHostModeCatalog(
   base: A3SFlowDagNodeCatalog,
-  locale: FlowWebsiteLocale,
+  registrations: readonly A3SFlowCustomDagNodeRegistration[] = [],
 ): A3SFlowDagNodeCatalog {
-  return extendCatalogWithOrchestratorHostPreview(base, locale);
+  if (registrations.length === 0) return base;
+  return createA3SFlowDagNodeCatalog([...base.custom, ...registrations]);
 }
 
 export function createHostClient(config: HostModeConfig): FlowHostClient {
@@ -132,8 +136,8 @@ export function mintApprovalToken(): string {
 }
 
 /**
- * Submit a genuinely new task: a fresh Orchestrator shortlist+compose
- * against the full catalog, unconstrained by any other run's frozen
+ * Submit a genuinely new task against the host catalog, unconstrained
+ * by any other run's frozen
  * candidate set (unlike Copilot, which can only rearrange the current
  * run's already-frozen agent_refs). Returns the new run's id on success;
  * the caller still has to navigate to `?host=&runId=<id>` to view it --
@@ -197,8 +201,8 @@ export async function loadHostCanvas(
  * produced a verified proposal yet" case (`proposal_dto` in
  * adapters/flow-host/src/plan_edit.rs, surfaced as a 400 with body
  * `{"error": "runtime error: INVALID_INPUT: run has no verified proposal..."}`).
- * Only reachable right after `submitNewRun` while the Orchestrator's plan
- * step is still mid-flight -- every other host-mode entry point (the run
+ * Only reachable right after `submitNewRun` while the host plan step is
+ * still mid-flight -- every other host-mode entry point (the run
  * picker, a bookmarked ?runId=) only ever links to a run whose plan step has
  * already completed, so this never fires there. Distinguishing it from a
  * genuine load failure lets the caller poll instead of surfacing a scary
@@ -244,9 +248,15 @@ function isRecord(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function controlSourceHandle(type: string): string {
+function controlSourceHandle(
+  type: string,
+  registry: A3SFlowDagNodeRegistry,
+): string {
+  const control = registry
+    .get(type)
+    ?.ports.outputs.find((port) => port.kind === 'control');
+  if (control) return control.id;
   if (type === 'flow.start') return 'next';
-  if (type.startsWith('orchestrator.')) return 'success';
   if (type === 'flow.step') return 'success';
   return 'next';
 }
@@ -286,11 +296,10 @@ export function graphFromHostFlowDsl(
     if (!isRecord(raw)) return;
     const id = String(raw.id ?? `node-${index + 1}`);
     const data = isRecord(raw.data) ? raw.data : {};
-    const rawType = String(data.type ?? '');
-    const type = resolveOrchestratorHostPreviewType(rawType);
+    const type = String(data.type ?? '');
     if (!registry.get(type)) {
       throw new HostClientError(
-        `INVALID_INPUT: preview registry missing type ${rawType} (resolved ${type})`,
+        `INVALID_INPUT: preview registry missing type ${type}`,
       );
     }
     typeById.set(id, type);
@@ -334,7 +343,7 @@ export function graphFromHostFlowDsl(
     node.data = {
       ...node.data,
       hostPreview: true,
-      hostPreviewType: rawType,
+      hostPreviewType: type,
       hostExecutionDigest: canvas.preview_only.execution_digest,
       ...(planStep
         ? { hostPlanStep: planStep, hostAuthority: true }
@@ -358,7 +367,7 @@ export function graphFromHostFlowDsl(
       createPlaygroundEdge(
         {
           source,
-          sourceHandle: controlSourceHandle(sourceType),
+          sourceHandle: controlSourceHandle(sourceType, registry),
           target,
           targetHandle: 'in',
         },
@@ -405,9 +414,7 @@ export function graphFromHostCanvas(
   }
 
   const registry = catalog.registry;
-  const stepType = registry.get(ORCHESTRATOR_AGENT_STEP_TYPE)
-    ? ORCHESTRATOR_AGENT_STEP_TYPE
-    : 'flow.step';
+  const stepType = 'flow.step';
   const nodes: PlaygroundNode[] = [];
   const start = createPlaygroundNode(
     'start',
@@ -497,7 +504,7 @@ export function graphFromHostCanvas(
       ),
     );
     previous = stepId;
-    previousHandle = controlSourceHandle(stepType);
+    previousHandle = controlSourceHandle(stepType, registry);
   }
   edges.push(
     createPlaygroundEdge(

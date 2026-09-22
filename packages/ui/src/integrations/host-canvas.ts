@@ -1,8 +1,8 @@
 /**
- * Orchestrator host canvas authority helpers.
+ * Host canvas authority helpers.
  *
- * Mirrors Orchestrator `adapters/flow-ui-host/inject.py`: the editable
- * authority is `host.agent-plan.v2`, not a blank Playground DSL export.
+ * The editable authority is `host.agent-plan.v2`, not a blank Playground DSL export.
+ * Product node catalogs stay with the caller.
  */
 
 export const CANVAS_SCHEMA = 'host.flow-ui-canvas.v1';
@@ -81,6 +81,56 @@ export function isHostRunEditable(canvas: HostCanvasDocument): boolean {
       ? canvas.flow_status.toLowerCase()
       : '';
   return status !== '' && !TERMINAL_FLOW_STATUSES.has(status);
+}
+
+export type HostRunEditActions = {
+  save: boolean;
+  approve: boolean;
+  addStep: boolean;
+};
+
+/** Save, Approve, and add-step share one gate: a terminal or cancelling run is closed. */
+export function hostRunEditActions(canvas: HostCanvasDocument): HostRunEditActions {
+  const editable = isHostRunEditable(canvas);
+  return { save: editable, approve: editable, addStep: editable };
+}
+
+export interface HostEditRevisionStore {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+}
+
+export function hostEditRevisionStorageKey(runId: string): string {
+  return `flow.host.editRevision.${runId}`;
+}
+
+/**
+ * Revision restored for `runId`. A stored integer `>= 1` survives reload.
+ * A missing or unusable value starts at 1.
+ */
+export function readHostEditRevision(
+  store: HostEditRevisionStore,
+  runId: string,
+): number {
+  if (!runId) return 1;
+  const raw = store.getItem(hostEditRevisionStorageKey(runId));
+  if (raw === null) return 1;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+}
+
+/** Persist the next revision. The stored value is strictly greater than `current`. */
+export function advanceHostEditRevision(
+  store: HostEditRevisionStore,
+  runId: string,
+  current: number,
+): number {
+  const base = Number.isFinite(current) && current >= 1 ? Math.floor(current) : 1;
+  const next = base + 1;
+  if (runId) {
+    store.setItem(hostEditRevisionStorageKey(runId), String(next));
+  }
+  return next;
 }
 
 function isObject(value: unknown): value is JsonObject {

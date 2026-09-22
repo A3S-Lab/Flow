@@ -1,9 +1,12 @@
 import {
   HostCanvasError,
+  advanceHostEditRevision,
   applyCanvasNodeEdits,
   canvasDocumentFromProposalDto,
+  hostRunEditActions,
   isHostRunEditable,
   planEditBodyFromCanvas,
+  readHostEditRevision,
   refuseUninjectedPlayground,
 } from '../src/integrations/host-canvas';
 
@@ -136,5 +139,50 @@ describe('host canvas inject helpers', () => {
     // assuming a run is still open when the host never reported a status.
     const noStatus = canvasDocumentFromProposalDto(dto);
     expect(isHostRunEditable(noStatus)).toBe(false);
+  });
+
+  it('refuses save, approve, and add-step on a terminal or cancelling run', () => {
+    const running = canvasDocumentFromProposalDto({
+      ...dto,
+      flow_status: 'running',
+    });
+    expect(hostRunEditActions(running)).toEqual({
+      save: true,
+      approve: true,
+      addStep: true,
+    });
+
+    for (const status of ['completed', 'failed', 'cancelled', 'cancelling']) {
+      const canvas = canvasDocumentFromProposalDto({
+        ...dto,
+        flow_status: status,
+      });
+      expect(hostRunEditActions(canvas)).toEqual({
+        save: false,
+        approve: false,
+        addStep: false,
+      });
+    }
+  });
+
+  it('keeps edit_revision monotonic across reload', () => {
+    const memory = new Map<string, string>();
+    const store = {
+      getItem: (key: string) => memory.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        memory.set(key, value);
+      },
+    };
+    const runId = 'run-1';
+    const initial = readHostEditRevision(store, runId);
+    expect(initial).toBe(1);
+    const saved = advanceHostEditRevision(store, runId, initial);
+    expect(saved).toBeGreaterThan(initial);
+
+    const reloaded = readHostEditRevision(store, runId);
+    expect(reloaded).toBe(saved);
+    const savedAgain = advanceHostEditRevision(store, runId, reloaded);
+    expect(savedAgain).toBeGreaterThan(reloaded);
+    expect(readHostEditRevision(store, 'run-2')).toBe(1);
   });
 });

@@ -1,9 +1,12 @@
 import { CheckCircle } from '@phosphor-icons/react';
 import {
+  advanceHostEditRevision,
+  hostRunEditActions,
   issueApprovalRecord,
-  isHostRunEditable,
   localizeA3SFlowDagManifest,
+  readHostEditRevision,
   refuseUninjectedPlayground,
+  type A3SFlowCustomDagNodeRegistration,
   type A3SFlowWorkflowDagNode,
   type HostCanvasDocument,
   type JsonObject,
@@ -177,10 +180,7 @@ function WorkflowPlaygroundSurface({
   // Persist across Playground reloads so host "must increase" stays satisfied.
   const [editRevision, setEditRevision] = useState(() => {
     if (!hostMode?.runId || typeof sessionStorage === 'undefined') return 1;
-    const key = `flow.host.editRevision.${hostMode.runId}`;
-    const raw = sessionStorage.getItem(key);
-    const parsed = raw ? Number.parseInt(raw, 10) : NaN;
-    return Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+    return readHostEditRevision(sessionStorage, hostMode.runId);
   });
   const [hostLoadError, setHostLoadError] = useState<string | null>(null);
   // Run-history picker (hostMode set, no runId yet): the list of runs on the
@@ -264,19 +264,13 @@ function WorkflowPlaygroundSurface({
           if (cancelled) return;
           setHostCanvas(canvas);
           restore(graphFromHostCanvas(canvas, locale, catalog));
-          // Only reset to 1 on a genuine first injection for this run. A
-          // reload (remount) re-reads editRevision from sessionStorage via the
-          // useState initializer above; unconditionally resetting it here
-          // stomps that value, causing the next save to replay the host's
-          // cached same-revision response (idempotent — see apply_plan_edit in
-          // adapters/flow-host/src/lib.rs) instead of applying the new edit.
-          if (
-            !hostMode.runId ||
-            typeof sessionStorage === 'undefined' ||
-            sessionStorage.getItem(
-              `flow.host.editRevision.${hostMode.runId}`,
-            ) === null
-          ) {
+          // A reload re-reads the stored revision. Resetting to 1 here would
+          // replay the host's cached same-revision response.
+          if (hostMode.runId && typeof sessionStorage !== 'undefined') {
+            setEditRevision(
+              readHostEditRevision(sessionStorage, hostMode.runId),
+            );
+          } else {
             setEditRevision(1);
           }
           setAnnouncement(
@@ -1088,6 +1082,7 @@ function WorkflowPlaygroundSurface({
 
   const saveToHost = useCallback(() => {
     if (!hostMode || !hostCanvas) return;
+    if (!hostRunEditActions(hostCanvas).save) return;
     setHostBusy(true);
     const client = createHostClient(hostMode);
     const nextCanvas = hostCanvasFromGraph(hostCanvas, graph);
@@ -1107,14 +1102,14 @@ function WorkflowPlaygroundSurface({
           setHostCanvas(nextCanvas);
         }
         setEditRevision((current) => {
-          const next = current + 1;
-          if (hostMode?.runId && typeof sessionStorage !== 'undefined') {
-            sessionStorage.setItem(
-              `flow.host.editRevision.${hostMode.runId}`,
-              String(next),
-            );
+          if (!hostMode?.runId || typeof sessionStorage === 'undefined') {
+            return current >= 1 ? Math.floor(current) + 1 : 1;
           }
-          return next;
+          return advanceHostEditRevision(
+            sessionStorage,
+            hostMode.runId,
+            current,
+          );
         });
         setAnnouncement(
           `${decision.status ?? result.status}${
@@ -1172,6 +1167,7 @@ function WorkflowPlaygroundSurface({
 
   const approveOnHost = useCallback(() => {
     if (!hostMode || !hostCanvas) return;
+    if (!hostRunEditActions(hostCanvas).approve) return;
     const token =
       typeof hostCanvas.approval.token === 'string'
         ? hostCanvas.approval.token
@@ -1226,6 +1222,7 @@ function WorkflowPlaygroundSurface({
 
   const addHostStep = useCallback(() => {
     if (!hostMode || !hostCanvas) return;
+    if (!hostRunEditActions(hostCanvas).addStep) return;
     const next = addHostPlanStep(hostCanvas, graph, locale, catalog);
     setHostCanvas(next.canvas);
     restore(next.graph);
@@ -1245,6 +1242,11 @@ function WorkflowPlaygroundSurface({
   const requestHostCopilot = useCallback(
     async (instruction: string): Promise<string | false> => {
       if (!hostMode || !hostCanvas) return false;
+      if (!hostRunEditActions(hostCanvas).addStep) {
+        return locale === 'zh'
+          ? '该运行已结束，不能再编辑。'
+          : 'This run is no longer editable.';
+      }
       setHostBusy(true);
       try {
         const client = createHostClient(hostMode);
@@ -1425,7 +1427,8 @@ function WorkflowPlaygroundSurface({
   // flow_status is terminal -- both endpoints 409 ("cannot edit a plan on a
   // terminal run") past that point, and Approve itself can reach a terminal
   // status inside its own request (see approveOnHost's refetch above).
-  const hostRunEditable = hostCanvas ? isHostRunEditable(hostCanvas) : true;
+  const hostEdits =
+    hostCanvas && hostMode?.runId ? hostRunEditActions(hostCanvas) : null;
   const shellClass = [
     'a3s-workflow-playground',
     rightPanelOpen ? 'has-right-panel' : '',
@@ -1474,13 +1477,9 @@ function WorkflowPlaygroundSurface({
         locale={locale}
         logoSrc={withBase('/a3s-logo.png')}
         onExport={exportGraph}
-        onHostAddStep={
-          hostMode?.runId && hostRunEditable ? addHostStep : undefined
-        }
-        onHostApprove={
-          hostMode?.runId && hostRunEditable ? approveOnHost : undefined
-        }
-        onHostSave={hostMode?.runId && hostRunEditable ? saveToHost : undefined}
+        onHostAddStep={hostEdits?.addStep ? addHostStep : undefined}
+        onHostApprove={hostEdits?.approve ? approveOnHost : undefined}
+        onHostSave={hostEdits?.save ? saveToHost : undefined}
         onOpenDocument={openDocument}
         onOpenExtensions={toggleExtensions}
         onReset={resetWorkflow}
@@ -1903,6 +1902,7 @@ function WorkflowPlaygroundSurface({
 
 export type WorkflowPlaygroundProps = {
   extensions?: WorkflowPlaygroundExtensionSlots;
+  hostPreviewRegistrations?: readonly A3SFlowCustomDagNodeRegistration[];
   onCopilotRequest?: (
     request: WorkflowPlaygroundCopilotRequest,
   ) => void | Promise<void>;
@@ -1910,12 +1910,14 @@ export type WorkflowPlaygroundProps = {
 
 export default function WorkflowPlayground({
   extensions,
+  hostPreviewRegistrations,
   onCopilotRequest,
 }: WorkflowPlaygroundProps = {}) {
   return (
     <WorkflowPlaygroundRoute
       onCopilotRequest={onCopilotRequest}
       extensions={extensions}
+      hostPreviewRegistrations={hostPreviewRegistrations}
       surface={WorkflowPlaygroundSurface}
     />
   );

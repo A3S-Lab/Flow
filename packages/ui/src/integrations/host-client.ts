@@ -1,5 +1,5 @@
 /**
- * HTTP client for Orchestrator `flow-host-serve` control plane.
+ * HTTP client for a host `flow-host-serve` control plane.
  *
  * Endpoints (host-owned; Flow UI only consumes them):
  * - GET  /v1/runs
@@ -98,7 +98,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
     .join('');
 }
 
-/** `sha256:<hex>` over canonical JSON, matching Orchestrator host digests. */
+/** `sha256:<hex>` over canonical JSON, matching the host digest. */
 export async function sha256Digest(value: unknown): Promise<string> {
   const encoded = new TextEncoder().encode(canonicalJson(value));
   return `sha256:${await sha256Hex(encoded)}`;
@@ -285,9 +285,9 @@ export class FlowHostClient {
   }
 
   /**
-   * `POST /v1/runs` -- start a genuinely new run: a fresh Orchestrator
-   * shortlist+compose against the full catalog, unconstrained by any other
-   * run's frozen candidate set. `runId` is caller-chosen (the host does not
+   * `POST /v1/runs` -- start a genuinely new run against the host catalog,
+   * unconstrained by any other run's frozen candidate set. `runId` is
+   * caller-chosen (the host does not
    * generate one); reusing an existing id with a different envelope is
    * rejected by the engine as a conflict, so this always needs a fresh id
    * for a fresh task.

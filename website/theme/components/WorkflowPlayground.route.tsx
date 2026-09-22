@@ -1,6 +1,7 @@
 import {
   a3sFlowDagNodeRegistry,
   localizeA3SFlowDagManifest,
+  type A3SFlowCustomDagNodeRegistration,
   type A3SFlowDagNodeCatalog,
 } from '@a3s-lab/flow-ui';
 import { useLang, useSite, useVersion, withBase } from '@rspress/core/runtime';
@@ -111,6 +112,7 @@ export type WorkflowPlaygroundSurfaceProps = {
 type WorkflowPlaygroundRouteProps = {
   surface: ComponentType<WorkflowPlaygroundSurfaceProps>;
   extensions?: WorkflowPlaygroundExtensionSlots;
+  hostPreviewRegistrations?: readonly A3SFlowCustomDagNodeRegistration[];
   onCopilotRequest?: (
     request: WorkflowPlaygroundCopilotRequest,
   ) => void | Promise<void>;
@@ -119,6 +121,7 @@ type WorkflowPlaygroundRouteProps = {
 export function WorkflowPlaygroundRoute({
   surface: Surface,
   extensions,
+  hostPreviewRegistrations,
   onCopilotRequest,
 }: WorkflowPlaygroundRouteProps) {
   const locale: FlowWebsiteLocale = useLang() === 'en' ? 'en' : 'zh';
@@ -142,9 +145,9 @@ export function WorkflowPlaygroundRoute({
   const catalog = useMemo(
     () =>
       hostMode || hostModeError
-        ? createHostModeCatalog(baseCatalog, locale)
+        ? createHostModeCatalog(baseCatalog, hostPreviewRegistrations)
         : baseCatalog,
-    [baseCatalog, hostMode, hostModeError, locale],
+    [baseCatalog, hostMode, hostModeError, hostPreviewRegistrations],
   );
   const examples = useMemo(
     () => createWorkflowExamples(locale, catalog),

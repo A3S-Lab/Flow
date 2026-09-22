@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  ORCHESTRATOR_AGENT_STEP_TYPE,
+  a3sFlowDagNodeRegistry,
   applyCanvasNodeEdits,
   canvasDocumentFromProposalDto,
+  defineA3SFlowCustomDagNode,
   HostClientError,
   refuseUninjectedPlayground,
 } from '@a3s-lab/flow-ui';
@@ -23,6 +24,49 @@ import {
 } from './WorkflowPlayground.host';
 import { createPlaygroundNodeCatalog } from './WorkflowPlayground.custom-nodes';
 
+const HOST_PREVIEW_TYPE = 'host.preview.step';
+
+function hostPreviewRegistration() {
+  return defineA3SFlowCustomDagNode({
+    manifest: {
+      type: HOST_PREVIEW_TYPE,
+      display_name: 'Host preview step',
+      description: 'Caller-supplied preview manifest.',
+      category: 'host',
+      categoryLabel: 'Host',
+      role: 'host',
+      ports: {
+        inputs: [
+          { id: 'in', label: 'In', kind: 'control', types: ['FlowControl'] },
+        ],
+        outputs: [
+          {
+            id: 'success',
+            label: 'Success',
+            kind: 'control',
+            types: ['FlowControl'],
+          },
+        ],
+      },
+      input_types: [],
+      output_types: [],
+      fields: [],
+      outputs: [],
+    },
+    capability: {
+      id: 'host/preview-step',
+      version: '1.0.0',
+      handler: 'host.preview',
+    },
+  });
+}
+
+function hostCatalog() {
+  return createHostModeCatalog(createPlaygroundNodeCatalog('en'), [
+    hostPreviewRegistration(),
+  ]);
+}
+
 describe('WorkflowPlayground host mode', () => {
   const dto = {
     schema_version: 'host.flow-http-proposal.v1',
@@ -31,7 +75,7 @@ describe('WorkflowPlayground host mode', () => {
     flow_dsl: {
       version: '0.7.0',
       kind: 'app',
-      app: { name: 'orchestrator.plan.demo', mode: 'workflow' },
+      app: { name: 'host.plan.demo', mode: 'workflow' },
       dependencies: [],
       workflow: {
         graph: {
@@ -40,7 +84,7 @@ describe('WorkflowPlayground host mode', () => {
             {
               id: 'step-001',
               data: {
-                type: 'orchestrator.agent_step',
+                type: HOST_PREVIEW_TYPE,
                 agent_id: 'frontend-developer',
                 objective: 'review',
                 version: '1.0.0',
@@ -122,27 +166,25 @@ describe('WorkflowPlayground host mode', () => {
     expect(new URLSearchParams(picker.split('?')[1]).has('runId')).toBe(false);
   });
 
-  it('renders host flow_dsl via orchestrator preview registry', () => {
-    const catalog = createHostModeCatalog(
-      createPlaygroundNodeCatalog('en'),
-      'en',
-    );
-    expect(catalog.registry.get(ORCHESTRATOR_AGENT_STEP_TYPE)).toBeTruthy();
+  it('renders host flow_dsl through the caller-supplied preview registry', () => {
+    const catalog = hostCatalog();
+    expect(catalog.registry.get(HOST_PREVIEW_TYPE)).toBeTruthy();
+    expect(a3sFlowDagNodeRegistry.get(HOST_PREVIEW_TYPE)).toBeUndefined();
+    expect(
+      a3sFlowDagNodeRegistry.get('orchestrator.agent.step'),
+    ).toBeUndefined();
     const canvas = canvasDocumentFromProposalDto(dto);
     const graph = graphFromHostCanvas(canvas, 'en', catalog);
     const step = graph.nodes.find((node) => node.id === 'step-001');
-    expect(step?.data.dagNode.data.type).toBe(ORCHESTRATOR_AGENT_STEP_TYPE);
-    expect(step?.data.hostPreviewType).toBe('orchestrator.agent_step');
+    expect(step?.data.dagNode.data.type).toBe(HOST_PREVIEW_TYPE);
+    expect(step?.data.hostPreviewType).toBe(HOST_PREVIEW_TYPE);
     expect(step?.data.hostPlanStep).toMatchObject({ step_id: 'step-001' });
     expect(step?.data.hostExecutionDigest).toBe('deadbeef');
     expect(graph.edges.map((edge) => edge.id)).toEqual(['e1', 'e2']);
   });
 
   it('seeds a plan-authority graph and round-trips edits', () => {
-    const catalog = createHostModeCatalog(
-      createPlaygroundNodeCatalog('en'),
-      'en',
-    );
+    const catalog = hostCatalog();
     const canvas = canvasDocumentFromProposalDto(dto);
     const graph = graphFromHostCanvas(canvas, 'en', catalog);
     expect(graph.nodes.some((node) => node.id === 'step-001')).toBe(true);
@@ -169,6 +211,40 @@ describe('WorkflowPlayground host mode', () => {
     ]);
     expect(updated.preview_only.flow_dsl).toEqual(canvas.preview_only.flow_dsl);
     refuseUninjectedPlayground(updated);
+  });
+
+  it('does not invent a product node when the caller supplied no registry', () => {
+    const catalog = createHostModeCatalog(createPlaygroundNodeCatalog('en'));
+    expect(catalog.registry.get('orchestrator.agent.step')).toBeUndefined();
+    expect(catalog.registry.get('orchestrator.agent_step')).toBeUndefined();
+    const canvas = canvasDocumentFromProposalDto({
+      ...dto,
+      flow_dsl: {
+        ...dto.flow_dsl,
+        workflow: {
+          graph: {
+            nodes: [
+              {
+                id: 'step-001',
+                data: { type: 'orchestrator.agent_step', objective: 'review' },
+              },
+            ],
+            edges: [],
+          },
+        },
+      },
+    });
+    const graph = graphFromHostCanvas(canvas, 'en', catalog);
+    expect(
+      graph.nodes.some(
+        (node) =>
+          node.data.dagNode.data.type === 'orchestrator.agent.step' ||
+          node.data.dagNode.data.type === 'orchestrator.agent_step',
+      ),
+    ).toBe(false);
+    expect(
+      graph.nodes.some((node) => node.data.dagNode.data.type === 'flow.step'),
+    ).toBe(true);
   });
 
   it('keeps blank playground exports fail-closed', () => {
@@ -233,10 +309,7 @@ describe('WorkflowPlayground host mode', () => {
   });
 
   it('applyCopilotSteps rebuilds the canvas from a suggested steps array and stays injected', () => {
-    const catalog = createHostModeCatalog(
-      createPlaygroundNodeCatalog('en'),
-      'en',
-    );
+    const catalog = hostCatalog();
     const canvas = canvasDocumentFromProposalDto(dto);
     const suggestedSteps = [
       {
