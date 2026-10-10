@@ -12,7 +12,7 @@ import { WorkflowPlaygroundNewRunDialog } from './WorkflowPlaygroundNewRunDialog
 const STATUS_LABEL: Readonly<Record<string, { zh: string; en: string }>> = {
   pending: { zh: '待处理', en: 'Pending' },
   running: { zh: '运行中', en: 'Running' },
-  suspended: { zh: '挂起等待批准', en: 'Suspended' },
+  suspended: { zh: '挂起中', en: 'Suspended' },
   cancelling: { zh: '取消中', en: 'Cancelling' },
   completed: { zh: '已完成', en: 'Completed' },
   failed: { zh: '失败', en: 'Failed' },
@@ -61,17 +61,17 @@ export function WorkflowPlaygroundRunList({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const title = locale === 'zh' ? '运行历史' : 'Run history';
+  const title = locale === 'zh' ? '我的任务' : 'My tasks';
   const description =
     locale === 'zh'
-      ? '按 run_id 切换宿主上已有的规划。'
-      : 'Switch between existing plans on this host by run_id.';
+      ? '查看之前提交的任务和它们的方案。'
+      : 'Open a task you submitted earlier and its plan.';
   const refreshLabel = locale === 'zh' ? '刷新' : 'Refresh';
   const newRunLabel = locale === 'zh' ? '新建规划' : 'New task';
   const emptyLabel =
     locale === 'zh'
-      ? '这个宿主上还没有任何运行。'
-      : 'No runs on this host yet.';
+      ? '还没有任务，点右上角新建一个。'
+      : 'No tasks yet. Start one with the button above.';
 
   const submitNewRun = async (
     taskText: string,

@@ -146,6 +146,99 @@ describe('Workflow Playground example library', () => {
     expect(headerHtml).toContain('role="combobox"');
   });
 
+  it('renders the host-mode progress pill only while a compose-plan draft is in flight', () => {
+    const baseProps = {
+      backHref: '/',
+      backLabel: 'Back',
+      copy: workflowPlaygroundCopy.en,
+      languageHref: '/zh/playground',
+      logoSrc: '/a3s-logo.png',
+      onExport: () => {},
+      onOpenDocument: () => {},
+      onOpenExtensions: () => {},
+      onReset: () => {},
+      onRunToggle: () => {},
+      onValidate: () => {},
+      issueCount: 0,
+      running: false,
+      saveState: 'saved' as const,
+      version: 'v1.0.0',
+      versions: ['v1.0.0'],
+      workflowName: 'Example workflow',
+      onVersionChange: () => {},
+      hostMode: true,
+    };
+
+    const withDigest = renderToStaticMarkup(
+      createElement(WorkflowPlaygroundHeader, {
+        ...baseProps,
+        locale: 'zh',
+        proposalDigest:
+          'sha256:504a8a69c20dd1e9cc872166bacda5b4f87db17c69be4d83d92c69d22b26f50d',
+      }),
+    );
+    expect(withDigest).toContain('由 AI 编排生成');
+    expect(withDigest).toContain('方案 #504a8a');
+    expect(withDigest).not.toContain('宿主');
+    expect(withDigest).not.toContain('data-testid="host-proposal-digest"');
+
+    const withoutProgress = renderToStaticMarkup(
+      createElement(WorkflowPlaygroundHeader, { ...baseProps, locale: 'en' }),
+    );
+    expect(withoutProgress).not.toContain('data-testid="host-progress"');
+
+    const withProgressEn = renderToStaticMarkup(
+      createElement(WorkflowPlaygroundHeader, {
+        ...baseProps,
+        locale: 'en',
+        progress: { stepIndex: 1, total: 2, agentId: 'frontend-developer' },
+      }),
+    );
+    expect(withProgressEn).toContain('data-testid="host-progress"');
+    expect(withProgressEn).toContain('Drafting step 1/2 · frontend-developer');
+
+    const withProgressZh = renderToStaticMarkup(
+      createElement(WorkflowPlaygroundHeader, {
+        ...baseProps,
+        locale: 'zh',
+        progress: { stepIndex: 1, total: 2, agentId: 'frontend-developer' },
+      }),
+    );
+    expect(withProgressZh).toContain('正在起草 step 1/2 · frontend-developer');
+
+    const withUnknownTotal = renderToStaticMarkup(
+      createElement(WorkflowPlaygroundHeader, {
+        ...baseProps,
+        locale: 'en',
+        progress: { stepIndex: 1, total: null, agentId: 'frontend-developer' },
+      }),
+    );
+    expect(withUnknownTotal).toContain(
+      'Drafting step 1/? · frontend-developer',
+    );
+
+    const withUnknownTotalZh = renderToStaticMarkup(
+      createElement(WorkflowPlaygroundHeader, {
+        ...baseProps,
+        locale: 'zh',
+        progress: { stepIndex: 1, total: null, agentId: 'frontend-developer' },
+      }),
+    );
+    expect(withUnknownTotalZh).toContain(
+      '正在起草 step 1/? · frontend-developer',
+    );
+
+    const withoutHostMode = renderToStaticMarkup(
+      createElement(WorkflowPlaygroundHeader, {
+        ...baseProps,
+        hostMode: false,
+        locale: 'en',
+        progress: { stepIndex: 1, total: 2, agentId: 'frontend-developer' },
+      }),
+    );
+    expect(withoutHostMode).not.toContain('data-testid="host-progress"');
+  });
+
   it('keeps trigger enum values lossless while rendering readable object labels', () => {
     const schema = {
       type: 'object' as const,
