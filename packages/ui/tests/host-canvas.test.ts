@@ -7,6 +7,7 @@ import {
   isHostRunEditable,
   planEditBodyFromCanvas,
   readHostEditRevision,
+  recoveryFailureFromDto,
   refuseUninjectedPlayground,
 } from '../src/integrations/host-canvas';
 
@@ -77,6 +78,64 @@ describe('host canvas inject helpers', () => {
       (planEditBodyFromCanvas(updated, 2).edited_plan as { steps: { step_id: string }[] })
         .steps[1].step_id,
     ).toBe('step-002');
+  });
+
+  it('derives edges from depends_on so the backend topological check agrees with execution_order', () => {
+    // Orchestrator's stable_topological_order (orchestrator-core/src/
+    // plan_edit_state.rs) computes purely from `edges`, not `depends_on` --
+    // a save that only set depends_on left edges empty, so the backend fell
+    // back to sorting bare step_ids and rejected any plan whose dependency
+    // order didn't already happen to match alphabetical order.
+    const canvas = canvasDocumentFromProposalDto(dto);
+    const stepA = {
+      id: 'step-b',
+      kind: 'host.plan-step.v1' as const,
+      agent_id: 'frontend-developer',
+      objective: 'first, alphabetically later id',
+      capabilities: ['read'],
+      depends_on: [],
+      plan_step: { step_id: 'step-b', depends_on: [] },
+    };
+    const stepB = {
+      id: 'step-a',
+      kind: 'host.plan-step.v1' as const,
+      agent_id: 'frontend-developer',
+      objective: 'depends on step-b despite sorting first alphabetically',
+      capabilities: ['read'],
+      depends_on: ['step-b'],
+      plan_step: { step_id: 'step-a', depends_on: ['step-b'] },
+    };
+    const updated = applyCanvasNodeEdits(canvas, [stepA, stepB]);
+    expect(updated.plan.edges).toEqual([{ from: 'step-b', to: 'step-a' }]);
+    // The stable order must put step-b before step-a (dependency), not
+    // 'step-a' before 'step-b' (alphabetical) -- confirming execution_order
+    // was recomputed from the graph, not copied from node iteration order.
+    expect(updated.execution_order).toEqual(['step-b', 'step-a']);
+  });
+
+  it('rejects a cyclic dependency graph instead of sending an inconsistent plan', () => {
+    const canvas = canvasDocumentFromProposalDto(dto);
+    const stepA = {
+      id: 'step-a',
+      kind: 'host.plan-step.v1' as const,
+      agent_id: 'frontend-developer',
+      objective: 'a',
+      capabilities: ['read'],
+      depends_on: ['step-b'],
+      plan_step: { step_id: 'step-a', depends_on: ['step-b'] },
+    };
+    const stepB = {
+      id: 'step-b',
+      kind: 'host.plan-step.v1' as const,
+      agent_id: 'frontend-developer',
+      objective: 'b',
+      capabilities: ['read'],
+      depends_on: ['step-a'],
+      plan_step: { step_id: 'step-b', depends_on: ['step-a'] },
+    };
+    expect(() => applyCanvasNodeEdits(canvas, [stepA, stepB])).toThrow(
+      HostCanvasError,
+    );
   });
 
   it('refuses blank Playground exports as authority', () => {
@@ -171,6 +230,58 @@ describe('host canvas inject helpers', () => {
         addStep: false,
       });
     }
+  });
+
+  it('recoveryFailureFromDto parses a valid GET /failure body', () => {
+    const failure = recoveryFailureFromDto({
+      schema_version: 'host.flow-recovery-request.v1',
+      run_id: 'run-1',
+      hook_id: 'recovery:step-001.0',
+      token: 'tok-recovery',
+      metadata: {
+        step_id: 'step-001',
+        step_name: 'orchestrator.agent_step',
+        attempt: 0,
+        error: 'boom',
+        original_step: {
+          step_id: 'step-001',
+          agent_id: 'a',
+          version: '1.0.0',
+        },
+        proposal_digest: 'sha256:abc',
+        completed_step_outputs: [{ ok: true }],
+      },
+    });
+    expect(failure).toEqual({
+      schema_version: 'host.flow-recovery-request.v1',
+      run_id: 'run-1',
+      hook_id: 'recovery:step-001.0',
+      token: 'tok-recovery',
+      metadata: {
+        step_id: 'step-001',
+        step_name: 'orchestrator.agent_step',
+        attempt: 0,
+        error: 'boom',
+        original_step: {
+          step_id: 'step-001',
+          agent_id: 'a',
+          version: '1.0.0',
+        },
+        proposal_digest: 'sha256:abc',
+        completed_step_outputs: [{ ok: true }],
+      },
+    });
+  });
+
+  it('recoveryFailureFromDto passes through null (no open recovery hook)', () => {
+    expect(recoveryFailureFromDto(null)).toBeNull();
+  });
+
+  it('recoveryFailureFromDto fails closed on a malformed body', () => {
+    expect(() => recoveryFailureFromDto({})).toThrow(HostCanvasError);
+    expect(() => recoveryFailureFromDto({ metadata: 'nope' })).toThrow(
+      HostCanvasError,
+    );
   });
 
   it('keeps edit_revision monotonic across reload', () => {

@@ -96,6 +96,75 @@ export function hostRunEditActions(canvas: HostCanvasDocument): HostRunEditActio
   return { save: editable, approve: editable, addStep: editable };
 }
 
+export const RECOVERY_FAILURE_SCHEMA = 'host.flow-recovery-request.v1';
+
+/**
+ * `GET /v1/runs/{id}/failure` DTO -- present only while the run has an
+ * *open* recovery hook (one agent-execution step permanently failed and the
+ * run suspended behind that hook instead of failing outright). A run can be
+ * `flow_status: "suspended"` for unrelated reasons (an approval hook still
+ * waiting, a timer), so this type's presence/absence -- not `flow_status`
+ * -- is the only correct signal for whether the recovery dialog applies.
+ * See `resolveHostRecoveryFailure`'s doc comment for why this must stay a
+ * signal fully independent of `hostRunEditActions`/`isHostRunEditable`.
+ */
+export type HostRecoveryFailure = {
+  schema_version: typeof RECOVERY_FAILURE_SCHEMA;
+  run_id: string;
+  hook_id: string;
+  token: string;
+  metadata: {
+    step_id: unknown;
+    step_name: unknown;
+    attempt: unknown;
+    error: unknown;
+    original_step: JsonObject;
+    proposal_digest: unknown;
+    completed_step_outputs: unknown[];
+  };
+};
+
+/**
+ * Parse `GET /v1/runs/{id}/failure`'s 200 body, or `null` for its 404 ("no
+ * open recovery hook right now") -- both are ordinary outcomes, never an
+ * error to surface. Deliberately NOT folded into `hostRunEditActions`: a
+ * prior bug in this codebase coupled Save/Approve visibility to a "Failed"
+ * status pill through one shared field, so a terminal run silently hid both
+ * buttons together and looked like a UI glitch. The recovery dialog's
+ * visibility must stay driven by this function's result alone, never by
+ * `flow_status`.
+ */
+export function recoveryFailureFromDto(
+  dto: unknown,
+): HostRecoveryFailure | null {
+  if (dto === null) return null;
+  if (!isObject(dto)) {
+    throw new HostCanvasError('INVALID_INPUT: recovery DTO must be an object');
+  }
+  const metadata = dto.metadata;
+  if (!isObject(metadata)) {
+    throw new HostCanvasError('INVALID_INPUT: recovery DTO has no metadata');
+  }
+  const originalStep = metadata.original_step;
+  return {
+    schema_version: RECOVERY_FAILURE_SCHEMA,
+    run_id: typeof dto.run_id === 'string' ? dto.run_id : '',
+    hook_id: typeof dto.hook_id === 'string' ? dto.hook_id : '',
+    token: typeof dto.token === 'string' ? dto.token : '',
+    metadata: {
+      step_id: metadata.step_id,
+      step_name: metadata.step_name,
+      attempt: metadata.attempt,
+      error: metadata.error,
+      original_step: isObject(originalStep) ? originalStep : {},
+      proposal_digest: metadata.proposal_digest,
+      completed_step_outputs: Array.isArray(metadata.completed_step_outputs)
+        ? metadata.completed_step_outputs
+        : [],
+    },
+  };
+}
+
 export interface HostEditRevisionStore {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
@@ -200,6 +269,52 @@ export function canvasDocumentFromProposalDto(
   };
 }
 
+/**
+ * Kahn's algorithm with ties broken by sorted step_id -- must match
+ * Orchestrator's `stable_topological_order` in
+ * `orchestrator-core/src/plan_edit_state.rs` exactly. That function is the
+ * sole authority `POST /v1/runs/{id}/plan-edits` checks `execution_order`
+ * against (`INVALID_INPUT: execution_order is not the stable topological
+ * order` on mismatch); it computes purely from `edges`, so `edges` must
+ * carry the same dependency information as each step's `depends_on`, and
+ * `execution_order` must be recomputed to match, not just echo whatever
+ * order the canvas nodes happen to be in.
+ */
+function stableTopologicalOrder(
+  stepIds: readonly string[],
+  edges: readonly { from: string; to: string }[],
+): string[] | null {
+  const adjacency = new Map<string, Set<string>>(
+    stepIds.map((id) => [id, new Set<string>()]),
+  );
+  const indegree = new Map<string, number>(stepIds.map((id) => [id, 0]));
+  for (const { from, to } of edges) {
+    if (!adjacency.has(from) || !indegree.has(to)) return null;
+    const targets = adjacency.get(from);
+    if (targets && !targets.has(to)) {
+      targets.add(to);
+      indegree.set(to, (indegree.get(to) ?? 0) + 1);
+    }
+  }
+  const ready = stepIds.filter((id) => indegree.get(id) === 0).sort();
+  const order: string[] = [];
+  while (ready.length > 0) {
+    const id = ready.shift();
+    if (id === undefined) break;
+    order.push(id);
+    const nexts = [...(adjacency.get(id) ?? [])].sort();
+    for (const next of nexts) {
+      const remaining = (indegree.get(next) ?? 0) - 1;
+      indegree.set(next, remaining);
+      if (remaining === 0) {
+        ready.push(next);
+        ready.sort();
+      }
+    }
+  }
+  return order.length === stepIds.length ? order : null;
+}
+
 /** Replace steps/execution_order from canvas nodes; never from DSL. */
 export function applyCanvasNodeEdits(
   canvas: HostCanvasDocument,
@@ -210,7 +325,8 @@ export function applyCanvasNodeEdits(
   }
   const plan: JsonObject = { ...(canvas.plan ?? {}) };
   const steps: JsonObject[] = [];
-  const order: string[] = [];
+  const stepIds: string[] = [];
+  const edges: { from: string; to: string }[] = [];
   for (const node of nodes) {
     const step: JsonObject = { ...(node.plan_step ?? {}) };
     step.step_id = node.id || step.step_id;
@@ -219,14 +335,27 @@ export function applyCanvasNodeEdits(
     if ('capabilities' in node) step.capabilities = node.capabilities;
     if ('depends_on' in node) step.depends_on = node.depends_on;
     steps.push(step);
-    order.push(String(step.step_id));
+    stepIds.push(String(step.step_id));
+    for (const dep of Array.isArray(node.depends_on) ? node.depends_on : []) {
+      if (typeof dep === 'string' && dep) {
+        edges.push({ from: dep, to: String(step.step_id) });
+      }
+    }
+  }
+  const order = stableTopologicalOrder(stepIds, edges);
+  if (!order) {
+    throw new HostCanvasError(
+      'INVALID_INPUT: edited plan graph contains a cycle or a dangling dependency',
+    );
   }
   plan.steps = steps;
+  plan.edges = edges;
   plan.execution_order = order;
   return {
     ...canvas,
     plan,
     nodes,
+    edges,
     execution_order: order,
   };
 }

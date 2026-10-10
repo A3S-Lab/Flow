@@ -4,7 +4,9 @@ import {
   type A3SFlowDagNodeRegistry,
   type FlowTaskEnvelope,
   type HostCanvasDocument,
+  type HostComposeProgressFrame,
   type HostPlanStepNode,
+  type HostRecoveryFailure,
   type JsonObject,
   applyCanvasNodeEdits,
   canvasDocumentFromProposalDto,
@@ -12,9 +14,11 @@ import {
   FlowHostClient,
   HostClientError,
   parseHostModeSearch,
+  recoveryFailureFromDto,
 } from '@a3s-lab/flow-ui';
 import type { FlowWebsiteLocale } from './flow-node-catalog';
 import type { WorkflowExampleDefinition } from './WorkflowPlayground.examples';
+import { layoutPlaygroundGraphInJavaScript } from './WorkflowPlayground.layout-kernel';
 import {
   createPlaygroundEdge,
   createPlaygroundNode,
@@ -57,15 +61,17 @@ export function createHostInjectedExample(
     id: 'host-injected',
     category: 'approval',
     level: 'advanced',
-    title: locale === 'zh' ? '宿主注入方案' : 'Host-injected proposal',
+    // Placeholder until the run's own task text is loaded (see
+    // loadHostRunTaskText) -- the header shows that instead once known.
+    title: locale === 'zh' ? 'AI 规划方案' : 'AI plan',
     description:
       locale === 'zh'
-        ? '从 flow-host-serve 打开同一条 AgentPlan 权威链。'
-        : 'Open the same AgentPlan authority chain from flow-host-serve.',
+        ? '查看、调整并批准 AI 为你的任务生成的执行方案。'
+        : 'Review, adjust and approve the plan AI drafted for your task.',
     outcome:
       locale === 'zh'
-        ? 'Save 走 plan-edits；Approve 走 hook resume。'
-        : 'Save posts plan-edits; Approve resumes the hook.',
+        ? '保存修改后批准，方案即开始执行。'
+        : 'Save your changes, then approve to start running it.',
     capabilities: ['host.agent-plan.v2'],
     graph: { nodes: [], edges: [], annotations: [] },
   };
@@ -84,15 +90,15 @@ export function createHostRunPickerExample(
     id: 'host-run-picker',
     category: 'approval',
     level: 'advanced',
-    title: locale === 'zh' ? '选择一个运行' : 'Select a run',
+    title: locale === 'zh' ? '我的任务' : 'My tasks',
     description:
       locale === 'zh'
-        ? '已连接宿主，尚未选择要查看的运行。从左侧列表中选择一个。'
-        : 'Connected to a host; no run selected yet. Pick one from the list on the left.',
+        ? '从左侧选择一个任务查看方案，或新建一个任务。'
+        : 'Pick a task on the left to see its plan, or start a new one.',
     outcome:
       locale === 'zh'
-        ? '选择后加载该运行的 AgentPlan 权威链。'
-        : 'Selecting one loads that run’s AgentPlan authority chain.',
+        ? '打开后可以查看、调整并批准它的执行方案。'
+        : 'Open one to review, adjust and approve its plan.',
     capabilities: ['host.agent-plan.v2'],
     graph: { nodes: [], edges: [], annotations: [] },
   };
@@ -148,6 +154,31 @@ export async function submitNewRun(
   taskText: string,
   permissionCeiling: string[],
 ): Promise<string> {
+  const { runId, started } = beginNewRun(config, taskText, permissionCeiling);
+  await started;
+  return runId;
+}
+
+// Start requests still in flight (or that failed), keyed by run id, so the
+// run page a caller navigated to right away can tell "not created yet" from
+// "does not exist" and surface a start failure. Successful starts are
+// dropped once settled -- the run exists from then on.
+const pendingRunStarts = new Map<string, Promise<void>>();
+
+/**
+ * Like {@link submitNewRun}, but returns the minted run id immediately.
+ * `POST /v1/runs` does not answer until the orchestrator has finished
+ * planning (a real model takes minutes), so a caller that awaited it would
+ * sit on a "Submitting..." dialog the whole time and never get to show
+ * planning progress. `started` settles when the host answers; it rejects
+ * with the host's own error text. Blank task text throws synchronously,
+ * before any request.
+ */
+export function beginNewRun(
+  config: HostModeConfig,
+  taskText: string,
+  permissionCeiling: string[],
+): { runId: string; started: Promise<void> } {
   const trimmed = taskText.trim();
   if (!trimmed) {
     throw new HostClientError('INVALID_INPUT: task text is required');
@@ -159,13 +190,85 @@ export async function submitNewRun(
     permission_ceiling: permissionCeiling,
     approval_token: mintApprovalToken(),
   };
-  const { status, json } = await client.startRun(runId, envelope);
-  if (status < 200 || status >= 300) {
-    const message =
-      typeof json.error === 'string' ? json.error : `HTTP ${status}`;
-    throw new HostClientError(`INVALID_INPUT: ${message}`);
-  }
-  return runId;
+  const started = client.startRun(runId, envelope).then(({ status, json }) => {
+    if (status < 200 || status >= 300) {
+      const message =
+        typeof json.error === 'string' ? json.error : `HTTP ${status}`;
+      throw new HostClientError(`INVALID_INPUT: ${message}`);
+    }
+  });
+  pendingRunStarts.set(runId, started);
+  started.then(
+    () => pendingRunStarts.delete(runId),
+    () => {},
+  );
+  return { runId, started };
+}
+
+/**
+ * The task text the run was started with (`input.task_text` on the Flow
+ * snapshot) -- what the user actually asked for, used as the page title.
+ * `null` when the snapshot has none.
+ */
+export async function loadHostRunTaskText(
+  config: HostModeConfig,
+): Promise<string | null> {
+  const client = createHostClient(config);
+  const snapshot = await client.getRun(config.runId);
+  const input = isRecord(snapshot.input) ? snapshot.input : null;
+  const text =
+    input && typeof input.task_text === 'string' ? input.task_text : '';
+  return text.trim() ? text.trim() : null;
+}
+
+/** The in-flight (or failed) start of a run begun by {@link beginNewRun} in
+ * this page, if any. */
+export function pendingRunStart(runId: string): Promise<void> | undefined {
+  return pendingRunStarts.get(runId);
+}
+
+/**
+ * Why a completed run has no proposal to open: the orchestrator refused to
+ * plan (`output.refusal.reason_codes` on the Flow snapshot, e.g.
+ * `PLANNER_OUTPUT_INVALID`). `null` when the run carries no refusal.
+ * `GET /v1/runs/{id}/proposal` only says "plan output has no proposal".
+ */
+export async function loadHostPlanRefusal(
+  config: HostModeConfig,
+): Promise<string[] | null> {
+  const client = createHostClient(config);
+  const snapshot = await client.getRun(config.runId);
+  const output = isRecord(snapshot.output) ? snapshot.output : null;
+  const refusal = output && isRecord(output.refusal) ? output.refusal : null;
+  if (!refusal) return null;
+  const codes = Array.isArray(refusal.reason_codes)
+    ? refusal.reason_codes.filter(
+        (code): code is string => typeof code === 'string',
+      )
+    : [];
+  return codes;
+}
+
+/** True for `GET /v1/runs/{id}/proposal`'s 400 on a run whose plan step
+ * finished without a proposal (a refusal), as opposed to one still planning. */
+export function isProposalRefused(error: unknown): boolean {
+  if (!(error instanceof HostClientError) || error.status !== 400) return false;
+  const body = error.body;
+  const message =
+    body && typeof body === 'object' && 'error' in body
+      ? String((body as { error: unknown }).error)
+      : '';
+  return message.includes('plan output has no proposal');
+}
+
+/** True for a 404 on a run id this page has a start request out for -- the
+ * host has not created the run yet, it is not missing. */
+export function isRunNotYetCreated(error: unknown, runId: string): boolean {
+  return (
+    error instanceof HostClientError &&
+    error.status === 404 &&
+    pendingRunStarts.has(runId)
+  );
 }
 
 /**
@@ -194,6 +297,93 @@ export async function loadHostCanvas(
 ): Promise<HostCanvasDocument> {
   const client = createHostClient(config);
   return client.openCanvas(config.runId);
+}
+
+/**
+ * `null` when the run has no open recovery hook right now (the ordinary
+ * case: running, completed, or suspended for an unrelated reason). Never
+ * throws on that 404 -- only a genuine network/host failure propagates, and
+ * the caller (WorkflowPlayground.tsx) tolerates even that by treating a
+ * failed recovery check the same as "no recovery," so a host that doesn't
+ * yet support this endpoint can't break the main canvas load.
+ */
+export async function loadHostRecoveryFailure(
+  config: HostModeConfig,
+): Promise<HostRecoveryFailure | null> {
+  const client = createHostClient(config);
+  const { status, json } = await client.getRecoveryFailure(config.runId);
+  if (status === 404) return null;
+  if (status < 200 || status >= 300) {
+    const message =
+      typeof json.error === 'string' ? json.error : `HTTP ${status}`;
+    throw new HostClientError(`INVALID_INPUT: ${message}`);
+  }
+  return recoveryFailureFromDto(json);
+}
+
+/**
+ * Submit a human-edited recovery decision for the run's open recovery hook.
+ * Throws on rejection (400 `REJECTED: ...`) so the recovery dialog can show
+ * the error and stay open -- the hook is left untouched by a rejected edit,
+ * so the operator can correct the fields and resubmit.
+ */
+export async function submitRecoveryEdit(
+  config: HostModeConfig,
+  edit: {
+    agentId?: string;
+    version?: string;
+    objective?: string;
+    context?: JsonObject;
+  },
+): Promise<void> {
+  const client = createHostClient(config);
+  const body: JsonObject = {};
+  if (edit.agentId !== undefined && edit.version !== undefined) {
+    body.agent_id = edit.agentId;
+    body.version = edit.version;
+  }
+  if (edit.objective !== undefined) body.objective = edit.objective;
+  if (edit.context !== undefined) body.context = edit.context;
+  const { status, json } = await client.postResumeAfterFailure(
+    config.runId,
+    body,
+  );
+  if (status < 200 || status >= 300) {
+    const message =
+      typeof json.error === 'string' ? json.error : `HTTP ${status}`;
+    throw new HostClientError(`INVALID_INPUT: ${message}`, status, json);
+  }
+}
+
+/**
+ * Subscribe to `GET /v1/runs/{run_id}/progress` (`follow=true`) and call
+ * `onEvent` for each `host.compose-progress.v1` frame as it arrives. Only
+ * genuinely long-lived helper in this file -- every other one here is a
+ * single promise a `cancelled` flag can safely ignore once settled, but a
+ * `follow=true` stream keeps the underlying fetch open, so cancellation must
+ * actually abort the request via `options.signal` (the caller owns the
+ * `AbortController`, e.g. tearing it down on unmount or once the proposal
+ * arrives). Resolves once the stream ends or is aborted; never throws --
+ * progress is a fail-soft overlay, not a gate on open/save/approve/recover.
+ */
+export async function subscribeToHostProgress(
+  config: HostModeConfig,
+  runId: string,
+  onEvent: (frame: HostComposeProgressFrame) => void,
+  options: { signal?: AbortSignal } = {},
+): Promise<void> {
+  const client = createHostClient(config);
+  try {
+    for await (const frame of client.getProgressStream(runId, {
+      follow: true,
+      signal: options.signal,
+    })) {
+      onEvent(frame);
+    }
+  } catch {
+    // fail-soft: network errors and AbortError both end the subscription
+    // quietly -- progress is a nice-to-have overlay, never a hard dependency.
+  }
 }
 
 /**
@@ -248,6 +438,111 @@ function isRecord(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Canvas node runtime status, same vocabulary as local Playground runs. */
+export type HostNodeRuntimeStatus = NonNullable<
+  PlaygroundNode['data']['runtimeStatus']
+>;
+
+/**
+ * Post-approval execution state of one host run, projected from the Flow
+ * `WorkflowRunSnapshot` (`GET /v1/runs/{id}`) onto canvas node ids.
+ * `status` is the lowercased Flow `WorkflowRunStatus`; `nodeStatuses` is
+ * keyed by plan `step_id` (== canvas node id, see graphFromHostCanvas).
+ */
+export type HostRunExecution = {
+  status: string;
+  nodeStatuses: Record<string, HostNodeRuntimeStatus>;
+  /** Plan step ids whose latest attempt is running right now. */
+  runningStepIds: string[];
+  completedStepCount: number;
+  failedStepCount: number;
+};
+
+/** Flow run statuses under which the run is still moving on its own, so
+ * polling its snapshot can observe further change. `suspended` is excluded
+ * on purpose: an approval/recovery hook needs a human, not a poll. */
+const ACTIVE_FLOW_RUN_STATUSES = new Set(['pending', 'running', 'cancelling']);
+
+export function isHostRunExecutionActive(status: string): boolean {
+  return ACTIVE_FLOW_RUN_STATUSES.has(status.toLowerCase());
+}
+
+// Agent steps are scheduled as `agent:<step_id>` and, after a recovery
+// edit, `agent:<step_id>.retry<n>` (adapters/flow-host/src/lib.rs
+// recovery_flow_step_id). Everything else (`orchestrator.plan`,
+// `orchestrator.plan.r1`, ...) has no canvas node.
+const AGENT_FLOW_STEP_ID = /^agent:(.+?)(?:\.retry(\d+))?$/;
+function nodeStatusFromFlowStepStatus(status: string): HostNodeRuntimeStatus {
+  switch (status.toLowerCase()) {
+    case 'running':
+      return 'running';
+    case 'completed':
+      return 'success';
+    case 'failed':
+    case 'cancelled':
+      return 'error';
+    case 'pending':
+      return 'waiting';
+    default:
+      return 'idle';
+  }
+}
+
+export function hostRunExecutionFromSnapshot(
+  snapshot: unknown,
+): HostRunExecution {
+  const record = isRecord(snapshot) ? snapshot : {};
+  const status =
+    typeof record.status === 'string' ? record.status.toLowerCase() : '';
+  const steps = isRecord(record.steps) ? record.steps : {};
+  // Latest attempt wins: a failed `agent:x` followed by a running
+  // `agent:x.retry1` must read as running, not failed.
+  const latest = new Map<string, { attempt: number; status: string }>();
+  for (const [flowStepId, step] of Object.entries(steps)) {
+    const match = AGENT_FLOW_STEP_ID.exec(flowStepId);
+    if (!match || !isRecord(step) || typeof step.status !== 'string') continue;
+    const stepId = match[1];
+    const attempt = match[2] === undefined ? 0 : Number(match[2]);
+    const previous = latest.get(stepId);
+    if (!previous || attempt >= previous.attempt) {
+      latest.set(stepId, { attempt, status: step.status });
+    }
+  }
+  const nodeStatuses: Record<string, HostNodeRuntimeStatus> = {};
+  const runningStepIds: string[] = [];
+  let completedStepCount = 0;
+  let failedStepCount = 0;
+  for (const [stepId, { status: stepStatus }] of latest) {
+    const nodeStatus = nodeStatusFromFlowStepStatus(stepStatus);
+    nodeStatuses[stepId] = nodeStatus;
+    if (nodeStatus === 'running') runningStepIds.push(stepId);
+    if (nodeStatus === 'success') completedStepCount += 1;
+    if (nodeStatus === 'error') failedStepCount += 1;
+  }
+  runningStepIds.sort();
+  if (latest.size > 0) nodeStatuses.start = 'success';
+  if (status === 'completed') nodeStatuses.done = 'success';
+  else if (status === 'failed' || status === 'cancelled') {
+    nodeStatuses.done = 'error';
+  }
+  return {
+    status,
+    nodeStatuses,
+    runningStepIds,
+    completedStepCount,
+    failedStepCount,
+  };
+}
+
+/** One `GET /v1/runs/{id}` read, projected for the canvas. Throws on host
+ * errors -- the caller (a poll loop) decides whether that is fatal. */
+export async function loadHostRunExecution(
+  config: HostModeConfig,
+): Promise<HostRunExecution> {
+  const client = createHostClient(config);
+  return hostRunExecutionFromSnapshot(await client.getRun(config.runId));
+}
+
 function controlSourceHandle(
   type: string,
   registry: A3SFlowDagNodeRegistry,
@@ -259,6 +554,33 @@ function controlSourceHandle(
   if (type === 'flow.start') return 'next';
   if (type === 'flow.step') return 'success';
   return 'next';
+}
+
+// User-facing labels for the two structural nodes every host plan has.
+function hostStartTitle(locale: FlowWebsiteLocale): string {
+  return locale === 'zh' ? '开始' : 'Start';
+}
+
+function hostDoneTitle(locale: FlowWebsiteLocale): string {
+  return locale === 'zh' ? '完成' : 'Done';
+}
+
+function hostDoneDesc(locale: FlowWebsiteLocale): string {
+  return locale === 'zh'
+    ? '全部步骤完成后结束'
+    : 'Ends once every step is done';
+}
+
+/** `方案 #504a8a` -- same short id the page header shows. */
+function hostPlanLabel(
+  canvas: HostCanvasDocument,
+  locale: FlowWebsiteLocale,
+): string {
+  const digest =
+    typeof canvas.proposal_digest === 'string' ? canvas.proposal_digest : '';
+  const hex = digest.startsWith('sha256:') ? digest.slice(7) : digest;
+  const prefix = locale === 'zh' ? '方案' : 'Plan';
+  return hex ? `${prefix} #${hex.slice(0, 6)}` : prefix;
 }
 
 function planStepById(
@@ -309,15 +631,19 @@ export function graphFromHostFlowDsl(
         ? data.agent_id
         : typeof planStep?.agent_id === 'string'
           ? planStep.agent_id
-          : type;
+          : type === 'flow.start'
+            ? hostStartTitle(locale)
+            : type === 'flow.complete'
+              ? hostDoneTitle(locale)
+              : type;
     const desc =
       typeof data.objective === 'string'
         ? data.objective
         : typeof planStep?.objective === 'string'
           ? planStep.objective
-          : typeof canvas.proposal_digest === 'string'
-            ? canvas.proposal_digest
-            : id;
+          : type === 'flow.complete'
+            ? hostDoneDesc(locale)
+            : hostPlanLabel(canvas, locale);
     const node = createPlaygroundNode(
       id,
       type,
@@ -390,6 +716,59 @@ export function graphFromHostFlowDsl(
   return { nodes, edges, annotations: [] };
 }
 
+/** Order-independent `step_id -> sorted depends_on` signature for a set of
+ * AgentPlan steps, restricted to dependencies that name another step in the
+ * same set (mirrors graphFromHostFlowDsl/hostCanvasFromGraph's own filtering
+ * of dangling/foreign dependency ids). */
+function planStepsDependencySignature(steps: JsonObject[]): string {
+  const stepIds = new Set(steps.map((step) => String(step.step_id ?? '')));
+  return steps
+    .map((step) => {
+      const stepId = String(step.step_id ?? '');
+      const dependsOn = Array.isArray(step.depends_on)
+        ? Array.from(
+            new Set(
+              step.depends_on.filter(
+                (dep): dep is string =>
+                  typeof dep === 'string' && stepIds.has(dep),
+              ),
+            ),
+          ).sort()
+        : [];
+      return `${stepId}<-${dependsOn.join(',')}`;
+    })
+    .sort()
+    .join('|');
+}
+
+/** Same signature shape as [[planStepsDependencySignature]], computed from a
+ * DSL-derived graph's own plan-step nodes and edges instead of `depends_on`
+ * arrays, so the two can be compared for structural equivalence. */
+function dslGraphDependencySignature(graph: PlaygroundGraphState): string {
+  const planStepIds = new Set(
+    graph.nodes
+      .filter((node) => node.data?.hostPlanStep)
+      .map((node) => node.id),
+  );
+  const dependsOnByStep = new Map<string, Set<string>>();
+  for (const stepId of planStepIds) dependsOnByStep.set(stepId, new Set());
+  for (const edge of graph.edges) {
+    const source = String(edge.source ?? '');
+    const target = String(edge.target ?? '');
+    if (!planStepIds.has(target) || !planStepIds.has(source)) continue;
+    dependsOnByStep.get(target)?.add(source);
+  }
+  return Array.from(planStepIds)
+    .map(
+      (stepId) =>
+        `${stepId}<-${Array.from(dependsOnByStep.get(stepId) ?? [])
+          .sort()
+          .join(',')}`,
+    )
+    .sort()
+    .join('|');
+}
+
 export function graphFromHostCanvas(
   canvas: HostCanvasDocument,
   locale: FlowWebsiteLocale,
@@ -407,7 +786,20 @@ export function graphFromHostCanvas(
       const dslPlanSteps = fromDsl.nodes.filter(
         (node) => node.data?.hostPlanStep,
       ).length;
-      if (dslPlanSteps >= planSteps.length) return fromDsl;
+      if (dslPlanSteps > planSteps.length) return fromDsl;
+      // Equal step counts don't rule out an unsaved structural edit -- e.g.
+      // Copilot or a hand-drawn edit can turn a linear chain into a fan-out/
+      // fan-in with the same number of steps. Only trust the (possibly
+      // stale) DSL projection when its dependency structure still matches
+      // the live AgentPlan steps; otherwise fall through to the plan
+      // projection below so the restructure isn't silently hidden.
+      if (
+        dslPlanSteps === planSteps.length &&
+        dslGraphDependencySignature(fromDsl) ===
+          planStepsDependencySignature(planSteps)
+      ) {
+        return fromDsl;
+      }
     }
   } catch {
     // Fall back to plan projection when DSL types are incomplete.
@@ -419,15 +811,12 @@ export function graphFromHostCanvas(
   const start = createPlaygroundNode(
     'start',
     'flow.start',
-    { x: 0, y: HOST_NODE_ROW_Y },
+    { x: 0, y: 0 },
     locale,
     {
       configuration: {
-        title: locale === 'zh' ? '宿主方案' : 'Host proposal',
-        desc:
-          typeof canvas.proposal_digest === 'string'
-            ? canvas.proposal_digest
-            : 'host.agent-plan.v2',
+        title: hostStartTitle(locale),
+        desc: hostPlanLabel(canvas, locale),
       },
       registry,
     },
@@ -437,6 +826,9 @@ export function graphFromHostCanvas(
   const steps = Array.isArray(canvas.plan.steps)
     ? (canvas.plan.steps as JsonObject[])
     : [];
+  const stepIds = new Set(
+    steps.map((step, index) => String(step.step_id ?? `step-${index + 1}`)),
+  );
   steps.forEach((step, index) => {
     const stepId = String(step.step_id ?? `step-${index + 1}`);
     const objective =
@@ -445,7 +837,7 @@ export function graphFromHostCanvas(
     const node = createPlaygroundNode(
       stepId,
       stepType,
-      { x: (index + 1) * HOST_NODE_COLUMN_STEP, y: HOST_NODE_ROW_Y },
+      { x: 0, y: 0 },
       locale,
       {
         configuration: {
@@ -472,7 +864,7 @@ export function graphFromHostCanvas(
   const done = createPlaygroundNode(
     'done',
     'flow.complete',
-    { x: (steps.length + 1) * HOST_NODE_COLUMN_STEP, y: HOST_NODE_ROW_Y },
+    { x: 0, y: 0 },
     locale,
     {
       configuration: {
@@ -484,18 +876,60 @@ export function graphFromHostCanvas(
   );
   nodes.push(done);
 
+  // Build the DAG from each step's own `depends_on` -- never from array
+  // order. A step with an empty `depends_on` fans out from `start`; a step
+  // that nothing else depends on fans into `done`. `controlSourceHandle`
+  // returns a single stable id per source type (`success` for `flow.step`,
+  // `next` for `flow.start`), which React Flow lets fan out to any number of
+  // targets, so multiple steps can share the same entry point and multiple
+  // predecessors can converge on the same step without any handle conflict.
+  const dependedOn = new Set<string>();
   const edges = [];
-  let previous = 'start';
-  let previousHandle = 'next';
-  for (const step of steps) {
+  const hasIn = new Set<string>();
+  steps.forEach((step) => {
     const stepId = String(step.step_id ?? '');
-    if (!stepId) continue;
+    if (!stepId) return;
+    const dependsOn = Array.isArray(step.depends_on)
+      ? step.depends_on.filter(
+          (dep): dep is string => typeof dep === 'string' && stepIds.has(dep),
+        )
+      : [];
+    const sources = dependsOn.length > 0 ? dependsOn : ['start'];
+    for (const source of sources) {
+      if (source !== 'start') dependedOn.add(source);
+      edges.push(
+        createPlaygroundEdge(
+          {
+            source,
+            sourceHandle:
+              source === 'start'
+                ? controlSourceHandle('flow.start', registry)
+                : controlSourceHandle(stepType, registry),
+            target: stepId,
+            targetHandle: 'in',
+          },
+          nodes,
+          locale,
+          registry,
+        ),
+      );
+      hasIn.add(stepId);
+    }
+  });
+  const leaves = steps
+    .map((step) => String(step.step_id ?? ''))
+    .filter((stepId) => stepId && !dependedOn.has(stepId));
+  const sinks = leaves.length > 0 ? leaves : ['start'];
+  for (const source of sinks) {
     edges.push(
       createPlaygroundEdge(
         {
-          source: previous,
-          sourceHandle: previousHandle,
-          target: stepId,
+          source,
+          sourceHandle:
+            source === 'start'
+              ? controlSourceHandle('flow.start', registry)
+              : controlSourceHandle(stepType, registry),
+          target: 'done',
           targetHandle: 'in',
         },
         nodes,
@@ -503,24 +937,9 @@ export function graphFromHostCanvas(
         registry,
       ),
     );
-    previous = stepId;
-    previousHandle = controlSourceHandle(stepType, registry);
   }
-  edges.push(
-    createPlaygroundEdge(
-      {
-        source: previous,
-        sourceHandle: previousHandle,
-        target: 'done',
-        targetHandle: 'in',
-      },
-      nodes,
-      locale,
-      registry,
-    ),
-  );
 
-  return { nodes, edges, annotations: [] };
+  return layoutPlaygroundGraphInJavaScript({ nodes, edges, annotations: [] });
 }
 
 function objectiveFromNode(node: PlaygroundNode, fallback: unknown): unknown {
@@ -552,13 +971,30 @@ export function hostCanvasFromGraph(
     const objective = objectiveFromNode(node, step.objective);
     step.step_id = node.id;
     step.objective = objective;
+    // Depends-on comes from the canvas's own edges, not the possibly-stale
+    // `hostPlanStep.depends_on` cached on the node -- this is what makes a
+    // fan-out/fan-in structure drawn on the canvas (by hand or by Copilot's
+    // applyCopilotSteps, which also goes through graphFromHostCanvas) round-
+    // trip back into the saved plan instead of silently reverting to
+    // whatever the node was last created with.
+    const dependsOn = Array.from(
+      new Set(
+        graph.edges
+          .filter(
+            (edge) => edge.target === node.id && edge.targetHandle === 'in',
+          )
+          .map((edge) => edge.source)
+          .filter((source) => source !== 'start'),
+      ),
+    );
+    step.depends_on = dependsOn;
     nodes.push({
       id: node.id,
       kind: 'host.plan-step.v1',
       agent_id: step.agent_id,
       objective,
       capabilities: step.capabilities,
-      depends_on: Array.isArray(step.depends_on) ? step.depends_on : [],
+      depends_on: dependsOn,
       plan_step: step,
     });
   }

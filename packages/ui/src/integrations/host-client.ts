@@ -7,6 +7,10 @@
  * - GET  /v1/runs/{runId}/proposal
  * - POST /v1/runs/{runId}/plan-edits
  * - POST /v1/runs/{runId}/copilot
+ * - GET  /v1/runs/{runId}/failure
+ * - POST /v1/runs/{runId}/resume-after-failure
+ * - GET  /v1/runs/{runId}/progress
+ * - GET  /v1/runs/{runId}
  * - GET  /v1/hooks/active
  * - GET  /v1/hooks/{token}
  * - POST /v1/hooks/{token}/resume
@@ -50,6 +54,39 @@ export type FlowApprovalRecord = {
 };
 
 /**
+ * One `host.compose-progress.v1` NDJSON frame from
+ * `GET /v1/runs/{run_id}/progress` (`adapters/flow-host/src/progress.rs`'s
+ * `ComposeProgressEvent`) -- a step-by-step `compose_plan` draft relayed from
+ * Code's MCP `notifications/progress` while the `orchestrator.plan` step is
+ * still in flight. Non-authoritative: the approved plan/proposal is the only
+ * source of truth: this is a fail-soft UI overlay, never a gate on it.
+ */
+export type HostComposeProgressFrame = {
+  schema_version: string;
+  flow_run_id: string;
+  observed_at_utc: string;
+  step_index: number;
+  total: number | null;
+  agent_id: string;
+  status: string;
+  progress_token: string;
+  progress: number;
+  /** `"phase"` on a planning-phase frame (host-derived from the
+   * orchestrator's Code event page); absent on compose_plan drafts. */
+  kind?: 'phase';
+  /** Phase frames only: `model` (thinking), `tool`, or `finished`. */
+  phase?: string;
+  /** Phase frames only: short orchestrator tool name when `phase` is `tool`. */
+  tool?: string;
+  /** Phase frames only: model calls so far in this planning dispatch. */
+  model_calls?: number;
+  /** Phase frames only: characters of model text streamed so far. */
+  generated_chars?: number;
+  /** Phase frames only: ms since this planning dispatch's first event. */
+  elapsed_ms?: number;
+};
+
+/**
  * `POST /v1/runs` request body's `TaskEnvelope` half (adapters/flow-host/src/
  * lib.rs's `TaskEnvelope`, `#[serde(flatten)]`d alongside `run_id`).
  * `approval_token` is a caller-minted bearer secret, not host-issued -- the
@@ -69,6 +106,54 @@ export type FlowTaskEnvelope = {
 
 function trimTrailingSlash(url: string): string {
   return url.replace(/\/+$/, '');
+}
+
+/**
+ * Parse one `host.compose-progress.v1` NDJSON line from
+ * `GET /v1/runs/{run_id}/progress`. Malformed/blank lines are skipped, not
+ * thrown -- one bad line must never abort the whole stream.
+ */
+function parseComposeProgressLine(line: string): HostComposeProgressFrame | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  try {
+    const value = JSON.parse(trimmed) as Record<string, unknown>;
+    if (
+      typeof value.schema_version !== 'string' ||
+      typeof value.flow_run_id !== 'string' ||
+      typeof value.step_index !== 'number' ||
+      typeof value.agent_id !== 'string'
+    ) {
+      return null;
+    }
+    return {
+      schema_version: value.schema_version,
+      flow_run_id: value.flow_run_id,
+      observed_at_utc:
+        typeof value.observed_at_utc === 'string' ? value.observed_at_utc : '',
+      step_index: value.step_index,
+      total: typeof value.total === 'number' ? value.total : null,
+      agent_id: value.agent_id,
+      status: typeof value.status === 'string' ? value.status : '',
+      progress_token:
+        typeof value.progress_token === 'string' ? value.progress_token : '',
+      progress: typeof value.progress === 'number' ? value.progress : 0,
+      ...(value.kind === 'phase' ? { kind: 'phase' as const } : {}),
+      ...(typeof value.phase === 'string' ? { phase: value.phase } : {}),
+      ...(typeof value.tool === 'string' ? { tool: value.tool } : {}),
+      ...(typeof value.model_calls === 'number'
+        ? { model_calls: value.model_calls }
+        : {}),
+      ...(typeof value.generated_chars === 'number'
+        ? { generated_chars: value.generated_chars }
+        : {}),
+      ...(typeof value.elapsed_ms === 'number'
+        ? { elapsed_ms: value.elapsed_ms }
+        : {}),
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** Canonical JSON matching serde_json BTreeMap key order (ASCII-safe). */
@@ -285,6 +370,131 @@ export class FlowHostClient {
   }
 
   /**
+   * `GET /v1/runs/{run_id}/failure` -- present only while the run has an
+   * open recovery hook (a single agent-execution step permanently failed
+   * and the run suspended instead of failing outright). A 404 ("no open
+   * recovery hook right now") is a normal outcome, not a network failure,
+   * so this returns `{status, json}` like `postPlanEdits`/`postCopilot`
+   * instead of throwing on non-2xx -- the caller inspects `status` itself.
+   */
+  async getRecoveryFailure(
+    runId: string,
+  ): Promise<{ status: number; json: JsonObject }> {
+    if (!runId.trim()) {
+      throw new HostClientError('INVALID_INPUT: runId is required');
+    }
+    try {
+      const { status, json } = await this.request(
+        'GET',
+        `/v1/runs/${encodeURIComponent(runId)}/failure`,
+      );
+      return { status, json: (json ?? {}) as JsonObject };
+    } catch (error) {
+      if (error instanceof HostClientError && error.status !== undefined) {
+        return {
+          status: error.status,
+          json: (error.body ?? {}) as JsonObject,
+        };
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * `GET /v1/runs/{run_id}/progress` -- step-by-step `compose_plan` drafts
+   * while `orchestrator.plan` is still in flight, one `host.compose-progress.v1`
+   * JSON object per line (`Content-Type: application/x-ndjson`; see
+   * `adapters/flow-host/src/progress.rs`/`http.rs`'s `get_progress`).
+   * `follow: true` keeps the connection open and yields new frames as they
+   * arrive; the default (`false`/omitted) yields the current buffer then
+   * ends. A non-2xx response (including 404 -- no host support, or nothing
+   * buffered yet) ends the generator without throwing: progress is a
+   * fail-soft overlay, never a gate on open/save/approve/recover. `signal`
+   * aborts the underlying fetch (e.g. on unmount or once the proposal
+   * arrives); an abort also ends the generator without throwing.
+   */
+  async *getProgressStream(
+    runId: string,
+    options: { follow?: boolean; signal?: AbortSignal } = {},
+  ): AsyncGenerator<HostComposeProgressFrame> {
+    if (!runId.trim()) {
+      throw new HostClientError('INVALID_INPUT: runId is required');
+    }
+    const path = `/v1/runs/${encodeURIComponent(runId)}/progress${
+      options.follow ? '?follow=true' : ''
+    }`;
+    let response: Response;
+    try {
+      response = await this.fetchImpl(this.url(path), {
+        headers: { Accept: 'application/x-ndjson' },
+        signal: options.signal,
+      });
+    } catch {
+      // Network failure or AbortError -- fail-soft, no frames.
+      return;
+    }
+    if (!response.ok || !response.body) {
+      return;
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let newlineIndex = buffer.indexOf('\n');
+        while (newlineIndex !== -1) {
+          const line = buffer.slice(0, newlineIndex);
+          buffer = buffer.slice(newlineIndex + 1);
+          const frame = parseComposeProgressLine(line);
+          if (frame) yield frame;
+          newlineIndex = buffer.indexOf('\n');
+        }
+      }
+      const trailing = buffer + decoder.decode();
+      const frame = parseComposeProgressLine(trailing);
+      if (frame) yield frame;
+    } catch {
+      // Aborted mid-stream or a transport error -- fail-soft, stop yielding.
+    }
+  }
+
+  /**
+   * `POST /v1/runs/{run_id}/resume-after-failure` -- submit a human-edited
+   * recovery decision (`agent_id`+`version`, `objective`, and/or `context`;
+   * omitting a field keeps the original value) for the run's currently open
+   * recovery hook. On rejection (400 `REJECTED: <codes>: ...`) the hook
+   * stays open/resumable, so this never throws on that response -- the
+   * caller inspects `status`/`json.error` and may resubmit.
+   */
+  async postResumeAfterFailure(
+    runId: string,
+    body: JsonObject,
+  ): Promise<{ status: number; json: JsonObject }> {
+    if (!runId.trim()) {
+      throw new HostClientError('INVALID_INPUT: runId is required');
+    }
+    try {
+      const { status, json } = await this.request(
+        'POST',
+        `/v1/runs/${encodeURIComponent(runId)}/resume-after-failure`,
+        body,
+      );
+      return { status, json: (json ?? {}) as JsonObject };
+    } catch (error) {
+      if (error instanceof HostClientError && error.status !== undefined) {
+        return {
+          status: error.status,
+          json: (error.body ?? {}) as JsonObject,
+        };
+      }
+      throw error;
+    }
+  }
+
+  /**
    * `POST /v1/runs` -- start a genuinely new run against the host catalog,
    * unconstrained by any other run's frozen candidate set. `runId` is
    * caller-chosen (the host does not
@@ -314,6 +524,24 @@ export class FlowHostClient {
       }
       throw error;
     }
+  }
+
+  /**
+   * `GET /v1/runs/{run_id}` -- the Flow `WorkflowRunSnapshot` (run `status`
+   * plus per-step `steps[<flow step id>].status`). The only host endpoint
+   * that reflects execution progress *after* approval: the proposal DTO's
+   * `flow_status` is re-read only on explicit refetch, and the progress
+   * NDJSON stream covers `compose_plan` drafting only.
+   */
+  async getRun(runId: string): Promise<JsonObject> {
+    if (!runId.trim()) {
+      throw new HostClientError('INVALID_INPUT: runId is required');
+    }
+    const { json } = await this.request(
+      'GET',
+      `/v1/runs/${encodeURIComponent(runId)}`,
+    );
+    return (json ?? {}) as JsonObject;
   }
 
   /** `GET /v1/runs` -- every run this host's store knows about, for the run-history picker. */
