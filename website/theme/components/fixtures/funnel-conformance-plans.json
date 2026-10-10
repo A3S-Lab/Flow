@@ -1,0 +1,1072 @@
+{
+  "source": "Orchestrator fixtures/conformance/funnel-conformance.json at bc0a30e: the Python oracle's (and, byte for byte, orchestrator-core's) plans these tests read, keyed by their index in that file's plans array.",
+  "plans": {
+    "9": {
+      "plan": {
+        "agent_refs": [
+          {
+            "agent_id": "tax.calculate",
+            "artifact_digest": "sha256:4ab57ea4eb19198b420d686f1ef9e93ae7e5da22c70a81e7a1cc5ec264595853",
+            "capabilities": ["calculation.execute", "tax.read"],
+            "code_release_ref": {
+              "artifact_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+              "peeled_commit": "439cc740f2520806bb06f6d6391100c236be8d1f",
+              "protocol": "a3s.code.agent.v1",
+              "repository": "A3S-Lab/Code",
+              "tag": "v9.1.2",
+              "tree": "724e55c59d557cad8a236bbfa80ca63c08fdfe7c"
+            },
+            "definition_digest": "sha256:82a5f4ea5d7389061110f5328fb975c9b7e9335926a1103ebfe9fa145a7b00bf",
+            "io_protocols": ["a3s.agent.v1"],
+            "protocol": "a3s.agent.v1",
+            "provenance": {
+              "origin": {
+                "commit": "0123456789abcdef",
+                "path": "agents",
+                "repository": "https://github.com/example-org/fulfillment-agents"
+              },
+              "source_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+              "source_ref": "conformance/catalog.jsonl"
+            },
+            "requires_model_class": "deterministic",
+            "requires_tools": [],
+            "snapshot_generation": "sha256:6477d0815ce40363b0dd28fe8d2ad0ed2ddcd6717f529dc6f4a2fd4d89c30c0e",
+            "tenant_id": "tenant-conformance",
+            "version": "1.0.0"
+          },
+          {
+            "agent_id": "logistics.quote",
+            "artifact_digest": "sha256:9d16a3c7eaa5417be2a9a4ab510e278abe1f7aefcb9070a54f89aa7f9f9ef5bc",
+            "capabilities": ["shipping.quote"],
+            "code_release_ref": {
+              "artifact_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+              "peeled_commit": "439cc740f2520806bb06f6d6391100c236be8d1f",
+              "protocol": "a3s.code.agent.v1",
+              "repository": "A3S-Lab/Code",
+              "tag": "v9.1.2",
+              "tree": "724e55c59d557cad8a236bbfa80ca63c08fdfe7c"
+            },
+            "definition_digest": "sha256:b2cab9cb67aa4d5829e6a42a376533ff807ff99b038dfdd1f2c8f89ea87a241a",
+            "io_protocols": ["a3s.agent.v1"],
+            "protocol": "a3s.agent.v1",
+            "provenance": {
+              "origin": {
+                "commit": "0123456789abcdef",
+                "path": "agents",
+                "repository": "https://github.com/example-org/fulfillment-agents"
+              },
+              "source_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+              "source_ref": "conformance/catalog.jsonl"
+            },
+            "requires_model_class": "deterministic",
+            "requires_tools": [],
+            "snapshot_generation": "sha256:6477d0815ce40363b0dd28fe8d2ad0ed2ddcd6717f529dc6f4a2fd4d89c30c0e",
+            "tenant_id": "tenant-conformance",
+            "version": "1.0.0"
+          },
+          {
+            "agent_id": "inventory.lookup",
+            "artifact_digest": "sha256:2cd54a69d9044a74d5f70ccbe9a742046920e0b169656bb69c93d6bff0bc940f",
+            "artifact_manifest_digest": "sha256:79830c2037f8fc9b702a332b01fbeff7788d0d919fc9f534e4feb40d27fa6474",
+            "artifact_media_type": "application/vnd.a3s.agent.directory",
+            "capabilities": ["inventory.read"],
+            "code_release_ref": {
+              "artifact_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+              "peeled_commit": "439cc740f2520806bb06f6d6391100c236be8d1f",
+              "protocol": "a3s.code.agent.v1",
+              "repository": "A3S-Lab/Code",
+              "tag": "v9.1.2",
+              "tree": "724e55c59d557cad8a236bbfa80ca63c08fdfe7c"
+            },
+            "definition_digest": "sha256:47526c656f1ff57a47027e141d0f5eb50f755f4bfd96d35e0cdc9f2e6e5190aa",
+            "io_protocols": ["a3s.agent.v1"],
+            "protocol": "a3s.agent.v1",
+            "provenance": {
+              "origin": {
+                "commit": "0123456789abcdef",
+                "path": "agents",
+                "repository": "https://github.com/example-org/fulfillment-agents"
+              },
+              "source_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+              "source_ref": "conformance/catalog.jsonl"
+            },
+            "requires_model_class": "deterministic",
+            "requires_tools": [],
+            "snapshot_generation": "sha256:6477d0815ce40363b0dd28fe8d2ad0ed2ddcd6717f529dc6f4a2fd4d89c30c0e",
+            "tenant_id": "tenant-conformance",
+            "version": "1.0.0"
+          }
+        ],
+        "candidate_set_digest": "sha256:12d3af3ace1a7def556d7d5fc31e1ca5c9d37af7ca2c571e280401b35f1a1b7c",
+        "catalog_snapshot_digest": "sha256:6477d0815ce40363b0dd28fe8d2ad0ed2ddcd6717f529dc6f4a2fd4d89c30c0e",
+        "decision": "needs_approval",
+        "edges": [
+          {
+            "from": "inventory",
+            "output": "stock",
+            "schema_version": "host.plan-edge.v1",
+            "to": "route"
+          },
+          {
+            "from": "inventory",
+            "output": "stock",
+            "schema_version": "host.plan-edge.v1",
+            "to": "tax"
+          },
+          {
+            "branch": "case:1",
+            "from": "route",
+            "output": null,
+            "schema_version": "host.plan-edge.v1",
+            "to": "backorder"
+          },
+          {
+            "branch": "otherwise",
+            "from": "route",
+            "output": null,
+            "schema_version": "host.plan-edge.v1",
+            "to": "notify"
+          },
+          {
+            "branch": "case:0",
+            "from": "route",
+            "output": null,
+            "schema_version": "host.plan-edge.v1",
+            "to": "tax"
+          },
+          {
+            "from": "signoff",
+            "output": null,
+            "schema_version": "host.plan-edge.v1",
+            "to": "logistics"
+          },
+          {
+            "from": "tax",
+            "output": "duty",
+            "schema_version": "host.plan-edge.v1",
+            "to": "logistics"
+          },
+          {
+            "from": "tax",
+            "output": "duty",
+            "schema_version": "host.plan-edge.v1",
+            "to": "signoff"
+          }
+        ],
+        "effective_capabilities": [
+          "calculation.execute",
+          "inventory.read",
+          "shipping.quote",
+          "tax.read"
+        ],
+        "execution_order": [
+          "inventory",
+          "route",
+          "backorder",
+          "notify",
+          "tax",
+          "signoff",
+          "logistics"
+        ],
+        "permission_ceiling": [
+          "calculation.execute",
+          "inventory.read",
+          "shipping.quote",
+          "tax.read"
+        ],
+        "plan_digest": "sha256:3e16f5ca16ce5991c137f2846475c101fb8fa60bba80d4ecdcbda864978800a7",
+        "plan_id": "3e16f5ca16ce",
+        "reason_codes": [
+          "CAPABILITIES_WITHIN_CEILING",
+          "DEPENDENCIES_ACYCLIC",
+          "HUMAN_APPROVAL_REQUIRED",
+          "SHORTLIST_BOUND"
+        ],
+        "schema_version": "host.agent-plan.v2",
+        "selection_receipt_digest": "sha256:f46078d923d9c0ef0cd7b3cf3407beb0999a8d870ee0bc9a3fe5881062185ea2",
+        "steps": [
+          {
+            "agent_id": "inventory.lookup",
+            "capabilities": ["inventory.read"],
+            "depends_on": [],
+            "inputs": ["task.order"],
+            "objective": "查询库存：回答 in stock 或 out of stock",
+            "outputs": ["stock"],
+            "rationale": "",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "inventory",
+            "version": "1.0.0"
+          },
+          {
+            "cases": [
+              {
+                "label": "in stock",
+                "then": ["tax"]
+              },
+              {
+                "label": "Out of stock",
+                "then": ["backorder"]
+              }
+            ],
+            "depends_on": [],
+            "inputs": ["inventory.stock"],
+            "kind": "condition",
+            "objective": "有货才计算税费",
+            "otherwise": ["notify"],
+            "rationale": "库存结果决定后续路径。",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "route"
+          },
+          {
+            "agent_id": "tax.calculate",
+            "capabilities": ["calculation.execute", "tax.read"],
+            "depends_on": [],
+            "inputs": ["inventory.stock", "task.order"],
+            "objective": "计算税费",
+            "outputs": ["duty"],
+            "rationale": "",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "tax",
+            "version": "1.0.0"
+          },
+          {
+            "agent_id": "logistics.quote",
+            "capabilities": ["shipping.quote"],
+            "depends_on": [],
+            "inputs": ["task.order"],
+            "objective": "缺货时报价补货运输",
+            "outputs": ["quote"],
+            "rationale": "",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "backorder",
+            "version": "1.0.0"
+          },
+          {
+            "agent_id": "inventory.lookup",
+            "capabilities": ["inventory.read"],
+            "depends_on": [],
+            "inputs": ["task.order"],
+            "objective": "库存答复无法识别时，整理库存原始信息交人工核对",
+            "outputs": ["notice"],
+            "rationale": "",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "notify",
+            "version": "1.0.0"
+          },
+          {
+            "depends_on": [],
+            "inputs": ["tax.duty"],
+            "kind": "approval",
+            "objective": "人工确认税费后再报价",
+            "rationale": "",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "signoff"
+          },
+          {
+            "agent_id": "logistics.quote",
+            "capabilities": ["shipping.quote"],
+            "depends_on": ["signoff"],
+            "inputs": ["tax.duty"],
+            "objective": "选择物流方案",
+            "outputs": ["quote"],
+            "rationale": "",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "logistics",
+            "version": "1.0.0"
+          }
+        ],
+        "tenant_id": "tenant-conformance"
+      }
+    },
+    "14": {
+      "plan": {
+        "agent_refs": [
+          {
+            "agent_id": "tax.calculate",
+            "artifact_digest": "sha256:4ab57ea4eb19198b420d686f1ef9e93ae7e5da22c70a81e7a1cc5ec264595853",
+            "capabilities": ["calculation.execute", "tax.read"],
+            "code_release_ref": {
+              "artifact_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+              "peeled_commit": "439cc740f2520806bb06f6d6391100c236be8d1f",
+              "protocol": "a3s.code.agent.v1",
+              "repository": "A3S-Lab/Code",
+              "tag": "v9.1.2",
+              "tree": "724e55c59d557cad8a236bbfa80ca63c08fdfe7c"
+            },
+            "definition_digest": "sha256:82a5f4ea5d7389061110f5328fb975c9b7e9335926a1103ebfe9fa145a7b00bf",
+            "io_protocols": ["a3s.agent.v1"],
+            "protocol": "a3s.agent.v1",
+            "provenance": {
+              "origin": {
+                "commit": "0123456789abcdef",
+                "path": "agents",
+                "repository": "https://github.com/example-org/fulfillment-agents"
+              },
+              "source_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+              "source_ref": "conformance/catalog.jsonl"
+            },
+            "requires_model_class": "deterministic",
+            "requires_tools": [],
+            "snapshot_generation": "sha256:6477d0815ce40363b0dd28fe8d2ad0ed2ddcd6717f529dc6f4a2fd4d89c30c0e",
+            "tenant_id": "tenant-conformance",
+            "version": "1.0.0"
+          },
+          {
+            "agent_id": "logistics.quote",
+            "artifact_digest": "sha256:9d16a3c7eaa5417be2a9a4ab510e278abe1f7aefcb9070a54f89aa7f9f9ef5bc",
+            "capabilities": ["shipping.quote"],
+            "code_release_ref": {
+              "artifact_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+              "peeled_commit": "439cc740f2520806bb06f6d6391100c236be8d1f",
+              "protocol": "a3s.code.agent.v1",
+              "repository": "A3S-Lab/Code",
+              "tag": "v9.1.2",
+              "tree": "724e55c59d557cad8a236bbfa80ca63c08fdfe7c"
+            },
+            "definition_digest": "sha256:b2cab9cb67aa4d5829e6a42a376533ff807ff99b038dfdd1f2c8f89ea87a241a",
+            "io_protocols": ["a3s.agent.v1"],
+            "protocol": "a3s.agent.v1",
+            "provenance": {
+              "origin": {
+                "commit": "0123456789abcdef",
+                "path": "agents",
+                "repository": "https://github.com/example-org/fulfillment-agents"
+              },
+              "source_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+              "source_ref": "conformance/catalog.jsonl"
+            },
+            "requires_model_class": "deterministic",
+            "requires_tools": [],
+            "snapshot_generation": "sha256:6477d0815ce40363b0dd28fe8d2ad0ed2ddcd6717f529dc6f4a2fd4d89c30c0e",
+            "tenant_id": "tenant-conformance",
+            "version": "1.0.0"
+          },
+          {
+            "agent_id": "inventory.lookup",
+            "artifact_digest": "sha256:2cd54a69d9044a74d5f70ccbe9a742046920e0b169656bb69c93d6bff0bc940f",
+            "artifact_manifest_digest": "sha256:79830c2037f8fc9b702a332b01fbeff7788d0d919fc9f534e4feb40d27fa6474",
+            "artifact_media_type": "application/vnd.a3s.agent.directory",
+            "capabilities": ["inventory.read"],
+            "code_release_ref": {
+              "artifact_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+              "peeled_commit": "439cc740f2520806bb06f6d6391100c236be8d1f",
+              "protocol": "a3s.code.agent.v1",
+              "repository": "A3S-Lab/Code",
+              "tag": "v9.1.2",
+              "tree": "724e55c59d557cad8a236bbfa80ca63c08fdfe7c"
+            },
+            "definition_digest": "sha256:47526c656f1ff57a47027e141d0f5eb50f755f4bfd96d35e0cdc9f2e6e5190aa",
+            "io_protocols": ["a3s.agent.v1"],
+            "protocol": "a3s.agent.v1",
+            "provenance": {
+              "origin": {
+                "commit": "0123456789abcdef",
+                "path": "agents",
+                "repository": "https://github.com/example-org/fulfillment-agents"
+              },
+              "source_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+              "source_ref": "conformance/catalog.jsonl"
+            },
+            "requires_model_class": "deterministic",
+            "requires_tools": [],
+            "snapshot_generation": "sha256:6477d0815ce40363b0dd28fe8d2ad0ed2ddcd6717f529dc6f4a2fd4d89c30c0e",
+            "tenant_id": "tenant-conformance",
+            "version": "1.0.0"
+          }
+        ],
+        "candidate_set_digest": "sha256:12d3af3ace1a7def556d7d5fc31e1ca5c9d37af7ca2c571e280401b35f1a1b7c",
+        "catalog_snapshot_digest": "sha256:6477d0815ce40363b0dd28fe8d2ad0ed2ddcd6717f529dc6f4a2fd4d89c30c0e",
+        "decision": "needs_approval",
+        "edges": [
+          {
+            "from": "inventory",
+            "output": "stock",
+            "schema_version": "host.plan-edge.v1",
+            "to": "route"
+          },
+          {
+            "from": "inventory",
+            "output": "stock",
+            "schema_version": "host.plan-edge.v1",
+            "to": "stop"
+          },
+          {
+            "branch": "case:0",
+            "from": "route",
+            "output": null,
+            "schema_version": "host.plan-edge.v1",
+            "to": "stop"
+          },
+          {
+            "branch": "otherwise",
+            "from": "route",
+            "output": null,
+            "schema_version": "host.plan-edge.v1",
+            "to": "tax"
+          },
+          {
+            "from": "tax",
+            "output": "duty",
+            "schema_version": "host.plan-edge.v1",
+            "to": "logistics"
+          }
+        ],
+        "effective_capabilities": [
+          "inventory.read",
+          "shipping.quote",
+          "tax.read"
+        ],
+        "execution_order": ["inventory", "route", "stop", "tax", "logistics"],
+        "permission_ceiling": [
+          "calculation.execute",
+          "inventory.read",
+          "shipping.quote",
+          "tax.read"
+        ],
+        "plan_digest": "sha256:3764a1cfb9702a1f5b1ad5f1a1b6b2ffb92d8dfa6eb64e88b79b11fbf893c695",
+        "plan_id": "3764a1cfb970",
+        "reason_codes": [
+          "CAPABILITIES_WITHIN_CEILING",
+          "DEPENDENCIES_ACYCLIC",
+          "HUMAN_APPROVAL_REQUIRED",
+          "SHORTLIST_BOUND"
+        ],
+        "schema_version": "host.agent-plan.v2",
+        "selection_receipt_digest": "sha256:4c3f3a5a08a6f40803f4b2822cfe19820b999139a94ca902432d3c4e543c6cee",
+        "steps": [
+          {
+            "agent_id": "inventory.lookup",
+            "capabilities": ["inventory.read"],
+            "depends_on": [],
+            "inputs": ["task.order"],
+            "objective": "查询库存：回答 in stock 或 out of stock",
+            "outputs": ["stock"],
+            "rationale": "库存决定能否履约。",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "inventory",
+            "version": "1.0.0"
+          },
+          {
+            "cases": [
+              {
+                "label": "out of stock",
+                "then": ["stop"]
+              }
+            ],
+            "depends_on": [],
+            "inputs": ["inventory.stock"],
+            "kind": "condition",
+            "objective": "缺货则终止",
+            "otherwise": ["tax"],
+            "rationale": "",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "route"
+          },
+          {
+            "depends_on": [],
+            "inputs": ["inventory.stock"],
+            "kind": "fail",
+            "objective": "缺货，无法履约，请补货后重新下单",
+            "rationale": "",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "stop"
+          },
+          {
+            "agent_id": "tax.calculate",
+            "capabilities": ["tax.read"],
+            "depends_on": [],
+            "inputs": ["task.order"],
+            "objective": "计算税费",
+            "outputs": ["duty"],
+            "rationale": "有货才计算税费。",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "tax",
+            "version": "1.0.0"
+          },
+          {
+            "agent_id": "logistics.quote",
+            "capabilities": ["shipping.quote"],
+            "depends_on": [],
+            "inputs": ["tax.duty"],
+            "objective": "选择物流方案",
+            "outputs": ["quote"],
+            "rationale": "税费确定后报价。",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "logistics",
+            "version": "1.0.0"
+          }
+        ],
+        "tenant_id": "tenant-conformance"
+      }
+    },
+    "15": {
+      "plan": {
+        "agent_refs": [
+          {
+            "agent_id": "tax.calculate",
+            "artifact_digest": "sha256:4ab57ea4eb19198b420d686f1ef9e93ae7e5da22c70a81e7a1cc5ec264595853",
+            "capabilities": ["calculation.execute", "tax.read"],
+            "code_release_ref": {
+              "artifact_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+              "peeled_commit": "439cc740f2520806bb06f6d6391100c236be8d1f",
+              "protocol": "a3s.code.agent.v1",
+              "repository": "A3S-Lab/Code",
+              "tag": "v9.1.2",
+              "tree": "724e55c59d557cad8a236bbfa80ca63c08fdfe7c"
+            },
+            "definition_digest": "sha256:82a5f4ea5d7389061110f5328fb975c9b7e9335926a1103ebfe9fa145a7b00bf",
+            "io_protocols": ["a3s.agent.v1"],
+            "protocol": "a3s.agent.v1",
+            "provenance": {
+              "origin": {
+                "commit": "0123456789abcdef",
+                "path": "agents",
+                "repository": "https://github.com/example-org/fulfillment-agents"
+              },
+              "source_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+              "source_ref": "conformance/catalog.jsonl"
+            },
+            "requires_model_class": "deterministic",
+            "requires_tools": [],
+            "snapshot_generation": "sha256:6477d0815ce40363b0dd28fe8d2ad0ed2ddcd6717f529dc6f4a2fd4d89c30c0e",
+            "tenant_id": "tenant-conformance",
+            "version": "1.0.0"
+          },
+          {
+            "agent_id": "inventory.lookup",
+            "artifact_digest": "sha256:2cd54a69d9044a74d5f70ccbe9a742046920e0b169656bb69c93d6bff0bc940f",
+            "artifact_manifest_digest": "sha256:79830c2037f8fc9b702a332b01fbeff7788d0d919fc9f534e4feb40d27fa6474",
+            "artifact_media_type": "application/vnd.a3s.agent.directory",
+            "capabilities": ["inventory.read"],
+            "code_release_ref": {
+              "artifact_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+              "peeled_commit": "439cc740f2520806bb06f6d6391100c236be8d1f",
+              "protocol": "a3s.code.agent.v1",
+              "repository": "A3S-Lab/Code",
+              "tag": "v9.1.2",
+              "tree": "724e55c59d557cad8a236bbfa80ca63c08fdfe7c"
+            },
+            "definition_digest": "sha256:47526c656f1ff57a47027e141d0f5eb50f755f4bfd96d35e0cdc9f2e6e5190aa",
+            "io_protocols": ["a3s.agent.v1"],
+            "protocol": "a3s.agent.v1",
+            "provenance": {
+              "origin": {
+                "commit": "0123456789abcdef",
+                "path": "agents",
+                "repository": "https://github.com/example-org/fulfillment-agents"
+              },
+              "source_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+              "source_ref": "conformance/catalog.jsonl"
+            },
+            "requires_model_class": "deterministic",
+            "requires_tools": [],
+            "snapshot_generation": "sha256:6477d0815ce40363b0dd28fe8d2ad0ed2ddcd6717f529dc6f4a2fd4d89c30c0e",
+            "tenant_id": "tenant-conformance",
+            "version": "1.0.0"
+          }
+        ],
+        "candidate_set_digest": "sha256:12d3af3ace1a7def556d7d5fc31e1ca5c9d37af7ca2c571e280401b35f1a1b7c",
+        "catalog_snapshot_digest": "sha256:6477d0815ce40363b0dd28fe8d2ad0ed2ddcd6717f529dc6f4a2fd4d89c30c0e",
+        "decision": "needs_approval",
+        "edges": [
+          {
+            "branch": "timeout",
+            "from": "inventory",
+            "output": null,
+            "schema_version": "host.plan-edge.v1",
+            "to": "estimate"
+          },
+          {
+            "from": "inventory",
+            "output": "stock",
+            "schema_version": "host.plan-edge.v1",
+            "to": "tax"
+          }
+        ],
+        "effective_capabilities": ["inventory.read", "tax.read"],
+        "execution_order": ["inventory", "estimate", "tax"],
+        "permission_ceiling": [
+          "calculation.execute",
+          "inventory.read",
+          "shipping.quote",
+          "tax.read"
+        ],
+        "plan_digest": "sha256:d6f246ece54442a5738926cd7d606b9505c75218b30ce11710ddabc685d9c298",
+        "plan_id": "d6f246ece544",
+        "reason_codes": [
+          "CAPABILITIES_WITHIN_CEILING",
+          "DEPENDENCIES_ACYCLIC",
+          "HUMAN_APPROVAL_REQUIRED",
+          "SHORTLIST_BOUND"
+        ],
+        "schema_version": "host.agent-plan.v2",
+        "selection_receipt_digest": "sha256:52eacfc990fc5db1c921c65c910f9693639e52874ca328b2b928f2d06df0b5e1",
+        "steps": [
+          {
+            "agent_id": "inventory.lookup",
+            "capabilities": ["inventory.read"],
+            "depends_on": [],
+            "inputs": ["task.order"],
+            "objective": "查询实时库存",
+            "on_timeout": ["estimate"],
+            "outputs": ["stock"],
+            "rationale": "实时库存最准，但可能很慢。",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "inventory",
+            "timeout_secs": 120,
+            "version": "1.0.0"
+          },
+          {
+            "agent_id": "inventory.lookup",
+            "capabilities": ["inventory.read"],
+            "depends_on": [],
+            "inputs": ["task.order"],
+            "objective": "实时查询超时时，按历史数据估算库存并注明是估算",
+            "outputs": ["stock"],
+            "rationale": "超时兜底。",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "estimate",
+            "version": "1.0.0"
+          },
+          {
+            "agent_id": "tax.calculate",
+            "capabilities": ["tax.read"],
+            "depends_on": [],
+            "inputs": ["inventory.stock", "task.order"],
+            "objective": "计算税费",
+            "outputs": ["duty"],
+            "rationale": "依赖实时库存。",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "tax",
+            "version": "1.0.0"
+          }
+        ],
+        "tenant_id": "tenant-conformance"
+      }
+    },
+    "17": {
+      "plan": {
+        "agent_refs": [
+          {
+            "agent_id": "tax.calculate",
+            "artifact_digest": "sha256:4ab57ea4eb19198b420d686f1ef9e93ae7e5da22c70a81e7a1cc5ec264595853",
+            "capabilities": ["calculation.execute", "tax.read"],
+            "code_release_ref": {
+              "artifact_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+              "peeled_commit": "439cc740f2520806bb06f6d6391100c236be8d1f",
+              "protocol": "a3s.code.agent.v1",
+              "repository": "A3S-Lab/Code",
+              "tag": "v9.1.2",
+              "tree": "724e55c59d557cad8a236bbfa80ca63c08fdfe7c"
+            },
+            "definition_digest": "sha256:82a5f4ea5d7389061110f5328fb975c9b7e9335926a1103ebfe9fa145a7b00bf",
+            "io_protocols": ["a3s.agent.v1"],
+            "protocol": "a3s.agent.v1",
+            "provenance": {
+              "origin": {
+                "commit": "0123456789abcdef",
+                "path": "agents",
+                "repository": "https://github.com/example-org/fulfillment-agents"
+              },
+              "source_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+              "source_ref": "conformance/catalog.jsonl"
+            },
+            "requires_model_class": "deterministic",
+            "requires_tools": [],
+            "snapshot_generation": "sha256:6477d0815ce40363b0dd28fe8d2ad0ed2ddcd6717f529dc6f4a2fd4d89c30c0e",
+            "tenant_id": "tenant-conformance",
+            "version": "1.0.0"
+          },
+          {
+            "agent_id": "logistics.quote",
+            "artifact_digest": "sha256:9d16a3c7eaa5417be2a9a4ab510e278abe1f7aefcb9070a54f89aa7f9f9ef5bc",
+            "capabilities": ["shipping.quote"],
+            "code_release_ref": {
+              "artifact_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+              "peeled_commit": "439cc740f2520806bb06f6d6391100c236be8d1f",
+              "protocol": "a3s.code.agent.v1",
+              "repository": "A3S-Lab/Code",
+              "tag": "v9.1.2",
+              "tree": "724e55c59d557cad8a236bbfa80ca63c08fdfe7c"
+            },
+            "definition_digest": "sha256:b2cab9cb67aa4d5829e6a42a376533ff807ff99b038dfdd1f2c8f89ea87a241a",
+            "io_protocols": ["a3s.agent.v1"],
+            "protocol": "a3s.agent.v1",
+            "provenance": {
+              "origin": {
+                "commit": "0123456789abcdef",
+                "path": "agents",
+                "repository": "https://github.com/example-org/fulfillment-agents"
+              },
+              "source_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+              "source_ref": "conformance/catalog.jsonl"
+            },
+            "requires_model_class": "deterministic",
+            "requires_tools": [],
+            "snapshot_generation": "sha256:6477d0815ce40363b0dd28fe8d2ad0ed2ddcd6717f529dc6f4a2fd4d89c30c0e",
+            "tenant_id": "tenant-conformance",
+            "version": "1.0.0"
+          },
+          {
+            "agent_id": "inventory.lookup",
+            "artifact_digest": "sha256:2cd54a69d9044a74d5f70ccbe9a742046920e0b169656bb69c93d6bff0bc940f",
+            "artifact_manifest_digest": "sha256:79830c2037f8fc9b702a332b01fbeff7788d0d919fc9f534e4feb40d27fa6474",
+            "artifact_media_type": "application/vnd.a3s.agent.directory",
+            "capabilities": ["inventory.read"],
+            "code_release_ref": {
+              "artifact_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+              "peeled_commit": "439cc740f2520806bb06f6d6391100c236be8d1f",
+              "protocol": "a3s.code.agent.v1",
+              "repository": "A3S-Lab/Code",
+              "tag": "v9.1.2",
+              "tree": "724e55c59d557cad8a236bbfa80ca63c08fdfe7c"
+            },
+            "definition_digest": "sha256:47526c656f1ff57a47027e141d0f5eb50f755f4bfd96d35e0cdc9f2e6e5190aa",
+            "io_protocols": ["a3s.agent.v1"],
+            "protocol": "a3s.agent.v1",
+            "provenance": {
+              "origin": {
+                "commit": "0123456789abcdef",
+                "path": "agents",
+                "repository": "https://github.com/example-org/fulfillment-agents"
+              },
+              "source_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+              "source_ref": "conformance/catalog.jsonl"
+            },
+            "requires_model_class": "deterministic",
+            "requires_tools": [],
+            "snapshot_generation": "sha256:6477d0815ce40363b0dd28fe8d2ad0ed2ddcd6717f529dc6f4a2fd4d89c30c0e",
+            "tenant_id": "tenant-conformance",
+            "version": "1.0.0"
+          }
+        ],
+        "candidate_set_digest": "sha256:12d3af3ace1a7def556d7d5fc31e1ca5c9d37af7ca2c571e280401b35f1a1b7c",
+        "catalog_snapshot_digest": "sha256:6477d0815ce40363b0dd28fe8d2ad0ed2ddcd6717f529dc6f4a2fd4d89c30c0e",
+        "decision": "needs_approval",
+        "edges": [
+          {
+            "branch": "body",
+            "from": "each",
+            "output": null,
+            "schema_version": "host.plan-edge.v1",
+            "to": "quote"
+          },
+          {
+            "from": "each",
+            "output": "item",
+            "schema_version": "host.plan-edge.v1",
+            "to": "quote"
+          },
+          {
+            "from": "each",
+            "output": "results",
+            "schema_version": "host.plan-edge.v1",
+            "to": "summary"
+          },
+          {
+            "from": "list",
+            "output": "orders",
+            "schema_version": "host.plan-edge.v1",
+            "to": "each"
+          }
+        ],
+        "effective_capabilities": [
+          "inventory.read",
+          "shipping.quote",
+          "tax.read"
+        ],
+        "execution_order": ["list", "each", "quote", "summary"],
+        "permission_ceiling": [
+          "calculation.execute",
+          "inventory.read",
+          "shipping.quote",
+          "tax.read"
+        ],
+        "plan_digest": "sha256:018ebd55c44703cb087b66f248ae5e048037f4055a5929dc2fac692e33f3184f",
+        "plan_id": "018ebd55c447",
+        "reason_codes": [
+          "CAPABILITIES_WITHIN_CEILING",
+          "DEPENDENCIES_ACYCLIC",
+          "HUMAN_APPROVAL_REQUIRED",
+          "SHORTLIST_BOUND"
+        ],
+        "schema_version": "host.agent-plan.v2",
+        "selection_receipt_digest": "sha256:2b719c0cae734b548de522978cb24598c3b81d77082522779470f9ce407013a7",
+        "steps": [
+          {
+            "agent_id": "inventory.lookup",
+            "capabilities": ["inventory.read"],
+            "depends_on": [],
+            "inputs": ["task.order"],
+            "list_output": true,
+            "objective": "列出待发货订单号，回答 JSON 数组",
+            "outputs": ["orders"],
+            "rationale": "先拿到要逐个处理的清单。",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "list",
+            "version": "1.0.0"
+          },
+          {
+            "body": ["quote"],
+            "collect": "quote.quote",
+            "depends_on": [],
+            "inputs": ["list.orders"],
+            "kind": "iteration",
+            "max_items": 10,
+            "objective": "对每个订单报价",
+            "rationale": "",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "each"
+          },
+          {
+            "agent_id": "logistics.quote",
+            "capabilities": ["shipping.quote"],
+            "depends_on": [],
+            "inputs": ["each.item"],
+            "objective": "为这一个订单选择物流方案",
+            "outputs": ["quote"],
+            "rationale": "逐单报价。",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "quote",
+            "version": "1.0.0"
+          },
+          {
+            "agent_id": "tax.calculate",
+            "capabilities": ["tax.read"],
+            "depends_on": [],
+            "inputs": ["each.results"],
+            "objective": "汇总所有报价并计算总税费",
+            "outputs": ["summary"],
+            "rationale": "汇总。",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "summary",
+            "version": "1.0.0"
+          }
+        ],
+        "tenant_id": "tenant-conformance"
+      }
+    },
+    "19": {
+      "plan": {
+        "agent_refs": [
+          {
+            "agent_id": "tax.calculate",
+            "artifact_digest": "sha256:4ab57ea4eb19198b420d686f1ef9e93ae7e5da22c70a81e7a1cc5ec264595853",
+            "capabilities": ["calculation.execute", "tax.read"],
+            "code_release_ref": {
+              "artifact_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+              "peeled_commit": "439cc740f2520806bb06f6d6391100c236be8d1f",
+              "protocol": "a3s.code.agent.v1",
+              "repository": "A3S-Lab/Code",
+              "tag": "v9.1.2",
+              "tree": "724e55c59d557cad8a236bbfa80ca63c08fdfe7c"
+            },
+            "definition_digest": "sha256:82a5f4ea5d7389061110f5328fb975c9b7e9335926a1103ebfe9fa145a7b00bf",
+            "io_protocols": ["a3s.agent.v1"],
+            "protocol": "a3s.agent.v1",
+            "provenance": {
+              "origin": {
+                "commit": "0123456789abcdef",
+                "path": "agents",
+                "repository": "https://github.com/example-org/fulfillment-agents"
+              },
+              "source_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+              "source_ref": "conformance/catalog.jsonl"
+            },
+            "requires_model_class": "deterministic",
+            "requires_tools": [],
+            "snapshot_generation": "sha256:6477d0815ce40363b0dd28fe8d2ad0ed2ddcd6717f529dc6f4a2fd4d89c30c0e",
+            "tenant_id": "tenant-conformance",
+            "version": "1.0.0"
+          },
+          {
+            "agent_id": "logistics.quote",
+            "artifact_digest": "sha256:9d16a3c7eaa5417be2a9a4ab510e278abe1f7aefcb9070a54f89aa7f9f9ef5bc",
+            "capabilities": ["shipping.quote"],
+            "code_release_ref": {
+              "artifact_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+              "peeled_commit": "439cc740f2520806bb06f6d6391100c236be8d1f",
+              "protocol": "a3s.code.agent.v1",
+              "repository": "A3S-Lab/Code",
+              "tag": "v9.1.2",
+              "tree": "724e55c59d557cad8a236bbfa80ca63c08fdfe7c"
+            },
+            "definition_digest": "sha256:b2cab9cb67aa4d5829e6a42a376533ff807ff99b038dfdd1f2c8f89ea87a241a",
+            "io_protocols": ["a3s.agent.v1"],
+            "protocol": "a3s.agent.v1",
+            "provenance": {
+              "origin": {
+                "commit": "0123456789abcdef",
+                "path": "agents",
+                "repository": "https://github.com/example-org/fulfillment-agents"
+              },
+              "source_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+              "source_ref": "conformance/catalog.jsonl"
+            },
+            "requires_model_class": "deterministic",
+            "requires_tools": [],
+            "snapshot_generation": "sha256:6477d0815ce40363b0dd28fe8d2ad0ed2ddcd6717f529dc6f4a2fd4d89c30c0e",
+            "tenant_id": "tenant-conformance",
+            "version": "1.0.0"
+          },
+          {
+            "agent_id": "inventory.lookup",
+            "artifact_digest": "sha256:2cd54a69d9044a74d5f70ccbe9a742046920e0b169656bb69c93d6bff0bc940f",
+            "artifact_manifest_digest": "sha256:79830c2037f8fc9b702a332b01fbeff7788d0d919fc9f534e4feb40d27fa6474",
+            "artifact_media_type": "application/vnd.a3s.agent.directory",
+            "capabilities": ["inventory.read"],
+            "code_release_ref": {
+              "artifact_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+              "peeled_commit": "439cc740f2520806bb06f6d6391100c236be8d1f",
+              "protocol": "a3s.code.agent.v1",
+              "repository": "A3S-Lab/Code",
+              "tag": "v9.1.2",
+              "tree": "724e55c59d557cad8a236bbfa80ca63c08fdfe7c"
+            },
+            "definition_digest": "sha256:47526c656f1ff57a47027e141d0f5eb50f755f4bfd96d35e0cdc9f2e6e5190aa",
+            "io_protocols": ["a3s.agent.v1"],
+            "protocol": "a3s.agent.v1",
+            "provenance": {
+              "origin": {
+                "commit": "0123456789abcdef",
+                "path": "agents",
+                "repository": "https://github.com/example-org/fulfillment-agents"
+              },
+              "source_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+              "source_ref": "conformance/catalog.jsonl"
+            },
+            "requires_model_class": "deterministic",
+            "requires_tools": [],
+            "snapshot_generation": "sha256:6477d0815ce40363b0dd28fe8d2ad0ed2ddcd6717f529dc6f4a2fd4d89c30c0e",
+            "tenant_id": "tenant-conformance",
+            "version": "1.0.0"
+          }
+        ],
+        "candidate_set_digest": "sha256:12d3af3ace1a7def556d7d5fc31e1ca5c9d37af7ca2c571e280401b35f1a1b7c",
+        "catalog_snapshot_digest": "sha256:6477d0815ce40363b0dd28fe8d2ad0ed2ddcd6717f529dc6f4a2fd4d89c30c0e",
+        "decision": "needs_approval",
+        "edges": [
+          {
+            "from": "draft",
+            "output": "quote",
+            "schema_version": "host.plan-edge.v1",
+            "to": "check"
+          },
+          {
+            "branch": "body",
+            "from": "refine",
+            "output": null,
+            "schema_version": "host.plan-edge.v1",
+            "to": "check"
+          },
+          {
+            "branch": "body",
+            "from": "refine",
+            "output": null,
+            "schema_version": "host.plan-edge.v1",
+            "to": "draft"
+          },
+          {
+            "from": "refine",
+            "output": "feedback",
+            "schema_version": "host.plan-edge.v1",
+            "to": "draft"
+          },
+          {
+            "from": "refine",
+            "output": "previous",
+            "schema_version": "host.plan-edge.v1",
+            "to": "draft"
+          },
+          {
+            "from": "refine",
+            "output": "result",
+            "schema_version": "host.plan-edge.v1",
+            "to": "publish"
+          },
+          {
+            "from": "refine",
+            "output": "status",
+            "schema_version": "host.plan-edge.v1",
+            "to": "publish"
+          }
+        ],
+        "effective_capabilities": [
+          "inventory.read",
+          "shipping.quote",
+          "tax.read"
+        ],
+        "execution_order": ["refine", "draft", "check", "publish"],
+        "permission_ceiling": [
+          "calculation.execute",
+          "inventory.read",
+          "shipping.quote",
+          "tax.read"
+        ],
+        "plan_digest": "sha256:86d97b7edbec70e3d54913b6e6757010235e98c82e8d6914ef41f699c836bf43",
+        "plan_id": "86d97b7edbec",
+        "reason_codes": [
+          "CAPABILITIES_WITHIN_CEILING",
+          "DEPENDENCIES_ACYCLIC",
+          "HUMAN_APPROVAL_REQUIRED",
+          "SHORTLIST_BOUND"
+        ],
+        "schema_version": "host.agent-plan.v2",
+        "selection_receipt_digest": "sha256:99d2aae7d2d7741f32ee5a151dbfeb29b09cd066be34020d49d884e2f58c79b2",
+        "steps": [
+          {
+            "body": ["check", "draft"],
+            "collect": "draft.quote",
+            "depends_on": [],
+            "inputs": ["task.order"],
+            "kind": "loop",
+            "max_rounds": 3,
+            "objective": "报价审核通过为止，最多 3 轮",
+            "pass_label": "PASS",
+            "rationale": "",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "refine",
+            "until": "check.verdict"
+          },
+          {
+            "agent_id": "logistics.quote",
+            "capabilities": ["shipping.quote"],
+            "depends_on": [],
+            "inputs": ["refine.feedback", "refine.previous", "task.order"],
+            "objective": "按订单和上一轮审核意见起草物流报价",
+            "outputs": ["quote"],
+            "rationale": "起草。",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "draft",
+            "version": "1.0.0"
+          },
+          {
+            "agent_id": "tax.calculate",
+            "capabilities": ["tax.read"],
+            "depends_on": [],
+            "inputs": ["draft.quote"],
+            "objective": "核对报价的税费是否合规：合规首行写 PASS，否则写修改意见",
+            "outputs": ["verdict"],
+            "rationale": "审核。",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "check",
+            "version": "1.0.0"
+          },
+          {
+            "agent_id": "inventory.lookup",
+            "capabilities": ["inventory.read"],
+            "depends_on": [],
+            "inputs": ["refine.result", "refine.status"],
+            "objective": "按最终报价锁定库存并通知客户",
+            "outputs": ["notice"],
+            "rationale": "收尾。",
+            "schema_version": "host.plan-step.v1",
+            "step_id": "publish",
+            "version": "1.0.0"
+          }
+        ],
+        "tenant_id": "tenant-conformance"
+      }
+    }
+  }
+}

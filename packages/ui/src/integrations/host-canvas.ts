@@ -29,6 +29,24 @@ export type HostPlanStepNode = {
   plan_step: JsonObject;
 };
 
+/** One `host.plan-check.v1` finding. */
+export type HostPlanProblem = {
+  severity: 'error' | 'warning';
+  code: string;
+  step_id: string | null;
+  message: string;
+};
+
+function planCheckProblems(view: unknown): HostPlanProblem[] {
+  const problems = isObject(view) && Array.isArray(view.problems) ? view.problems : [];
+  return problems.filter(isObject).map((problem) => ({
+    severity: problem.severity === 'error' ? 'error' : 'warning',
+    code: String(problem.code ?? ''),
+    step_id: typeof problem.step_id === 'string' ? problem.step_id : null,
+    message: String(problem.message ?? ''),
+  }));
+}
+
 export type HostCanvasDocument = {
   schema_version: typeof CANVAS_SCHEMA;
   authority: typeof PLAN_SCHEMA;
@@ -55,6 +73,10 @@ export type HostCanvasDocument = {
     token: unknown;
     resume_path: string;
   };
+  /** Design findings the host computed for this plan (`host.plan-check.v1`);
+   * only warnings reach a verified proposal. Empty when the host predates
+   * plan checks or the plan is an edited overlay. */
+  plan_check_problems: HostPlanProblem[];
   save: {
     method: 'POST';
     path: string;
@@ -94,6 +116,75 @@ export type HostRunEditActions = {
 export function hostRunEditActions(canvas: HostCanvasDocument): HostRunEditActions {
   const editable = isHostRunEditable(canvas);
   return { save: editable, approve: editable, addStep: editable };
+}
+
+export const RECOVERY_FAILURE_SCHEMA = 'host.flow-recovery-request.v1';
+
+/**
+ * `GET /v1/runs/{id}/failure` DTO -- present only while the run has an
+ * *open* recovery hook (one agent-execution step permanently failed and the
+ * run suspended behind that hook instead of failing outright). A run can be
+ * `flow_status: "suspended"` for unrelated reasons (an approval hook still
+ * waiting, a timer), so this type's presence/absence -- not `flow_status`
+ * -- is the only correct signal for whether the recovery dialog applies.
+ * See `resolveHostRecoveryFailure`'s doc comment for why this must stay a
+ * signal fully independent of `hostRunEditActions`/`isHostRunEditable`.
+ */
+export type HostRecoveryFailure = {
+  schema_version: typeof RECOVERY_FAILURE_SCHEMA;
+  run_id: string;
+  hook_id: string;
+  token: string;
+  metadata: {
+    step_id: unknown;
+    step_name: unknown;
+    attempt: unknown;
+    error: unknown;
+    original_step: JsonObject;
+    proposal_digest: unknown;
+    completed_step_outputs: unknown[];
+  };
+};
+
+/**
+ * Parse `GET /v1/runs/{id}/failure`'s 200 body, or `null` for its 404 ("no
+ * open recovery hook right now") -- both are ordinary outcomes, never an
+ * error to surface. Deliberately NOT folded into `hostRunEditActions`: a
+ * prior bug in this codebase coupled Save/Approve visibility to a "Failed"
+ * status pill through one shared field, so a terminal run silently hid both
+ * buttons together and looked like a UI glitch. The recovery dialog's
+ * visibility must stay driven by this function's result alone, never by
+ * `flow_status`.
+ */
+export function recoveryFailureFromDto(
+  dto: unknown,
+): HostRecoveryFailure | null {
+  if (dto === null) return null;
+  if (!isObject(dto)) {
+    throw new HostCanvasError('INVALID_INPUT: recovery DTO must be an object');
+  }
+  const metadata = dto.metadata;
+  if (!isObject(metadata)) {
+    throw new HostCanvasError('INVALID_INPUT: recovery DTO has no metadata');
+  }
+  const originalStep = metadata.original_step;
+  return {
+    schema_version: RECOVERY_FAILURE_SCHEMA,
+    run_id: typeof dto.run_id === 'string' ? dto.run_id : '',
+    hook_id: typeof dto.hook_id === 'string' ? dto.hook_id : '',
+    token: typeof dto.token === 'string' ? dto.token : '',
+    metadata: {
+      step_id: metadata.step_id,
+      step_name: metadata.step_name,
+      attempt: metadata.attempt,
+      error: metadata.error,
+      original_step: isObject(originalStep) ? originalStep : {},
+      proposal_digest: metadata.proposal_digest,
+      completed_step_outputs: Array.isArray(metadata.completed_step_outputs)
+        ? metadata.completed_step_outputs
+        : [],
+    },
+  };
 }
 
 export interface HostEditRevisionStore {
@@ -192,6 +283,7 @@ export function canvasDocumentFromProposalDto(
       token: dto.approval_token,
       resume_path: '/v1/hooks/{token}/resume',
     },
+    plan_check_problems: planCheckProblems(dto.plan_check),
     save: {
       method: 'POST',
       path: `/v1/runs/${runId}/plan-edits`,
@@ -200,7 +292,138 @@ export function canvasDocumentFromProposalDto(
   };
 }
 
+/**
+ * Kahn's algorithm with ties broken by sorted step_id -- must match
+ * Orchestrator's `stable_topological_order` in
+ * `orchestrator-core/src/plan_edit_state.rs` exactly. That function is the
+ * sole authority `POST /v1/runs/{id}/plan-edits` checks `execution_order`
+ * against (`INVALID_INPUT: execution_order is not the stable topological
+ * order` on mismatch); it computes purely from `edges`, so `edges` must
+ * carry the same dependency information as each step's `depends_on`, and
+ * `execution_order` must be recomputed to match, not just echo whatever
+ * order the canvas nodes happen to be in.
+ */
+function stableTopologicalOrder(
+  stepIds: readonly string[],
+  edges: readonly { from: string; to: string }[],
+): string[] | null {
+  const adjacency = new Map<string, Set<string>>(
+    stepIds.map((id) => [id, new Set<string>()]),
+  );
+  const indegree = new Map<string, number>(stepIds.map((id) => [id, 0]));
+  for (const { from, to } of edges) {
+    if (!adjacency.has(from) || !indegree.has(to)) return null;
+    const targets = adjacency.get(from);
+    if (targets && !targets.has(to)) {
+      targets.add(to);
+      indegree.set(to, (indegree.get(to) ?? 0) + 1);
+    }
+  }
+  const ready = stepIds.filter((id) => indegree.get(id) === 0).sort();
+  const order: string[] = [];
+  while (ready.length > 0) {
+    const id = ready.shift();
+    if (id === undefined) break;
+    order.push(id);
+    const nexts = [...(adjacency.get(id) ?? [])].sort();
+    for (const next of nexts) {
+      const remaining = (indegree.get(next) ?? 0) - 1;
+      indegree.set(next, remaining);
+      if (remaining === 0) {
+        ready.push(next);
+        ready.sort();
+      }
+    }
+  }
+  return order.length === stepIds.length ? order : null;
+}
+
 /** Replace steps/execution_order from canvas nodes; never from DSL. */
+/** One `host.plan-edge.v1` edge, exactly as the host derives it. */
+export type PlanEdgeView = {
+  schema_version: 'host.plan-edge.v1';
+  from: string;
+  to: string;
+  output: string | null;
+  branch?: string;
+};
+
+function stringItems(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+/** The output ports of a step: an iteration's and a loop's are implicit. */
+function stepOutputs(step: JsonObject | undefined): string[] {
+  if (step?.kind === 'iteration') return ['item', 'results'];
+  if (step?.kind === 'loop') return ['previous', 'feedback', 'result', 'status'];
+  return stringItems(step?.outputs);
+}
+
+/**
+ * The plan edges the host derives from a set of steps (`PlanGraph::from_steps`
+ * in orchestrator-core): a data edge per `inputs` reference to a declared
+ * upstream output, an ordering edge per `depends_on`, and a branch edge from
+ * a condition to each step its cases / `otherwise` route to, from an agent
+ * step to its `on_timeout` fallbacks, and from an iteration or loop to its `body`
+ * (each replaces an ordering edge on the same pair).  Sorted like the host,
+ * so an unedited plan round-trips byte-identical.
+ */
+export function planEdgesFromSteps(steps: readonly JsonObject[]): PlanEdgeView[] {
+  const byId = new Map(steps.map((step) => [String(step.step_id ?? ''), step]));
+  const edges = new Map<string, PlanEdgeView>();
+  const add = (edge: PlanEdgeView) =>
+    edges.set(`${edge.from}\u0000${edge.to}\u0000${edge.output ?? ''}\u0000${edge.branch ?? ''}`, edge);
+  for (const step of steps) {
+    const to = String(step.step_id ?? '');
+    for (const reference of stringItems(step.inputs)) {
+      const separator = reference.lastIndexOf('.');
+      if (separator <= 0) continue;
+      const from = reference.slice(0, separator);
+      const port = reference.slice(separator + 1);
+      if (from === 'task' || !stepOutputs(byId.get(from)).includes(port)) continue;
+      add({ schema_version: 'host.plan-edge.v1', from, to, output: port });
+    }
+    for (const from of stringItems(step.depends_on)) {
+      if (byId.has(from)) add({ schema_version: 'host.plan-edge.v1', from, to, output: null });
+    }
+  }
+  for (const step of steps) {
+    const from = String(step.step_id ?? '');
+    // An agent step's on_timeout fallbacks, an iteration's or loop's body, or
+    // a condition's cases / otherwise.
+    const timeouts = stringItems(step.on_timeout);
+    let branches: [string, string][];
+    if (timeouts.length > 0) {
+      branches = timeouts.map((target): [string, string] => ['timeout', target]);
+    } else if (step.kind === 'iteration' || step.kind === 'loop') {
+      branches = stringItems(step.body).map((target): [string, string] => ['body', target]);
+    } else if (step.kind === 'condition') {
+      const cases = Array.isArray(step.cases) ? (step.cases as JsonObject[]) : [];
+      branches = cases.flatMap((item, index) =>
+        stringItems(item?.then).map((target): [string, string] => [`case:${index}`, target]),
+      );
+      branches.push(...stringItems(step.otherwise).map((target): [string, string] => ['otherwise', target]));
+    } else {
+      continue;
+    }
+    for (const [branch, to] of branches) {
+      if (!byId.has(to)) continue;
+      edges.delete(`${from}\u0000${to}\u0000\u0000`);
+      add({ schema_version: 'host.plan-edge.v1', from, to, output: null, branch });
+    }
+  }
+  const key = (edge: PlanEdgeView) => [edge.from, edge.to, edge.output ?? '', edge.branch ?? ''];
+  return [...edges.values()].sort((a, b) => {
+    const [ka, kb] = [key(a), key(b)];
+    for (let index = 0; index < ka.length; index += 1) {
+      if (ka[index] !== kb[index]) return ka[index] < kb[index] ? -1 : 1;
+    }
+    return 0;
+  });
+}
+
 export function applyCanvasNodeEdits(
   canvas: HostCanvasDocument,
   nodes: HostPlanStepNode[],
@@ -210,7 +433,7 @@ export function applyCanvasNodeEdits(
   }
   const plan: JsonObject = { ...(canvas.plan ?? {}) };
   const steps: JsonObject[] = [];
-  const order: string[] = [];
+  const stepIds: string[] = [];
   for (const node of nodes) {
     const step: JsonObject = { ...(node.plan_step ?? {}) };
     step.step_id = node.id || step.step_id;
@@ -219,14 +442,23 @@ export function applyCanvasNodeEdits(
     if ('capabilities' in node) step.capabilities = node.capabilities;
     if ('depends_on' in node) step.depends_on = node.depends_on;
     steps.push(step);
-    order.push(String(step.step_id));
+    stepIds.push(String(step.step_id));
+  }
+  const edges = planEdgesFromSteps(steps);
+  const order = stableTopologicalOrder(stepIds, edges);
+  if (!order) {
+    throw new HostCanvasError(
+      'INVALID_INPUT: edited plan graph contains a cycle or a dangling dependency',
+    );
   }
   plan.steps = steps;
+  plan.edges = edges;
   plan.execution_order = order;
   return {
     ...canvas,
     plan,
     nodes,
+    edges,
     execution_order: order,
   };
 }

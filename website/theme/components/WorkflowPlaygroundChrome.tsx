@@ -23,6 +23,7 @@ import {
   Plus,
   Sparkle,
   Stop,
+  SealCheck,
   TreeStructure,
   WarningCircle,
 } from '@phosphor-icons/react';
@@ -120,11 +121,106 @@ type PlaygroundHeaderProps = {
    * pill so a terminal run (Save/Approve now hidden) reads as "finished",
    * not as a UI glitch that silently dropped two buttons. */
   hostFlowStatus?: string;
+  /** Set only while the orchestrator.plan step is drafting -- a step-by-step
+   * `compose_plan` preview relayed from `GET /v1/runs/{id}/progress`
+   * (`host.compose-progress.v1`). Fail-soft overlay, cleared once the
+   * proposal arrives; absence never implies anything went wrong. */
+  progress?: { stepIndex: number; total: number | null; agentId: string };
+  /** Set only while the approved plan is executing (polled from
+   * `GET /v1/runs/{id}`): which plan steps are running now and how many
+   * of the plan's steps have completed. */
+  execution?: {
+    runningStepIds: readonly string[];
+    completed: number;
+    total: number | null;
+  };
+  /** Set while the run has no proposal yet because the orchestrator is
+   * still planning: elapsed seconds, plus the latest host-derived planning
+   * phase frame when the host sends them (`phase`: model/tool/finished). */
+  planning?: PlanningStatus;
+  /** Design warnings the host computed for the plan (`host.plan-check.v1`). */
+  planWarnings?: readonly {
+    code: string;
+    step_id: string | null;
+    message: string;
+  }[];
   hostBusy?: boolean;
   onHostSave?: () => void;
   onHostApprove?: () => void;
   onHostAddStep?: () => void;
+  /** Set only while the run has an open recovery hook (see
+   * WorkflowPlaygroundRecoveryDialog's doc comment) -- independent of
+   * `hostFlowStatus`/Save/Approve visibility on purpose. */
+  onHostRecover?: () => void;
+  /** Set only while the run waits on a mid-plan approval gate. */
+  onHostReviewGate?: () => void;
 };
+
+/** Header pill for the plan's design warnings (details in its tooltip). */
+export function planWarningsLabel(count: number, locale: 'zh' | 'en'): string {
+  return locale === 'zh'
+    ? `设计提示 ${count}`
+    : `${count} design note${count === 1 ? '' : 's'}`;
+}
+
+/** Short, human-scannable plan id from a `sha256:<hex>` digest. */
+export function shortPlanId(digest: string): string {
+  const hex = digest.startsWith('sha256:')
+    ? digest.slice('sha256:'.length)
+    : digest;
+  return hex.slice(0, 6);
+}
+
+export type PlanningStatus = {
+  elapsedSecs: number;
+  phase?: string;
+  tool?: string;
+  modelCalls?: number;
+};
+
+// Orchestrator MCP tools, in the order a plan normally walks them.
+const PLANNING_TOOL_LABEL: Record<string, { zh: string; en: string }> = {
+  catalog_snapshot: { zh: '读取目录', en: 'reading the catalog' },
+  shortlist: { zh: '筛选候选 agent', en: 'shortlisting agents' },
+  compose_plan: { zh: '组装方案', en: 'composing the plan' },
+  project_plan: { zh: '投影 Flow 方案', en: 'projecting the Flow plan' },
+};
+
+export function planningLabel(
+  planning: PlanningStatus,
+  locale: 'zh' | 'en',
+): string {
+  const elapsed = `${planning.elapsedSecs}s`;
+  let detail = '';
+  if (planning.phase === 'tool' && planning.tool) {
+    const known = PLANNING_TOOL_LABEL[planning.tool];
+    detail = known ? known[locale] : planning.tool;
+  } else if (planning.phase === 'model') {
+    const call = planning.modelCalls ?? 0;
+    detail =
+      locale === 'zh'
+        ? `模型思考中${call ? `（第 ${call} 次调用）` : ''}`
+        : `model thinking${call ? ` (call ${call})` : ''}`;
+  } else if (planning.phase === 'finished') {
+    detail = locale === 'zh' ? '收尾中' : 'wrapping up';
+  }
+  if (locale === 'zh') {
+    return detail ? `规划中 ${elapsed} · ${detail}` : `规划中 ${elapsed}`;
+  }
+  return detail ? `Planning ${elapsed} · ${detail}` : `Planning ${elapsed}`;
+}
+
+export function executionLabel(
+  execution: NonNullable<PlaygroundHeaderProps['execution']>,
+  locale: 'zh' | 'en',
+): string {
+  const done = `${execution.completed}/${execution.total ?? '?'}`;
+  const running = execution.runningStepIds.join(', ');
+  if (locale === 'zh') {
+    return running ? `执行中 ${done} · ${running}` : `执行中 ${done}`;
+  }
+  return running ? `Executing ${done} · ${running}` : `Executing ${done}`;
+}
 
 export function WorkflowPlaygroundHeader({
   copy,
@@ -150,10 +246,16 @@ export function WorkflowPlaygroundHeader({
   hostMode = false,
   proposalDigest,
   hostFlowStatus,
+  progress,
+  execution,
+  planning,
   hostBusy = false,
   onHostSave,
   onHostApprove,
   onHostAddStep,
+  onHostRecover,
+  onHostReviewGate,
+  planWarnings = [],
 }: PlaygroundHeaderProps) {
   const menuRef = useDismissibleDetails();
 
@@ -170,18 +272,22 @@ export function WorkflowPlaygroundHeader({
             <span>
               {hostMode
                 ? locale === 'zh'
-                  ? '宿主权威'
-                  : 'Host authority'
+                  ? '由 AI 编排生成'
+                  : 'Drafted by AI'
                 : copy.localDraft}
             </span>
             <i />
-            <em>
+            <em
+              title={
+                hostMode && proposalDigest ? String(proposalDigest) : undefined
+              }
+            >
               {hostMode
                 ? proposalDigest
-                  ? String(proposalDigest).slice(0, 18)
+                  ? `${locale === 'zh' ? '方案' : 'Plan'} #${shortPlanId(String(proposalDigest))}`
                   : locale === 'zh'
-                    ? '加载中'
-                    : 'loading'
+                    ? '方案生成中'
+                    : 'Drafting plan'
                 : saveState === 'saving'
                   ? copy.saving
                   : copy.saved}
@@ -191,6 +297,28 @@ export function WorkflowPlaygroundHeader({
       </div>
 
       <div className="a3s-workflow-header__actions">
+        {hostMode && planWarnings.length > 0 ? (
+          <span
+            data-testid="host-plan-warnings"
+            title={planWarnings
+              .map(
+                (warning) =>
+                  `${warning.step_id ? `${warning.step_id}: ` : ''}${warning.message}`,
+              )
+              .join('\n')}
+            style={{
+              padding: '2px 9px',
+              borderRadius: 999,
+              background: 'var(--workflow-surface-muted)',
+              color: 'var(--workflow-warning, #925a10)',
+              fontSize: 11,
+              fontWeight: 620,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {planWarningsLabel(planWarnings.length, locale)}
+          </span>
+        ) : null}
         {hostMode && hostFlowStatus ? (
           <span
             data-testid="host-flow-status"
@@ -207,21 +335,81 @@ export function WorkflowPlaygroundHeader({
             {statusLabel(hostFlowStatus, locale)}
           </span>
         ) : null}
-        {hostMode && proposalDigest ? (
-          <code
-            aria-label="proposal_digest"
-            data-testid="host-proposal-digest"
-            title={String(proposalDigest)}
+        {hostMode && progress ? (
+          <span
+            data-testid="host-progress"
             style={{
-              fontSize: 12,
-              maxWidth: 220,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
+              padding: '2px 9px',
+              borderRadius: 999,
+              background: 'var(--workflow-surface-muted)',
+              color: 'var(--workflow-muted)',
+              fontSize: 11,
+              fontWeight: 620,
               whiteSpace: 'nowrap',
             }}
           >
-            {String(proposalDigest)}
-          </code>
+            {locale === 'zh'
+              ? `正在起草 step ${progress.stepIndex}/${progress.total ?? '?'} · ${progress.agentId}`
+              : `Drafting step ${progress.stepIndex}/${progress.total ?? '?'} · ${progress.agentId}`}
+          </span>
+        ) : null}
+        {hostMode && planning ? (
+          <span
+            aria-live="polite"
+            data-testid="host-planning"
+            style={{
+              padding: '2px 9px',
+              borderRadius: 999,
+              background: 'var(--workflow-surface-muted)',
+              color: 'var(--workflow-muted)',
+              fontSize: 11,
+              fontWeight: 620,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {planningLabel(planning, locale)}
+          </span>
+        ) : null}
+        {hostMode && execution ? (
+          <span
+            aria-live="polite"
+            data-testid="host-execution"
+            style={{
+              padding: '2px 9px',
+              borderRadius: 999,
+              background: 'var(--workflow-surface-muted)',
+              color: 'var(--workflow-muted)',
+              fontSize: 11,
+              fontWeight: 620,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {executionLabel(execution, locale)}
+          </span>
+        ) : null}
+        {hostMode && onHostReviewGate ? (
+          <button
+            className="is-primary"
+            data-testid="host-review-gate"
+            disabled={hostBusy || running}
+            onClick={onHostReviewGate}
+            type="button"
+          >
+            <SealCheck aria-hidden="true" weight="fill" />
+            <span>{locale === 'zh' ? '待审批' : 'Review'}</span>
+          </button>
+        ) : null}
+        {hostMode && onHostRecover ? (
+          <button
+            className="is-danger"
+            data-testid="host-recover"
+            disabled={hostBusy || running}
+            onClick={onHostRecover}
+            type="button"
+          >
+            <WarningCircle aria-hidden="true" weight="fill" />
+            <span>{locale === 'zh' ? '恢复' : 'Recover'}</span>
+          </button>
         ) : null}
         {hostMode && onHostSave ? (
           <button
@@ -232,7 +420,7 @@ export function WorkflowPlaygroundHeader({
             type="button"
           >
             <NotePencil aria-hidden="true" />
-            <span>{locale === 'zh' ? '保存到宿主' : 'Save to host'}</span>
+            <span>{locale === 'zh' ? '保存修改' : 'Save changes'}</span>
           </button>
         ) : null}
         {hostMode && onHostApprove ? (

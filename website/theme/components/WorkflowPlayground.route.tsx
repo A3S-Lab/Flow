@@ -177,7 +177,11 @@ export function WorkflowPlaygroundRoute({
   if (hostModeError) {
     return (
       <main data-flow-playground="" data-testid="host-mode-error">
-        <h1>{locale === 'zh' ? '宿主模式失败' : 'Host mode failed'}</h1>
+        <h1>
+          {locale === 'zh'
+            ? '无法连接编排服务'
+            : 'Could not connect to the planning service'}
+        </h1>
         <p>{hostModeError}</p>
       </main>
     );
