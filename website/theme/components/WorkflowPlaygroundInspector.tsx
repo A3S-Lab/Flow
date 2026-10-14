@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import {
   CheckCircle,
   Clipboard,
@@ -44,6 +45,8 @@ type WorkflowPlaygroundInspectorProps = {
   onRunNode: (nodeId: string) => void;
   selectedNode?: PlaygroundNode;
   lastRunNodeIds: ReadonlySet<string>;
+  /** Host mode: the control-flow settings of the selected plan step, shown above its generic settings. */
+  hostStepEditor?: ReactNode;
 };
 
 function nodeLabel(
@@ -245,6 +248,7 @@ export function WorkflowPlaygroundInspector({
   onRunNode,
   selectedNode,
   lastRunNodeIds,
+  hostStepEditor,
 }: WorkflowPlaygroundInspectorProps) {
   const expressionVariables = useMemo(
     () =>
@@ -279,6 +283,7 @@ export function WorkflowPlaygroundInspector({
       className="a3s-node-inspector flow-playground-side-panel"
       data-testid="node-inspector"
     >
+      {activeTab === 'settings' && selectedNode && hostStepEditor}
       {activeTab === 'settings' && selectedNode && (
         <A3SFlowDagNodeConfigurationPanel
           connectedOutputPortIds={connectedOutputPortIds}
