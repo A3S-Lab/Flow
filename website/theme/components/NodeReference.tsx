@@ -209,6 +209,31 @@ const nestedGroups: Readonly<Record<string, readonly NestedGroup[]>> = {
       ],
     },
   ],
+  group: [
+    {
+      title: { zh: '子画布结构', en: 'Child-canvas structure' },
+      rows: [
+        {
+          name: 'group-start',
+          type: 'internal node',
+          required: true,
+          detail: {
+            zh: '唯一的容器入口，parentId 指向 group',
+            en: 'The single nested entry whose parentId points to group',
+          },
+        },
+        {
+          name: 'parentId',
+          type: 'node id',
+          required: true,
+          detail: {
+            zh: '每个容器内节点都使用同一个父节点 ID',
+            en: 'Every nested node uses the same container ID',
+          },
+        },
+      ],
+    },
+  ],
   loop: [
     {
       title: { zh: '子画布结构', en: 'Child-canvas structure' },

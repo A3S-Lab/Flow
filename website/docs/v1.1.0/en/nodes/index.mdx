@@ -1,13 +1,13 @@
 ---
 title: Node catalog
-description: Explore the 18 A3S Flow 1.1 authoring nodes, two internal container entries, canvas cards, and configuration panels.
+description: Explore the 19 A3S Flow 1.1 authoring nodes, three internal container entries, canvas cards, and configuration panels.
 ---
 
 # Node catalog
 
-A3S Flow 1.1 provides 18 nodes that authors can place on a canvas. After choosing a node, you can configure it, connect ports, and validate the full graph in the Playground, or generate the same structure through the CLI. Fields, defaults, ports, runtime bindings, and durable identity rules all come from one manifest catalog.
+A3S Flow 1.1 provides 19 nodes that authors can place on a canvas. After choosing a node, you can configure it, connect ports, and validate the full graph in the Playground, or generate the same structure through the CLI. Fields, defaults, ports, runtime bindings, and durable identity rules all come from one manifest catalog.
 
-`iteration-start` and `loop-start` are internal container entries. The editor creates them with their container. They do not appear in the node picker and cannot be placed on the top-level canvas.
+`iteration-start`, `loop-start` and `group-start` are internal container entries. The editor creates them with their container. They do not appear in the node picker and cannot be placed on the top-level canvas.
 
 ## Node workbench
 
@@ -39,7 +39,7 @@ are currently hidden by a condition, so a saved graph remains lossless.
 | Wait and approval       | [Wait until](./wait), [Callback and approval](./hook), [Signal wait](./signal)                                                                            | Release workers while waiting for time or external input                   |
 | Child work              | [Child operation](./child-operation), [Child workflow](./child-workflow), [Child workflow batch](./child-workflows), [Continue as new](./continue-as-new) | Track long jobs, own child runs, and continue history                      |
 | Run state               | [Progress](./progress), [Complete](./complete), [Fail](./fail), [Cancel](./cancel), [Timeout](./timeout)                                                  | Record inspectable state and close run segments                            |
-| Child-canvas containers | [Iteration](./iteration), [Loop](./loop)                                                                                                                  | Establish graph scopes and constrain parent, child, and edge relationships |
+| Child-canvas containers | [Iteration](./iteration), [Loop](./loop), [Group](./group)                                                                                                | Establish graph scopes and constrain parent, child, and edge relationships |
 
 ## Choose from the task in front of you
 
@@ -51,7 +51,7 @@ Use [Child workflow](./child-workflow) when a unit of work needs its own history
 
 ## Runtime binding
 
-Nodes with a `runtimeBinding` compile to durable A3S Flow runtime commands. `flow.start` and `flow.condition` execute at the graph layer. `iteration` and `loop` define child-canvas structure, while the host decides how each pass compiles into steps or child workflows.
+Nodes with a `runtimeBinding` compile to durable A3S Flow runtime commands. `flow.start` and `flow.condition` execute at the graph layer. `iteration`, `loop` and `group` define child-canvas structure, while the host decides how each pass compiles into steps or child workflows.
 
 Task and wait nodes normally use the graph node ID as durable identity. Batch nodes also include each member key. Changing those IDs after a run starts prevents replay from matching the original history.
 

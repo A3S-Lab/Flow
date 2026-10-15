@@ -54,6 +54,8 @@ const RESERVED_CUSTOM_NODE_TYPES = new Set([
   'iteration-start',
   'loop',
   'loop-start',
+  'group',
+  'group-start',
 ]);
 
 function nonEmpty(value: string, label: string): void {

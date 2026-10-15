@@ -37,6 +37,8 @@ const FLOW_NODE_VISUALS: Readonly<Record<string, WorkflowNodeVisualIdentity>> = 
   'iteration-start': { icon: 'play', tone: 'green', family: 'entry' },
   loop: { icon: 'redo', tone: 'green', family: 'container' },
   'loop-start': { icon: 'play', tone: 'green', family: 'entry' },
+  group: { icon: 'components', tone: 'green', family: 'container' },
+  'group-start': { icon: 'play', tone: 'green', family: 'entry' },
 };
 
 function categoryIcon(category: string): DesignerIconName {

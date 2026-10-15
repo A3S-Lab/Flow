@@ -46,7 +46,7 @@ export function createSampleScopes(
   const loop = sampleContainer(
     'shipment_loop',
     'loop',
-    { x: 4_290, y: -160 },
+    { x: 5_300, y: -160 },
     locale,
     ['跟踪国际运输状态', 'Track international shipment'],
     [

@@ -243,7 +243,7 @@ missing core engine features.
      them.
 
 5. **Workflow authoring ergonomics**
-   - Keep the 18 public node manifests, six authoring groups, configuration
+   - Keep the 19 public node manifests, six authoring groups, configuration
      forms, React components and hook, Vue composable, CLI JSON output and
      atomic CRUD/patch behavior. The CLI must continue to support bounded
      NDJSON operation streams (incremental application with one final atomic

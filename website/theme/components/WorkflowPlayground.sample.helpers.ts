@@ -72,7 +72,7 @@ export function sampleNode(
 
 export function sampleContainer(
   id: string,
-  type: 'iteration' | 'loop',
+  type: 'iteration' | 'loop' | 'group',
   position: XYPosition,
   locale: FlowWebsiteLocale,
   title: LocalizedText,

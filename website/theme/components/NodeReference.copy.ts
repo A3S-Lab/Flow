@@ -401,4 +401,26 @@ export const nodeGuides: Readonly<Record<string, NodeGuide>> = {
       ],
     },
   },
+  group: {
+    use: {
+      zh: '用它把一组节点收进一个子画布，外层画布把它当作一个步骤：进入一次、执行一次、从 done 继续。',
+      en: 'Use it to gather nodes into a child canvas that the enclosing canvas treats as one step: entered once, run once, continued through done.',
+    },
+    behavior: {
+      zh: '容器只描述图结构，不直接生成运行命令。宿主决定如何把子画布编译成步骤；需要独立历史和取消策略时改用子工作流。',
+      en: 'The container describes graph structure and emits no runtime command by itself. The host decides how the child canvas compiles into steps; use a child workflow when the work needs its own history and cancellation policy.',
+    },
+    notes: {
+      zh: [
+        'start_node_id 必须指向容器内的 group-start。',
+        '容器至少还要有一个可执行子节点。',
+        '连线不能跨越容器作用域；外层节点读取容器自身的结果。',
+      ],
+      en: [
+        'start_node_id must point to the nested group-start.',
+        'Add at least one executable child besides the start marker.',
+        "Edges cannot cross the container boundary; nodes outside read the container's own result.",
+      ],
+    },
+  },
 };

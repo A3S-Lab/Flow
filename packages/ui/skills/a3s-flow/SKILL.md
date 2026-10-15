@@ -62,8 +62,8 @@ All commands emit JSON. Exit code `0` means success, `1` means the workflow or n
 
 ## Guardrails
 
-- Use only the 18 public node types returned by `a3s-flow nodes`. `iteration-start` and `loop-start` are internal children created only inside their matching containers.
-- Give every iteration or loop exactly one matching start child and at least one executable child. Keep all edges within the same graph scope.
+- Use only the 19 public node types returned by `a3s-flow nodes`. `iteration-start`, `loop-start` and `group-start` are internal children created only inside their matching containers.
+- Give every iteration, loop or group exactly one matching start child and at least one executable child. Keep all edges within the same graph scope.
 - Keep the graph acyclic. Express repetition with `iteration` or `loop`, never with a back edge.
 - Preserve expression envelopes and use replay-stable workflow fields. Do not use clocks, random values, network calls, or mutable global state inside expressions.
 - Do not put credentials, secret values, remote execution instructions, host persistence settings, or authorization decisions in the workflow document.

@@ -653,14 +653,12 @@ fn validate_parent_placement(
             .as_object()
             .ok_or_else(|| invalid_graph("workflow node is not an object"))?,
     )?;
-    if !matches!(parent_type, "iteration" | "loop") {
+    let Some(parent_start) = super::plan::container_start_type(parent_type) else {
         return Err(invalid_operation(format!(
-            "workflow node parent must be an iteration or loop container: {parent_id}"
+            "workflow node parent must be an iteration, loop or group container: {parent_id}"
         )));
-    }
-    if (candidate_type == "iteration-start" && parent_type != "iteration")
-        || (candidate_type == "loop-start" && parent_type != "loop")
-    {
+    };
+    if is_internal_node_type(candidate_type) && candidate_type != parent_start {
         return Err(invalid_operation(format!(
             "internal node {candidate_type} must belong to the matching container: {parent_id}"
         )));
@@ -690,7 +688,7 @@ fn assert_parent_cycle_free(
 }
 
 fn is_internal_node_type(node_type: &str) -> bool {
-    matches!(node_type, "iteration-start" | "loop-start")
+    super::plan::is_container_start_type(node_type)
 }
 
 fn required_string<'a>(

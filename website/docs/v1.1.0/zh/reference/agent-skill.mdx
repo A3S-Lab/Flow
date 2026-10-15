@@ -83,7 +83,7 @@ npx a3s-flow read workflow.json --pretty
 npx a3s-flow delete workflow.json --force --pretty
 ```
 
-目录查询应返回 18 个公开节点。样例应包含开始、任务和完成节点。校验通过以后，Skill 才具备完整的本地事实来源。团队更新 `@a3s-lab/flow-ui` 版本时，应重新执行这组检查，并让 Agent 重新读取新的 manifest，不要沿用旧会话记忆中的字段。
+目录查询应返回 19 个公开节点。样例应包含开始、任务和完成节点。校验通过以后，Skill 才具备完整的本地事实来源。团队更新 `@a3s-lab/flow-ui` 版本时，应重新执行这组检查，并让 Agent 重新读取新的 manifest，不要沿用旧会话记忆中的字段。
 
 如果 `import.meta.resolve` 找不到包，先确认命令运行在已经安装依赖的项目目录。全局安装不会替当前项目固定节点版本。
 

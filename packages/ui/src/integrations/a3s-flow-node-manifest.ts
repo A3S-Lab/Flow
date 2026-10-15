@@ -60,7 +60,7 @@ export interface A3SFlowDagNodePorts {
 }
 
 export interface A3SFlowDagContainerContract {
-  startNodeType: 'iteration-start' | 'loop-start';
+  startNodeType: 'iteration-start' | 'loop-start' | 'group-start';
 }
 
 /**
@@ -866,6 +866,46 @@ const structuralManifests: readonly A3SFlowDagNodeManifest[] = [
     fields: [],
     outputs: [],
   }),
+  defineA3SFlowDagNodeManifest({
+    type: 'group',
+    display_name: 'Group',
+    description:
+      'Run a container scope once, as one step of the enclosing canvas.',
+    category: 'containers',
+    categoryLabel: 'Containers',
+    role: 'container',
+    container: { startNodeType: 'group-start' },
+    ports: ports(
+      [port('in', 'In', 'control', ['FlowControl'])],
+      [port('done', 'Done', 'control', ['FlowControl'])],
+    ),
+    input_types: ['FlowValue'],
+    output_types: ['FlowValue'],
+    fields: [
+      stringField(
+        'start_node_id',
+        'Start node ID',
+        'Stable identity of the group-start child in this container scope.',
+        'group-start',
+        { required: true, advanced: true },
+      ),
+    ],
+    outputs: [output('result', 'Result', ['FlowValue'])],
+  }),
+  defineA3SFlowDagNodeManifest({
+    type: 'group-start',
+    display_name: 'Group Start',
+    description: 'Internal entry node for a group container scope.',
+    category: 'containers',
+    categoryLabel: 'Containers',
+    role: 'container-start',
+    internal: true,
+    ports: ports([], [port('next', 'Next', 'control', ['FlowControl'])]),
+    input_types: [],
+    output_types: ['FlowState'],
+    fields: [],
+    outputs: [],
+  }),
 ];
 
 export const a3sFlowDagNodeManifestCatalog: readonly A3SFlowDagNodeManifest[] =
@@ -887,6 +927,8 @@ export const A3S_FLOW_DAG_NODE_MANIFEST_PROVENANCE = Object.freeze({
     'iteration-start',
     'loop',
     'loop-start',
+    'group',
+    'group-start',
   ] as const,
 });
 

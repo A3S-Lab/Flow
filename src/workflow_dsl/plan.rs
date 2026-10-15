@@ -185,34 +185,29 @@ fn validate_container_scopes(
             ))
         })?;
         let parent_type = parent.node_type();
-        if !matches!(parent_type, "iteration" | "loop") {
+        let Some(parent_start) = container_start_type(parent_type) else {
             return Err(invalid_graph(format!(
-                "node {:?} parent {parent_id:?} is not an iteration or loop",
+                "node {:?} parent {parent_id:?} is not an iteration, loop or group",
                 node.id()
             )));
-        }
-        match (parent_type, node.node_type()) {
-            ("iteration", "loop-start") => {
-                return Err(invalid_graph(format!(
-                    "iteration {parent_id:?} requires an iteration-start child, not {:?}",
-                    node.id()
-                )))
-            }
-            ("loop", "iteration-start") => {
-                return Err(invalid_graph(format!(
-                    "loop {parent_id:?} requires a loop-start child, not {:?}",
-                    node.id()
-                )))
-            }
-            _ => {}
+        };
+        let child_type = node.node_type();
+        if is_container_start_type(child_type) && child_type != parent_start {
+            let article = if parent_start.starts_with(['a', 'e', 'i', 'o', 'u']) {
+                "an"
+            } else {
+                "a"
+            };
+            return Err(invalid_graph(format!(
+                "{parent_type} {parent_id:?} requires {article} {parent_start} child, not {:?}",
+                node.id()
+            )));
         }
     }
 
     for node in nodes.values() {
-        let expected_start_type = match node.node_type() {
-            "iteration" => "iteration-start",
-            "loop" => "loop-start",
-            _ => continue,
+        let Some(expected_start_type) = container_start_type(node.node_type()) else {
+            continue;
         };
         let start_node_id = node
             .data()
@@ -270,6 +265,20 @@ fn validate_container_scopes(
         }
     }
     Ok(())
+}
+
+/// The internal start node type a container's scope begins with.
+pub(crate) fn container_start_type(node_type: &str) -> Option<&'static str> {
+    match node_type {
+        "iteration" => Some("iteration-start"),
+        "loop" => Some("loop-start"),
+        "group" => Some("group-start"),
+        _ => None,
+    }
+}
+
+pub(crate) fn is_container_start_type(node_type: &str) -> bool {
+    matches!(node_type, "iteration-start" | "loop-start" | "group-start")
 }
 
 fn invalid_graph(message: impl Into<String>) -> WorkflowDslError {

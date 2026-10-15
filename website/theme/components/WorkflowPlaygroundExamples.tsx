@@ -43,7 +43,12 @@ function toneForNode(node: PlaygroundNode): string {
   if (type === 'flow.wait' || type === 'flow.hook' || type === 'flow.signal') {
     return 'amber';
   }
-  if (type === 'flow.condition' || type === 'iteration' || type === 'loop') {
+  if (
+    type === 'flow.condition' ||
+    type === 'iteration' ||
+    type === 'loop' ||
+    type === 'group'
+  ) {
     return 'cyan';
   }
   if (type.startsWith('flow.child')) return 'violet';

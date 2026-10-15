@@ -476,6 +476,26 @@ const CHINESE_NODE_COPY: Readonly<Record<string, LocalizedNodeCopy>> = {
     fields: {},
     ports: { next: '继续' },
   },
+  group: {
+    title: '分组',
+    description: '把容器内节点作为一个步骤执行一次，完成后继续。',
+    category: '循环与遍历',
+    fields: {
+      start_node_id: {
+        label: '起始节点 ID',
+        help: '由编辑器管理，用于定位容器内的第一个节点。通常无需修改。',
+        group: '容器结构',
+      },
+    },
+    ports: { in: '进入', done: '分组完成', result: '分组结果' },
+  },
+  'group-start': {
+    title: '分组起点',
+    description: '分组容器自动创建的起始节点。',
+    category: '循环与遍历',
+    fields: {},
+    ports: { next: '继续' },
+  },
 };
 
 export function isA3SFlowChineseLocale(locale: string | undefined): boolean {

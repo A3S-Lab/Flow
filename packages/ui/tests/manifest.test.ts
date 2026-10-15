@@ -87,11 +87,11 @@ describe("A3S Flow authoring manifests", () => {
       },
     });
 
-  it("publishes 18 authoring nodes and keeps container starts internal", () => {
+  it("publishes 19 authoring nodes and keeps container starts internal", () => {
     expect(
       a3sFlowDagNodeRegistry.list({ includeInternal: false }),
-    ).toHaveLength(18);
-    expect(a3sFlowDagNodeRegistry.list()).toHaveLength(20);
+    ).toHaveLength(19);
+    expect(a3sFlowDagNodeRegistry.list()).toHaveLength(22);
     expect(
       a3sFlowDagNodeRegistry
         .list({ includeInternal: false })
@@ -115,11 +115,13 @@ describe("A3S Flow authoring manifests", () => {
       "flow.signal",
       "iteration",
       "loop",
+      "group",
     ]);
     expect(requireA3SFlowDagNodeManifest("iteration-start").internal).toBe(
       true,
     );
     expect(requireA3SFlowDagNodeManifest("loop-start").internal).toBe(true);
+    expect(requireA3SFlowDagNodeManifest("group-start").internal).toBe(true);
   });
 
   it("covers every runtime command exposed by Flow 1.0", () => {
@@ -633,7 +635,7 @@ describe("A3S Flow authoring manifests", () => {
       handler: "risk.score-order",
     });
     expect(catalog.custom).toEqual([registration]);
-    expect(catalog.registry.list({ includeInternal: false })).toHaveLength(19);
+    expect(catalog.registry.list({ includeInternal: false })).toHaveLength(20);
     expect(Object.isFrozen(registration.manifest.fields)).toBe(true);
     expect(Object.isFrozen(registration.manifest.fields[0])).toBe(true);
     expect(Object.isFrozen(registration.manifest.ports.inputs)).toBe(true);

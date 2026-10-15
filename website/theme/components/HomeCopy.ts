@@ -207,7 +207,7 @@ export const homeCopy: Readonly<Record<HomeLocale, HomeCopy>> = {
     system: {
       eyebrow: 'ENGINE · COMPONENTS · CLI · SKILL',
       title: '一份节点清单怎样走到编辑器、CLI 和运行时',
-      body: 'Flow 1.1 提供 18 个公开节点。每个 manifest 都声明字段、端口、默认值和运行绑定。React 与 Vue 据此渲染界面，CLI 与 Skill 据此创建和校验文档。图通过校验以后，才交给持久执行引擎。',
+      body: 'Flow 1.1 提供 19 个公开节点。每个 manifest 都声明字段、端口、默认值和运行绑定。React 与 Vue 据此渲染界面，CLI 与 Skill 据此创建和校验文档。图通过校验以后，才交给持久执行引擎。',
       mapLabel: 'A3S Flow 产品组成',
       items: [
         { title: '节点 manifest', detail: '字段、端口、默认值与运行绑定' },
@@ -259,7 +259,7 @@ export const homeCopy: Readonly<Record<HomeLocale, HomeCopy>> = {
     authoring: {
       chapter: ['02', 'FRONTEND COMPONENTS'],
       title: '节点卡片和配置表单读取同一份 manifest',
-      body: '18 个公开节点覆盖入口、条件、任务、等待、审批、子工作流、运行终态和子画布容器。每个 manifest 同时声明字段、默认值、端口、运行绑定和持久身份。',
+      body: '19 个公开节点覆盖入口、条件、任务、等待、审批、子工作流、运行终态和子画布容器。每个 manifest 同时声明字段、默认值、端口、运行绑定和持久身份。',
       detail:
         'React 的节点卡片和配置面板直接读取 manifest，Vue Hook 管理同一种节点对象。CLI、Skill 和文档也查询这份目录，修改字段时不需要同步另一套手写结构。',
       action: '打开节点工作台',
@@ -271,7 +271,7 @@ export const homeCopy: Readonly<Record<HomeLocale, HomeCopy>> = {
         { label: '等待与审批', count: '3 个节点' },
         { label: '子流程', count: '4 个节点' },
         { label: '运行状态', count: '5 个节点' },
-        { label: '子画布容器', count: '2 个节点' },
+        { label: '子画布容器', count: '3 个节点' },
       ],
     },
     agents: {
@@ -375,7 +375,7 @@ and report the semantic digest.`,
       title: '工作流定义进入运行时之前会经过四步',
       body: '作者图先检查字段、端口、作用域和环路，再编译成稳定执行计划。运行时命令写入事件历史，调度器和 Worker 只推进当前已经满足条件的工作。',
       layers: [
-        { title: 'Authoring', detail: '18 个 manifest、节点卡片、配置面板' },
+        { title: 'Authoring', detail: '19 个 manifest、节点卡片、配置面板' },
         { title: 'Graph', detail: 'DAG 校验、容器作用域、语义摘要' },
         { title: 'Runtime', detail: '步骤、等待、Hook、信号、子运行' },
         { title: 'History', detail: '事件、快照、恢复与并发序号' },
@@ -468,7 +468,7 @@ and report the semantic digest.`,
     system: {
       eyebrow: 'ENGINE · COMPONENTS · CLI · SKILL',
       title: 'How one node catalog reaches the editor, CLI, and runtime',
-      body: 'Flow 1.1 exposes 18 public nodes. Each manifest declares fields, ports, defaults, and runtime binding. React and Vue render from that contract, while the CLI and Skill create and validate documents against it. Only a valid graph reaches the durable engine.',
+      body: 'Flow 1.1 exposes 19 public nodes. Each manifest declares fields, ports, defaults, and runtime binding. React and Vue render from that contract, while the CLI and Skill create and validate documents against it. Only a valid graph reaches the durable engine.',
       mapLabel: 'A3S Flow product system',
       items: [
         {
@@ -544,7 +544,7 @@ and report the semantic digest.`,
         { label: 'Wait and approval', count: '3 nodes' },
         { label: 'Child work', count: '4 nodes' },
         { label: 'Run state', count: '5 nodes' },
-        { label: 'Child-canvas containers', count: '2 nodes' },
+        { label: 'Child-canvas containers', count: '3 nodes' },
       ],
     },
     agents: {
@@ -654,7 +654,7 @@ and report the semantic digest.`,
       layers: [
         {
           title: 'Authoring',
-          detail: '18 manifests, node cards, configuration panels',
+          detail: '19 manifests, node cards, configuration panels',
         },
         {
           title: 'Graph',

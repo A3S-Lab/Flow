@@ -52,8 +52,8 @@ export const flowNodeGroups: readonly FlowNodeGroup[] = [
   {
     id: 'containers',
     label: { zh: '容器', en: 'Containers' },
-    detail: { zh: '遍历与条件循环', en: 'Iteration and loops' },
-    types: ['iteration', 'loop'],
+    detail: { zh: '遍历、条件循环与分组', en: 'Iteration, loops and groups' },
+    types: ['iteration', 'loop', 'group'],
   },
 ] as const;
 
@@ -76,4 +76,5 @@ export const flowNodeSlugByType: Readonly<Record<string, string>> = {
   'flow.signal': 'signal',
   iteration: 'iteration',
   loop: 'loop',
+  group: 'group',
 };

@@ -544,7 +544,7 @@ function requireNodePlacement(
   const parent = requireNode(document, parentId);
   const parentManifest = a3sFlowDagNodeRegistry.get(parent.data.type);
   if (!parentManifest?.container) {
-    throw new Error(`Workflow node parent must be an iteration or loop container: ${parentId}`);
+    throw new Error(`Workflow node parent must be an iteration, loop or group container: ${parentId}`);
   }
   if (manifest.internal) {
     if (parentManifest.container.startNodeType !== manifest.type) {

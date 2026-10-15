@@ -108,7 +108,7 @@ const scoreOrder = defineA3SFlowCustomDagNode({
 export const flowCatalog = createA3SFlowDagNodeCatalog([scoreOrder]);
 ```
 
-The type needs at least three lowercase namespace segments. `flow.*`, `iteration`, `loop`, and their internal start types are reserved. A custom manifest must be public, use the `host` role, and cannot claim a Flow runtime command or container binding.
+The type needs at least three lowercase namespace segments. `flow.*`, `iteration`, `loop`, `group`, and their internal start types are reserved. A custom manifest must be public, use the `host` role, and cannot claim a Flow runtime command or container binding.
 
 The capability ID must be namespaced. Its version is one exact semantic version, not a range. The handler is the stable key that the host runtime maps to executable code. Registration validates all three values and rejects collisions with built-in or previously registered types.
 

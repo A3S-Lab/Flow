@@ -98,9 +98,22 @@ function nodeType(node: A3SFlowWorkflowDagNode): string {
   return typeof node.data?.type === 'string' ? node.data.type : '';
 }
 
+/** Each container type and the internal start node its scope begins with. */
+const CONTAINER_START_TYPES: Readonly<Record<string, string>> = {
+  iteration: 'iteration-start',
+  loop: 'loop-start',
+  group: 'group-start',
+};
+const CONTAINER_LABELS: Readonly<Record<string, string>> = {
+  iteration: 'Iteration',
+  loop: 'Loop',
+  group: 'Group',
+};
+
 function validateContainerScopes(
   nodes: ReadonlyMap<string, A3SFlowWorkflowDagNode>,
 ): A3SFlowDslIssue | undefined {
+  const startTypes = new Set(Object.values(CONTAINER_START_TYPES));
   for (const node of nodes.values()) {
     if (node.parentId === undefined) continue;
     const parent = nodes.get(node.parentId);
@@ -112,36 +125,25 @@ function validateContainerScopes(
       };
     }
     const parentType = nodeType(parent);
-    if (parentType !== 'iteration' && parentType !== 'loop') {
+    const parentStart = CONTAINER_START_TYPES[parentType];
+    if (!parentStart) {
       return {
         code: 'flow.dag.invalid_parent_type',
         path: `nodes.${node.id}.parentId`,
-        message: `Node ${JSON.stringify(node.id)} parent ${JSON.stringify(node.parentId)} is not an iteration or loop.`,
+        message: `Node ${JSON.stringify(node.id)} parent ${JSON.stringify(node.parentId)} is not an iteration, loop or group.`,
       };
     }
-    if (parentType === 'iteration' && nodeType(node) === 'loop-start') {
+    if (startTypes.has(nodeType(node)) && nodeType(node) !== parentStart) {
       return {
         code: 'flow.dag.invalid_container_start_type',
         path: `nodes.${node.id}.data.type`,
-        message: `Iteration ${JSON.stringify(parent.id)} requires an iteration-start child.`,
-      };
-    }
-    if (parentType === 'loop' && nodeType(node) === 'iteration-start') {
-      return {
-        code: 'flow.dag.invalid_container_start_type',
-        path: `nodes.${node.id}.data.type`,
-        message: `Loop ${JSON.stringify(parent.id)} requires a loop-start child.`,
+        message: `${CONTAINER_LABELS[parentType]} ${JSON.stringify(parent.id)} requires ${/^[aeiou]/u.test(parentStart) ? 'an' : 'a'} ${parentStart} child.`,
       };
     }
   }
 
   for (const node of nodes.values()) {
-    const expectedStartType =
-      nodeType(node) === 'iteration'
-        ? 'iteration-start'
-        : nodeType(node) === 'loop'
-          ? 'loop-start'
-          : undefined;
+    const expectedStartType = CONTAINER_START_TYPES[nodeType(node)];
     if (!expectedStartType) continue;
     const startNodeId = node.data.start_node_id;
     if (typeof startNodeId !== 'string' || startNodeId.trim().length === 0) {

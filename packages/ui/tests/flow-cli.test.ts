@@ -281,7 +281,7 @@ describe('A3S Flow CLI workflow file CRUD', () => {
           '--parent',
           'process',
         ]),
-      ).rejects.toThrow(/must be an iteration or loop container/);
+      ).rejects.toThrow(/must be an iteration, loop or group container/);
 
       const batchWithEdgeExtension = JSON.parse(
         await readFile(batchWorkflow, 'utf8'),

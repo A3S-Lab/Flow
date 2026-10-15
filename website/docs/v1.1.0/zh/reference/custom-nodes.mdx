@@ -108,7 +108,7 @@ const scoreOrder = defineA3SFlowCustomDagNode({
 export const flowCatalog = createA3SFlowDagNodeCatalog([scoreOrder]);
 ```
 
-类型名称至少包含三个小写命名段。`flow.*`、`iteration`、`loop` 以及两个内部起始类型都已保留。自定义 manifest 必须公开并使用 `host` 角色，也不能声明 Flow 运行命令或容器绑定。
+类型名称至少包含三个小写命名段。`flow.*`、`iteration`、`loop`、`group` 以及三个内部起始类型都已保留。自定义 manifest 必须公开并使用 `host` 角色，也不能声明 Flow 运行命令或容器绑定。
 
 能力 ID 要有命名空间。版本只能写一个确定的 SemVer，不能写版本范围。`handler` 是宿主运行时查找执行代码的稳定名称。注册过程会检查这些值，也会拒绝与内置节点或已有自定义节点重名的类型。
 

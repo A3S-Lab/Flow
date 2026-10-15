@@ -17,6 +17,7 @@ import {
   Prohibit,
   Repeat,
   ShieldCheck,
+  SquaresFour,
   Stack,
   Timer,
   TreeStructure,
@@ -57,6 +58,7 @@ const iconByType: Readonly<Record<string, typeof Play>> = {
   'flow.timeout': Timer,
   iteration: Repeat,
   loop: ArrowClockwise,
+  group: SquaresFour,
   'commerce.risk.score': ShieldCheck,
   'commerce.customs.document-review': FileMagnifyingGlass,
   'commerce.inventory.reserve': Archive,
@@ -70,7 +72,12 @@ function toneForType(type: string): string {
   if (type.startsWith('flow.child') || type === 'flow.continue-as-new') {
     return 'violet';
   }
-  if (type === 'flow.condition' || type === 'iteration' || type === 'loop') {
+  if (
+    type === 'flow.condition' ||
+    type === 'iteration' ||
+    type === 'loop' ||
+    type === 'group'
+  ) {
     return 'cyan';
   }
   return 'blue';

@@ -12,6 +12,7 @@ import {
   field,
   literal,
   localize,
+  sampleContainer,
   sampleNode,
   type SampleConnection,
   type SampleJsonObject,
@@ -114,6 +115,18 @@ export function createSampleWorkflow(
 
   const scopes = createSampleScopes(locale, catalog.registry);
   const { iteration, loop } = scopes;
+  const customsGroup = sampleContainer(
+    'customs_group',
+    'group',
+    { x: 3_990, y: -160 },
+    locale,
+    ['报关与清关', 'Customs clearance'],
+    [
+      '把报关子流程收进一个分组，外层只看到一步。',
+      'Gather the customs workflow into one step of the order flow.',
+    ],
+    { start_node_id: 'customs_group_start' },
+  );
 
   const nodes: PlaygroundNode[] = [
     sampleNode(
@@ -478,10 +491,23 @@ export function createSampleWorkflow(
         },
       },
     ),
+    customsGroup,
+    sampleNode(
+      'customs_group_start',
+      'group-start',
+      { x: 36, y: 170 },
+      locale,
+      ['进入报关', 'Enter customs clearance'],
+      [
+        '报关材料审阅完成后进入这一组。',
+        'Entered once the customs documents are reviewed.',
+      ],
+      { parentId: customsGroup.id },
+    ),
     sampleNode(
       'customs_clearance',
       'flow.child-workflow',
-      { x: 3_990, y: -80 },
+      { x: 324, y: 150 },
       locale,
       ['启动报关子流程', 'Start customs clearance workflow'],
       [
@@ -489,6 +515,7 @@ export function createSampleWorkflow(
         'Start a versioned customs workflow with the order context as input.',
       ],
       {
+        parentId: customsGroup.id,
         configuration: {
           child_id: 'customs-clearance',
           spec: {
@@ -513,7 +540,7 @@ export function createSampleWorkflow(
     sampleNode(
       'logistics_callback',
       'flow.hook',
-      { x: 5_220, y: -80 },
+      { x: 6_230, y: -80 },
       locale,
       ['等待物流平台回调', 'Wait for logistics callback'],
       [
@@ -543,7 +570,7 @@ export function createSampleWorkflow(
     sampleNode(
       'fulfillment_timeout',
       'flow.timeout',
-      { x: 5_520, y: 330 },
+      { x: 6_530, y: 330 },
       locale,
       ['物流回调超时', 'Logistics callback timed out'],
       [
@@ -560,7 +587,7 @@ export function createSampleWorkflow(
     sampleNode(
       'delivery_signal',
       'flow.signal',
-      { x: 5_520, y: -80 },
+      { x: 6_530, y: -80 },
       locale,
       ['等待财务确认信号', 'Wait for finance confirmation signal'],
       [
@@ -577,7 +604,7 @@ export function createSampleWorkflow(
     sampleNode(
       'fulfillment_progress',
       'flow.progress',
-      { x: 5_820, y: -80 },
+      { x: 6_830, y: -80 },
       locale,
       ['记录履约完成进度', 'Record fulfillment progress'],
       [
@@ -600,7 +627,7 @@ export function createSampleWorkflow(
     sampleNode(
       'send_fulfillment_notice',
       'commerce.message.dispatch',
-      { x: 6_120, y: -80 },
+      { x: 7_130, y: -80 },
       locale,
       ['发送履约完成通知', 'Send fulfillment completion notice'],
       [
@@ -631,7 +658,7 @@ export function createSampleWorkflow(
     sampleNode(
       'complete_order',
       'flow.complete',
-      { x: 6_420, y: -80 },
+      { x: 7_430, y: -80 },
       locale,
       ['完成订单履约', 'Complete order fulfillment'],
       [
@@ -780,8 +807,9 @@ export function createSampleWorkflow(
     connection('route_risk', 'otherwise', 'wait_review_window'),
     connection('warehouse_operation', 'linked', 'regional_fulfillment'),
     connection('regional_fulfillment', 'completed', 'review_customs_documents'),
-    connection('review_customs_documents', 'next', 'customs_clearance'),
-    connection('customs_clearance', 'completed', 'shipment_loop'),
+    connection('review_customs_documents', 'next', 'customs_group'),
+    connection('customs_group_start', 'next', 'customs_clearance'),
+    connection('customs_group', 'done', 'shipment_loop'),
     connection('shipment_loop', 'done', 'logistics_callback'),
     connection('logistics_callback', 'received', 'delivery_signal'),
     connection('logistics_callback', 'disposed', 'fulfillment_timeout'),

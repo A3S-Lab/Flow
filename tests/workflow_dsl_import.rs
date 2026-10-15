@@ -407,6 +407,85 @@ fn nested_iteration_compiles_each_canvas_scope_deterministically() {
 }
 
 #[test]
+fn a_group_scope_compiles_once_and_nests_like_any_container() {
+    let graph = WorkflowDag::from_json(
+        &json!({
+            "nodes": [
+                {"id": "start", "data": {"type": "start"}},
+                {"id": "review", "data": {"type": "group", "start_node_id": "review-start"}},
+                {"id": "review-start", "parentId": "review", "data": {"type": "group-start"}},
+                {"id": "draft", "parentId": "review", "data": {"type": "code"}},
+                {"id": "each", "parentId": "review", "data": {"type": "iteration", "start_node_id": "each-start"}},
+                {"id": "each-start", "parentId": "each", "data": {"type": "iteration-start"}},
+                {"id": "check", "parentId": "each", "data": {"type": "code"}},
+                {"id": "end", "data": {"type": "end"}}
+            ],
+            "edges": [
+                {"id": "start-review", "source": "start", "target": "review"},
+                {"id": "review-end", "source": "review", "target": "end"},
+                {"id": "review-start-draft", "source": "review-start", "target": "draft"},
+                {"id": "draft-each", "source": "draft", "target": "each"},
+                {"id": "each-start-check", "source": "each-start", "target": "check"}
+            ]
+        })
+        .to_string(),
+    )
+    .expect("group workflow DAG");
+
+    let plan = graph.execution_plan().expect("valid group plan");
+    assert_eq!(plan.top_level(), ["start", "review", "end"]);
+    assert_eq!(
+        plan.scope("review").expect("group scope"),
+        ["review-start", "draft", "each"]
+    );
+    assert_eq!(
+        plan.scope("each").expect("nested iteration scope"),
+        ["each-start", "check"]
+    );
+
+    for (graph, expected) in [
+        (
+            json!({
+                "nodes": [
+                    {"id": "review", "data": {"type": "group", "start_node_id": "inner-start"}},
+                    {"id": "inner-start", "parentId": "review", "data": {"type": "iteration-start"}},
+                    {"id": "draft", "parentId": "review", "data": {"type": "code"}}
+                ],
+                "edges": []
+            }),
+            "requires a group-start",
+        ),
+        (
+            json!({
+                "nodes": [
+                    {"id": "review", "data": {"type": "group", "start_node_id": "review-start"}},
+                    {"id": "review-start", "parentId": "review", "data": {"type": "group-start"}}
+                ],
+                "edges": []
+            }),
+            "has no executable child",
+        ),
+        (
+            json!({
+                "nodes": [
+                    {"id": "each", "data": {"type": "iteration", "start_node_id": "each-start"}},
+                    {"id": "each-start", "parentId": "each", "data": {"type": "group-start"}},
+                    {"id": "check", "parentId": "each", "data": {"type": "code"}}
+                ],
+                "edges": []
+            }),
+            "requires an iteration-start",
+        ),
+    ] {
+        let error = WorkflowDag::from_json(&graph.to_string())
+            .expect("structural import")
+            .execution_plan()
+            .expect_err("invalid group graph must not compile");
+        assert!(error.to_string().contains(expected), "{error}");
+    }
+}
+
+#[test]
 fn executable_workflow_dag_rejects_invalid_container_references() {
     for (graph, expected) in [
         (
@@ -427,7 +506,7 @@ fn executable_workflow_dag_rejects_invalid_container_references() {
                 ],
                 "edges": []
             }),
-            "is not an iteration or loop",
+            "is not an iteration, loop or group",
         ),
         (
             json!({

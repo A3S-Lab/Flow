@@ -65,8 +65,8 @@ async function runWithInput(args, input) {
 }
 
 const catalog = await run(['nodes']);
-if (!catalog.ok || !Array.isArray(catalog.nodes) || catalog.nodes.length !== 18) {
-  throw new Error(`Expected 18 public nodes, received ${catalog.count ?? 'an invalid catalog'}.`);
+if (!catalog.ok || !Array.isArray(catalog.nodes) || catalog.nodes.length !== 19) {
+  throw new Error(`Expected 19 public nodes, received ${catalog.count ?? 'an invalid catalog'}.`);
 }
 
 const sample = await run(['sample']);

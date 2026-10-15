@@ -183,6 +183,9 @@ const VALID_CONFIGURATIONS: Readonly<Record<string, JsonObject>> = {
     max_iterations: 25,
     start_node_id: "shipment-loop-start",
   },
+  group: {
+    start_node_id: "review-group-start",
+  },
 };
 
 type InvalidCase = {
@@ -309,6 +312,12 @@ const INVALID_CONFIGURATIONS: Readonly<Record<string, InvalidCase>> = {
     field: "max_iterations",
     mutate: (value) => {
       value.max_iterations = 0;
+    },
+  },
+  group: {
+    field: "start_node_id",
+    mutate: (value) => {
+      value.start_node_id = "";
     },
   },
 };

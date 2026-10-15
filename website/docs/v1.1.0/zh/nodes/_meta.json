@@ -17,5 +17,6 @@
   "cancel",
   "timeout",
   "iteration",
-  "loop"
+  "loop",
+  "group"
 ]

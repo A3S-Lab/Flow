@@ -51,6 +51,54 @@ describe("A3S Flow workflow document helpers", () => {
     expect(digestA3SFlowWorkflowDsl(document)).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it("compiles a group scope once and nests containers inside it", () => {
+    const group = {
+      nodes: [
+        { id: "start", data: { type: "flow.start" } },
+        { id: "review", data: { type: "group", start_node_id: "review-start" } },
+        { id: "review-start", parentId: "review", data: { type: "group-start" } },
+        { id: "draft", parentId: "review", data: { type: "flow.step" } },
+        { id: "each", parentId: "review", data: { type: "iteration", start_node_id: "each-start" } },
+        { id: "each-start", parentId: "each", data: { type: "iteration-start" } },
+        { id: "check", parentId: "each", data: { type: "flow.step" } },
+        { id: "complete", data: { type: "flow.complete" } },
+      ],
+      edges: [
+        { id: "start-review", source: "start", target: "review" },
+        { id: "review-complete", source: "review", target: "complete" },
+        { id: "review-start-draft", source: "review-start", target: "draft" },
+        { id: "draft-each", source: "draft", target: "each" },
+        { id: "each-start-check", source: "each-start", target: "check" },
+      ],
+    } as A3SFlowWorkflowDsl["workflow"]["graph"];
+    expect(compileA3SFlowWorkflowDag(group)).toEqual({
+      ok: true,
+      plan: {
+        topLevel: ["start", "review", "complete"],
+        scopes: {
+          review: ["review-start", "draft", "each"],
+          each: ["each-start", "check"],
+        },
+      },
+    });
+
+    const wrongStart = structuredClone(group);
+    wrongStart.nodes[2].data.type = "loop-start";
+    expect(compileA3SFlowWorkflowDag(wrongStart)).toMatchObject({
+      ok: false,
+      issues: [{ code: "flow.dag.invalid_container_start_type" }],
+    });
+    const empty = structuredClone(group);
+    empty.nodes = empty.nodes.filter(
+      (node) => !["draft", "each", "each-start", "check"].includes(node.id),
+    );
+    empty.edges = empty.edges.filter((edge) => edge.id === "start-review");
+    expect(compileA3SFlowWorkflowDag(empty)).toMatchObject({
+      ok: false,
+      issues: [{ code: "flow.dag.empty_container" }],
+    });
+  });
+
   it("keeps author-facing edge labels out of the execution digest", () => {
     const document = fixture();
     const labeled = structuredClone(document);

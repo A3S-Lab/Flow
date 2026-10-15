@@ -25,7 +25,7 @@ import {
 
 const copy = {
   zh: {
-    heading: '18 个节点，一套配置方式',
+    heading: '19 个节点，一套配置方式',
     intro:
       '选择节点后可以直接修改配置。画布卡片、字段表单、端口说明和最终 DSL 使用同一份节点清单。',
     catalog: '节点分组',
@@ -39,7 +39,7 @@ const copy = {
     connection: '已选择连接字段',
   },
   en: {
-    heading: '18 nodes, one configuration model',
+    heading: '19 nodes, one configuration model',
     intro:
       'Select a node and edit it in place. Canvas cards, settings, ports, and emitted DSL all read from the same manifest catalog.',
     catalog: 'Node groups',
@@ -209,7 +209,7 @@ export default function NodeConfigLab() {
         </div>
         <span>
           <CirclesFour aria-hidden="true" size={17} weight="duotone" />
-          18 nodes
+          19 nodes
         </span>
       </header>
 
